@@ -1,3 +1,5 @@
-from ui import pycil_ui
+import sys
+from app import Pycil
 
-pycil_ui.open()
+pycil = Pycil()
+pycil.start()

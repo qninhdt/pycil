@@ -1,4 +1,5 @@
 from tkinter import *
+import remote, requests
 
 MAX_ROOM_NAME = 30
 
@@ -7,6 +8,12 @@ class ChatRoom(Frame):
     def __init__(self, master, room):
         super().__init__(master, bg="#118ab2")
         self.room = room
+
+        data = requests.get("http://" + self.room["ip"] + ":" + self.room["port"] + "/data").json()
+
+        self.room["name"] = data["name"]
+        self.room["msg"] = data["msg"]
+        self.room["online"] = data["online"]
 
         if len(self.room["name"]) > MAX_ROOM_NAME:
             self.room["name"] = self.room["name"][:MAX_ROOM_NAME-1] + "..."
@@ -19,7 +26,8 @@ class ChatRoom(Frame):
             bg = "#1a936f", text="▶", 
             bd = 0, fg = "#f0f3bd", 
             activebackground="#028090",
-            activeforeground="white"
+            activeforeground="white",
+            command = lambda: remote.ee.emit("connect_server", self.room["ip"], self.room["port"])
         )
         room_info = Frame(self, bg = "#e9c46a")
         room_panel = Frame(self, bg = "#348aa7", width = 100)
@@ -55,7 +63,7 @@ class ChatRoom(Frame):
         
         last_msg = self.room["msg"][len(self.room["msg"]) - 1]
         self.last_msg = Label(room_panel, 
-            text = last_msg["username"] + ": " + last_msg["text"],
+            text = last_msg["user"] + ": " + last_msg["text"],
             padx = 2,
             pady = 2,
             bg = "#348aa7",
