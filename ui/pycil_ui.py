@@ -25,7 +25,6 @@ class PycilUI(Tk):
 
         # listen page
         remote.ee.on("change_page", self.change_page)
-        remote.ee.on("reload_chatroom_list", self.reload_chatroom_list)
 
         self.bind("<Return>", lambda e: remote.ee.emit("enter"))
 

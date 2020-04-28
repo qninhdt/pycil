@@ -15,8 +15,9 @@ class Pycil:
         @remote.ee.on("new_room")
         def on_new_room(name):
             if self.server == None:
-                self.sv_thread = Thread(target = self.start_server)
-                self.sv_thread.start()
+                sv_thread = Thread(target = self.start_server, args=[name])
+                sv_thread.name = "Room server (Flask)"
+                sv_thread.start()
                 remote.ee.emit("new_room_ok")
 
         @remote.ee.on("stop_room")
@@ -32,7 +33,7 @@ class Pycil:
             if self.client.connect():
                 remote.ee.emit("connect_server_ok")
 
-                remote.ee.emit("change_page", "chatroom", "# chatroom", ip + ": " + port, 
+                remote.ee.emit("change_page", "chatroom", "# chatroom", ip + ": " + str(port), 
                     type = "local",
                     room = {
                         "port": port,
@@ -47,6 +48,6 @@ class Pycil:
         self.ui = PycilUI()
         self.ui.open()
 
-    def start_server(self):
-        self.server = PycilServer()
+    def start_server(self, name):
+        self.server = PycilServer(name)
         self.server.loop()

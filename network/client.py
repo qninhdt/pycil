@@ -38,5 +38,5 @@ class PycilClient:
             remote.ee.emit("remove_user", name)
 
     def connect(self):
-        self.socket.connect("http://" + self.ip + ":" + self.port)
+        self.socket.connect("http://" + self.ip + ":" + str(self.port))
         return True

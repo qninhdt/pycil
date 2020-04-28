@@ -9,7 +9,7 @@ class ChatRoom(Frame):
         super().__init__(master, bg="#118ab2")
         self.room = room
 
-        data = requests.get("http://" + self.room["ip"] + ":" + self.room["port"] + "/data").json()
+        data = requests.get("http://" + self.room["ip"] + ":" + str(self.room["port"]) + "/data").json()
 
         self.room["name"] = data["name"]
         self.room["msg"] = data["msg"]
@@ -44,7 +44,7 @@ class ChatRoom(Frame):
         )
 
         self.addr = Label(room_info, 
-            text = self.room["ip"] + " : " + self.room["port"], 
+            text = self.room["ip"] + " : " + str(self.room["port"]), 
             padx = 3, 
             pady = 2, 
             bg = "#f4a261", 
