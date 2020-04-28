@@ -27,11 +27,15 @@ class PycilUI(Tk):
         remote.ee.on("change_page", self.change_page)
         remote.ee.on("reload_chatroom_list", self.reload_chatroom_list)
 
+        self.bind("<Return>", lambda e: remote.ee.emit("enter"))
+
     def open(self):
 
         self.setup_ui()
 
         self.mainloop()
+
+        remote.ee.emit("logout")
 
         os._exit(0)
 
@@ -54,6 +58,7 @@ class PycilUI(Tk):
 
         if self.headerbar.title.get() == "# chatroom":
             self.active_page.free()
+            remote.ee.emit("logout")
 
         if page == "chatroom":
             self.active_page = ChatRoom(self.vbox, kargs["room"])

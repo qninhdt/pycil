@@ -26,10 +26,7 @@ class Pycil:
 
         @remote.ee.on("connect_server")
         def connect_server(ip, port):
-
-            if self.client != None:
-                self.client.socket.disconnect()
-                
+  
             self.client = PycilClient(ip, port)
 
             if self.client.connect():

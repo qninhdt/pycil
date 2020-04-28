@@ -19,7 +19,7 @@ class PycilServer(Flask):
         @self.socket.on("login")
         def login(name):
             self.users.append(name)
-            self.socket.emit("new_user", name)
+            self.socket.emit("new_user", name, broadcast=True)
 
             return {
                 "name": self.name,
@@ -39,6 +39,11 @@ class PycilServer(Flask):
         def on_new_msg(msg):
             self.msg.append(msg)
             self.socket.emit("new_msg", msg)
+        
+        @self.socket.on("logout")
+        def logout(name):
+            self.users.remove(name)
+            self.socket.emit("remove_user", name)
 
     def loop(self):
         self.socket.run(self)
