@@ -1,7 +1,6 @@
-"""Chat-with-AI HTTP API: sessions + messages + SSE stream stub."""
+"""Chat-with-AI HTTP API: sessions + messages + SSE stream."""
 from __future__ import annotations
 
-import asyncio
 import json
 from uuid import UUID
 
