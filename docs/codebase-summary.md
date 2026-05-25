@@ -1,8 +1,22 @@
 # Pycil — Codebase Summary
 
-**Last sync:** 2026-05-25 (post v1 sprint, all 7 phases completed)
-**Plan:** `plans/260525-0124-pycil-mvp-implementation/plan.md`
+**Last sync:** 2026-05-26 (post v0.2 feature-fill cook, 17 phases scaffolded)
+**Plans:** `plans/260525-0124-pycil-mvp-implementation/plan.md` (v1), `plans/260525-1446-pycil-v02-feature-fill/plan.md` (v0.2)
 **Source design:** `docs/project-overview-pdr.md` (locked)
+
+## v0.2 additions (post v1)
+
+- **pycil-core services**: `cache.py` (Redis + advisory_lock), `notification_service.py`, `gamification_service.py`, `image_upload_service.py`, `search_service.py`, `share_link_service.py`, `answer_grading_service.py` (rapidfuzz tier ladder), `clone_service.py` (deep deck-clone), `chat_service.py`, `test_mode_service.py` (answer-stripped projection), `billing_service.py` (Stripe idempotency), `llm_streaming.py` (httpx OpenRouter SSE).
+- **pycil-core routes**: `admin.py`, `billing.py`, `chat.py`, `notifications.py`, `public_decks.py`, `question_regenerate.py`, `search.py`, `share_links.py`, `test_mode.py`, `translate_tts.py`.
+- **pycil-core middleware**: `rate_limit.py` (Redis sliding window 60 RPM/IP).
+- **pycil-core cron**: apscheduler in `cron.py` runs `hard_delete_expired_users` (daily) + `compute_league_rank` (weekly), each under `pg_advisory_xact_lock`.
+- **Worker jobs**: `translate_definition.py`, `tts_render.py` (Gemini Flash + B2 upload), `generate_question.py` extended for WRITE/FILL dispatch via `_TYPE_MAP`.
+- **Worker observability**: `worker/observability/spend_metrics.py` structured logger.
+- **shared-py**: `shared/questions/write.py`, `fill_in_blank.py` ABCs.
+- **Web FE**: `(dashboard)/explore/page.tsx`, `legal/{privacy,terms}/page.tsx`, `components/study/{learn/write-question, learn/fill-in-blank-question, chat/chat-panel, test/test-runner, tts-play-button, translation-button}.tsx`, `components/file-browser/share-link-dialog.tsx`, `components/search/search-palette.tsx`, `hooks/use-broadcast-sync.ts`.
+- **Web config**: `next.config.ts` wraps with `next-pwa`, manifest.webmanifest, NetworkOnly for `/api/core/*`.
+- **Infra**: `infra/backup/{Dockerfile,backup.sh,restore.sh}`; `docker-compose.yml` adds backup service profile + restic_password secret.
+- **Tests**: `apps/pycil-core/tests/{conftest,test_migration_0004,test_answer_grading,test_gamification}.py`; `packages/shared-py/tests/test_questions.py`; `apps/worker/tests/conftest.py`.
 
 ---
 

@@ -4,6 +4,68 @@ All notable releases. Format derived from Keep a Changelog; dates in ISO-8601.
 
 ---
 
+## [Unreleased] — 2026-05-26 — v0.2 feature fill
+
+`plans/260525-1446-pycil-v02-feature-fill/` (17 phases). 26 commits, ~50 files. 5/5 Critical + 4/6 High code-review findings fixed in-pass.
+
+### Added — Schema
+
+- **Migration 0004**: single additive migration shipping every v0.2 column/table/index. New tables: `notifications`, `responses`, `deck_clones`, `chat_sessions`, `chat_messages`, `test_runs`, `test_run_items`, `subscriptions`, `stripe_webhook_events`, `node_share_links`. New columns on `users` (gamification + soft-delete + stripe), `definitions` (tags + translation + tts_url), `questions` (elo + variant_seed), `nodes` (target_node_id), `user_term_jobs` (last_event + last_llm_response). GIN trigram indexes on `terms.value`, `nodes.name`, `definitions.canonical_meaning`. ENUM extension `node_type += 'SHORTCUT'`.
+
+### Added — Auth & user lifecycle
+
+- **JWT `iat` claim + max-age check**: `_REQUIRED_CLAIMS` now `["exp","iat","sub","tv"]`; rejects tokens older than `JWT_MAX_AGE_SECONDS`.
+- **Account soft-delete + 14d hard-delete cron**: `DELETE /me` soft-deletes; apscheduler `hard_delete_expired_users` job purges; `pg_advisory_xact_lock` guards multi-replica double-fire.
+- **Admin token revoke**: `POST /admin/users/{id}/revoke-tokens` (X-Internal-Secret gated; Caddy `respond /api/core/admin/* 404`).
+- **Sign-in error banners**: `?reason=token_revoked`, `?reason=expired`, `?error=account_deleted`.
+- **PATCH /me extended**: name + image_url + bio + study_settings + bump_tv.
+
+### Added — Features
+
+- **Notifications** persisted with 30s polling on `/notifications?since=`.
+- **Gamification**: XP/streak/badges hooked into `learning_service.submit_answer`; level math from locked `LEVEL_TABLE`; weekly `compute_league_rank` cron.
+- **Profile image upload**: B2 signed PUT URL with server-generated UUID4 in key (no client-substitution).
+- **Search**: pg_trgm trigram across decks/folders/terms/definitions; FE command palette.
+- **Share links**: `node_share_links` create/revoke/list; FE share dialog.
+- **Write & Fill questions**: `WriteQuestion` + `FillInBlankQuestion` ABCs; tiered grading (exact → normalize → rapidfuzz Levenshtein); FE renderers.
+- **SHORTCUT nodes + topic tags + public decks**: `target_node_id` traversal; `definitions.tags`; `/explore` browse + deep-clone via `clone_service`.
+- **Translation**: on-demand `translate_definition` worker job → JSONB cache.
+- **TTS**: `tts_render` worker calls Gemini Flash → uploads MP3 to B2 → 7d signed URL.
+- **Chat-with-AI**: real LLM streaming over SSE on pycil-core; deck-grounded system prompt (top-50 terms); per-session 20k input cap.
+- **Test mode**: assessment-only (no ELO writes); answer-stripped projection (`expected_answer`/`correct_index` never leave BE).
+- **Mobile PWA**: `next-pwa` wrap, manifest.webmanifest, NetworkOnly for `/api/core/*`, online-only.
+- **i18n**: `messages/{en,vi}.json`.
+- **Sentry**: `sentry_sdk.init` in lifespan, app_env + dsn config.
+- **Backups**: nightly `pg_dump | restic` to B2 with 7d/4w/6m retention; restore script.
+- **Stripe billing scaffold**: webhook handler with raw-bytes signature verify + INSERT-event-before-dispatch idempotency in single txn; `subscription_data.metadata.user_id` propagation; `to_timestamp()` for epoch fields. ENFORCE_TIERS=false.
+- **Rate limit**: Redis sliding-window middleware on `/public/*` (60 RPM/IP).
+- **Multi-tab sync**: `useBroadcastSync` hook on `pycil-sync` BroadcastChannel.
+- **Worker observability**: structured per-job spend metrics.
+- **Privacy + Terms**: `/legal/privacy`, `/legal/terms` draft pages.
+- **error.tsx + loading.tsx**: per route group.
+
+### Tests
+
+- `apps/pycil-core/tests/`: `test_migration_0004.py`, `test_answer_grading.py`, `test_gamification.py`, conftest with DATABASE_URL_TEST gate.
+- `packages/shared-py/tests/test_questions.py`.
+- `apps/worker/tests/conftest.py` (env-gated markers).
+
+### Removed
+
+- Legacy `notes[0]` dual-write in `generate_term`.
+- `apps/web/src/lib/mock-data.ts` (336 LOC, 0 importers).
+
+### Deferred to v0.3
+
+- PWA icon/og-image asset generation.
+- Stripe checkout UI (BE wired, ENFORCE_TIERS=false).
+- Playwright E2E suite.
+- `last_llm_response` retry idempotency wired into worker code paths.
+- OpenRouter model fallback chain.
+- Caddy `@sse` matcher widened to `/chat/sessions/*/stream`.
+
+---
+
 ## [Unreleased] — 2026-05-25 — Frontend migration + BFF removal
 
 `plans/260525-0411-frontend-migration/` (11 phases, all completed).

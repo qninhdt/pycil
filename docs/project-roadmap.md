@@ -185,24 +185,34 @@ Day 1 ──> Day 2 ──> Day 3 ──> Day 4 ──> Day 5 ──> Day 6 ─�
 
 ---
 
-## v0.2 Priorities (post-launch — locked from `docs/launch-retro.md`)
+## v0.2 Priorities (cooked 2026-05-26 — `plans/260525-1446-pycil-v02-feature-fill/`)
 
-Top-of-stack from the retro template — implement before any net-new feature:
+Top-of-stack from the retro template — all five shipped as scaffolds + critical paths:
 
-1. **Backups** — daily `pg_dump` off-VPS (e.g. B2). Single manual `pg_dump` was the only v1 safety net.
-2. **Sentry / error monitoring** — deferred per PDR §9; replaces "tail `docker compose logs`".
-3. **Write + Fill question types** — MCQ-only was a v1 scope cut. `BaseQuestion` ABC in `packages/shared-py/shared/questions/` already kept abstract for plug-in subclasses.
-4. **i18n** (Vietnamese first via `next-intl`).
-5. **Formal test suite retrofit** — only ELO unit tests shipped in v1 (`apps/pycil-core/pycil_core/learning/elo_test.py`).
+1. **Backups** ✓ — `infra/backup/{Dockerfile,backup.sh,restore.sh}`; nightly `pg_dump | restic` to B2 with 7d/4w/6m retention.
+2. **Sentry** ✓ — `sentry_sdk.init` in pycil-core lifespan; envs in config.
+3. **Write + Fill question types** ✓ — `WriteQuestion` + `FillInBlankQuestion` ABCs; tier-ladder grading; FE renderers.
+4. **i18n** ✓ — `messages/{en,vi}.json`; BE error codes via snake_case strings.
+5. **Formal test suite retrofit** ◐ — `pytest` conftest + grading + gamification + question + migration tests; Playwright E2E deferred to v0.3.
 
-## Out of Sprint (deferred / nice-to-have)
+## v0.2 Out-of-Sprint (pulled in per user override, cooked 2026-05-26)
 
-- Topic + usage tags on definitions
-- Public/cloned decks (visibility column already in schema)
-- Translation pipeline
-- TTS (Gemini Flash TTS)
-- SHORTCUT node type
-- Mobile PWA polish
-- Payment / premium tier
-- Question diversification across reviews (cache currently returns same MCQ)
-- Question ELO calibration (all questions stored at 1000 in v1)
+- ✓ Topic + usage tags (`definitions.tags`)
+- ✓ Public/cloned decks (`/explore`, `clone_service.deep_clone`)
+- ✓ Translation pipeline (`translate_definition` arq job + JSONB cache)
+- ✓ TTS via Gemini Flash (B2 upload, 7d signed URL)
+- ✓ SHORTCUT node type (`nodes.target_node_id`)
+- ✓ Mobile PWA (next-pwa, manifest, online-only)
+- ◐ Payments/premium tier — Stripe webhook + idempotency real; checkout UI deferred (locked v0.3)
+- ✓ Question diversification (`questions.variant_seed`)
+- ✓ Per-question ELO calibration (`questions.elo` column + `calibrate_question_elo` cron seam)
+
+## v0.3 backlog (deferred from v0.2 cook)
+
+- PWA icon assets (192/512/maskable.png, og-image.png)
+- Stripe checkout UI + ENFORCE_TIERS flip
+- Playwright E2E suite (auth-flow, create-deck-and-term, learn-session, chat-mode, test-mode, sign-out-everywhere)
+- `last_llm_response` retry idempotency wired into worker code paths
+- OpenRouter model fallback chain implementation
+- Caddy `@sse` matcher widened to `/chat/sessions/*/stream`
+- LLM-as-judge tier-4 grading (currently disabled via `use_llm_fallback=False` default)

@@ -1,8 +1,26 @@
 # Pycil — System Architecture
 
-**Last sync:** 2026-05-25 (post v1 sprint)
+**Last sync:** 2026-05-26 (post v0.2 feature-fill cook)
 **Source design:** `docs/project-overview-pdr.md` (locked)
 **Implementation map:** `docs/codebase-summary.md`
+
+## v0.2 surface (added since v1)
+
+- Auth: JWT `iat` + `JWT_MAX_AGE_SECONDS`; account soft-delete + 14d hard-delete cron under `pg_advisory_xact_lock`; admin token-revoke gated by `X-Internal-Secret`.
+- Notifications persisted in `notifications` table; FE polls `/notifications?since=` every 30s.
+- Gamification (`xp_total`, `streak_days`, `level`, `badges`, `league_rank`) hooked into `learning_service.submit_answer` via `gamification_service`.
+- Profile image upload: `POST /me/image-upload-url` returns B2 presigned PUT URL with server-generated UUID4 in key.
+- Search: pg_trgm GIN indexes; `GET /search` returns grouped nodes/terms/definitions.
+- Share links: `node_share_links` table; create/revoke/list endpoints.
+- Write/Fill questions: `WriteQuestion` + `FillInBlankQuestion` ABCs in shared-py; `answer_grading_service` tier ladder (exact → normalize → rapidfuzz → LLM).
+- SHORTCUT nodes via `nodes.target_node_id`; topic tags via `definitions.tags`; public decks via `nodes.visibility = 'PUBLIC'`; deep-clone via `clone_service`.
+- Translation + TTS: on-demand worker jobs cache results in `definitions.translation`/`definitions.tts_url` JSONB. TTS uploads MP3 to B2 with 7d signed URL.
+- Chat-with-AI: `chat_sessions` + `chat_messages`; `GET /chat/sessions/{id}/stream` is SSE from pycil-core via httpx OpenRouter streaming.
+- Test mode: `test_runs` + `test_run_items`; `_to_client_payload` strips `expected_answer`/`alt_answers`/`correct_index` before sending to FE.
+- Mobile PWA: `next-pwa` wrap, NetworkOnly for `/api/core/*`, online-only.
+- Sentry init in pycil-core lifespan; nightly `pg_dump | restic` backup container.
+- Stripe billing scaffold: webhook reads raw bytes, INSERT-event-before-dispatch in single txn, `subscription_data.metadata.user_id` for propagation.
+- Rate limit: Redis sliding-window middleware on `/public/*` (60 RPM/IP).
 
 ---
 
