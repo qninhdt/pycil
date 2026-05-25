@@ -23,6 +23,11 @@ SessionLocal = async_sessionmaker(
 )
 
 
+def get_engine():
+    """Accessor for the singleton AsyncEngine. Used by lifespan-managed callers."""
+    return engine
+
+
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
     """FastAPI dependency: yields an AsyncSession, commits/rolls back automatically."""
     async with SessionLocal() as session:

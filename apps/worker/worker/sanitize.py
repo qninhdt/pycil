@@ -22,3 +22,20 @@ def sanitize_text(value: str) -> str:
 
 def sanitize_list(values: list[str]) -> list[str]:
     return [s for s in (sanitize_text(v) for v in values) if s]
+
+
+def sanitize_answer(value: str) -> str:
+    """Strip only control chars + collapse whitespace.
+
+    Used for `expected_answer` / `alt_answers` where URL/HTML may be the
+    legitimate correct answer (e.g. fill-in-the-blank tests on punctuation).
+    Full sanitization stays on `prompt` / `explanation`.
+    """
+    if not value:
+        return value
+    cleaned = _CONTROL_RE.sub("", value)
+    return " ".join(cleaned.split())
+
+
+def sanitize_answer_list(values: list[str]) -> list[str]:
+    return [s for s in (sanitize_answer(v) for v in values) if s]

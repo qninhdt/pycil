@@ -18,7 +18,8 @@ from typing import Any
 
 class QuestionType(str, Enum):
     MULTIPLE_CHOICE = "MULTIPLE_CHOICE"
-    # WRITE / FILL deferred to v0.2.
+    WRITE = "WRITE"
+    FILL_IN_BLANK = "FILL_IN_BLANK"
 
 
 class CheckResult:

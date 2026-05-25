@@ -62,13 +62,27 @@ def _verify_internal_secret(provided: str | None) -> None:
 
 
 def _validate_image_url(url: str) -> None:
+    """Reject anything not under the configured B2 public URL prefix.
+
+    Uses full host + path-prefix match via urlparse to defeat
+    `https://attacker.com/?fake=https://b2.../...` style bypasses that
+    a naive `startswith` would accept.
+    """
+    from urllib.parse import urlparse
+
     settings = get_settings()
     prefix = getattr(settings, "b2_public_url_prefix", None)
     if not prefix:
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, "image_storage_not_configured"
         )
-    if not url.startswith(prefix):
+    expected = urlparse(prefix.rstrip("/"))
+    actual = urlparse(url)
+    if (
+        actual.scheme != expected.scheme
+        or actual.netloc != expected.netloc
+        or not actual.path.startswith(expected.path + "/")
+    ):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, "image_url_not_in_bucket"
         )
@@ -96,37 +110,78 @@ async def upsert_user(
 async def update_me(
     body: UpdateMeBody, user: UserDep, session: SessionDep
 ) -> MeResponse:
-    updated: dict = {"id": user.id, "email": user.email, "name": user.name, "image": user.image, "image_url": None}
+    import json as _json
+
+    if body.image_url is not None:
+        _validate_image_url(body.image_url)
+
+    settings_json: str | None = None
+    if body.study_settings is not None:
+        settings_json = _json.dumps(body.study_settings)
+        if len(settings_json) > 4096:
+            raise HTTPException(
+                status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "study_settings_too_large"
+            )
+
+    name_value = body.name.strip() if body.name is not None else None
+    if name_value is not None and not name_value:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "name_empty")
+
+    set_clauses: list[str] = []
+    params: dict = {"uid": user.id}
+    if name_value is not None:
+        set_clauses.append("name = :name")
+        params["name"] = name_value
+    if body.image_url is not None:
+        set_clauses.append("image_url = :image_url")
+        params["image_url"] = body.image_url
+    if body.bio is not None:
+        set_clauses.append("bio = :bio")
+        params["bio"] = body.bio
+    if settings_json is not None:
+        set_clauses.append("study_settings = CAST(:settings AS jsonb)")
+        params["settings"] = settings_json
+
     try:
-        if body.name is not None:
-            updated = await user_service.update_user_name(
-                session, user_id=user.id, name=body.name
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext('user-mutate:' || :uid::text))"),
+            {"uid": user.id},
+        )
+        if set_clauses:
+            set_clauses.append("updated_at = NOW()")
+            sql = (
+                "UPDATE users SET " + ", ".join(set_clauses)
+                + " WHERE id = :uid RETURNING id, email, name, image, image_url"
             )
-        if body.image_url is not None:
-            _validate_image_url(body.image_url)
-            updated = await user_service.update_image_url(
-                session, user_id=user.id, image_url=body.image_url
-            )
-        if body.bio is not None:
-            await session.execute(
-                text("UPDATE users SET bio = :bio WHERE id = :uid"),
-                {"bio": body.bio, "uid": user.id},
-            )
-            await session.commit()
-        if body.study_settings is not None:
-            import json as _json
-            await session.execute(
-                text(
-                    "UPDATE users SET study_settings = CAST(:s AS jsonb) WHERE id = :uid"
-                ),
-                {"s": _json.dumps(body.study_settings), "uid": user.id},
-            )
-            await session.commit()
+            row = (await session.execute(text(sql), params)).first()
+            if row is None:
+                await session.rollback()
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT, "user_not_found_yet"
+                )
+            updated = {
+                "id": row.id,
+                "email": row.email,
+                "name": row.name,
+                "image": row.image,
+                "image_url": row.image_url,
+            }
+        else:
+            updated = {
+                "id": user.id,
+                "email": user.email,
+                "name": user.name,
+                "image": user.image,
+                "image_url": None,
+            }
         if body.bump_tv:
             await user_service.revoke_tokens(session, user_id=user.id)
+        await session.commit()
     except ValueError as exc:
+        await session.rollback()
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
     except LookupError:
+        await session.rollback()
         raise HTTPException(status.HTTP_404_NOT_FOUND, "user_not_found")
     return MeResponse(
         id=str(updated["id"]),
@@ -153,7 +208,7 @@ class ImageUploadUrlBody(BaseModel):
 async def image_upload_url(body: ImageUploadUrlBody, user: UserDep) -> dict:
     """Return a signed PUT URL bound to a server-generated key."""
     try:
-        return image_upload_service.generate_put_url(
+        return await image_upload_service.generate_put_url(
             user_id=user.id, content_type=body.content_type
         )
     except ValueError as exc:

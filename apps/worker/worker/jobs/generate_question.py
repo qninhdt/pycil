@@ -25,10 +25,11 @@ from shared.questions.fill_in_blank import FillData, FillInBlankQuestion
 from shared.questions.multiple_choice import MCQData, MultipleChoiceQuestion
 from shared.questions.write import WriteData, WriteQuestion
 from worker.db import SessionLocal
+from worker.jobs.lifecycle import is_terminal
 from worker.llm.openrouter import generate_with_schema
 from worker.prompts import render
 from worker.redis_helpers import add_spend
-from worker.sanitize import sanitize_list, sanitize_text
+from worker.sanitize import sanitize_answer, sanitize_answer_list, sanitize_list, sanitize_text
 
 
 _TYPE_MAP = {
@@ -117,6 +118,27 @@ def _sanitize_mcq(out: MCQData) -> dict[str, Any]:
     }
 
 
+def _sanitize_question_data(question_type: str, output: Any) -> dict[str, Any]:
+    """Dispatch sanitization by question type.
+
+    `prompt`/`explanation` get full sanitize_text (URL+HTML+control strip).
+    `expected_answer`/`alt_answers[]` get control-chars-only — URLs/HTML may
+    legitimately be the correct answer.
+    """
+    if question_type == "MULTIPLE_CHOICE":
+        return _sanitize_mcq(output)
+    raw = output.model_dump()
+    if "prompt" in raw:
+        raw["prompt"] = sanitize_text(raw["prompt"])
+    if "explanation" in raw:
+        raw["explanation"] = sanitize_text(raw["explanation"])
+    if "expected_answer" in raw and isinstance(raw["expected_answer"], str):
+        raw["expected_answer"] = sanitize_answer(raw["expected_answer"])
+    if "alt_answers" in raw and isinstance(raw["alt_answers"], list):
+        raw["alt_answers"] = sanitize_answer_list(raw["alt_answers"])
+    return raw
+
+
 async def _append_event(session, job_id: UUID, event: dict[str, Any]) -> None:
     await session.execute(
         text(
@@ -164,6 +186,10 @@ async def generate_question(
     if question_type not in _TYPE_MAP:
         raise ValueError(f"unsupported_question_type: {question_type}")
     q_class, schema_cls = _TYPE_MAP[question_type]
+
+    async with SessionLocal() as gate:
+        if await is_terminal(gate, job_id):
+            return {"status": "duplicate"}
 
     async with SessionLocal() as session:
         existing = await _existing_question_id(session, definition_id, question_type)
@@ -215,10 +241,7 @@ async def generate_question(
                 )
             output = await generate_with_schema(prompt, schema_cls)
             await add_spend(redis, _ESTIMATED_COST_USD)
-            if question_type == "MULTIPLE_CHOICE":
-                data = _sanitize_mcq(output)
-            else:
-                data = output.model_dump()
+            data = _sanitize_question_data(question_type, output)
             row = (
                 await session.execute(
                     text(

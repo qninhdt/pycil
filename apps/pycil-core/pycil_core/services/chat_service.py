@@ -22,6 +22,22 @@ async def create_session(
     user_id: UUID,
     deck_id: UUID | None,
 ) -> UUID:
+    if deck_id is not None:
+        owns = (
+            await session.execute(
+                text(
+                    """
+                    SELECT 1 FROM nodes
+                     WHERE id = :did
+                       AND type = 'DECK'
+                       AND (author_id = :uid OR visibility = 'PUBLIC')
+                    """
+                ),
+                {"did": deck_id, "uid": user_id},
+            )
+        ).first()
+        if owns is None:
+            raise LookupError("deck_not_found_or_not_accessible")
     row = (
         await session.execute(
             text(

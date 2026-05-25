@@ -10,6 +10,8 @@ worker code follow.
 """
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import text
 
@@ -62,11 +64,14 @@ async def translate(
     job = (
         await session.execute(
             text(
-                "INSERT INTO jobs (type, status, payload) "
+                "INSERT INTO jobs (type, status, payload, created_by_user_id) "
                 "VALUES ('translate_definition', 'queued', "
-                "CAST(:p AS jsonb)) RETURNING id"
+                "CAST(:p AS jsonb), :uid) RETURNING id"
             ),
-            {"p": '{"definition_id":%d,"lang":"%s"}' % (definition_id, lang)},
+            {
+                "p": json.dumps({"definition_id": definition_id, "lang": lang}),
+                "uid": user.id,
+            },
         )
     ).one()
     await session.commit()
@@ -94,10 +99,14 @@ async def tts(
     job = (
         await session.execute(
             text(
-                "INSERT INTO jobs (type, status, payload) "
-                "VALUES ('tts_render', 'queued', CAST(:p AS jsonb)) RETURNING id"
+                "INSERT INTO jobs (type, status, payload, created_by_user_id) "
+                "VALUES ('tts_render', 'queued', CAST(:p AS jsonb), :uid) "
+                "RETURNING id"
             ),
-            {"p": '{"definition_id":%d,"lang":"%s"}' % (definition_id, lang)},
+            {
+                "p": json.dumps({"definition_id": definition_id, "lang": lang}),
+                "uid": user.id,
+            },
         )
     ).one()
     await session.commit()

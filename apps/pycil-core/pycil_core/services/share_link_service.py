@@ -23,6 +23,14 @@ async def create_link(
     created_by: UUID,
 ) -> dict:
     """Create a fresh share link. Returns the new row."""
+    owns = (
+        await session.execute(
+            text("SELECT 1 FROM nodes WHERE id = :nid AND author_id = :uid"),
+            {"nid": node_id, "uid": created_by},
+        )
+    ).first()
+    if owns is None:
+        raise LookupError("node_not_found_or_not_owned")
     token = _new_token()
     row = (
         await session.execute(

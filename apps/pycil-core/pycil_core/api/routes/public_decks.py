@@ -3,23 +3,34 @@
 `GET /public/decks` lists public decks paginated.
 `GET /public/decks/{id}` returns a read-only snapshot (no auth).
 `POST /public/decks/{id}/clone` deep-clones into the cloner's tree.
-
-Rate limiting deferred to v0.3 — Caddy + slowapi middleware not yet
-mounted in main.py.
 """
 from __future__ import annotations
 
+import base64
+import binascii
+from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from sqlalchemy import text
 
 from pycil_core.api.deps import SessionDep, UserDep
-from pycil_core.middleware.rate_limit import enforce
+from pycil_core.middleware.rate_limit import client_ip, enforce
 from pycil_core.services import clone_service
 
 
 router = APIRouter(prefix="/public", tags=["public"])
+
+
+def _decode_cursor(cursor: str) -> tuple[datetime, UUID]:
+    raw = base64.urlsafe_b64decode(cursor.encode("ascii")).decode("ascii")
+    ts_str, _, id_str = raw.partition("|")
+    return datetime.fromisoformat(ts_str), UUID(id_str)
+
+
+def _encode_cursor(ts: datetime, deck_id: UUID) -> str:
+    raw = f"{ts.isoformat()}|{deck_id}".encode("ascii")
+    return base64.urlsafe_b64encode(raw).decode("ascii")
 
 
 @router.get("/decks")
@@ -30,7 +41,7 @@ async def list_public_decks(
     limit: int = Query(default=20, ge=1, le=50),
     cursor: str | None = Query(default=None),
 ) -> dict:
-    await enforce(request.client.host if request.client else "unknown", "public_list")
+    await enforce(client_ip(request), "public_list")
     sql = """
     SELECT n.id, n.name, n.description, n.updated_at,
            (SELECT COUNT(*) FROM deck_definitions dd WHERE dd.deck_id = n.id) AS term_count,
@@ -39,6 +50,14 @@ async def list_public_decks(
      WHERE n.type = 'DECK' AND n.visibility = 'PUBLIC'
     """
     params: dict = {"limit": limit + 1}
+    if cursor:
+        try:
+            cur_ts, cur_id = _decode_cursor(cursor)
+        except (ValueError, TypeError, binascii.Error):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid_cursor")
+        sql += " AND (n.updated_at, n.id) < (:cur_ts, :cur_id) "
+        params["cur_ts"] = cur_ts
+        params["cur_id"] = cur_id
     if q:
         sql += " AND n.name % :q "
         params["q"] = q
@@ -47,7 +66,8 @@ async def list_public_decks(
     rows = (await session.execute(text(sql), params)).all()
     next_cursor = None
     if len(rows) > limit:
-        next_cursor = str(rows[limit].id)
+        last = rows[limit - 1]
+        next_cursor = _encode_cursor(last.updated_at, last.id)
         rows = rows[:limit]
     return {
         "decks": [
@@ -66,7 +86,7 @@ async def list_public_decks(
 
 @router.get("/decks/{deck_id}")
 async def get_public_deck(deck_id: UUID, request: Request, session: SessionDep) -> dict:
-    await enforce(request.client.host if request.client else "unknown", "public_get")
+    await enforce(client_ip(request), "public_get")
     row = (
         await session.execute(
             text(

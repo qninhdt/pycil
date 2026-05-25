@@ -15,8 +15,8 @@ from pycil_core.schemas.term import DeckTermRead, TermAddResponse, TermRead
 
 
 def normalize(value: str) -> str:
-    """Lowercase + collapse internal whitespace + strip."""
-    return " ".join(value.lower().split())
+    """Lowercase + collapse internal whitespace + strip; cap length at 200."""
+    return " ".join(value.lower().split())[:200]
 
 
 async def add_term_to_deck(

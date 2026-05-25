@@ -7,6 +7,7 @@ on signed URLs.
 """
 from __future__ import annotations
 
+import functools
 from uuid import UUID, uuid4
 
 import boto3
@@ -22,7 +23,10 @@ _ALLOWED_TYPES = {
 }
 
 
+@functools.lru_cache(maxsize=1)
 def _client():
+    """Per-process cached boto3 client. Lazy so each forked uvicorn worker
+    gets its own client (boto3 clients are not fork-safe)."""
     s = get_settings()
     return boto3.client(
         "s3",
@@ -33,7 +37,7 @@ def _client():
     )
 
 
-def generate_put_url(
+async def generate_put_url(
     *, user_id: UUID, content_type: str, expires_in: int = 900
 ) -> dict[str, object]:
     if content_type not in _ALLOWED_TYPES:
@@ -44,7 +48,9 @@ def generate_put_url(
         raise RuntimeError("b2_bucket_not_configured")
     ext = _ALLOWED_TYPES[content_type]
     key = f"users/{user_id}/avatars/{uuid4().hex}.{ext}"
-    url = _client().generate_presigned_url(
+    import asyncio
+    url = await asyncio.to_thread(
+        _client().generate_presigned_url,
         "put_object",
         Params={"Bucket": bucket, "Key": key, "ContentType": content_type},
         ExpiresIn=expires_in,

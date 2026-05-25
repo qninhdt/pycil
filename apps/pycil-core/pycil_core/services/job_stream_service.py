@@ -25,7 +25,7 @@ from redis.asyncio import Redis
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pycil_core.config import get_settings
+from pycil_core.services.redis_pool import get_redis
 
 
 _HEARTBEAT_INTERVAL = 15.0
@@ -33,7 +33,7 @@ _MAX_DURATION = 60.0
 
 
 def _redis() -> Redis:
-    return Redis.from_url(get_settings().redis_url, decode_responses=True)
+    return get_redis()
 
 
 def _sse_frame(event: str, data: Any) -> bytes:
@@ -52,8 +52,10 @@ async def _load_owned_job(
                 SELECT j.id, j.type, j.status, j.result, j.error, j.payload,
                        utj.last_event
                 FROM jobs j
-                JOIN user_term_jobs utj ON utj.job_id = j.id
-                WHERE j.id = :jid AND utj.user_id = :uid
+           LEFT JOIN user_term_jobs utj
+                  ON utj.job_id = j.id AND utj.user_id = :uid
+                WHERE j.id = :jid
+                  AND (utj.user_id IS NOT NULL OR j.created_by_user_id = :uid)
                 LIMIT 1
                 """
             ),

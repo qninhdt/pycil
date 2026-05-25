@@ -76,9 +76,15 @@ async def list_for_user(
 async def mark_read(
     session: AsyncSession, *, user_id: UUID, ids: list[UUID]
 ) -> int:
-    """Mark notifications read. Caller-scoped via user_id. Returns count."""
+    """Mark notifications read. Caller-scoped via user_id. Returns count.
+
+    Caps the input list at 500 ids to prevent expensive ANY-array scans
+    if a client posts an unbounded selection.
+    """
     if not ids:
         return 0
+    if len(ids) > 500:
+        ids = ids[:500]
     result = await session.execute(
         text(
             """

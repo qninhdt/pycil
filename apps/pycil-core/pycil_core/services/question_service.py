@@ -21,6 +21,7 @@ from pycil_core.schemas.question import (
     QuestionFetchResponse,
     QuestionRead,
 )
+from pycil_core.services.redis_pool import get_redis
 
 _LOCK_TTL_SECONDS = 600
 _LOCK_LUA = """
@@ -32,7 +33,65 @@ return ARGV[1]
 
 
 def _redis() -> Redis:
-    return Redis.from_url(get_settings().redis_url, decode_responses=True)
+    return get_redis()
+
+
+async def _assert_user_can_access_definition(
+    session: AsyncSession, definition_id: int, user_id: UUID
+) -> None:
+    """Enforce: user is author of, or has PUBLIC visibility on, a deck linking
+    this definition. Otherwise 404 to avoid revealing existence."""
+    row = (
+        await session.execute(
+            text(
+                """
+                SELECT 1
+                  FROM deck_definitions dd
+                  JOIN nodes n ON n.id = dd.deck_id
+                 WHERE dd.definition_id = :did
+                   AND (n.author_id = :uid OR n.visibility = 'PUBLIC')
+                 LIMIT 1
+                """
+            ),
+            {"did": definition_id, "uid": user_id},
+        )
+    ).first()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "definition_not_found")
+
+
+async def _assert_user_can_access_question(
+    session: AsyncSession, question_id: UUID, user_id: UUID
+) -> None:
+    row = (
+        await session.execute(
+            text(
+                """
+                SELECT 1
+                  FROM questions q
+                  JOIN deck_definitions dd ON dd.definition_id = q.definition_id
+                  JOIN nodes n ON n.id = dd.deck_id
+                 WHERE q.id = :qid
+                   AND (n.author_id = :uid OR n.visibility = 'PUBLIC')
+                 LIMIT 1
+                """
+            ),
+            {"qid": question_id, "uid": user_id},
+        )
+    ).first()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "question_not_found")
+
+
+_ANSWER_FIELDS = ("correct_index", "explanation", "distractor_rationale",
+                  "expected_answer", "alt_answers")
+
+
+def _strip_answer_fields(data: dict) -> dict:
+    """Drop fields that reveal the answer pre-submit. Used on every fetch path."""
+    if not isinstance(data, dict):
+        return data
+    return {k: v for k, v in data.items() if k not in _ANSWER_FIELDS}
 
 
 async def _existing_question(
@@ -64,26 +123,18 @@ async def _existing_question(
         id=row.id,
         definition_id=row.definition_id,
         type=row.type,
-        data=data,
+        data=_strip_answer_fields(data) if isinstance(data, dict) else data,
         created_at=row.created_at,
     )
 
 async def get_or_generate(
-    session: AsyncSession, definition_id: int, difficulty: str
+    session: AsyncSession, definition_id: int, difficulty: str, user_id: UUID
 ) -> QuestionFetchResponse:
     """Return cached MCQ or fire generation. Difficulty advisory only."""
     if difficulty not in {"easy", "medium", "hard"}:
         difficulty = "easy"
 
-    # Validate definition exists.
-    exists = (
-        await session.execute(
-            text("SELECT 1 FROM definitions WHERE id = :id"),
-            {"id": definition_id},
-        )
-    ).first()
-    if not exists:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "definition_not_found")
+    await _assert_user_can_access_definition(session, definition_id, user_id)
 
     cached = await _existing_question(session, definition_id)
     if cached is not None:
@@ -152,11 +203,13 @@ async def get_or_generate(
 
 
 async def check_answer(
-    session: AsyncSession, question_id: UUID, selected_index: int
+    session: AsyncSession, question_id: UUID, selected_index: int, user_id: UUID
 ) -> QuestionCheckResponse:
     """Validate user's MCQ selection. Imports MCQ class lazily to avoid
     coupling unrelated routes to the shared package import path."""
     from shared.questions.multiple_choice import MultipleChoiceQuestion
+
+    await _assert_user_can_access_question(session, question_id, user_id)
 
     row = (
         await session.execute(

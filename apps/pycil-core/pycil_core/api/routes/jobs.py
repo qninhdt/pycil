@@ -18,12 +18,19 @@ router = APIRouter(prefix="/jobs", tags=["jobs"])
 async def get_job(
     job_id: UUID, user: UserDep, session: SessionDep
 ) -> dict:
-    # Ownership: user_term_jobs (per-user table for cross-user same-term dedup).
+    # Ownership: user_term_jobs (term jobs) OR jobs.created_by_user_id (translate/tts/regenerate).
     own = (
         await session.execute(
             text(
-                "SELECT 1 FROM user_term_jobs "
-                "WHERE user_id = :uid AND job_id = :jid LIMIT 1"
+                """
+                SELECT 1
+                  FROM jobs j
+             LEFT JOIN user_term_jobs utj
+                    ON utj.job_id = j.id AND utj.user_id = :uid
+                 WHERE j.id = :jid
+                   AND (utj.user_id IS NOT NULL OR j.created_by_user_id = :uid)
+                 LIMIT 1
+                """
             ),
             {"uid": user.id, "jid": job_id},
         )

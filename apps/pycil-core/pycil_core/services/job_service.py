@@ -16,10 +16,16 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pycil_core.config import get_settings
+from pycil_core.services.redis_pool import get_redis
 
 _LOCK_TTL_SECONDS = 600
 _RATE_LIMIT_PER_HOUR = 5
-_BUDGET_KEY = "openrouter:spend:daily"
+
+
+def _today_budget_key() -> str:
+    """UTC-day partitioned spend counter; matches worker.redis_helpers."""
+    from datetime import datetime, timezone
+    return f"openrouter:spend:{datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
 
 # Lock-acquire-or-get Lua, mirroring worker.redis_helpers.
 _LOCK_LUA = """
@@ -35,7 +41,7 @@ async def _arq_pool() -> ArqRedis:
 
 
 def _redis() -> Redis:
-    return Redis.from_url(get_settings().redis_url, decode_responses=True)
+    return get_redis()
 
 
 async def _check_user_rate(redis: Redis, user_id: UUID) -> None:
@@ -52,7 +58,7 @@ async def _check_user_rate(redis: Redis, user_id: UUID) -> None:
 
 async def _check_global_budget(redis: Redis) -> None:
     cap = float(os.environ.get("OPENROUTER_BUDGET_DAILY_USD", "20"))
-    raw = await redis.get(_BUDGET_KEY)
+    raw = await redis.get(_today_budget_key())
     spent = 0.0
     if raw is not None:
         try:

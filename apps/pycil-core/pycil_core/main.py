@@ -4,6 +4,8 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
+from fastapi.responses import JSONResponse
+from starlette.requests import Request
 
 from pycil_core.api.routes import admin as admin_routes
 from pycil_core.api.routes import auth as auth_routes
@@ -25,7 +27,12 @@ from pycil_core.api.routes import translate_tts as translate_tts_routes
 from pycil_core.auth import CurrentUser, get_current_user
 from pycil_core.config import get_settings
 from pycil_core.cron import get_scheduler
-from pycil_core.middleware import OriginAllowlistMiddleware
+from pycil_core.middleware import (
+    BodySizeLimitMiddleware,
+    OriginAllowlistMiddleware,
+    SecurityHeadersMiddleware,
+)
+from pycil_core.services.redis_pool import close_redis_pool
 
 
 @asynccontextmanager
@@ -50,6 +57,7 @@ async def lifespan(_app: FastAPI):
         yield
     finally:
         scheduler.shutdown(wait=False)
+        await close_redis_pool()
 
 
 def create_app() -> FastAPI:
@@ -64,6 +72,14 @@ def create_app() -> FastAPI:
         OriginAllowlistMiddleware,
         allowed_origins=settings.allowed_origins_list,
     )
+    app.add_middleware(SecurityHeadersMiddleware)
+    app.add_middleware(BodySizeLimitMiddleware, max_bytes=1_048_576)
+
+    @app.exception_handler(Exception)
+    async def _unhandled(request: Request, exc: Exception):  # noqa: ARG001
+        import logging
+        logging.getLogger(__name__).exception("unhandled", exc_info=exc)
+        return JSONResponse({"detail": "internal_error"}, status_code=500)
 
     @app.get("/health")
     async def health() -> dict[str, str]:

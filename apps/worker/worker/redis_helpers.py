@@ -1,6 +1,8 @@
 """Redis lock + spend counter helpers (shared between pycil-core and worker)."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from redis.asyncio import Redis
 
 # Lua: SET key value NX EX ttl. Returns the value of the holder (the new one
@@ -24,11 +26,16 @@ async def acquire_or_get_lock(
     return str(result)
 
 
-SPEND_KEY_DAILY = "openrouter:spend:daily"
+SPEND_KEY_PREFIX = "openrouter:spend"
+
+
+def _spend_key_today() -> str:
+    """UTC-day partitioned spend counter; resets at 00:00Z naturally."""
+    return f"{SPEND_KEY_PREFIX}:{datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
 
 
 async def get_spend_daily(redis: Redis) -> float:
-    raw = await redis.get(SPEND_KEY_DAILY)
+    raw = await redis.get(_spend_key_today())
     if raw is None:
         return 0.0
     try:
@@ -38,7 +45,8 @@ async def get_spend_daily(redis: Redis) -> float:
 
 
 async def add_spend(redis: Redis, usd: float) -> float:
-    val = await redis.incrbyfloat(SPEND_KEY_DAILY, usd)
-    # Daily key expires at end of day-ish (24h sliding is fine for v1).
-    await redis.expire(SPEND_KEY_DAILY, 90_000)
+    key = _spend_key_today()
+    val = await redis.incrbyfloat(key, usd)
+    # Two-day TTL: covers in-flight requests around midnight rollover.
+    await redis.expire(key, 2 * 86_400)
     return float(val)

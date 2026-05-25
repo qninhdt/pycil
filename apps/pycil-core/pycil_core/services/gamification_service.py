@@ -35,27 +35,34 @@ def compute_level(xp: int) -> int:
 
 
 async def award_xp(session: AsyncSession, *, user_id: UUID, delta: int) -> None:
-    """Add `delta` XP to user; recompute level."""
-    row = (
-        await session.execute(
-            text(
-                """
-                UPDATE users
-                   SET xp_total = xp_total + :delta,
-                       updated_at = NOW()
-                 WHERE id = :uid
-                RETURNING xp_total
-                """
-            ),
-            {"uid": user_id, "delta": delta},
-        )
-    ).first()
-    if row is None:
-        return
-    new_level = compute_level(int(row.xp_total))
+    """Add `delta` XP to user; recompute level atomically.
+
+    Single UPDATE: xp increment + level derivation share the same row-lock,
+    so concurrent awards cannot publish a stale `level` based on pre-increment xp.
+    """
     await session.execute(
-        text("UPDATE users SET level = :lvl WHERE id = :uid"),
-        {"uid": user_id, "lvl": new_level},
+        text(
+            """
+            UPDATE users
+               SET xp_total = xp_total + :delta,
+                   level = CASE
+                       WHEN xp_total + :delta >= 22000 THEN 11
+                       WHEN xp_total + :delta >= 16000 THEN 10
+                       WHEN xp_total + :delta >= 11000 THEN 9
+                       WHEN xp_total + :delta >=  7000 THEN 8
+                       WHEN xp_total + :delta >=  4000 THEN 7
+                       WHEN xp_total + :delta >=  2000 THEN 6
+                       WHEN xp_total + :delta >=  1000 THEN 5
+                       WHEN xp_total + :delta >=   500 THEN 4
+                       WHEN xp_total + :delta >=   250 THEN 3
+                       WHEN xp_total + :delta >=   100 THEN 2
+                       ELSE 1
+                   END,
+                   updated_at = NOW()
+             WHERE id = :uid
+            """
+        ),
+        {"uid": user_id, "delta": delta},
     )
     await session.commit()
 

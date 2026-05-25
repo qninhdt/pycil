@@ -5,6 +5,8 @@ listens via existing SSE on the returned job_id.
 """
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import text
 
@@ -54,14 +56,15 @@ async def regenerate_question(
         await session.execute(
             text(
                 """
-                INSERT INTO jobs (type, status, payload)
+                INSERT INTO jobs (type, status, payload, created_by_user_id)
                 VALUES ('generate_question', 'queued',
-                        CAST(:p AS jsonb))
+                        CAST(:p AS jsonb), :uid)
                 RETURNING id
                 """
             ),
             {
-                "p": '{"definition_id": %d, "type": "%s"}' % (definition_id, type),
+                "p": json.dumps({"definition_id": definition_id, "type": type}),
+                "uid": user.id,
             },
         )
     ).one()

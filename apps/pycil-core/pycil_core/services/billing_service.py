@@ -6,10 +6,14 @@ ENFORCE_TIERS feature flag default false.
 """
 from __future__ import annotations
 
+import logging
 from uuid import UUID
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+
+
+_log = logging.getLogger(__name__)
 
 
 async def get_or_create_stripe_customer(
@@ -28,10 +32,12 @@ async def get_or_create_stripe_customer(
     if row and row.stripe_customer_id:
         return row.stripe_customer_id
 
+    import asyncio
+
     import stripe
 
-    customer = stripe.Customer.create(
-        email=email, metadata={"user_id": str(user_id)}
+    customer = await asyncio.to_thread(
+        stripe.Customer.create, email=email, metadata={"user_id": str(user_id)}
     )
     await session.execute(
         text(
@@ -51,32 +57,60 @@ async def upsert_subscription(
     stripe_subscription_id: str | None,
     current_period_end_epoch: int | None,
     status_str: str,
-) -> None:
-    await session.execute(
-        text(
-            """
-            INSERT INTO subscriptions (user_id, tier, stripe_subscription_id,
-                                       current_period_end, status)
-            VALUES (:uid, :tier, :sid,
-                    CASE WHEN :pe IS NULL THEN NULL ELSE to_timestamp(:pe) END,
-                    :status)
-            ON CONFLICT (user_id) DO UPDATE
-              SET tier = EXCLUDED.tier,
-                  stripe_subscription_id = EXCLUDED.stripe_subscription_id,
-                  current_period_end = EXCLUDED.current_period_end,
-                  status = EXCLUDED.status,
-                  updated_at = NOW()
-            """
-        ),
-        {
-            "uid": user_id,
-            "tier": tier,
-            "sid": stripe_subscription_id,
-            "pe": current_period_end_epoch,
-            "status": status_str,
-        },
-    )
+    event_created_epoch: int,
+    event_id: str,
+) -> bool:
+    """Apply Stripe subscription state with out-of-order protection.
+
+    Returns True if the row was inserted/updated, False when an older event
+    (by `(event_created, event_id)` tiebreak) was rejected. Caller logs.
+    """
+    row = (
+        await session.execute(
+            text(
+                """
+                INSERT INTO subscriptions (user_id, tier, stripe_subscription_id,
+                                           current_period_end, status,
+                                           last_event_at, last_event_id)
+                VALUES (:uid, :tier, :sid,
+                        CASE WHEN :pe IS NULL THEN NULL ELSE to_timestamp(:pe) END,
+                        :status, to_timestamp(:ev_ts), :ev_id)
+                ON CONFLICT (user_id) DO UPDATE
+                  SET tier = EXCLUDED.tier,
+                      stripe_subscription_id = EXCLUDED.stripe_subscription_id,
+                      current_period_end = EXCLUDED.current_period_end,
+                      status = EXCLUDED.status,
+                      last_event_at = EXCLUDED.last_event_at,
+                      last_event_id = EXCLUDED.last_event_id,
+                      updated_at = NOW()
+                  WHERE (EXCLUDED.last_event_at, EXCLUDED.last_event_id)
+                      > (subscriptions.last_event_at, subscriptions.last_event_id)
+                RETURNING user_id
+                """
+            ),
+            {
+                "uid": user_id,
+                "tier": tier,
+                "sid": stripe_subscription_id,
+                "pe": current_period_end_epoch,
+                "status": status_str,
+                "ev_ts": event_created_epoch,
+                "ev_id": event_id,
+            },
+        )
+    ).first()
     await session.commit()
+    if row is None:
+        _log.warning(
+            "stripe_webhook_out_of_order",
+            extra={
+                "event_id": event_id,
+                "event_created": event_created_epoch,
+                "user_id": str(user_id),
+            },
+        )
+        return False
+    return True
 
 
 async def insert_webhook_event_or_dup(

@@ -85,6 +85,8 @@ async def webhook(request: Request, session: SessionDep) -> dict:
     user_id = metadata.get("user_id")
     pe_epoch = obj.get("current_period_end")
     pe_int = int(pe_epoch) if isinstance(pe_epoch, (int, float, str)) and pe_epoch else None
+    event_created = int(event.get("created") or 0)
+    event_id_str = str(event.get("id") or "")
 
     if etype == "customer.subscription.created" and user_id:
         await billing_service.upsert_subscription(
@@ -94,6 +96,8 @@ async def webhook(request: Request, session: SessionDep) -> dict:
             stripe_subscription_id=obj.get("id"),
             current_period_end_epoch=pe_int,
             status_str="active",
+            event_created_epoch=event_created,
+            event_id=event_id_str,
         )
     elif etype == "customer.subscription.updated" and user_id:
         await billing_service.upsert_subscription(
@@ -103,6 +107,8 @@ async def webhook(request: Request, session: SessionDep) -> dict:
             stripe_subscription_id=obj.get("id"),
             current_period_end_epoch=pe_int,
             status_str=str(obj.get("status") or "active"),
+            event_created_epoch=event_created,
+            event_id=event_id_str,
         )
     elif etype == "customer.subscription.deleted" and user_id:
         await billing_service.upsert_subscription(
@@ -112,6 +118,8 @@ async def webhook(request: Request, session: SessionDep) -> dict:
             stripe_subscription_id=obj.get("id"),
             current_period_end_epoch=None,
             status_str="cancelled",
+            event_created_epoch=event_created,
+            event_id=event_id_str,
         )
 
     await session.commit()

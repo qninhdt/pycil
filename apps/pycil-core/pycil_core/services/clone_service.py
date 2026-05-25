@@ -33,6 +33,19 @@ async def deep_clone(
     if src is None:
         raise LookupError("source_deck_not_found_or_not_public")
 
+    if parent_node_id is not None:
+        parent = (
+            await session.execute(
+                text(
+                    "SELECT 1 FROM nodes "
+                    "WHERE id = :pid AND type = 'FOLDER' AND author_id = :uid"
+                ),
+                {"pid": parent_node_id, "uid": user_id},
+            )
+        ).first()
+        if parent is None:
+            raise LookupError("parent_folder_not_found_or_not_owned")
+
     new_deck = (
         await session.execute(
             text(
@@ -99,7 +112,7 @@ async def deep_clone(
             )
         ).one()
 
-        new_def = (
+        new_def_row = (
             await session.execute(
                 text(
                     """
@@ -113,9 +126,7 @@ async def deep_clone(
                         :syn, :ant, :hypo, :hyper, :mero, :holo,
                         :homo, :notes, :tags, :canon, CAST(:trans AS jsonb), CAST(:tts AS jsonb)
                     )
-                    ON CONFLICT (term_id) DO UPDATE
-                      SET canonical_meaning = EXCLUDED.canonical_meaning,
-                          updated_at = NOW()
+                    ON CONFLICT (term_id) DO NOTHING
                     RETURNING id
                     """
                 ),
@@ -137,35 +148,48 @@ async def deep_clone(
                     "tts": "{}",
                 },
             )
-        ).one()
+        ).first()
+        if new_def_row is None:
+            existing = (
+                await session.execute(
+                    text("SELECT id FROM definitions WHERE term_id = :tid"),
+                    {"tid": new_term.id},
+                )
+            ).one()
+            new_def_id = existing.id
+            inserted_new_def = False
+        else:
+            new_def_id = new_def_row.id
+            inserted_new_def = True
 
-        await session.execute(
-            text(
-                "INSERT INTO definition_paraphrases (definition_id, value, cefr_level) "
-                "SELECT :nid, value, cefr_level FROM definition_paraphrases "
-                "WHERE definition_id = :sid"
-            ),
-            {"nid": new_def.id, "sid": src_def.def_id},
-        )
-        await session.execute(
-            text(
-                "INSERT INTO term_example_sentences (definition_id, value, cefr_level) "
-                "SELECT :nid, value, cefr_level FROM term_example_sentences "
-                "WHERE definition_id = :sid"
-            ),
-            {"nid": new_def.id, "sid": src_def.def_id},
-        )
-        await session.execute(
-            text(
-                """
-                INSERT INTO questions (definition_id, type, data, elo, variant_seed)
-                SELECT :nid, type, data, elo, variant_seed
-                  FROM questions
-                 WHERE definition_id = :sid
-                """
-            ),
-            {"nid": new_def.id, "sid": src_def.def_id},
-        )
+        if inserted_new_def:
+            await session.execute(
+                text(
+                    "INSERT INTO definition_paraphrases (definition_id, value, cefr_level) "
+                    "SELECT :nid, value, cefr_level FROM definition_paraphrases "
+                    "WHERE definition_id = :sid"
+                ),
+                {"nid": new_def_id, "sid": src_def.def_id},
+            )
+            await session.execute(
+                text(
+                    "INSERT INTO term_example_sentences (definition_id, value, cefr_level) "
+                    "SELECT :nid, value, cefr_level FROM term_example_sentences "
+                    "WHERE definition_id = :sid"
+                ),
+                {"nid": new_def_id, "sid": src_def.def_id},
+            )
+            await session.execute(
+                text(
+                    """
+                    INSERT INTO questions (definition_id, type, data, elo, variant_seed)
+                    SELECT :nid, type, data, elo, variant_seed
+                      FROM questions
+                     WHERE definition_id = :sid
+                    """
+                ),
+                {"nid": new_def_id, "sid": src_def.def_id},
+            )
 
         await session.execute(
             text(
@@ -174,7 +198,7 @@ async def deep_clone(
                 VALUES (:nid, :did, :pos)
                 """
             ),
-            {"nid": new_deck_id, "did": new_def.id, "pos": src_def.position},
+            {"nid": new_deck_id, "did": new_def_id, "pos": src_def.position},
         )
 
     await session.execute(

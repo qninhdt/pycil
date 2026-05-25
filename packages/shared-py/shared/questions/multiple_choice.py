@@ -7,21 +7,27 @@ the user's selection.
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 from shared.questions.base import BaseQuestion, CheckResult, QuestionType
+
+
+_OptionStr = Annotated[str, StringConstraints(min_length=1, max_length=200)]
+_RationaleStr = Annotated[str, StringConstraints(min_length=1, max_length=400)]
 
 
 class MCQData(BaseModel):
     """Persisted shape of an MCQ in `questions.data` JSONB."""
 
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
     stem: str = Field(min_length=4, max_length=400)
-    options: list[str] = Field(min_length=4, max_length=4)
+    options: list[_OptionStr] = Field(min_length=4, max_length=4)
     correct_index: int = Field(ge=0, le=3)
     explanation: str = Field(min_length=4, max_length=400)
-    distractor_rationale: list[str] = Field(min_length=3, max_length=3)
+    distractor_rationale: list[_RationaleStr] = Field(min_length=3, max_length=3)
 
     @field_validator("options")
     @classmethod

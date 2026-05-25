@@ -11,6 +11,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from shared.questions.base import BaseQuestion, CheckResult, QuestionType
+from shared.questions.normalize import normalize_answer
 
 
 class FillData(BaseModel):
@@ -48,9 +49,9 @@ class FillInBlankQuestion(BaseQuestion):
     @classmethod
     def check_answer(cls, data: dict[str, Any], answer: dict[str, Any]) -> CheckResult:
         parsed = FillAnswerInput.model_validate(answer)
-        ua = parsed.user_answer.strip().lower()
-        expected = (data.get("expected_answer") or "").strip().lower()
-        alts = [str(a).strip().lower() for a in data.get("alt_answers", [])]
+        ua = normalize_answer(parsed.user_answer)
+        expected = normalize_answer(data.get("expected_answer") or "")
+        alts = [normalize_answer(str(a)) for a in data.get("alt_answers", [])]
         if ua and (ua == expected or ua in alts):
             return CheckResult(correct=True, explanation=data.get("explanation", ""))
         return CheckResult(correct=False, explanation=data.get("explanation", ""))

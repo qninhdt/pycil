@@ -18,7 +18,6 @@ from redis.asyncio import Redis
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pycil_core.config import get_settings
 from pycil_core.learning import elo as elo_mod
 from pycil_core.learning import term_selection
 from pycil_core.learning.intervals import snap_to_ladder
@@ -30,15 +29,16 @@ from pycil_core.schemas.learning import (
     TermReviewedResult,
 )
 from pycil_core.services import question_service
+from pycil_core.services.redis_pool import get_redis
 
 _SESSION_TTL_SECONDS = 4 * 60 * 60
-_LOCK_TTL_SECONDS = 5
+_LOCK_TTL_SECONDS = 30
 _DEFAULT_ROUND_SIZE = 5
 _REQUIRED_CORRECT_FIRSTS = 2
 
 
 def _redis() -> Redis:
-    return Redis.from_url(get_settings().redis_url, decode_responses=True)
+    return get_redis()
 
 
 def _session_key(session_id: str) -> str:
@@ -204,8 +204,31 @@ def _next_round_queue(state: dict) -> list[int]:
 async def next_question(
     session: AsyncSession, user_id: UUID, session_id: str
 ) -> SessionQuestionResponse:
-    """Pop next term, fetch/generate its MCQ, return payload."""
+    """Pop next term, fetch/generate its MCQ, return payload.
+
+    LLM enqueue / question fetch happens BEFORE acquiring the per-session
+    lock so the lock guards only Redis state mutation — eliminates lock
+    starvation during generation latency.
+    """
     redis = _redis()
+    try:
+        # Read state outside the lock to determine which definition to fetch.
+        peek = await _load_state(redis, session_id)
+        if peek["user_id"] != str(user_id):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "session_forbidden")
+        peek_queue: list[int] = list(peek.get("round_queue") or [])
+        if not peek_queue:
+            peek_queue = _next_round_queue(peek)[:_DEFAULT_ROUND_SIZE]
+        peek_definition_id = int(peek_queue[0]) if peek_queue else None
+
+        fetched = None
+        if peek_definition_id is not None:
+            fetched = await question_service.get_or_generate(
+                session, peek_definition_id, "easy", user_id
+            )
+    finally:
+        pass
+
     request_id = await _acquire_lock(redis, session_id)
     try:
         state = await _load_state(redis, session_id)
@@ -228,9 +251,11 @@ async def next_question(
             state["round_queue"] = remaining[:_DEFAULT_ROUND_SIZE]
 
         definition_id = int(state["round_queue"][0])
-        fetched = await question_service.get_or_generate(
-            session, definition_id, "easy"
-        )
+        # If the queue head shifted while we fetched, refetch under lock.
+        if fetched is None or definition_id != peek_definition_id:
+            fetched = await question_service.get_or_generate(
+                session, definition_id, "easy", user_id
+            )
         if fetched.status != "ready" or fetched.question is None:
             # Generation pending; client should retry.
             await _save_state(redis, session_id, state)

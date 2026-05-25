@@ -22,12 +22,12 @@ router = APIRouter(tags=["questions"])
 )
 async def fetch_question(
     definition_id: int,
-    user: UserDep,  # noqa: ARG001
+    user: UserDep,
     session: SessionDep,
     difficulty: str = Query("easy", pattern="^(easy|medium|hard)$"),
 ) -> QuestionFetchResponse:
     return await question_service.get_or_generate(
-        session, definition_id, difficulty
+        session, definition_id, difficulty, user.id
     )
 
 
@@ -38,9 +38,9 @@ async def fetch_question(
 async def check_question(
     question_id: UUID,
     payload: QuestionCheckRequest,
-    user: UserDep,  # noqa: ARG001
+    user: UserDep,
     session: SessionDep,
 ) -> QuestionCheckResponse:
     return await question_service.check_answer(
-        session, question_id, payload.selected_index
+        session, question_id, payload.selected_index, user.id
     )

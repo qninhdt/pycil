@@ -30,6 +30,21 @@ async def start_run(
     types: list[str],
 ) -> dict:
     """Select N questions from deck, INSERT run + items, return stripped payload."""
+    owns = (
+        await session.execute(
+            text(
+                """
+                SELECT 1 FROM nodes
+                 WHERE id = :did
+                   AND type = 'DECK'
+                   AND (author_id = :uid OR visibility = 'PUBLIC')
+                """
+            ),
+            {"did": deck_id, "uid": user_id},
+        )
+    ).first()
+    if owns is None:
+        raise LookupError("deck_not_found_or_not_accessible")
     rows = (
         await session.execute(
             text(
@@ -110,10 +125,10 @@ async def submit_answer(
                   FROM test_run_items i
                   JOIN test_runs r ON r.id = i.run_id
                   JOIN questions q ON q.id = i.question_id
-                 WHERE i.id = :iid AND r.id = :rid
+                 WHERE i.id = :iid AND r.id = :rid AND r.user_id = :uid
                 """
             ),
-            {"iid": item_id, "rid": run_id},
+            {"iid": item_id, "rid": run_id, "uid": user_id},
         )
     ).first()
     if row is None or row.user_id != user_id:
