@@ -89,6 +89,27 @@ services:
     depends_on:
       - pycil-core
 
+  backup:
+    image: pycil-backup:latest
+    build:
+      context: ./infra/backup
+    profiles: ["backup"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL_SYNC:-${DATABASE_URL}}
+      RESTIC_REPOSITORY: ${RESTIC_REPOSITORY}
+      RESTIC_PASSWORD_FILE: /run/secrets/restic_password
+      B2_ACCOUNT_ID: ${B2_ACCOUNT_ID:-}
+      B2_ACCOUNT_KEY: ${B2_ACCOUNT_KEY:-}
+    secrets:
+      - restic_password
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+secrets:
+  restic_password:
+    file: ./infra/backup/restic.password
+
 volumes:
   pgdata:
   redisdata:
