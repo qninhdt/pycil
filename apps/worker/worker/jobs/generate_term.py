@@ -94,7 +94,7 @@ async def _persist_definition(
 ) -> int:
     """INSERT definitions/paraphrases/examples. UNIQUE(term_id) absorbs retries."""
     canonical = sanitize_text(output.definition.canonical_meaning)
-    notes = [canonical]  # Backward-compat: keep notes[0] for one release.
+    notes: list[str] = []  # phase 17: dropped legacy notes[0] dual-write
     insert_def = text(
         """
         INSERT INTO definitions (
@@ -205,7 +205,13 @@ async def _build_payload(session, term_id: int, definition_id: int) -> dict:
 
 
 async def generate_term(ctx: dict, term_id: int, job_id: str) -> dict:
-    """arq job entrypoint. ctx holds redis client; bind via WorkerSettings."""
+    """arq job entrypoint. ctx holds redis client; bind via WorkerSettings.
+
+    Retry idempotency (phase 8): if `user_term_jobs.last_llm_response` already
+    holds a parsed response for this job, reuse it instead of re-calling the
+    LLM. Caps blast radius if a retry fires after a successful LLM call but
+    failed DB write.
+    """
     redis = ctx["redis"]
     job_uuid = UUID(job_id)
     started = time.time()

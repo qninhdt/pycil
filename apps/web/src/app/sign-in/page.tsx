@@ -1,11 +1,24 @@
 import { signIn } from "@/../auth";
 
+const REASON_COPY: Record<string, string> = {
+  token_revoked: "Signed out from all devices.",
+  expired: "Session expired, sign in again.",
+};
+
+const ERROR_COPY: Record<string, string> = {
+  account_deleted: "Your account has been deleted.",
+};
+
 export default function SignInPage({
   searchParams,
 }: {
-  searchParams: { callbackUrl?: string };
+  searchParams: { callbackUrl?: string; reason?: string; error?: string };
 }) {
   const callbackUrl = searchParams?.callbackUrl ?? "/";
+  const banner =
+    (searchParams?.error && ERROR_COPY[searchParams.error]) ||
+    (searchParams?.reason && REASON_COPY[searchParams.reason]) ||
+    null;
   return (
     <main className="flex min-h-svh items-center justify-center px-6">
       <section className="w-full max-w-sm space-y-8 rounded-2xl border border-border bg-card p-8 shadow-sm">
@@ -16,6 +29,11 @@ export default function SignInPage({
             your account.
           </p>
         </header>
+        {banner ? (
+          <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-center text-xs text-muted-foreground">
+            {banner}
+          </div>
+        ) : null}
         <form
           action={async () => {
             "use server";
