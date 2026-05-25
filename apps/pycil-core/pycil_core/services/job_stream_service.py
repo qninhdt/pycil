@@ -49,7 +49,8 @@ async def _load_owned_job(
         await session.execute(
             text(
                 """
-                SELECT j.id, j.type, j.status, j.result, j.error, j.payload
+                SELECT j.id, j.type, j.status, j.result, j.error, j.payload,
+                       utj.last_event
                 FROM jobs j
                 JOIN user_term_jobs utj ON utj.job_id = j.id
                 WHERE j.id = :jid AND utj.user_id = :uid
@@ -80,6 +81,7 @@ async def _load_owned_job(
         "result": result,
         "error": row.error,
         "term_id": (payload or {}).get("term_id"),
+        "last_event": row.last_event,
     }
 
 
@@ -90,7 +92,9 @@ async def stream_job(
     job = await _load_owned_job(session, user_id=user_id, job_id=job_id)
 
     if job["status"] in ("completed", "failed"):
-        yield _sse_frame("status", job)
+        # Prefer last_event JSONB (full terminal payload) when present;
+        # fall back to the loaded job dict.
+        yield _sse_frame("status", job["last_event"] or job)
         return
 
     term_id = job.get("term_id")

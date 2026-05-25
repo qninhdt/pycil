@@ -7,16 +7,21 @@ from fastapi import Depends, FastAPI
 
 from pycil_core.api.routes import admin as admin_routes
 from pycil_core.api.routes import auth as auth_routes
+from pycil_core.api.routes import billing as billing_routes
+from pycil_core.api.routes import chat as chat_routes
 from pycil_core.api.routes import jobs as jobs_routes
 from pycil_core.api.routes import learning as learning_routes
 from pycil_core.api.routes import nodes as nodes_routes
 from pycil_core.api.routes import notifications as notifications_routes
 from pycil_core.api.routes import onboarding as onboarding_routes
+from pycil_core.api.routes import public_decks as public_decks_routes
 from pycil_core.api.routes import question_regenerate as question_regenerate_routes
 from pycil_core.api.routes import questions as questions_routes
 from pycil_core.api.routes import search as search_routes
 from pycil_core.api.routes import share_links as share_links_routes
 from pycil_core.api.routes import terms as terms_routes
+from pycil_core.api.routes import test_mode as test_mode_routes
+from pycil_core.api.routes import translate_tts as translate_tts_routes
 from pycil_core.auth import CurrentUser, get_current_user
 from pycil_core.config import get_settings
 from pycil_core.cron import get_scheduler
@@ -85,6 +90,8 @@ def create_app() -> FastAPI:
 
     app.include_router(auth_routes.router)
     app.include_router(admin_routes.router)
+    app.include_router(billing_routes.router)
+    app.include_router(chat_routes.router)
     app.include_router(nodes_routes.router)
     app.include_router(terms_routes.router)
     app.include_router(jobs_routes.router)
@@ -93,8 +100,11 @@ def create_app() -> FastAPI:
     app.include_router(learning_routes.router)
     app.include_router(notifications_routes.router)
     app.include_router(onboarding_routes.router)
+    app.include_router(public_decks_routes.router)
     app.include_router(search_routes.router)
     app.include_router(share_links_routes.router)
+    app.include_router(test_mode_routes.router)
+    app.include_router(translate_tts_routes.router)
 
     return app
 

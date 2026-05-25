@@ -37,6 +37,14 @@ class Settings(BaseSettings):
     b2_application_key: str | None = Field(default=None, alias="B2_APPLICATION_KEY")
     b2_public_url_prefix: str | None = Field(default=None, alias="B2_PUBLIC_URL_PREFIX")
 
+    # --- Stripe (phase 16 stub) ---
+    stripe_secret_key: str | None = Field(default=None, alias="STRIPE_SECRET_KEY")
+    stripe_webhook_secret: str | None = Field(default=None, alias="STRIPE_WEBHOOK_SECRET")
+    stripe_price_id_pro: str | None = Field(default=None, alias="STRIPE_PRICE_ID_PRO")
+    stripe_success_url: str | None = Field(default=None, alias="STRIPE_SUCCESS_URL")
+    stripe_cancel_url: str | None = Field(default=None, alias="STRIPE_CANCEL_URL")
+    enforce_tiers: bool = Field(default=False, alias="ENFORCE_TIERS")
+
     # --- CSRF / CORS ---
     allowed_origins: str = Field(default="http://localhost:3000", alias="ALLOWED_ORIGINS")
 
