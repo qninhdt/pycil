@@ -11,10 +11,11 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 from sqlalchemy import text
 
 from pycil_core.api.deps import SessionDep, UserDep
+from pycil_core.middleware.rate_limit import enforce
 from pycil_core.services import clone_service
 
 
@@ -23,11 +24,13 @@ router = APIRouter(prefix="/public", tags=["public"])
 
 @router.get("/decks")
 async def list_public_decks(
+    request: Request,
     session: SessionDep,
     q: str | None = Query(default=None, max_length=100),
     limit: int = Query(default=20, ge=1, le=50),
     cursor: str | None = Query(default=None),
 ) -> dict:
+    await enforce(request.client.host if request.client else "unknown", "public_list")
     sql = """
     SELECT n.id, n.name, n.description, n.updated_at,
            (SELECT COUNT(*) FROM deck_definitions dd WHERE dd.deck_id = n.id) AS term_count,
@@ -62,7 +65,8 @@ async def list_public_decks(
 
 
 @router.get("/decks/{deck_id}")
-async def get_public_deck(deck_id: UUID, session: SessionDep) -> dict:
+async def get_public_deck(deck_id: UUID, request: Request, session: SessionDep) -> dict:
+    await enforce(request.client.host if request.client else "unknown", "public_get")
     row = (
         await session.execute(
             text(
