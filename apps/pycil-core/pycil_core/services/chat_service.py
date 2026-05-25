@@ -86,12 +86,34 @@ async def append_message(
             {"sid": session_id, "role": role, "content": content},
         )
     ).one()
-    await session.execute(
-        text(
-            "UPDATE chat_sessions SET last_message_at = NOW() WHERE id = :sid"
-        ),
-        {"sid": session_id},
-    )
+    # Rough token estimate: 4 chars/token (OpenAI heuristic). Real tokens
+    # come from the LLM response when streaming wires up; this keeps the
+    # session input cap responsive in v0.2.
+    estimated_tokens = max(1, len(content) // 4)
+    if role == "user":
+        await session.execute(
+            text(
+                """
+                UPDATE chat_sessions
+                   SET total_input_tokens = total_input_tokens + :n,
+                       last_message_at = NOW()
+                 WHERE id = :sid
+                """
+            ),
+            {"n": estimated_tokens, "sid": session_id},
+        )
+    else:
+        await session.execute(
+            text(
+                """
+                UPDATE chat_sessions
+                   SET total_output_tokens = total_output_tokens + :n,
+                       last_message_at = NOW()
+                 WHERE id = :sid
+                """
+            ),
+            {"n": estimated_tokens, "sid": session_id},
+        )
     await session.commit()
     return row.id
 
