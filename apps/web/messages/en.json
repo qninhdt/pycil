@@ -1,0 +1,38 @@
+{
+  "common": {
+    "loading": "Loading…",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "back": "Back",
+    "search": "Search",
+    "signOut": "Sign out",
+    "signOutEverywhere": "Sign out everywhere",
+    "deleteAccount": "Delete account",
+    "comingSoon": "Coming soon"
+  },
+  "profile": {
+    "title": "Profile",
+    "stats": "Stats",
+    "level": "Level",
+    "xp": "XP",
+    "streak": "Streak",
+    "rank": "Rank",
+    "edit": "Edit profile",
+    "image": "Profile image",
+    "imageHint": "≤2MB, JPEG/PNG/WebP"
+  },
+  "auth": {
+    "signIn": "Continue with Google",
+    "signedOutEverywhere": "Signed out from all devices.",
+    "sessionExpired": "Session expired, sign in again.",
+    "accountDeleted": "Your account has been deleted."
+  },
+  "errors": {
+    "generic": "Something went wrong",
+    "tokenTooOld": "Session too old, sign in again",
+    "imageTooLarge": "Image must be ≤2MB",
+    "unsupportedType": "Unsupported file type"
+  }
+}

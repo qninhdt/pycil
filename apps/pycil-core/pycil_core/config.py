@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     stripe_cancel_url: str | None = Field(default=None, alias="STRIPE_CANCEL_URL")
     enforce_tiers: bool = Field(default=False, alias="ENFORCE_TIERS")
 
+    # --- Sentry / observability (phase 15) ---
+    sentry_dsn_core: str | None = Field(default=None, alias="SENTRY_DSN_CORE")
+    app_env: str = Field(default="dev", alias="APP_ENV")
+
     # --- CSRF / CORS ---
     allowed_origins: str = Field(default="http://localhost:3000", alias="ALLOWED_ORIGINS")
 

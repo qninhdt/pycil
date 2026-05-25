@@ -30,6 +30,20 @@ from pycil_core.middleware import OriginAllowlistMiddleware
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    settings = get_settings()
+    sentry_dsn = getattr(settings, "sentry_dsn_core", None)
+    if sentry_dsn:
+        try:
+            import sentry_sdk
+
+            sentry_sdk.init(
+                dsn=sentry_dsn,
+                traces_sample_rate=0.1,
+                send_default_pii=False,
+                environment=getattr(settings, "app_env", "dev"),
+            )
+        except ImportError:
+            pass
     scheduler = get_scheduler()
     scheduler.start()
     try:
