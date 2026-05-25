@@ -49,6 +49,11 @@ class Settings(BaseSettings):
     sentry_dsn_core: str | None = Field(default=None, alias="SENTRY_DSN_CORE")
     app_env: str = Field(default="dev", alias="APP_ENV")
 
+    # --- OpenRouter (phase 11 chat streaming) ---
+    openrouter_api_key: str | None = Field(default=None, alias="OPENROUTER_API_KEY")
+    openrouter_model: str | None = Field(default=None, alias="OPENROUTER_MODEL")
+    openrouter_chat_model: str | None = Field(default=None, alias="OPENROUTER_CHAT_MODEL")
+
     # --- CSRF / CORS ---
     allowed_origins: str = Field(default="http://localhost:3000", alias="ALLOWED_ORIGINS")
 

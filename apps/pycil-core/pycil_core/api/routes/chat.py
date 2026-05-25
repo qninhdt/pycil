@@ -92,11 +92,66 @@ async def delete_session(
 
 
 async def _chat_stream(session_id: UUID, user_id: UUID):
-    """Skeleton SSE stream. v0.3 wires real LLM streaming via httpx."""
+    """Real SSE stream of LLM tokens with deck-grounded system prompt."""
+    from pycil_core.db import get_engine
+    from pycil_core.services import llm_streaming
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    engine = get_engine()
+    async with AsyncSession(engine, expire_on_commit=False) as s:
+        history = await chat_service.get_messages(
+            s, session_id=session_id, user_id=user_id, limit=20
+        )
+        deck_terms = (
+            await s.execute(
+                text(
+                    """
+                    SELECT t.value, d.canonical_meaning
+                      FROM chat_sessions cs
+                      JOIN deck_definitions dd ON dd.deck_id = cs.deck_id
+                      JOIN definitions d ON d.id = dd.definition_id
+                      JOIN terms t ON t.id = d.term_id
+                     WHERE cs.id = :sid
+                     LIMIT 50
+                    """
+                ),
+                {"sid": session_id},
+            )
+        ).all()
+
+    system = "You are a concise vocabulary tutor."
+    if deck_terms:
+        lines = "\n".join(
+            f"- {r.value}: {r.canonical_meaning or '(no canonical)'}"
+            for r in deck_terms
+        )
+        system += f"\n\nUser's deck terms:\n{lines}"
+
+    messages: list[dict] = [{"role": "system", "content": system}]
+    for m in history:
+        if m["role"] in ("user", "assistant"):
+            messages.append({"role": m["role"], "content": m["content"]})
+
     yield f"event: status\ndata: {json.dumps({'session_id': str(session_id)})}\n\n".encode()
-    yield b"event: token\ndata: {\"token\": \"(LLM streaming wires up in v0.3)\"}\n\n"
-    await asyncio.sleep(0)
-    yield b"event: done\ndata: {\"status\": \"completed\"}\n\n"
+
+    buf: list[str] = []
+    async for frame in llm_streaming.stream_chat(messages):
+        if frame.get("kind") == "token":
+            tok = frame["token"]
+            buf.append(tok)
+            yield f"event: token\ndata: {json.dumps({'token': tok})}\n\n".encode()
+        elif frame.get("kind") == "error":
+            yield f"event: error\ndata: {json.dumps(frame)}\n\n".encode()
+            return
+
+    final = "".join(buf)
+    if final:
+        async with AsyncSession(engine, expire_on_commit=False) as s:
+            await chat_service.append_message(
+                s, session_id=session_id, role="assistant", content=final
+            )
+
+    yield f"event: done\ndata: {json.dumps({'status': 'completed'})}\n\n".encode()
 
 
 @router.get("/sessions/{session_id}/stream")
