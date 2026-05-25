@@ -1,0 +1,100 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve image tag
+        id: meta
+        run: echo "image_tag=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & push pycil-core
+        uses: docker/build-push-action@v5
+        with:
+          context: ./apps/pycil-core
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-core:${{ steps.meta.outputs.image_tag }}
+
+      - name: Build & push worker
+        uses: docker/build-push-action@v5
+        with:
+          context: ./apps/worker
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-worker:${{ steps.meta.outputs.image_tag }}
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH (migration-then-swap)
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+          REGISTRY: ${{ env.REGISTRY }}
+          IMAGE_PREFIX: ${{ github.repository }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          envs: IMAGE_TAG,REGISTRY,IMAGE_PREFIX
+          script: |
+            set -euo pipefail
+            cd /opt/pycil
+            # Source .env so $POSTGRES_USER / $POSTGRES_DB are available to pg_dump.
+            set -a
+            . ./.env
+            set +a
+            export CORE_IMAGE="${REGISTRY}/${IMAGE_PREFIX}-core:${IMAGE_TAG}"
+            export WORKER_IMAGE="${REGISTRY}/${IMAGE_PREFIX}-worker:${IMAGE_TAG}"
+
+            ts=$(date +%s)
+            mkdir -p /var/backups/pycil
+            docker compose exec -T postgres pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" \
+              > /var/backups/pycil/pre-deploy-${ts}.sql
+            ls -1t /var/backups/pycil/pre-deploy-*.sql | tail -n +6 | xargs -r rm
+
+            docker compose pull
+            # Run migration in NEW image BEFORE swapping app containers.
+            if ! docker compose run --rm pycil-core alembic upgrade head; then
+              echo "migration failed; aborting deploy. old containers untouched."
+              exit 1
+            fi
+            docker compose up -d
+
+            healthy=0
+            for i in $(seq 1 30); do
+              if docker compose exec -T pycil-core \
+                   python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()" \
+                   >/dev/null 2>&1; then
+                healthy=1
+                break
+              fi
+              sleep 2
+            done
+            if [ "$healthy" -ne 1 ]; then
+              echo "pycil-core failed health check after 60s"
+              exit 1
+            fi

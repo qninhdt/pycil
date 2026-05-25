@@ -1,0 +1,34 @@
+{
+	# Use Caddy's internal CA — never burns Let's Encrypt rate limit.
+	local_certs
+}
+
+localhost {
+	encode gzip zstd
+
+	# Block internal upsert endpoint from leaking through the public path.
+	# Must precede `handle_path /api/core/*`.
+	respond /api/core/auth/* 404
+
+	handle_path /api/core/* {
+		# Post-strip path is `/jobs/*/stream` (prefix `/api/core` already stripped).
+		@sse path /jobs/*/stream
+		reverse_proxy @sse pycil-core:8000 {
+			flush_interval -1
+			header_up X-Accel-Buffering no
+			header_up Origin {http.request.header.Origin}
+		}
+		reverse_proxy pycil-core:8000 {
+			header_up Origin {http.request.header.Origin}
+		}
+	}
+
+	handle /health {
+		reverse_proxy pycil-core:8000
+	}
+
+	# Web is hosted on Vercel — local-dev runs `npm run dev` on the host
+	# and uses next.config.ts rewrites to hit pycil-core directly. Caddy.local
+	# is api-only.
+	respond / 404
+}

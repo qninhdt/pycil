@@ -1,0 +1,50 @@
+[project]
+name = "pycil-core"
+version = "0.1.0"
+description = "Pycil core API — FastAPI + SQLModel + Alembic"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115,<0.116",
+    "uvicorn[standard]>=0.32,<0.33",
+    "sqlmodel>=0.0.22,<0.1",
+    "alembic>=1.14,<1.15",
+    "asyncpg>=0.30,<0.31",
+    "psycopg[binary]>=3.2,<3.3",
+    "pydantic>=2.9,<3.0",
+    "pydantic-settings>=2.6,<2.7",
+    "redis>=5.2,<6.0",
+    "arq>=0.26,<0.27",
+    "structlog>=24.4,<25.0",
+    "python-multipart>=0.0.20",
+    "apscheduler>=3.10,<4.0",
+    "boto3>=1.35,<2.0",
+    "rapidfuzz>=3,<4",
+    "stripe>=11,<12",
+    "sentry-sdk[fastapi]>=2.18,<3.0",
+    "pycil-shared",
+]
+
+[tool.uv.sources]
+pycil-shared = { path = "../../packages/shared-py", editable = true }
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3,<9.0",
+    "pytest-asyncio>=0.24,<0.25",
+    "ruff>=0.8,<0.9",
+]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["pycil_core*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]

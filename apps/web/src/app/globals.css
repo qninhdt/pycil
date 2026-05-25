@@ -1,0 +1,276 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* Import all theme files */
+@import "../themes/default.css";
+@import "../themes/art-deco.css";
+@import "../themes/modern-minimal.css";
+@import "../themes/neo-brutalism.css";
+@import "../themes/ghibli-studio.css";
+@import "../themes/pastel-dream.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --font-serif: var(--font-serif);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --shadow-2xs: var(--shadow-2xs);
+  --shadow-xs: var(--shadow-xs);
+  --shadow-sm: var(--shadow-sm);
+  --shadow: var(--shadow);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+  --shadow-xl: var(--shadow-xl);
+  --shadow-2xl: var(--shadow-2xl);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  /* Smooth transitions for theme changes */
+  html {
+    transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out;
+  }
+
+  /* Prevent theme transition interference with layout */
+  .layout-transition {
+    transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+}
+
+@layer utilities {
+  /* Line clamp utilities for better text truncation */
+  .line-clamp-1 {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 1;
+  }
+
+  .line-clamp-2 {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .line-clamp-3 {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+  }
+}
+
+/* Modern Scrollbar Design */
+@layer base {
+  /* Define scrollbar color variables using theme colors */
+  :root {
+    --scrollbar-width: 8px;
+    --scrollbar-track: transparent;
+    --scrollbar-thumb: oklch(from var(--muted-foreground) l c h / 0.3);
+    --scrollbar-thumb-hover: oklch(from var(--muted-foreground) l c h / 0.5);
+    --scrollbar-thumb-active: oklch(from var(--muted-foreground) l c h / 0.7);
+    --scrollbar-corner: transparent;
+  }
+
+  .dark {
+    --scrollbar-thumb: oklch(from var(--muted-foreground) l c h / 0.4);
+    --scrollbar-thumb-hover: oklch(from var(--muted-foreground) l c h / 0.6);
+    --scrollbar-thumb-active: oklch(from var(--muted-foreground) l c h / 0.8);
+  }
+
+  /* Modern scrollbar styles for WebKit browsers (Chrome, Safari, Edge) */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  }
+
+  *::-webkit-scrollbar {
+    width: var(--scrollbar-width);
+    height: var(--scrollbar-width);
+  }
+
+  *::-webkit-scrollbar-track {
+    background: var(--scrollbar-track);
+    border-radius: 4px;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 4px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+    transition: background-color 0.2s ease;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-thumb-hover);
+  }
+
+  *::-webkit-scrollbar-thumb:active {
+    background: var(--scrollbar-thumb-active);
+  }
+
+  *::-webkit-scrollbar-corner {
+    background: var(--scrollbar-corner);
+  }
+
+  /* Thin scrollbar variant for compact components */
+  .scrollbar-thin {
+    --scrollbar-width: 4px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: var(--scrollbar-width);
+    height: var(--scrollbar-width);
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    border-radius: 2px;
+    border: 1px solid transparent;
+  }
+
+  /* Hide scrollbar variant */
+  .scrollbar-hide {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Overlay scrollbar for mobile-like experience */
+  .scrollbar-overlay {
+    overflow: overlay;
+  }
+
+  .scrollbar-overlay::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .scrollbar-overlay::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 3px;
+    border: none;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+  }
+
+  .scrollbar-overlay:hover::-webkit-scrollbar-thumb {
+    opacity: 1;
+  }
+
+  /* Custom scrollbar for specific components */
+  .scrollbar-custom {
+    --scrollbar-width: 10px;
+    --scrollbar-thumb: oklch(from var(--primary) l c h / 0.6);
+    --scrollbar-thumb-hover: oklch(from var(--primary) l c h / 0.8);
+  }
+
+  .dark .scrollbar-custom {
+    --scrollbar-thumb: oklch(from var(--primary) l c h / 0.6);
+    --scrollbar-thumb-hover: oklch(from var(--primary) l c h / 0.8);
+  }
+
+  /* Accent scrollbar variant */
+  .scrollbar-accent {
+    --scrollbar-thumb: oklch(from var(--accent) l c h / 0.5);
+    --scrollbar-thumb-hover: oklch(from var(--accent) l c h / 0.7);
+    --scrollbar-thumb-active: oklch(from var(--accent) l c h / 0.9);
+  }
+
+  /* Border-themed scrollbar variant */
+  .scrollbar-border {
+    --scrollbar-thumb: oklch(from var(--border) l c h / 0.8);
+    --scrollbar-thumb-hover: oklch(from var(--border) l c h / 1);
+    --scrollbar-thumb-active: oklch(from var(--foreground) l c h / 0.3);
+  }
+
+  /* Ring-themed scrollbar variant for focus states */
+  .scrollbar-ring {
+    --scrollbar-thumb: oklch(from var(--ring) l c h / 0.4);
+    --scrollbar-thumb-hover: oklch(from var(--ring) l c h / 0.6);
+    --scrollbar-thumb-active: oklch(from var(--ring) l c h / 0.8);
+  }
+
+  /* Text utilities for better handling of long text */
+  .break-words {
+    word-break: break-word;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+  }
+
+  .hyphens-auto {
+    hyphens: auto;
+    -webkit-hyphens: auto;
+    -ms-hyphens: auto;
+  }
+
+  .hyphens-none {
+    hyphens: none;
+    -webkit-hyphens: none;
+    -ms-hyphens: none;
+  }
+}
+
+.bg-striped {
+  background-image: linear-gradient(
+    45deg,
+    var(--primary) 25%,
+    transparent 25%,
+    transparent 50%,
+    var(--primary) 50%,
+    var(--primary) 75%,
+    transparent 75%,
+    transparent 100%
+  );
+  background-size: 10px 10px;
+  background-attachment: fixed;
+}

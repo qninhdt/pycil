@@ -1,0 +1,38 @@
+{$DOMAIN} {
+	encode gzip zstd
+
+	# Block internal upsert endpoint from leaking through the public path.
+	# Defense-in-depth — INTERNAL_API_SECRET is the actual gate.
+	# Must precede `handle_path /api/core/*`.
+	respond /api/core/auth/* 404
+	respond /api/core/admin/* 404
+
+	# pycil-core API: strip /api/core prefix so FastAPI sees /nodes, /decks, etc.
+	# Use handle_path (NOT reverse_proxy /api/core/*) — handle_path strips, the latter forwards.
+	handle_path /api/core/* {
+		# SSE matcher uses POST-strip path (`/api/core` already removed).
+		# Disable buffering + compression so chunks flush immediately.
+		@sse path /jobs/*/stream
+		reverse_proxy @sse pycil-core:8000 {
+			flush_interval -1
+			header_up X-Accel-Buffering no
+			header_up Origin {http.request.header.Origin}
+			header_up X-Real-IP {remote_host}
+		}
+		reverse_proxy pycil-core:8000 {
+			header_up Origin {http.request.header.Origin}
+			header_up X-Real-IP {remote_host}
+		}
+	}
+
+	# Health endpoint passthrough (no prefix strip).
+	handle /health {
+		reverse_proxy pycil-core:8000
+	}
+
+	# Web frontend lives on Vercel (api-only host).
+	respond / 404
+
+	# ACME contact email (set via $CADDY_ACME_EMAIL; falls back so Caddy starts).
+	tls {$CADDY_ACME_EMAIL:admin@example.com}
+}

@@ -1,0 +1,30 @@
+[project]
+name = "pycil-worker"
+version = "0.1.0"
+description = "Pycil background worker — arq + LangChain + OpenRouter"
+requires-python = ">=3.12"
+dependencies = [
+    "arq>=0.26,<0.27",
+    "redis>=5.2,<6.0",
+    "asyncpg>=0.30,<0.31",
+    "psycopg[binary]>=3.2,<3.3",
+    "pydantic>=2.9,<3.0",
+    "pydantic-settings>=2.6,<2.7",
+    "structlog>=24.4,<25.0",
+    "httpx>=0.28,<0.29",
+    "langchain>=0.3.7,<0.4",
+    "langchain-openai>=0.2.8,<0.3",
+    "jinja2>=3.1,<4.0",
+    "sqlalchemy>=2.0,<2.1",
+    "pycil-shared",
+]
+
+[tool.uv.sources]
+pycil-shared = { path = "../../packages/shared-py", editable = true }
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["worker*"]
