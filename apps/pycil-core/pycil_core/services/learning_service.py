@@ -336,6 +336,7 @@ async def submit_answer(
     selected_index: int,
 ) -> SubmitAnswerResponse:
     from shared.questions.multiple_choice import MultipleChoiceQuestion
+    from pycil_core.services import gamification_service
 
     redis = _redis()
     request_id = await _acquire_lock(redis, session_id)
@@ -429,6 +430,18 @@ async def submit_answer(
         state["current_question_id"] = None
         state["current_definition_id"] = None
         await _save_state(redis, session_id, state)
+
+        xp_delta = (
+            gamification_service.XP_DELTA["correct_new"]
+            if correct and was_first
+            else gamification_service.XP_DELTA["correct_review"]
+            if correct
+            else gamification_service.XP_DELTA["wrong"]
+        )
+        await gamification_service.award_xp(session, user_id=user_id, delta=xp_delta)
+        await gamification_service.tick_streak(session, user_id=user_id)
+        if term_reviewed is not None:
+            await gamification_service.check_badges(session, user_id=user_id)
 
         return SubmitAnswerResponse(
             correct=correct,

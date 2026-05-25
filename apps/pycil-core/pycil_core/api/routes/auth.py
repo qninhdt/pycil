@@ -17,7 +17,7 @@ from pydantic import BaseModel, EmailStr, Field
 
 from pycil_core.api.deps import SessionDep, UserDep
 from pycil_core.config import get_settings
-from pycil_core.services import user_service
+from pycil_core.services import image_upload_service, user_service
 
 
 router = APIRouter(tags=["auth"])
@@ -123,4 +123,21 @@ async def delete_me(user: UserDep, session: SessionDep) -> DeleteMeResponse:
     await user_service.soft_delete_user(session, user_id=user.id)
     from datetime import datetime, timezone
     return DeleteMeResponse(deleted_at=datetime.now(timezone.utc).isoformat())
+
+
+class ImageUploadUrlBody(BaseModel):
+    content_type: str
+
+
+@router.post("/me/image-upload-url")
+async def image_upload_url(body: ImageUploadUrlBody, user: UserDep) -> dict:
+    """Return a signed PUT URL bound to a server-generated key."""
+    try:
+        return image_upload_service.generate_put_url(
+            user_id=user.id, content_type=body.content_type
+        )
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc))
 

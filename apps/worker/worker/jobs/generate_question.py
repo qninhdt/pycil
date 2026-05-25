@@ -19,18 +19,25 @@ import time
 from typing import Any
 from uuid import UUID
 
-from pydantic import ValidationError
 from sqlalchemy import text
 
+from shared.questions.fill_in_blank import FillData, FillInBlankQuestion
 from shared.questions.multiple_choice import MCQData, MultipleChoiceQuestion
+from shared.questions.write import WriteData, WriteQuestion
 from worker.db import SessionLocal
 from worker.llm.openrouter import generate_with_schema
 from worker.prompts import render
 from worker.redis_helpers import add_spend
 from worker.sanitize import sanitize_list, sanitize_text
 
+
+_TYPE_MAP = {
+    "MULTIPLE_CHOICE": (MultipleChoiceQuestion, MCQData),
+    "WRITE": (WriteQuestion, WriteData),
+    "FILL_IN_BLANK": (FillInBlankQuestion, FillData),
+}
+
 _log = logging.getLogger(__name__)
-_RETRY_SUFFIX = "\n\nIMPORTANT: RETURN ONLY VALID JSON MATCHING THE SCHEMA."
 _ESTIMATED_COST_USD = 0.0003
 
 
@@ -85,15 +92,15 @@ async def _load_inputs(session, definition_id: int) -> dict[str, Any] | None:
     }
 
 
-async def _existing_question_id(session, definition_id: int) -> int | None:
+async def _existing_question_id(session, definition_id: int, q_type: str) -> int | None:
     row = (
         await session.execute(
             text(
                 "SELECT id FROM questions "
-                "WHERE definition_id = :id AND type = 'MULTIPLE_CHOICE' "
+                "WHERE definition_id = :id AND type = :t "
                 "ORDER BY created_at ASC LIMIT 1"
             ),
-            {"id": definition_id},
+            {"id": definition_id, "t": q_type},
         )
     ).first()
     return row.id if row else None
@@ -142,25 +149,24 @@ async def _mark_job(
     )
 
 
-async def _invoke_llm(prompt: str) -> MCQData:
-    try:
-        return await generate_with_schema(prompt, MCQData)
-    except (ValidationError, ValueError) as e:
-        _log.warning("mcq_validation_retry", extra={"err": str(e)[:300]})
-        return await generate_with_schema(prompt + _RETRY_SUFFIX, MCQData)
-
-
 async def generate_question(
-    ctx: dict, definition_id: int, job_id: str, difficulty: str = "easy"
+    ctx: dict,
+    definition_id: int,
+    job_id: str,
+    difficulty: str = "easy",
+    question_type: str = "MULTIPLE_CHOICE",
 ) -> dict:
-    """arq job entrypoint for MCQ generation."""
+    """arq job entrypoint for question generation (MCQ/WRITE/FILL_IN_BLANK)."""
     redis = ctx["redis"]
     job_uuid = UUID(job_id)
     started = time.time()
 
+    if question_type not in _TYPE_MAP:
+        raise ValueError(f"unsupported_question_type: {question_type}")
+    q_class, schema_cls = _TYPE_MAP[question_type]
+
     async with SessionLocal() as session:
-        # Cache hit guard (race-safe with question_service.get_or_generate).
-        existing = await _existing_question_id(session, definition_id)
+        existing = await _existing_question_id(session, definition_id, question_type)
         if existing is not None:
             await _append_event(
                 session, job_uuid, {"at": time.time(), "kind": "cache_hit"}
@@ -196,23 +202,33 @@ async def generate_question(
             return {"status": "failed"}
 
         try:
-            prompt = render(
-                MultipleChoiceQuestion.template_name(),
-                **MultipleChoiceQuestion.prompt_inputs(inputs, difficulty),
-            )
-            output = await _invoke_llm(prompt)
+            if question_type == "MULTIPLE_CHOICE":
+                prompt = render(
+                    q_class.template_name(),
+                    **q_class.prompt_inputs(inputs, difficulty),
+                )
+            else:
+                prompt = render(
+                    q_class.template_name(),
+                    term_value=inputs["term_value"],
+                    definition_text=inputs.get("canonical_meaning") or "",
+                )
+            output = await generate_with_schema(prompt, schema_cls)
             await add_spend(redis, _ESTIMATED_COST_USD)
-            data = _sanitize_mcq(output)
+            if question_type == "MULTIPLE_CHOICE":
+                data = _sanitize_mcq(output)
+            else:
+                data = output.model_dump()
             row = (
                 await session.execute(
                     text(
                         """
                         INSERT INTO questions (definition_id, type, data)
-                        VALUES (:did, 'MULTIPLE_CHOICE', :data::jsonb)
+                        VALUES (:did, CAST(:t AS question_type), :data::jsonb)
                         RETURNING id
                         """
                     ),
-                    {"did": definition_id, "data": json.dumps(data)},
+                    {"did": definition_id, "t": question_type, "data": json.dumps(data)},
                 )
             ).one()
             question_id = row.id

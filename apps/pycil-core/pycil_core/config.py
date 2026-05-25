@@ -30,6 +30,13 @@ class Settings(BaseSettings):
     internal_api_secret: str = Field(..., alias="INTERNAL_API_SECRET")
     jwt_max_age_seconds: int = Field(default=60 * 60 * 24 * 7, alias="JWT_MAX_AGE_SECONDS")
 
+    # --- B2 / S3-compatible storage (avatars + TTS) ---
+    b2_bucket: str | None = Field(default=None, alias="B2_BUCKET")
+    b2_endpoint: str | None = Field(default=None, alias="B2_ENDPOINT")
+    b2_key_id: str | None = Field(default=None, alias="B2_KEY_ID")
+    b2_application_key: str | None = Field(default=None, alias="B2_APPLICATION_KEY")
+    b2_public_url_prefix: str | None = Field(default=None, alias="B2_PUBLIC_URL_PREFIX")
+
     # --- CSRF / CORS ---
     allowed_origins: str = Field(default="http://localhost:3000", alias="ALLOWED_ORIGINS")
 

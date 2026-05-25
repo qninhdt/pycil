@@ -20,6 +20,17 @@ function initialsFrom(name: string | null | undefined, email: string): string {
     .toUpperCase();
 }
 
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border bg-card p-3">
+      <p className="text-xs uppercase tracking-wide text-muted-foreground">
+        {label}
+      </p>
+      <p className="mt-1 text-xl font-semibold">{value}</p>
+    </div>
+  );
+}
+
 export default function ProfilePage() {
   const { data: me, isLoading } = useMe();
   const [editOpen, setEditOpen] = useState(false);
@@ -64,15 +75,35 @@ export default function ProfilePage() {
       </Card>
 
       <Card>
-        <CardHeader className="flex-row items-center justify-between gap-2">
+        <CardHeader>
           <CardTitle className="text-base">Stats</CardTitle>
-          <Badge variant="secondary">Coming soon</Badge>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-muted-foreground">
-            Levels, streaks, coins, and referral rewards land in a future
-            release. Your study history still counts toward them.
-          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <Stat label="Level" value={String((me as any).level ?? 1)} />
+            <Stat label="XP" value={String((me as any).xp_total ?? 0)} />
+            <Stat
+              label="Streak"
+              value={`${(me as any).streak_days ?? 0}d`}
+            />
+            <Stat
+              label="Rank"
+              value={
+                (me as any).league_rank
+                  ? `#${(me as any).league_rank}`
+                  : "—"
+              }
+            />
+          </div>
+          {Array.isArray((me as any).badges) && (me as any).badges.length > 0 ? (
+            <div className="mt-4 flex flex-wrap gap-2">
+              {((me as any).badges as string[]).map((b) => (
+                <Badge key={b} variant="secondary">
+                  {b.replace(/_/g, " ")}
+                </Badge>
+              ))}
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 

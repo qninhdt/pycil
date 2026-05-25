@@ -1,91 +1,117 @@
 "use client";
 
-import { useMemo } from "react";
-import { useLocalStorage } from "./use-local-storage";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { AppNotification, NotificationType } from "@/types/notification";
 
-const STORAGE_KEY = "notifications";
+type ServerNotification = {
+  id: string;
+  kind: string;
+  payload: Record<string, unknown>;
+  read_at: string | null;
+  created_at: string;
+};
 
-const seedNotifications: AppNotification[] = [
-  {
-    id: "n1",
-    type: "mention",
-    title: "Alex mentioned you in a comment",
-    description: '"Great set of flashcards!" on English Vocabulary',
-    createdAt: new Date(Date.now() - 1000 * 60 * 20).toISOString(),
-    read: false,
-    avatarUrl:
-      "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=64&h=64&fit=crop&crop=face",
-    href: "/u/alexj_study",
-  },
-  {
-    id: "n2",
-    type: "achievement",
-    title: "Weekly streak reached 7 days",
-    description: "Keep it up! Claim your reward",
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(),
-    read: false,
-    icon: "🔥",
-    href: "/profile",
-  },
-  {
-    id: "n3",
-    type: "reminder",
-    title: "Spaced repetition due",
-    description: "15 cards are ready to review in AP Chemistry Notes",
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
-    read: true,
-    icon: "⏰",
-    href: "/decks/5",
-  },
-  {
-    id: "n4",
-    type: "system",
-    title: "New feature: Create shortcuts",
-    description: "Quickly access decks and folders from anywhere",
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 30).toISOString(),
-    read: true,
-    icon: "✨",
-  },
-];
+function kindToType(kind: string): NotificationType {
+  if (kind.startsWith("badge")) return "achievement";
+  if (kind.startsWith("mention")) return "mention";
+  if (kind.startsWith("reminder") || kind === "review_due") return "reminder";
+  return "system";
+}
+
+function fromServer(n: ServerNotification): AppNotification {
+  const title = String(n.payload.title ?? n.kind);
+  const description =
+    typeof n.payload.description === "string"
+      ? (n.payload.description as string)
+      : undefined;
+  return {
+    id: n.id,
+    type: kindToType(n.kind),
+    title,
+    description,
+    createdAt: n.created_at,
+    read: n.read_at !== null,
+    href: typeof n.payload.href === "string" ? (n.payload.href as string) : undefined,
+    icon: typeof n.payload.icon === "string" ? (n.payload.icon as string) : undefined,
+  };
+}
+
+const POLL_MS = 30_000;
 
 export function useNotifications() {
-  const [items, setItems, loaded] = useLocalStorage<AppNotification[]>(
-    STORAGE_KEY,
-    seedNotifications
-  );
+  const [items, setItems] = useState<AppNotification[]>([]);
+  const [loaded, setLoaded] = useState(false);
+
+  const fetchPage = useCallback(async () => {
+    try {
+      const res = await fetch("/api/core/notifications?limit=50", {
+        credentials: "include",
+      });
+      if (!res.ok) return;
+      const data = (await res.json()) as ServerNotification[];
+      setItems(data.map(fromServer));
+    } finally {
+      setLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    void fetchPage();
+    const id = setInterval(fetchPage, POLL_MS);
+    return () => clearInterval(id);
+  }, [fetchPage]);
 
   const unreadCount = useMemo(
     () => items.filter((n) => !n.read).length,
     [items]
   );
 
-  const markAllRead = () =>
+  const markAllRead = useCallback(async () => {
+    const unreadIds = items.filter((n) => !n.read).map((n) => n.id);
     setItems((prev) => prev.map((n) => ({ ...n, read: true })));
+    if (unreadIds.length === 0) return;
+    await fetch("/api/core/notifications/mark-read", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ ids: unreadIds }),
+    }).catch(() => undefined);
+  }, [items]);
 
-  const markRead = (id: string, read = true) =>
-    setItems((prev) => prev.map((n) => (n.id === id ? { ...n, read } : n)));
+  const markRead = useCallback(
+    async (id: string, read = true) => {
+      setItems((prev) => prev.map((n) => (n.id === id ? { ...n, read } : n)));
+      if (!read) return;
+      await fetch("/api/core/notifications/mark-read", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ ids: [id] }),
+      }).catch(() => undefined);
+    },
+    []
+  );
 
-  const clearAll = () => setItems([]);
+  const clearAll = useCallback(() => setItems([]), []);
 
-  const addNotification = (
-    n: Omit<AppNotification, "id" | "createdAt"> & {
-      id?: string;
-      createdAt?: string;
-    }
-  ) => {
-    const withDefaults: AppNotification = {
-      id: n.id ?? crypto.randomUUID(),
-      createdAt: n.createdAt ?? new Date().toISOString(),
-      ...n,
-      read: (n as Partial<AppNotification>).read ?? false,
-    } as AppNotification;
-    setItems((prev) => [withDefaults, ...prev]);
-    return withDefaults;
-  };
+  const addNotification = useCallback(
+    (n: Omit<AppNotification, "id" | "createdAt"> & { id?: string; createdAt?: string }) => {
+      const withDefaults: AppNotification = {
+        id: n.id ?? crypto.randomUUID(),
+        createdAt: n.createdAt ?? new Date().toISOString(),
+        ...n,
+        read: (n as Partial<AppNotification>).read ?? false,
+      } as AppNotification;
+      setItems((prev) => [withDefaults, ...prev]);
+      return withDefaults;
+    },
+    []
+  );
 
-  const byType = (type: NotificationType) =>
-    items.filter((n) => n.type === type);
+  const byType = useCallback(
+    (type: NotificationType) => items.filter((n) => n.type === type),
+    [items]
+  );
 
   return {
     items,

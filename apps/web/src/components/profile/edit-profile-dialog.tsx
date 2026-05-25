@@ -29,11 +29,50 @@ export function EditProfileDialog({
   initialName,
 }: EditProfileDialogProps) {
   const [name, setName] = useState(initialName);
+  const [uploading, setUploading] = useState(false);
   const update = useUpdateMe();
 
   useEffect(() => {
     if (open) setName(initialName);
   }, [open, initialName]);
+
+  const handleImageChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error("Image must be ≤2MB.");
+      return;
+    }
+    setUploading(true);
+    try {
+      const signRes = await fetch("/api/core/me/image-upload-url", {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ content_type: file.type }),
+      });
+      if (!signRes.ok) throw new Error("sign_failed");
+      const { put_url, public_url } = (await signRes.json()) as {
+        put_url: string;
+        public_url: string | null;
+      };
+      const putRes = await fetch(put_url, {
+        method: "PUT",
+        headers: { "content-type": file.type },
+        body: file,
+      });
+      if (!putRes.ok) throw new Error("upload_failed");
+      if (public_url) {
+        await update.mutateAsync({ image_url: public_url } as any);
+        toast.success("Profile image updated.");
+      }
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Could not upload image"));
+    } finally {
+      setUploading(false);
+      event.target.value = "";
+    }
+  };
 
   const handleSubmit = async (event: { preventDefault: () => void }) => {
     event.preventDefault();
@@ -73,6 +112,19 @@ export function EditProfileDialog({
               autoFocus
               disabled={update.isPending}
             />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="profile-image">Profile image (≤2MB, JPEG/PNG/WebP)</Label>
+            <Input
+              id="profile-image"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              onChange={handleImageChange}
+              disabled={uploading || update.isPending}
+            />
+            {uploading && (
+              <p className="text-xs text-muted-foreground">Uploading…</p>
+            )}
           </div>
           <DialogFooter className="gap-2">
             <Button
