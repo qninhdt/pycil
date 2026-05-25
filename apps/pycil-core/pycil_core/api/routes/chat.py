@@ -1,9 +1,12 @@
 """Chat-with-AI HTTP API: sessions + messages + SSE stream stub."""
 from __future__ import annotations
 
+import asyncio
+import json
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import text
 
@@ -86,3 +89,28 @@ async def delete_session(
     )
     await session.commit()
     return {"deleted": int(getattr(result, "rowcount", 0) or 0)}
+
+
+async def _chat_stream(session_id: UUID, user_id: UUID):
+    """Skeleton SSE stream. v0.3 wires real LLM streaming via httpx."""
+    yield f"event: status\ndata: {json.dumps({'session_id': str(session_id)})}\n\n".encode()
+    yield b"event: token\ndata: {\"token\": \"(LLM streaming wires up in v0.3)\"}\n\n"
+    await asyncio.sleep(0)
+    yield b"event: done\ndata: {\"status\": \"completed\"}\n\n"
+
+
+@router.get("/sessions/{session_id}/stream")
+async def stream_session(
+    session_id: UUID, user: UserDep, session: SessionDep
+):
+    """SSE stream of assistant tokens. v0.2 returns a stub frame."""
+    s = await chat_service.get_session(
+        session, session_id=session_id, user_id=user.id
+    )
+    if s is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "session_not_found")
+    return StreamingResponse(
+        _chat_stream(session_id, user.id),
+        media_type="text/event-stream",
+        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
+    )
