@@ -37,6 +37,8 @@ class UpsertUserResponse(BaseModel):
 class UpdateMeBody(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     image_url: str | None = None
+    bio: str | None = Field(default=None, max_length=500)
+    study_settings: dict | None = None
     bump_tv: bool = False
 
 
@@ -104,6 +106,21 @@ async def update_me(
             updated = await user_service.update_image_url(
                 session, user_id=user.id, image_url=body.image_url
             )
+        if body.bio is not None:
+            await session.execute(
+                text("UPDATE users SET bio = :bio WHERE id = :uid"),
+                {"bio": body.bio, "uid": user.id},
+            )
+            await session.commit()
+        if body.study_settings is not None:
+            import json as _json
+            await session.execute(
+                text(
+                    "UPDATE users SET study_settings = CAST(:s AS jsonb) WHERE id = :uid"
+                ),
+                {"s": _json.dumps(body.study_settings), "uid": user.id},
+            )
+            await session.commit()
         if body.bump_tv:
             await user_service.revoke_tokens(session, user_id=user.id)
     except ValueError as exc:
