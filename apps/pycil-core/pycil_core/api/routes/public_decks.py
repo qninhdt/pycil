@@ -3,7 +3,9 @@
 `GET /public/decks` lists public decks paginated.
 `GET /public/decks/{id}` returns a read-only snapshot (no auth).
 `POST /public/decks/{id}/clone` deep-clones into the cloner's tree.
-Rate limit: 60 RPM/IP via FastAPI middleware (phase 9 risk mitigation).
+
+Rate limiting deferred to v0.3 — Caddy + slowapi middleware not yet
+mounted in main.py.
 """
 from __future__ import annotations
 

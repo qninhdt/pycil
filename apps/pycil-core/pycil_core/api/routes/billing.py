@@ -40,6 +40,7 @@ async def create_checkout(
         success_url=getattr(s, "stripe_success_url", "/profile?billing=success"),
         cancel_url=getattr(s, "stripe_cancel_url", "/profile?billing=cancelled"),
         metadata={"user_id": str(user.id)},
+        subscription_data={"metadata": {"user_id": str(user.id)}},
     )
     return {"url": sess.url}
 
@@ -62,16 +63,28 @@ async def webhook(request: Request, session: SessionDep) -> dict:
     except Exception:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid_signature")
 
-    inserted = await billing_service.insert_webhook_event_or_dup(
-        session, event_id=event["id"]
-    )
-    if not inserted:
+    # Insert event_id BEFORE dispatch within ONE transaction. If dispatch
+    # raises, the txn rolls back and Stripe retries; on retry the PK
+    # conflict short-circuits to 200. Idempotent + lossless.
+    from sqlalchemy.exc import IntegrityError
+
+    try:
+        await session.execute(
+            text(
+                "INSERT INTO stripe_webhook_events (event_id) VALUES (:eid)"
+            ),
+            {"eid": event["id"]},
+        )
+    except IntegrityError:
+        await session.rollback()
         return {"ok": True, "duplicate": True}
 
     etype = event.get("type", "")
     obj = event.get("data", {}).get("object", {})
     metadata = obj.get("metadata") or {}
     user_id = metadata.get("user_id")
+    pe_epoch = obj.get("current_period_end")
+    pe_int = int(pe_epoch) if isinstance(pe_epoch, (int, float, str)) and pe_epoch else None
 
     if etype == "customer.subscription.created" and user_id:
         await billing_service.upsert_subscription(
@@ -79,7 +92,7 @@ async def webhook(request: Request, session: SessionDep) -> dict:
             user_id=user_id,
             tier="pro",
             stripe_subscription_id=obj.get("id"),
-            current_period_end_iso=str(obj.get("current_period_end") or ""),
+            current_period_end_epoch=pe_int,
             status_str="active",
         )
     elif etype == "customer.subscription.updated" and user_id:
@@ -88,7 +101,7 @@ async def webhook(request: Request, session: SessionDep) -> dict:
             user_id=user_id,
             tier="pro",
             stripe_subscription_id=obj.get("id"),
-            current_period_end_iso=str(obj.get("current_period_end") or ""),
+            current_period_end_epoch=pe_int,
             status_str=str(obj.get("status") or "active"),
         )
     elif etype == "customer.subscription.deleted" and user_id:
@@ -97,8 +110,9 @@ async def webhook(request: Request, session: SessionDep) -> dict:
             user_id=user_id,
             tier="free",
             stripe_subscription_id=obj.get("id"),
-            current_period_end_iso=None,
+            current_period_end_epoch=None,
             status_str="cancelled",
         )
 
+    await session.commit()
     return {"ok": True}

@@ -49,7 +49,7 @@ async def upsert_subscription(
     user_id: UUID,
     tier: str,
     stripe_subscription_id: str | None,
-    current_period_end_iso: str | None,
+    current_period_end_epoch: int | None,
     status_str: str,
 ) -> None:
     await session.execute(
@@ -57,7 +57,9 @@ async def upsert_subscription(
             """
             INSERT INTO subscriptions (user_id, tier, stripe_subscription_id,
                                        current_period_end, status)
-            VALUES (:uid, :tier, :sid, :pe::timestamptz, :status)
+            VALUES (:uid, :tier, :sid,
+                    CASE WHEN :pe IS NULL THEN NULL ELSE to_timestamp(:pe) END,
+                    :status)
             ON CONFLICT (user_id) DO UPDATE
               SET tier = EXCLUDED.tier,
                   stripe_subscription_id = EXCLUDED.stripe_subscription_id,
@@ -70,7 +72,7 @@ async def upsert_subscription(
             "uid": user_id,
             "tier": tier,
             "sid": stripe_subscription_id,
-            "pe": current_period_end_iso,
+            "pe": current_period_end_epoch,
             "status": status_str,
         },
     )
@@ -80,7 +82,13 @@ async def upsert_subscription(
 async def insert_webhook_event_or_dup(
     session: AsyncSession, *, event_id: str
 ) -> bool:
-    """Insert event_id; returns True if inserted, False if duplicate (replay)."""
+    """Insert event_id; returns True if inserted, False ONLY if PK conflict.
+
+    Other DB errors propagate so Stripe retries (vs being marked as
+    silent duplicates and lost forever).
+    """
+    from sqlalchemy.exc import IntegrityError
+
     try:
         await session.execute(
             text(
@@ -90,7 +98,7 @@ async def insert_webhook_event_or_dup(
         )
         await session.commit()
         return True
-    except Exception:
+    except IntegrityError:
         await session.rollback()
         return False
 

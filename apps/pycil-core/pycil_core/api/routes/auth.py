@@ -22,8 +22,6 @@ from pycil_core.services import image_upload_service, user_service
 
 router = APIRouter(tags=["auth"])
 
-_B2_PUBLIC_PREFIX_PLACEHOLDER = "https://"
-
 
 class UpsertUserBody(BaseModel):
     google_sub: str
@@ -62,7 +60,11 @@ def _verify_internal_secret(provided: str | None) -> None:
 
 def _validate_image_url(url: str) -> None:
     settings = get_settings()
-    prefix = getattr(settings, "b2_public_url_prefix", None) or _B2_PUBLIC_PREFIX_PLACEHOLDER
+    prefix = getattr(settings, "b2_public_url_prefix", None)
+    if not prefix:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "image_storage_not_configured"
+        )
     if not url.startswith(prefix):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, "image_url_not_in_bucket"

@@ -29,6 +29,10 @@ export function TestRunner({ runId, deckId, items, onComplete }: TestRunnerProps
   const [busy, setBusy] = useState(false);
   const [text, setText] = useState("");
   const [choice, setChoice] = useState<number | null>(null);
+  const [feedback, setFeedback] = useState<{
+    is_correct: boolean;
+    reason?: string;
+  } | null>(null);
 
   const item = items[idx];
   if (!item) return null;
@@ -46,7 +50,7 @@ export function TestRunner({ runId, deckId, items, onComplete }: TestRunnerProps
 
     setBusy(true);
     try {
-      await fetch(
+      const res = await fetch(
         `/api/core/decks/${deckId}/test/runs/${runId}/answers`,
         {
           method: "POST",
@@ -55,23 +59,29 @@ export function TestRunner({ runId, deckId, items, onComplete }: TestRunnerProps
           body: JSON.stringify({ item_id: item.item_id, user_answer: userAnswer }),
         }
       );
-
-      const next = idx + 1;
-      if (next >= items.length) {
-        const res = await fetch(
-          `/api/core/decks/${deckId}/test/runs/${runId}/complete`,
-          { method: "POST", credentials: "include" }
-        );
-        if (res.ok) {
-          onComplete(await res.json());
-        }
-      } else {
-        setIdx(next);
-        setText("");
-        setChoice(null);
+      if (res.ok) {
+        setFeedback(await res.json());
       }
     } finally {
       setBusy(false);
+    }
+  };
+
+  const advance = async () => {
+    const next = idx + 1;
+    setFeedback(null);
+    if (next >= items.length) {
+      const res = await fetch(
+        `/api/core/decks/${deckId}/test/runs/${runId}/complete`,
+        { method: "POST", credentials: "include" }
+      );
+      if (res.ok) {
+        onComplete(await res.json());
+      }
+    } else {
+      setIdx(next);
+      setText("");
+      setChoice(null);
     }
   };
 
@@ -110,9 +120,30 @@ export function TestRunner({ runId, deckId, items, onComplete }: TestRunnerProps
         />
       )}
 
-      <Button onClick={submit} disabled={busy}>
-        {idx + 1 === items.length ? "Finish" : "Next"}
+      <Button onClick={feedback ? advance : submit} disabled={busy}>
+        {feedback
+          ? idx + 1 === items.length
+            ? "Finish"
+            : "Next"
+          : "Submit"}
       </Button>
+
+      {feedback ? (
+        <div
+          className={
+            feedback.is_correct
+              ? "text-sm text-green-600"
+              : "text-sm text-destructive"
+          }
+        >
+          {feedback.is_correct ? "Correct" : "Not quite"}
+          {feedback.reason ? (
+            <span className="ml-2 text-xs text-muted-foreground">
+              ({feedback.reason})
+            </span>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
