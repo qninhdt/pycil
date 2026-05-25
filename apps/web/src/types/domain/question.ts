@@ -2,9 +2,14 @@ import type { ISODateString, UUID } from "./node";
 
 export type QuestionStatus = "ready" | "pending";
 
-export interface MCQData {
+/** Pre-submit projection: never includes answer fields. BE always strips. */
+export interface MCQDataPublic {
   stem: string;
   options: [string, string, string, string];
+}
+
+/** Post-submit reveal: returned by `POST /questions/{id}/check` only. */
+export interface MCQDataReveal extends MCQDataPublic {
   correct_index: number;
   explanation: string;
   distractor_rationale: [string, string, string];
@@ -14,7 +19,7 @@ export interface QuestionRead {
   id: UUID;
   definition_id: number;
   type: string;
-  data: MCQData | Record<string, unknown>;
+  data: MCQDataPublic | Record<string, unknown>;
   created_at: ISODateString;
 }
 

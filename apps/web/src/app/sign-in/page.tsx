@@ -1,4 +1,5 @@
 import { signIn } from "@/../auth";
+import { safeCallbackUrl } from "@/lib/safe-href";
 
 const REASON_COPY: Record<string, string> = {
   token_revoked: "Signed out from all devices.",
@@ -14,7 +15,7 @@ export default function SignInPage({
 }: {
   searchParams: { callbackUrl?: string; reason?: string; error?: string };
 }) {
-  const callbackUrl = searchParams?.callbackUrl ?? "/";
+  const callbackUrl = safeCallbackUrl(searchParams?.callbackUrl);
   const banner =
     (searchParams?.error && ERROR_COPY[searchParams.error]) ||
     (searchParams?.reason && REASON_COPY[searchParams.reason]) ||

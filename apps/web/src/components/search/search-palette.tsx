@@ -43,14 +43,23 @@ export function SearchPalette({
       setResults({ nodes: [], terms: [], definitions: [] });
       return;
     }
+    const ctrl = new AbortController();
     const id = setTimeout(async () => {
-      const res = await fetch(
-        `/api/core/search?q=${encodeURIComponent(q)}&limit=8`,
-        { credentials: "include" }
-      );
-      if (res.ok) setResults(await res.json());
+      try {
+        const res = await fetch(
+          `/api/core/search?q=${encodeURIComponent(q)}&limit=8`,
+          { credentials: "include", signal: ctrl.signal }
+        );
+        if (res.ok && !ctrl.signal.aborted) setResults(await res.json());
+      } catch (err) {
+        if ((err as Error)?.name === "AbortError") return;
+        throw err;
+      }
     }, 200);
-    return () => clearTimeout(id);
+    return () => {
+      clearTimeout(id);
+      ctrl.abort();
+    };
   }, [q, open]);
 
   return (

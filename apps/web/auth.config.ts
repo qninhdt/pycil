@@ -7,6 +7,7 @@ const cookieName =
 
 export const authConfig = {
   pages: { signIn: "/sign-in" },
+  trustHost: true,
   callbacks: {
     authorized({ auth, request: { nextUrl } }) {
       const isLoggedIn = !!auth?.user;

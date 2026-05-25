@@ -1,15 +1,15 @@
-import type { MCQData, SessionQuestionPayload } from "@/types/domain";
+import type { MCQDataPublic, SessionQuestionPayload } from "@/types/domain";
 import type { Question as FeQuestion } from "@/types/learning";
 
 export function beQuestionToFe(payload: SessionQuestionPayload): FeQuestion {
-  const data = payload.data as MCQData;
+  const data = payload.data as MCQDataPublic;
   return {
     id: payload.id,
     type: "multiple-choice",
     term: data.stem,
-    definition: data.options[data.correct_index] ?? "",
+    definition: "",
     options: [...data.options],
-    correctAnswer: data.options[data.correct_index] ?? "",
+    correctAnswer: "",
   };
 }
 
@@ -20,9 +20,11 @@ export function beQuestionWithResultToFe(
   correct: boolean
 ): FeQuestion {
   const base = beQuestionToFe(payload);
+  const correctAnswer = base.options?.[correctIndex] ?? "";
   return {
     ...base,
-    correctAnswer: base.options?.[correctIndex] ?? base.correctAnswer,
+    definition: correctAnswer,
+    correctAnswer,
     userAnswer: base.options?.[selectedIndex],
     isCorrect: correct,
   };

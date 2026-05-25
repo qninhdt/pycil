@@ -46,6 +46,7 @@ async function upsertUser(payload: {
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,
+  secret: process.env.AUTH_JWT_SECRET,
   session: { strategy: "jwt", maxAge },
   providers: [
     Google({

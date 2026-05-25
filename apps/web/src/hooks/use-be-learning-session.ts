@@ -9,7 +9,7 @@ import {
 } from "@/lib/api-hooks/use-learning";
 import { queryKeys } from "@/lib/api-client/query-keys";
 import type {
-  MCQData,
+  MCQDataPublic,
   SessionQuestionResponse,
   SubmitAnswerResponse,
   UUID,
@@ -26,7 +26,7 @@ export type BeSessionPhase =
 
 interface BeAnsweredQuestion {
   question_id: UUID;
-  data: MCQData;
+  data: MCQDataPublic;
   selected_index: number;
   result: SubmitAnswerResponse;
   round_index: number;
@@ -111,7 +111,7 @@ export function useBeLearningSession(
         onSuccess: (result) => {
           setCurrent({
             question_id: data.question!.id,
-            data: data.question!.data as MCQData,
+            data: data.question!.data as MCQDataPublic,
             selected_index: selectedIndex,
             result,
             round_index: data.round_index,

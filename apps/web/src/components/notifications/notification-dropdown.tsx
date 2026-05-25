@@ -20,6 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
+import { safeHref } from "@/lib/safe-href";
 import { useNotifications } from "@/hooks/use-notifications";
 import type { AppNotification } from "@/types/notification";
 import { useMediaQuery } from "@/hooks/use-media-query";
@@ -125,18 +126,21 @@ function NotificationItem({
           >
             {n.read ? "Mark as unread" : "Mark as read"}
           </Button>
-          {n.href ? (
-            <Button
-              asChild
-              variant="secondary"
-              size="sm"
-              className="h-7 px-2 text-xs"
-            >
-              <a href={n.href} onClick={onItemOpen}>
-                Open
-              </a>
-            </Button>
-          ) : null}
+          {(() => {
+            const safe = safeHref(n.href);
+            return safe ? (
+              <Button
+                asChild
+                variant="secondary"
+                size="sm"
+                className="h-7 px-2 text-xs"
+              >
+                <a href={safe} onClick={onItemOpen}>
+                  Open
+                </a>
+              </Button>
+            ) : null;
+          })()}
         </div>
       </div>
     </div>

@@ -1,5 +1,5 @@
 import type { ISODateString, UUID } from "./node";
-import type { MCQData } from "./question";
+import type { MCQDataPublic } from "./question";
 
 export interface StartSessionRequest {
   session_size?: number;
@@ -16,7 +16,7 @@ export type SessionStatus = "ready" | "pending" | "session_complete";
 export interface SessionQuestionPayload {
   id: UUID;
   type: string;
-  data: MCQData | Record<string, unknown>;
+  data: MCQDataPublic | Record<string, unknown>;
 }
 
 export interface SessionQuestionResponse {

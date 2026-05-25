@@ -22,6 +22,14 @@ export function ChatPanel({ sessionId }: ChatPanelProps) {
   const [busy, setBusy] = useState(false);
   const [streaming, setStreaming] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const evRef = useRef<EventSource | null>(null);
+
+  useEffect(() => {
+    return () => {
+      evRef.current?.close();
+      evRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -71,6 +79,8 @@ export function ChatPanel({ sessionId }: ChatPanelProps) {
       const ev = new EventSource(
         `/api/core/chat/sessions/${sessionId}/stream`
       );
+      evRef.current?.close();
+      evRef.current = ev;
       let buf = "";
       setStreaming("");
       ev.addEventListener("token", (e) => {
