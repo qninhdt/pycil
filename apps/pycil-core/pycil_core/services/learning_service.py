@@ -211,23 +211,20 @@ async def next_question(
     starvation during generation latency.
     """
     redis = _redis()
-    try:
-        # Read state outside the lock to determine which definition to fetch.
-        peek = await _load_state(redis, session_id)
-        if peek["user_id"] != str(user_id):
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "session_forbidden")
-        peek_queue: list[int] = list(peek.get("round_queue") or [])
-        if not peek_queue:
-            peek_queue = _next_round_queue(peek)[:_DEFAULT_ROUND_SIZE]
-        peek_definition_id = int(peek_queue[0]) if peek_queue else None
+    # Read state outside the lock to determine which definition to fetch.
+    peek = await _load_state(redis, session_id)
+    if peek["user_id"] != str(user_id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "session_forbidden")
+    peek_queue: list[int] = list(peek.get("round_queue") or [])
+    if not peek_queue:
+        peek_queue = _next_round_queue(peek)[:_DEFAULT_ROUND_SIZE]
+    peek_definition_id = int(peek_queue[0]) if peek_queue else None
 
-        fetched = None
-        if peek_definition_id is not None:
-            fetched = await question_service.get_or_generate(
-                session, peek_definition_id, "easy", user_id
-            )
-    finally:
-        pass
+    fetched = None
+    if peek_definition_id is not None:
+        fetched = await question_service.get_or_generate(
+            session, peek_definition_id, "easy", user_id
+        )
 
     request_id = await _acquire_lock(redis, session_id)
     try:

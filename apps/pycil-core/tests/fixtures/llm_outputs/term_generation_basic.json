@@ -1,0 +1,16 @@
+{
+  "definition": {
+    "canonical_meaning": "a very common test definition",
+    "cefr_level": "B1",
+    "part_of_speech": "NOUN",
+    "synonyms": ["alternative", "synonym"],
+    "antonyms": ["opposite"]
+  },
+  "paraphrases": [
+    {"value": "another way to say it", "cefr_level": "B1"},
+    {"value": "yet another phrasing", "cefr_level": "A2"}
+  ],
+  "examples": [
+    {"value": "She used the term in a sentence.", "cefr_level": "A2"}
+  ]
+}

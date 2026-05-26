@@ -4,6 +4,66 @@ All notable releases. Format derived from Keep a Changelog; dates in ISO-8601.
 
 ---
 
+## [Unreleased] — 2026-05-26 — comprehensive backend test suite
+
+`plans/260526-1746-comprehensive-backend-test-suite/` (8 phases). Pytest-driven regression net before `260525-1907-code-review-remediation` rewrites service files.
+
+### Added — Test infrastructure
+
+- `apps/pycil-core/tests/conftest.py` and `apps/worker/tests/conftest.py` rewritten to self-provision Postgres via `pytest-postgresql` + apply Alembic migrations once per session, replace `redis_pool.get_redis` with `fakeredis.aioredis.FakeRedis` (with `aclose` no-op shim so multiple service-call sites can share one client), and override `get_current_user` / `get_session` for ASGI tests.
+- Shared `tests/factories.py`: `make_user`, `make_deck`, `make_term`, `make_definition`, `attach_definition_to_deck`, `make_mcq_question`, `make_write_question`, `seed_user_term_stats`, `make_session_state`.
+- Dev deps added to both `pyproject.toml`: `pytest-postgresql`, `fakeredis>=2.26`, `freezegun`, `httpx`, `pytest-mock`, `pytest-cov`, `pyjwt`. `asyncio_mode = "auto"` set in `[tool.pytest.ini_options]`.
+- Root `Makefile` with `make test` / `test-core` / `test-worker` / `test-cov`.
+- `.github/workflows/test.yml`: PR + push gate, Postgres 16 service container, matrix per app, `--cov-fail-under=70` per app.
+
+### Added — Tests
+
+- **Phase 2 (learning service)**: `test_learning_service_lock` (SET-NX-EX, foreign release, TTL reclaim), `test_learning_service_state` (corrupt JSON 500, missing 404, round-trip), `test_learning_service_authz` (403 cross-user, 409 question_mismatch), `test_learning_service_round_queue` (replenishment, all-completed, order preservation), `test_learning_service_concurrency` (parallel `submit_answer` lock serialization), `test_learning_service_elo_commit` (UPSERT `user_term_stats` at `_REQUIRED_CORRECT_FIRSTS`), `test_term_selection` (due > new > upcoming priority, limit).
+- **Phase 3 (worker LLM jobs)**: `test_sanitize` (URL/HTML/control matrix + answer fields keep URL/HTML), `test_generate_term_pipeline` (happy + cache-hit + term_not_found + ValidationError retry + two-strikes-failed + non-terminal-reraise), `test_generate_question_pipeline` (happy MCQ INSERT + cache-hit + definition_not_found + URL sanitize + `is_terminal` short-circuit), `test_cost_tracking` (`add_spend` increment + cache-hit zero-spend).
+- **Phase 4 (question/job/budget)**: `test_lock_lua` (GET-or-SET-with-EX semantics, owner-on-first, holder-on-second, TTL reclaim), `test_question_service_cache` (cache-hit answer-stripping, MCQ-only filter, 404 oracle, public deck access), `test_job_service_orchestration` (5/hour rate limit + 6th=429, budget cap → 503, budget-before-rate ordering, malformed spend value, dedup concurrent same-term, orphan cleanup on enqueue failure).
+- **Phase 5 (billing)**: `test_billing_upsert_ordering` (10-row reorder matrix: insert/update/older-rejected/lex-tiebreak/replay/downgrade-race/unicode-event-id/null-period-end/default-tier), `test_billing_customer_create` (existing skips SDK, missing creates + persists).
+- **Phase 6 (test mode)**: `test_test_mode_start_run_projection` (MCQ answer-stripping, WRITE answer-stripping, empty deck LookupError, private/public deck access, partial count), `test_test_mode_submit_and_complete` (MCQ correct/malformed, WRITE grader dispatch, replay → already_answered, after-complete → run_completed, cross-user 404, empty-run no-DivByZero, 3/5 score aggregation).
+- **Phase 7 (pure-logic)**: `test_intervals_snap_ladder` (extremes, on-rung, tie-break-lower, near-rung), `test_mastery_levels_for_elo` (every bucket boundary 800/900/1000/1100/.../1600 + extremes 0/3000/-1 + label fallback), `test_share_link_service` (32-char URL-safe token, owner-only create, idempotent revoke, resolve-after-revoke=None, charset), `test_clone_service` (private rejected, foreign parent rejected, empty deck OK, term-reuse via UNIQUE(value), `deck_clones` attribution).
+- **Phase 8 (FastAPI ASGI)**: `test_auth` (no-cookie 401, bad-sig 401 no PII, valid cookie 200), `test_learning_flow` (POST `/decks/{id}/learn` → 201, unknown deck 404), `test_share_link_flow` (POST create + DELETE revoke + 404 on second revoke), `test_billing_webhook` (bad signature 400, subscription_created persists, out-of-order 200 silent no-op), `test_validation_errors` (selected_index non-int 422, negative session_size 422, share-link missing node 404).
+
+### Architecture decisions
+
+- **pytest-postgresql over aiosqlite**: many tests rely on `ON CONFLICT`, `to_timestamp`, `text::question_type` casts, JSONB ops that SQLite cannot emulate.
+- **Direct `arq` job invocation**: `generate_term(ctx, ...)` called with fake `ctx={"redis": fakeredis, "job_try": N, "max_tries": M}` — keeps tests deterministic; arq runtime itself is library code.
+- **Separate `test.yml` workflow**: runs on PR + pre-deploy with `--cov-fail-under=70` per app rather than coupling to `deploy.yml`.
+
+### Production fixes surfaced by the test phase (asyncpg + FastAPI)
+
+The test phase exposed real production bugs hidden by manual testing. asyncpg parses `:param::type` as two adjacent bind parameters, so every SQL using inline-cast syntax silently failed under the async driver. Routes also tripped a FastAPI 0.115 strict check around 204+response_model.
+
+- **`pycil_core/services/billing_service.py`**: `to_timestamp(:pe)` and `to_timestamp(:ev_ts)` rewritten as `to_timestamp(CAST(:pe AS BIGINT))`. Without this, every `upsert_subscription` call fails under asyncpg.
+- **`pycil_core/services/question_service.py`**: `:payload::jsonb` → `CAST(:payload AS jsonb)`.
+- **`pycil_core/services/job_service.py`**: same `:payload::jsonb` fix.
+- **`pycil_core/services/clone_service.py`**: `:cefr::cefr_level, :pos::part_of_speech` rewritten as `CAST(... AS ...)`.
+- **`pycil_core/api/routes/auth.py`**: `:uid::text` → `CAST(:uid AS text)` in `pg_advisory_xact_lock` arg.
+- **`pycil_core/api/routes/nodes.py`**: `DELETE /{node_id}` route now declares `response_model=None` so FastAPI 0.115 stops asserting "Status code 204 must not have a response body" against the auto-derived schema for `-> None`.
+- **`worker/jobs/lifecycle.py`**: `events || :evt::jsonb` → `events || CAST(:evt AS jsonb)`.
+- **`worker/jobs/generate_term.py`**: `:cefr::cefr_level`, `:pos::part_of_speech` rewritten in three INSERT statements.
+- **`worker/jobs/generate_question.py`**: `:data::jsonb` → `CAST(:data AS jsonb)`.
+- **`worker/jobs/translate_definition.py`**, **`worker/jobs/tts_render.py`**: `to_jsonb(:val::text)` rewritten.
+
+### Test run results (2026-05-26)
+
+- **pycil-core**: 128 passed, 9 skipped, 1 pre-existing legacy failure (`test_answer_grading.py::test_grade_tiers[definishun-definition-fuzzy]` — `rapidfuzz` threshold drift, unrelated to this plan).
+- **worker**: 31 passed.
+
+### Test infrastructure adjustments during verification
+
+- `_migrate_schema` is no longer `autouse` — opt-in via `async_engine` fixture so unit tests skip Postgres bring-up.
+- `_bind_worker_session` (worker) explicitly patches `SessionLocal` on every importer module — patching only `worker.db.SessionLocal` doesn't reach modules that imported the symbol at module load.
+- `fakeredis[lua]` extra required for `LOCK_LUA` eval support.
+- `email-validator` added to runtime deps — Pydantic `EmailStr` requires it.
+- `tests/factories.py` rewritten to use `CAST(... AS type)` instead of `:param::type` for asyncpg compatibility.
+- ASGI client fixtures inject `Origin: http://test` and `ALLOWED_ORIGINS` defaults to `http://test` so the CSRF middleware passes during tests.
+- pytest-postgresql configured as `postgresql_noproc` against a Docker-managed Postgres 16 (env-overridable via `PYTEST_PG_HOST/PORT/USER/PASSWORD`) — works on hosts without `postgresql-server` system packages.
+
+---
+
 ## [Unreleased] — 2026-05-26 — v0.2 feature fill
 
 `plans/260525-1446-pycil-v02-feature-fill/` (17 phases). 26 commits, ~50 files. 5/5 Critical + 4/6 High code-review findings fixed in-pass.

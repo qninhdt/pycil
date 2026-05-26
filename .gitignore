@@ -65,6 +65,7 @@ docs/screenshots/*
 logs.txt
 test-ck
 __pycache__
+*.egg-info/
 
 # CK meta commands
 prompt.md

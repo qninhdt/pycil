@@ -11,6 +11,8 @@ B2 / Gemini / OpenRouter side effects.
 from __future__ import annotations
 
 import json
+from typing import Any
+from uuid import UUID
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -66,3 +68,47 @@ async def is_terminal(session: AsyncSession, job_id: str) -> bool:
         )
     ).first()
     return row is not None and row.status in ("completed", "failed")
+
+
+async def append_event(session: AsyncSession, job_id: UUID, event: dict[str, Any]) -> None:
+    """Append a JSONB event to `jobs.events`. Used for non-terminal progress."""
+    await session.execute(
+        text(
+            "UPDATE jobs SET events = events || CAST(:evt AS jsonb), updated_at = NOW() "
+            "WHERE id = :id"
+        ),
+        {"evt": json.dumps(event, default=str), "id": job_id},
+    )
+
+
+async def mark_job(
+    session: AsyncSession,
+    job_id: UUID,
+    *,
+    status: str,
+    result: dict | None = None,
+    error: str | None = None,
+) -> None:
+    """Non-atomic terminal write used by jobs that publish their own SSE.
+
+    Prefer `commit_terminal` for new code — it returns whether the transition
+    actually happened and refuses to overwrite an existing terminal row.
+    """
+    await session.execute(
+        text(
+            "UPDATE jobs SET status = :s, result = :r, error = :e, updated_at = NOW() "
+            "WHERE id = :id"
+        ),
+        {
+            "s": status,
+            "r": json.dumps(result, default=str) if result is not None else None,
+            "e": error,
+            "id": job_id,
+        },
+    )
+
+
+async def publish_status(redis, channel: str, payload: dict[str, Any]) -> None:
+    """Publish a JSON-encoded SSE payload onto the given Redis channel."""
+    await redis.publish(channel, json.dumps(payload, default=str))
+

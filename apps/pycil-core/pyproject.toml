@@ -22,6 +22,7 @@ dependencies = [
     "stripe>=11,<12",
     "sentry-sdk[fastapi]>=2.18,<3.0",
     "pycil-shared",
+    "email-validator>=2.3.0",
 ]
 
 [tool.uv.sources]
@@ -31,12 +32,31 @@ pycil-shared = { path = "../../packages/shared-py", editable = true }
 dev = [
     "pytest>=8.3,<9.0",
     "pytest-asyncio>=0.24,<0.25",
+    "pytest-postgresql>=6.1,<7.0",
+    "fakeredis[lua]>=2.26,<3.0",
+    "freezegun>=1.5,<2.0",
+    "httpx>=0.28,<0.29",
+    "pytest-mock>=3.14,<4.0",
+    "pytest-cov>=6.0,<7.0",
+    "pyjwt>=2.10,<3.0",
     "ruff>=0.8,<0.9",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+filterwarnings = [
+    "ignore::DeprecationWarning",
 ]
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[dependency-groups]
+dev = [
+    "fakeredis[lua]>=2.26,<3.0",
+]
 
 [tool.setuptools.packages.find]
 include = ["pycil_core*"]

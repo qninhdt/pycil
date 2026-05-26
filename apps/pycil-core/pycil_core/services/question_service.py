@@ -7,29 +7,25 @@ enqueue `generate_question` arq job.
 from __future__ import annotations
 
 import json
-from uuid import UUID, uuid4
+from uuid import UUID
 
-from arq.connections import RedisSettings, create_pool
 from fastapi import HTTPException, status
 from redis.asyncio import Redis
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pycil_core.config import get_settings
 from pycil_core.schemas.question import (
     QuestionCheckResponse,
     QuestionFetchResponse,
     QuestionRead,
 )
+from pycil_core.services._job_enqueue import (
+    acquire_lock_or_get_owner,
+    enqueue_arq_job,
+)
 from pycil_core.services.redis_pool import get_redis
 
 _LOCK_TTL_SECONDS = 600
-_LOCK_LUA = """
-local current = redis.call('GET', KEYS[1])
-if current then return current end
-redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])
-return ARGV[1]
-"""
 
 
 def _redis() -> Redis:
@@ -143,20 +139,16 @@ async def get_or_generate(
     redis = _redis()
     try:
         lock_key = f"lock:gen_question:{definition_id}:MCQ"
-        new_job_id = str(uuid4())
-        result = await redis.eval(
-            _LOCK_LUA, 1, lock_key, new_job_id, _LOCK_TTL_SECONDS
-        )
-        owner_job_id = (
-            result.decode() if isinstance(result, bytes) else str(result)
+        new_job_id, owner_job_id, is_owner = await acquire_lock_or_get_owner(
+            redis, lock_key=lock_key, ttl_seconds=_LOCK_TTL_SECONDS
         )
 
-        if owner_job_id == new_job_id:
+        if is_owner:
             await session.execute(
                 text(
                     """
                     INSERT INTO jobs (id, type, status, payload)
-                    VALUES (:id, 'generate_question', 'pending', :payload::jsonb)
+                    VALUES (:id, 'generate_question', 'pending', CAST(:payload AS jsonb))
                     """
                 ),
                 {
@@ -172,11 +164,8 @@ async def get_or_generate(
             )
             await session.commit()
 
-            pool = await create_pool(
-                RedisSettings.from_dsn(get_settings().redis_url)
-            )
             try:
-                await pool.enqueue_job(
+                await enqueue_arq_job(
                     "generate_question",
                     definition_id,
                     new_job_id,
@@ -194,8 +183,6 @@ async def get_or_generate(
                 )
                 await session.commit()
                 raise
-            finally:
-                await pool.close()
 
         return QuestionFetchResponse(status="pending")
     finally:
