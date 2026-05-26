@@ -144,7 +144,7 @@ async def update_me(
 
     try:
         await session.execute(
-            text("SELECT pg_advisory_xact_lock(hashtext('user-mutate:' || :uid::text))"),
+            text("SELECT pg_advisory_xact_lock(hashtext('user-mutate:' || CAST(:uid AS text)))"),
             {"uid": user.id},
         )
         if set_clauses:

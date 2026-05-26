@@ -43,7 +43,9 @@ async def update(
     return await node_service.update_node(session, user.id, node_id, payload)
 
 
-@router.delete("/{node_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{node_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None
+)
 async def delete(
     node_id: UUID, user: UserDep, session: SessionDep
 ) -> None:

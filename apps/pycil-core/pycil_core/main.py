@@ -124,6 +124,8 @@ def create_app() -> FastAPI:
     app.include_router(chat_routes.router)
     app.include_router(nodes_routes.router)
     app.include_router(terms_routes.router)
+    from pycil_core.api.routes import terms_batch as terms_batch_routes
+    app.include_router(terms_batch_routes.router)
     app.include_router(jobs_routes.router)
     app.include_router(questions_routes.router)
     app.include_router(question_regenerate_routes.router)
