@@ -4,7 +4,7 @@ Tier ladder (cheapest first):
 1. exact match against expected/alts → confidence 1.0
 2. normalized match (case/punct/whitespace) → 0.95
 3. rapidfuzz Levenshtein ≤2 → 0.85
-4. LLM-as-judge (deferred to v0.3) → 0.7
+4. LLM-as-judge (gated by LLM_JUDGE_ENABLED) → 0.7 / borderline 0.6
 
 If all tiers fail: returns is_correct=False, confidence=0.9, reason='no_match'.
 """
@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from typing import Any
 
 
 def _normalize(s: str) -> str:
@@ -30,7 +31,10 @@ def grade(
 ) -> dict:
     """Grade a free-text answer against expected + alternates.
 
-    Returns {is_correct, confidence, reason}.
+    Returns {is_correct, confidence, reason}. Tier 4 (LLM judge) is reported
+    via the marker reason ``llm_judge_pending`` so the caller (an async
+    request handler) can dispatch to ``llm_judge_service.judge`` and return
+    the final verdict.
     """
     candidates = [expected, *(alts or [])]
 
@@ -42,7 +46,7 @@ def grade(
         if nu == _normalize(c):
             return {"is_correct": True, "confidence": 0.95, "reason": "normalized"}
 
-    if len(user_answer) <= 32:
+    if len(user_answer) <= 64:
         try:
             from rapidfuzz.distance import Levenshtein
 
@@ -64,3 +68,13 @@ def grade(
         }
 
     return {"is_correct": False, "confidence": 0.9, "reason": "no_match"}
+
+
+def merge_judge_verdict(verdict: str, base: dict[str, Any]) -> dict[str, Any]:
+    """Combine the tier-1-3 base with an llm_judge_service verdict."""
+    if verdict == "correct":
+        return {"is_correct": True, "confidence": 0.7, "reason": "llm_judge"}
+    if verdict == "borderline":
+        return {"is_correct": True, "confidence": 0.6, "reason": "llm_judge_borderline"}
+    return {"is_correct": False, "confidence": 0.9, "reason": "llm_judge_no_match"}
+

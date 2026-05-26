@@ -54,6 +54,18 @@ class Settings(BaseSettings):
     openrouter_model: str | None = Field(default=None, alias="OPENROUTER_MODEL")
     openrouter_chat_model: str | None = Field(default=None, alias="OPENROUTER_CHAT_MODEL")
 
+    # --- LLM-as-judge tier-4 grading (P1 phase 6, default off) ---
+    llm_judge_enabled: bool = Field(default=False, alias="LLM_JUDGE_ENABLED")
+    llm_judge_model: str = Field(
+        default="anthropic/claude-haiku-4-5", alias="LLM_JUDGE_MODEL"
+    )
+    llm_judge_per_user_daily_limit: int = Field(
+        default=50, alias="LLM_JUDGE_PER_USER_DAILY_LIMIT"
+    )
+    llm_judge_budget_daily_usd: float = Field(
+        default=1.0, alias="LLM_JUDGE_BUDGET_DAILY_USD"
+    )
+
     # --- CSRF / CORS ---
     allowed_origins: str = Field(default="http://localhost:3000", alias="ALLOWED_ORIGINS")
 
