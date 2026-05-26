@@ -1,0 +1,83 @@
+name: Backend Tests
+
+on:
+  pull_request:
+    branches: [main, dev]
+  push:
+    branches: [main]
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [pycil-core, worker]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: pycil
+          POSTGRES_PASSWORD: pycil
+          POSTGRES_DB: pycil_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dev deps for ${{ matrix.app }}
+        working-directory: apps/${{ matrix.app }}
+        run: uv sync --extra dev
+
+      - name: Run pytest with coverage
+        working-directory: apps/${{ matrix.app }}
+        env:
+          DATABASE_URL: postgresql+asyncpg://pycil:pycil@localhost:5432/pycil_test
+          REDIS_URL: redis://localhost:6379/0
+          AUTH_JWT_SECRET: ci-fake-secret
+          INTERNAL_API_SECRET: ci-fake-internal
+          OPENROUTER_API_KEY: ci-fake
+          ALLOWED_ORIGINS: http://localhost:3000
+        run: |
+          if [ "${{ matrix.app }}" = "pycil-core" ]; then
+            uv run pytest --cov=pycil_core --cov-fail-under=70 \
+              --cov-report=xml -q --maxfail=5
+          else
+            uv run pytest --cov=worker --cov-fail-under=70 \
+              --cov-report=xml -q --maxfail=5
+          fi
+
+      - name: Upload coverage XML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.app }}
+          path: apps/${{ matrix.app }}/coverage.xml
+
+  caddy-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Caddyfile (production)
+        run: |
+          docker run --rm -v "${{ github.workspace }}:/etc/caddy" caddy:2 \
+            caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
+      - name: Validate Caddyfile.local (dev)
+        run: |
+          docker run --rm -v "${{ github.workspace }}:/etc/caddy" caddy:2 \
+            caddy validate --config /etc/caddy/Caddyfile.local --adapter caddyfile

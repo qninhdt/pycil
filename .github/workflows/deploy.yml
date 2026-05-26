@@ -9,7 +9,17 @@ env:
   IMAGE_PREFIX: ${{ github.repository }}
 
 jobs:
+  caddy-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Caddyfile
+        run: |
+          docker run --rm -v "${{ github.workspace }}:/etc/caddy" caddy:2 \
+            caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
   build:
+    needs: caddy-validate
     runs-on: ubuntu-latest
     permissions:
       contents: read

@@ -25,8 +25,9 @@ from shared.questions.fill_in_blank import FillData, FillInBlankQuestion
 from shared.questions.multiple_choice import MCQData, MultipleChoiceQuestion
 from shared.questions.write import WriteData, WriteQuestion
 from worker.db import SessionLocal
-from worker.jobs.lifecycle import is_terminal
-from worker.llm.openrouter import generate_with_schema
+from worker.jobs.lifecycle import append_event, is_terminal, mark_job, publish_status
+from worker.llm.openrouter import invoke_with_fallback
+from worker.observability.spend_metrics import emit_spend
 from worker.prompts import render
 from worker.redis_helpers import add_spend
 from worker.sanitize import sanitize_answer, sanitize_answer_list, sanitize_list, sanitize_text
@@ -139,38 +140,6 @@ def _sanitize_question_data(question_type: str, output: Any) -> dict[str, Any]:
     return raw
 
 
-async def _append_event(session, job_id: UUID, event: dict[str, Any]) -> None:
-    await session.execute(
-        text(
-            "UPDATE jobs SET events = events || :evt::jsonb, updated_at = NOW() "
-            "WHERE id = :id"
-        ),
-        {"evt": json.dumps(event, default=str), "id": job_id},
-    )
-
-
-async def _mark_job(
-    session,
-    job_id: UUID,
-    *,
-    status: str,
-    result: dict | None = None,
-    error: str | None = None,
-) -> None:
-    await session.execute(
-        text(
-            "UPDATE jobs SET status = :s, result = :r, error = :e, updated_at = NOW() "
-            "WHERE id = :id"
-        ),
-        {
-            "s": status,
-            "r": json.dumps(result, default=str) if result is not None else None,
-            "e": error,
-            "id": job_id,
-        },
-    )
-
-
 async def generate_question(
     ctx: dict,
     definition_id: int,
@@ -194,36 +163,33 @@ async def generate_question(
     async with SessionLocal() as session:
         existing = await _existing_question_id(session, definition_id, question_type)
         if existing is not None:
-            await _append_event(
+            await append_event(
                 session, job_uuid, {"at": time.time(), "kind": "cache_hit"}
             )
-            await _mark_job(
+            await mark_job(
                 session,
                 job_uuid,
                 status="completed",
                 result={"question_id": existing, "cached": True},
             )
             await session.commit()
-            await redis.publish(
+            await publish_status(
+                redis,
                 f"results:job_{job_id}",
-                json.dumps(
-                    {"status": "completed", "question_id": existing}, default=str
-                ),
+                {"status": "completed", "question_id": existing},
             )
             return {"status": "completed", "cache_hit": True}
 
         inputs = await _load_inputs(session, definition_id)
         if inputs is None:
-            await _mark_job(
+            await mark_job(
                 session, job_uuid, status="failed", error="definition_not_found"
             )
             await session.commit()
-            await redis.publish(
+            await publish_status(
+                redis,
                 f"results:job_{job_id}",
-                json.dumps(
-                    {"status": "failed", "error": "definition_not_found"},
-                    default=str,
-                ),
+                {"status": "failed", "error": "definition_not_found"},
             )
             return {"status": "failed"}
 
@@ -239,15 +205,23 @@ async def generate_question(
                     term_value=inputs["term_value"],
                     definition_text=inputs.get("canonical_meaning") or "",
                 )
-            output = await generate_with_schema(prompt, schema_cls)
+            fallback = await invoke_with_fallback(prompt, schema_cls)
+            output = fallback.output
             await add_spend(redis, _ESTIMATED_COST_USD)
+            emit_spend(
+                job_id=job_id,
+                job_type="generate_question",
+                model_used=fallback.model_used,
+                cost_usd=_ESTIMATED_COST_USD,
+                duration_ms=(time.time() - started) * 1000.0,
+            )
             data = _sanitize_question_data(question_type, output)
             row = (
                 await session.execute(
                     text(
                         """
                         INSERT INTO questions (definition_id, type, data)
-                        VALUES (:did, CAST(:t AS question_type), :data::jsonb)
+                        VALUES (:did, CAST(:t AS question_type), CAST(:data AS jsonb))
                         RETURNING id
                         """
                     ),
@@ -255,7 +229,7 @@ async def generate_question(
                 )
             ).one()
             question_id = row.id
-            await _append_event(
+            await append_event(
                 session,
                 job_uuid,
                 {
@@ -265,29 +239,31 @@ async def generate_question(
                 },
             )
             result = {"question_id": question_id, "data": data}
-            await _mark_job(session, job_uuid, status="completed", result=result)
+            await mark_job(session, job_uuid, status="completed", result=result)
             await session.commit()
-            await redis.publish(
+            await publish_status(
+                redis,
                 f"results:job_{job_id}",
-                json.dumps({"status": "completed", **result}, default=str),
+                {"status": "completed", **result},
             )
             return {"status": "completed"}
         except Exception as exc:  # noqa: BLE001
             _log.exception("generate_question_failed")
             await session.rollback()
-            await _append_event(
+            await append_event(
                 session, job_uuid, {"at": time.time(), "kind": "error", "msg": str(exc)[:500]}
             )
             try_n = int(ctx.get("job_try", 1) or 1)
             max_tries = int(ctx.get("max_tries", 1) or 1)
             if try_n >= max_tries:
-                await _mark_job(
+                await mark_job(
                     session, job_uuid, status="failed", error=str(exc)[:1000]
                 )
                 await session.commit()
-                await redis.publish(
+                await publish_status(
+                    redis,
                     f"results:job_{job_id}",
-                    json.dumps({"status": "failed", "error": str(exc)[:500]}),
+                    {"status": "failed", "error": str(exc)[:500]},
                 )
             else:
                 await session.commit()

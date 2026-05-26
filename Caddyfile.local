@@ -11,8 +11,8 @@ localhost {
 	respond /api/core/auth/* 404
 
 	handle_path /api/core/* {
-		# Post-strip path is `/jobs/*/stream` (prefix `/api/core` already stripped).
-		@sse path /jobs/*/stream
+		# Post-strip path covers term-enrichment + chat SSE (prefix `/api/core` already stripped).
+		@sse path /jobs/*/stream /chat/sessions/*/stream
 		reverse_proxy @sse pycil-core:8000 {
 			flush_interval -1
 			header_up X-Accel-Buffering no

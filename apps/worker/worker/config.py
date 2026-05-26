@@ -22,9 +22,26 @@ class WorkerSettings(BaseSettings):
     openrouter_budget_daily_usd: float = Field(
         default=20.0, alias="OPENROUTER_BUDGET_DAILY_USD"
     )
+    openrouter_fallback_chain: str = Field(
+        default="openai/gpt-4o-mini,anthropic/claude-haiku-4-5,google/gemini-2.0-flash-001",
+        alias="OPENROUTER_FALLBACK_CHAIN",
+    )
+    openrouter_fallback_budget_seconds: float = Field(
+        default=45.0, alias="OPENROUTER_FALLBACK_BUDGET_SECONDS"
+    )
 
     llm_timeout_seconds: float = 60.0
     job_timeout_seconds: int = 90
+    llm_response_cache_hours: int = Field(
+        default=24, alias="LLM_RESPONSE_CACHE_HOURS"
+    )
+
+    @property
+    def fallback_models(self) -> list[str]:
+        models = [m.strip() for m in self.openrouter_fallback_chain.split(",") if m.strip()]
+        if self.openrouter_model not in models:
+            models = [self.openrouter_model, *models]
+        return models
 
 
 @lru_cache(maxsize=1)

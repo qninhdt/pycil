@@ -26,8 +26,11 @@ from uuid import UUID
 from pydantic import ValidationError
 from sqlalchemy import text
 
+from worker.config import get_settings
 from worker.db import SessionLocal
-from worker.llm.openrouter import generate_term_payload
+from worker.jobs.lifecycle import append_event, mark_job, publish_status
+from worker.llm.openrouter import invoke_with_fallback
+from worker.observability.spend_metrics import emit_spend
 from worker.prompts import render
 from worker.redis_helpers import add_spend
 from worker.sanitize import sanitize_list, sanitize_text
@@ -37,6 +40,64 @@ _log = logging.getLogger(__name__)
 _RETRY_SUFFIX = "\n\nIMPORTANT: RETURN ONLY VALID JSON MATCHING THE SCHEMA."
 # Cost estimate for openai/gpt-4o-mini ≈ $0.0005 per term generation.
 _ESTIMATED_COST_USD = 0.0005
+_CACHE_SCHEMA_VERSION = 1
+
+
+async def _load_cached_response(
+    session, term_id: int, max_age_hours: int
+) -> TermGenerationOutput | None:
+    """Return cached LLM response for this term if fresh; else None.
+
+    Stale (older than max_age_hours) or schema-mismatched payloads are
+    treated as miss so a re-fetch picks up model drift.
+    """
+    row = (
+        await session.execute(
+            text(
+                """
+                SELECT last_llm_response
+                  FROM user_term_jobs
+                 WHERE term_id = :tid
+                   AND last_llm_response IS NOT NULL
+                   AND last_llm_response_at IS NOT NULL
+                   AND last_llm_response_at > NOW() - make_interval(hours => :h)
+                 ORDER BY last_llm_response_at DESC
+                 LIMIT 1
+                """
+            ),
+            {"tid": term_id, "h": max_age_hours},
+        )
+    ).first()
+    if not row or not row.last_llm_response:
+        return None
+    payload = row.last_llm_response
+    if isinstance(payload, dict) and payload.get("schema_version") == _CACHE_SCHEMA_VERSION:
+        try:
+            return TermGenerationOutput.model_validate(payload["data"])
+        except (ValidationError, ValueError):
+            return None
+    return None
+
+
+async def _save_cached_response(
+    session, term_id: int, output: TermGenerationOutput
+) -> None:
+    """Persist parsed response on the active job row keyed by term_id."""
+    payload = {
+        "schema_version": _CACHE_SCHEMA_VERSION,
+        "data": output.model_dump(mode="json"),
+    }
+    await session.execute(
+        text(
+            """
+            UPDATE user_term_jobs
+               SET last_llm_response = CAST(:p AS jsonb),
+                   last_llm_response_at = NOW()
+             WHERE term_id = :tid
+            """
+        ),
+        {"p": json.dumps(payload), "tid": term_id},
+    )
 
 
 async def _existing_definition_id(session, term_id: int) -> int | None:
@@ -50,43 +111,24 @@ async def _existing_definition_id(session, term_id: int) -> int | None:
 
 
 async def _publish_event(redis, term_id: int, payload: dict[str, Any]) -> None:
-    await redis.publish(f"results:{term_id}", json.dumps(payload, default=str))
+    await publish_status(redis, f"results:{term_id}", payload)
 
 
-async def _append_job_event(session, job_id: UUID, event: dict[str, Any]) -> None:
-    await session.execute(
-        text(
-            "UPDATE jobs SET events = events || :evt::jsonb, updated_at = NOW() "
-            "WHERE id = :id"
-        ),
-        {"evt": json.dumps(event, default=str), "id": job_id},
-    )
+async def _invoke_llm(prompt: str) -> tuple[TermGenerationOutput, str, int]:
+    """LLM call with one stricter retry on parse/validation failure.
 
-
-async def _mark_job(
-    session, job_id: UUID, *, status: str, result: dict | None = None, error: str | None = None
-) -> None:
-    await session.execute(
-        text(
-            "UPDATE jobs SET status = :s, result = :r, error = :e, updated_at = NOW() "
-            "WHERE id = :id"
-        ),
-        {
-            "s": status,
-            "r": json.dumps(result, default=str) if result is not None else None,
-            "e": error,
-            "id": job_id,
-        },
-    )
-
-
-async def _invoke_llm(prompt: str) -> TermGenerationOutput:
-    """LLM call with one stricter retry on parse/validation failure."""
+    Returns (output, model_used, hops). Routes through the fallback chain
+    so 5xx/429/timeout on the primary model hops to backup models.
+    """
     try:
-        return await generate_term_payload(prompt)
+        result = await invoke_with_fallback(prompt, TermGenerationOutput)
+        return result.output, result.model_used, result.hops
     except (ValidationError, ValueError) as e:
         _log.warning("llm_validation_failed_retry", extra={"err": str(e)[:300]})
-        return await generate_term_payload(prompt + _RETRY_SUFFIX)
+        result = await invoke_with_fallback(
+            prompt + _RETRY_SUFFIX, TermGenerationOutput
+        )
+        return result.output, result.model_used, result.hops
 
 
 async def _persist_definition(
@@ -94,7 +136,7 @@ async def _persist_definition(
 ) -> int:
     """INSERT definitions/paraphrases/examples. UNIQUE(term_id) absorbs retries."""
     canonical = sanitize_text(output.definition.canonical_meaning)
-    notes: list[str] = []  # phase 17: dropped legacy notes[0] dual-write
+    notes: list[str] = []
     insert_def = text(
         """
         INSERT INTO definitions (
@@ -102,7 +144,7 @@ async def _persist_definition(
             canonical_meaning
         )
         VALUES (
-            :tid, :cefr::cefr_level, :pos::part_of_speech,
+            :tid, CAST(:cefr AS cefr_level), CAST(:pos AS part_of_speech),
             :syn, :ant, :notes, :canonical
         )
         ON CONFLICT (term_id) DO UPDATE
@@ -132,7 +174,7 @@ async def _persist_definition(
         await session.execute(
             text(
                 "INSERT INTO definition_paraphrases (definition_id, value, cefr_level) "
-                "VALUES (:did, :val, :cefr::cefr_level)"
+                "VALUES (:did, :val, CAST(:cefr AS cefr_level))"
             ),
             {"did": def_id, "val": sanitize_text(p.value), "cefr": p.cefr_level},
         )
@@ -140,7 +182,7 @@ async def _persist_definition(
         await session.execute(
             text(
                 "INSERT INTO term_example_sentences (definition_id, value, cefr_level) "
-                "VALUES (:did, :val, :cefr::cefr_level)"
+                "VALUES (:did, :val, CAST(:cefr AS cefr_level))"
             ),
             {"did": def_id, "val": sanitize_text(ex.value), "cefr": ex.cefr_level},
         )
@@ -224,7 +266,7 @@ async def generate_term(ctx: dict, term_id: int, job_id: str) -> dict:
             )
         ).first()
         if not term_row:
-            await _mark_job(session, job_uuid, status="failed", error="term_not_found")
+            await mark_job(session, job_uuid, status="failed", error="term_not_found")
             await session.commit()
             await _publish_event(
                 redis, term_id, {"status": "failed", "error": "term_not_found"}
@@ -239,10 +281,10 @@ async def generate_term(ctx: dict, term_id: int, job_id: str) -> dict:
             # before publishing so all decks see the enriched payload.
             await _backfill_deck_definitions(session, term_id, existing)
             payload = await _build_payload(session, term_id, existing)
-            await _append_job_event(
+            await append_event(
                 session, job_uuid, {"at": time.time(), "kind": "cache_hit"}
             )
-            await _mark_job(session, job_uuid, status="completed", result=payload)
+            await mark_job(session, job_uuid, status="completed", result=payload)
             await session.commit()
             await _publish_event(redis, term_id, {"status": "completed", **payload})
             return {"status": "completed", "cache_hit": True}
@@ -251,12 +293,36 @@ async def generate_term(ctx: dict, term_id: int, job_id: str) -> dict:
             prompt = render(
                 "generate_term.md", term_value=sanitize_text(term_row.value)
             )
-            output = await _invoke_llm(prompt)
-            await add_spend(redis, _ESTIMATED_COST_USD)
+            settings = get_settings()
+            cached = await _load_cached_response(
+                session, term_id, settings.llm_response_cache_hours
+            )
+            if cached is not None:
+                _log.info("llm_cache_hit", extra={"term_id": term_id, "job_id": job_id})
+                output = cached
+                model_used = "cache"
+                hops = 0
+            else:
+                output, model_used, hops = await _invoke_llm(prompt)
+                await _save_cached_response(session, term_id, output)
+                await session.commit()
+                await add_spend(redis, _ESTIMATED_COST_USD)
+                emit_spend(
+                    job_id=job_id,
+                    job_type="generate_term",
+                    model_used=model_used,
+                    cost_usd=_ESTIMATED_COST_USD,
+                    duration_ms=(time.time() - started) * 1000.0,
+                )
+            if hops > 0:
+                _log.info(
+                    "llm_fallback_used",
+                    extra={"job_id": job_id, "model_used": model_used, "hops": hops},
+                )
             definition_id = await _persist_definition(session, term_id, output)
             await _backfill_deck_definitions(session, term_id, definition_id)
             payload = await _build_payload(session, term_id, definition_id)
-            await _append_job_event(
+            await append_event(
                 session,
                 job_uuid,
                 {
@@ -265,14 +331,14 @@ async def generate_term(ctx: dict, term_id: int, job_id: str) -> dict:
                     "elapsed": time.time() - started,
                 },
             )
-            await _mark_job(session, job_uuid, status="completed", result=payload)
+            await mark_job(session, job_uuid, status="completed", result=payload)
             await session.commit()
             await _publish_event(redis, term_id, {"status": "completed", **payload})
             return {"status": "completed"}
         except Exception as exc:  # noqa: BLE001
             _log.exception("generate_term_failed", extra={"term_id": term_id})
             await session.rollback()
-            await _append_job_event(
+            await append_event(
                 session, job_uuid, {"at": time.time(), "kind": "error", "msg": str(exc)[:500]}
             )
             # Only flip the row to terminal `failed` (and notify SSE) on the
@@ -281,7 +347,7 @@ async def generate_term(ctx: dict, term_id: int, job_id: str) -> dict:
             try_n = int(ctx.get("job_try", 1) or 1)
             max_tries = int(ctx.get("max_tries", 1) or 1)
             if try_n >= max_tries:
-                await _mark_job(
+                await mark_job(
                     session, job_uuid, status="failed", error=str(exc)[:1000]
                 )
                 await session.commit()

@@ -12,7 +12,8 @@
 	handle_path /api/core/* {
 		# SSE matcher uses POST-strip path (`/api/core` already removed).
 		# Disable buffering + compression so chunks flush immediately.
-		@sse path /jobs/*/stream
+		# Cover term-enrichment SSE and chat SSE.
+		@sse path /jobs/*/stream /chat/sessions/*/stream
 		reverse_proxy @sse pycil-core:8000 {
 			flush_interval -1
 			header_up X-Accel-Buffering no
