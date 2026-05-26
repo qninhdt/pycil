@@ -21,18 +21,16 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from pycil_core.api.deps import RedisDep, SessionDep, UserDep
-from pycil_core.services import (
-    activity_feed_service,
-    admin_audit_service,
-    cefr_threshold_service,
-    daily_goal_service,
-    data_export_service,
-    feature_flag_service,
-    push_notification_service,
-    social_service,
-    term_notes_service,
-    tos_service,
-)
+from pycil_core.services import activity_feed_service
+from pycil_core.services import admin_audit_service
+from pycil_core.services import cefr_threshold_service
+from pycil_core.services import daily_goal_service
+from pycil_core.services import data_export_service
+from pycil_core.services import feature_flag_service
+from pycil_core.services import push_notification_service
+from pycil_core.services import social_service
+from pycil_core.services import term_notes_service
+from pycil_core.services import tos_service
 
 router = APIRouter(tags=["batch-routes"])
 
