@@ -32,9 +32,19 @@ def upgrade() -> None:
         "ALTER TABLE definitions DROP CONSTRAINT IF EXISTS definitions_term_id_key"
     )
     op.execute(
-        "ALTER TABLE definitions "
-        "ADD CONSTRAINT IF NOT EXISTS definitions_term_sense_unique "
-        "UNIQUE (term_id, sense_index)"
+        """
+        DO $$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+             WHERE conname = 'definitions_term_sense_unique'
+          ) THEN
+            ALTER TABLE definitions
+              ADD CONSTRAINT definitions_term_sense_unique
+              UNIQUE (term_id, sense_index);
+          END IF;
+        END$$;
+        """
     )
     op.execute(
         "CREATE INDEX IF NOT EXISTS definitions_term_primary "

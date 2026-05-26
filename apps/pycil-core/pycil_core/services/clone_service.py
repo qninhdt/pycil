@@ -122,11 +122,11 @@ async def deep_clone(
                         homophones, notes, tags, canonical_meaning, translation, tts_url
                     )
                     VALUES (
-                        :tid, :cefr::cefr_level, :pos::part_of_speech,
+                        :tid, CAST(:cefr AS cefr_level), CAST(:pos AS part_of_speech),
                         :syn, :ant, :hypo, :hyper, :mero, :holo,
                         :homo, :notes, :tags, :canon, CAST(:trans AS jsonb), CAST(:tts AS jsonb)
                     )
-                    ON CONFLICT (term_id) DO NOTHING
+                    ON CONFLICT (term_id, sense_index) DO NOTHING
                     RETURNING id
                     """
                 ),

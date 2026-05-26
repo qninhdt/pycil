@@ -13,8 +13,10 @@ from uuid import UUID
 
 from fastapi import HTTPException, status
 from redis.asyncio import Redis
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from pycil_core.services.job_service import enqueue_generate_term
 from pycil_core.services.term_service import add_term_to_deck
 
 TermSource = Literal[
@@ -99,6 +101,17 @@ async def _check_batch_budget(
         )
 
 
+async def _term_already_enriched(session: AsyncSession, term_id: int) -> bool:
+    """Skip enqueue when canonical enrichment is already cached."""
+    row = (
+        await session.execute(
+            text("SELECT 1 FROM definitions WHERE term_id = :tid LIMIT 1"),
+            {"tid": term_id},
+        )
+    ).first()
+    return row is not None
+
+
 async def add_terms_batch(
     session: AsyncSession,
     redis: Redis,
@@ -125,21 +138,26 @@ async def add_terms_batch(
     for value in deduped:
         try:
             resp = await add_term_to_deck(session, user_id, deck_id, value)
-            kind: Literal["created", "existing"] = (
-                "created" if resp.job_id else "existing"
+            term_id = resp.term.id
+            if await _term_already_enriched(session, term_id):
+                outcomes.append(BatchOutcome(value=value, status="existing"))
+                continue
+            enqueued = await enqueue_generate_term(
+                session, user_id, term_id, skip_user_rate=True
             )
-            outcomes.append(BatchOutcome(value=value, status=kind, job_id=resp.job_id))
-            if resp.job_id:
-                job_ids.append(resp.job_id)
+            job_id = enqueued["job_id"]
+            outcomes.append(
+                BatchOutcome(value=value, status="created", job_id=job_id)
+            )
+            job_ids.append(job_id)
         except HTTPException as exc:
             outcomes.append(
                 BatchOutcome(value=value, status="invalid", error=str(exc.detail))
             )
 
     if outcomes:
-        from sqlalchemy import text as _sql_text
         await session.execute(
-            _sql_text(
+            text(
                 "UPDATE terms SET source = :s "
                 "WHERE value = ANY(:vals) AND source = 'manual'"
             ),

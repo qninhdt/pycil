@@ -6,38 +6,22 @@ are enforced pre-enqueue against Redis counters.
 from __future__ import annotations
 
 import json
-import os
-from uuid import UUID, uuid4
+from uuid import UUID
 
-from arq.connections import ArqRedis, RedisSettings, create_pool
 from fastapi import HTTPException, status
 from redis.asyncio import Redis
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pycil_core.config import get_settings
+from pycil_core.services._job_enqueue import (
+    acquire_lock_or_get_owner,
+    enqueue_arq_job,
+)
 from pycil_core.services.redis_pool import get_redis
+from shared.redis_lock import spend_key_today
 
 _LOCK_TTL_SECONDS = 600
 _RATE_LIMIT_PER_HOUR = 5
-
-
-def _today_budget_key() -> str:
-    """UTC-day partitioned spend counter; matches worker.redis_helpers."""
-    from datetime import datetime, timezone
-    return f"openrouter:spend:{datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
-
-# Lock-acquire-or-get Lua, mirroring worker.redis_helpers.
-_LOCK_LUA = """
-local current = redis.call('GET', KEYS[1])
-if current then return current end
-redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])
-return ARGV[1]
-"""
-
-
-async def _arq_pool() -> ArqRedis:
-    return await create_pool(RedisSettings.from_dsn(get_settings().redis_url))
 
 
 def _redis() -> Redis:
@@ -57,8 +41,9 @@ async def _check_user_rate(redis: Redis, user_id: UUID) -> None:
 
 
 async def _check_global_budget(redis: Redis) -> None:
+    import os
     cap = float(os.environ.get("OPENROUTER_BUDGET_DAILY_USD", "20"))
-    raw = await redis.get(_today_budget_key())
+    raw = await redis.get(spend_key_today())
     spent = 0.0
     if raw is not None:
         try:
@@ -73,26 +58,30 @@ async def _check_global_budget(redis: Redis) -> None:
 
 
 async def enqueue_generate_term(
-    session: AsyncSession, user_id: UUID, term_id: int
+    session: AsyncSession,
+    user_id: UUID,
+    term_id: int,
+    *,
+    skip_user_rate: bool = False,
 ) -> dict:
+    """Enqueue an enrichment job. `skip_user_rate=True` is for batch ingestion
+    paths that already enforce their own per-min/per-day quotas — the per-user
+    5/hr cap was sized for "user types one term" and would 429 mid-batch."""
     redis = _redis()
     try:
         # Budget first: rejecting on rate after a budget-exhaust would consume
         # a slot from the user's hourly quota for a request that never ran.
         await _check_global_budget(redis)
-        await _check_user_rate(redis, user_id)
+        if not skip_user_rate:
+            await _check_user_rate(redis, user_id)
 
         # Lock-or-get: cost-dedup across users adding the same term.
         lock_key = f"lock:generate_term:{term_id}"
-        new_job_id = str(uuid4())
-        result = await redis.eval(
-            _LOCK_LUA, 1, lock_key, new_job_id, _LOCK_TTL_SECONDS
-        )
-        owner_job_id = (
-            result.decode() if isinstance(result, bytes) else str(result)
+        new_job_id, owner_job_id, is_owner = await acquire_lock_or_get_owner(
+            redis, lock_key=lock_key, ttl_seconds=_LOCK_TTL_SECONDS
         )
 
-        if owner_job_id != new_job_id:
+        if not is_owner:
             # Existing in-flight job for this term — reuse its job_id but still
             # write a per-user user_term_jobs row so this user owns its SSE view.
             await session.execute(
@@ -113,7 +102,7 @@ async def enqueue_generate_term(
             text(
                 """
                 INSERT INTO jobs (id, type, status, payload)
-                VALUES (:id, 'generate_term', 'pending', :payload::jsonb)
+                VALUES (:id, 'generate_term', 'pending', CAST(:payload AS jsonb))
                 """
             ),
             {
@@ -133,9 +122,8 @@ async def enqueue_generate_term(
         )
         await session.commit()
 
-        pool = await _arq_pool()
         try:
-            await pool.enqueue_job(
+            await enqueue_arq_job(
                 "generate_term", term_id, new_job_id, _job_id=new_job_id
             )
         except Exception:
@@ -151,8 +139,6 @@ async def enqueue_generate_term(
             )
             await session.commit()
             raise
-        finally:
-            await pool.close()
 
         return {"job_id": new_job_id, "deduped": False}
     finally:

@@ -1,8 +1,6 @@
 """Bulk + CSV term ingestion routes (P2 phases 1-2)."""
 from __future__ import annotations
 
-import csv
-import io
 from typing import Annotated
 from uuid import UUID
 
@@ -11,9 +9,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 
 from pycil_core.api.deps import RedisDep, SessionDep, UserDep
+from pycil_core.services import csv_service
 from pycil_core.services.term_batch_service import (
     MAX_BATCH_SIZE,
-    BatchOutcome,
     BatchResult,
     add_terms_batch,
 )
@@ -75,10 +73,6 @@ async def batch_add(
     return _to_response(result)
 
 
-_CSV_MAX_BYTES = 5 * 1024 * 1024
-_CSV_MAX_ROWS = 5000
-
-
 @router.post(
     "/{deck_id}/terms/csv",
     response_model=BatchResponse,
@@ -91,38 +85,42 @@ async def csv_import(
     redis: RedisDep,
     file: Annotated[UploadFile, File()],
 ) -> BatchResponse:
-    raw = await file.read(_CSV_MAX_BYTES + 1)
-    if len(raw) > _CSV_MAX_BYTES:
+    raw = await file.read(csv_service.MAX_BYTES + 1)
+    if len(raw) > csv_service.MAX_BYTES:
         raise HTTPException(
             status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "csv_too_large"
         )
-    text_data = raw.decode("utf-8-sig", errors="strict")
-    reader = csv.DictReader(io.StringIO(text_data))
-    if not reader.fieldnames or "term" not in {f.lower() for f in reader.fieldnames}:
+    try:
+        rows, _fields = csv_service.parse_csv(raw)
+    except ValueError as exc:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY, "csv_missing_term_column"
+            status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)
+        ) from exc
+    if len(rows) > csv_service.MAX_ROWS:
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "csv_too_many_rows"
         )
-    rows = list(reader)
-    if len(rows) > _CSV_MAX_ROWS:
-        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "csv_too_many_rows")
 
-    values = [
-        (row.get("term") or row.get("Term") or "").strip()
-        for row in rows
-        if (row.get("term") or row.get("Term"))
-    ]
+    values = [row.value for row in rows]
     result = await add_terms_batch(
         session, redis, user.id, deck_id, values, source="csv"
     )
+
+    if any(row.is_pre_enriched for row in rows):
+        accepted_values = {
+            o.value for o in result.outcomes if o.status in ("created", "existing")
+        }
+        if accepted_values:
+            id_rows = (
+                await session.execute(
+                    text("SELECT id, value FROM terms WHERE value = ANY(:vals)"),
+                    {"vals": list(accepted_values)},
+                )
+            ).all()
+            value_to_id = {r.value: r.id for r in id_rows}
+            await csv_service.store_overrides(session, user.id, value_to_id, rows)
+
     return _to_response(result)
-
-
-def _csv_escape_cell(cell: str | None) -> str:
-    if cell is None:
-        return ""
-    if cell and cell[0] in ("=", "+", "-", "@"):
-        return "'" + cell
-    return cell
 
 
 @router.get("/{deck_id}/export.csv")
@@ -144,51 +142,8 @@ async def csv_export(
     if deck_row.author_id != user.id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "deck_forbidden")
 
-    async def gen():
-        buf = io.StringIO()
-        writer = csv.writer(buf)
-        writer.writerow(["term", "definition", "synonyms", "antonyms", "examples"])
-        yield buf.getvalue()
-        buf.seek(0)
-        buf.truncate()
-
-        rows = (
-            await session.execute(
-                text(
-                    """
-                    SELECT t.value AS term,
-                           d.canonical_meaning AS definition,
-                           d.synonyms, d.antonyms,
-                           ARRAY(
-                             SELECT value FROM term_example_sentences
-                              WHERE definition_id = d.id ORDER BY id
-                           ) AS examples
-                      FROM deck_terms dt
-                      JOIN terms t ON t.id = dt.term_id
-                 LEFT JOIN definitions d ON d.term_id = t.id
-                     WHERE dt.deck_id = :deck
-                     ORDER BY dt.position
-                    """
-                ),
-                {"deck": deck_id},
-            )
-        ).all()
-        for r in rows:
-            writer.writerow(
-                [
-                    _csv_escape_cell(r.term),
-                    _csv_escape_cell(r.definition or ""),
-                    "; ".join(r.synonyms or []),
-                    "; ".join(r.antonyms or []),
-                    " | ".join(r.examples or []),
-                ]
-            )
-            yield buf.getvalue()
-            buf.seek(0)
-            buf.truncate()
-
     return StreamingResponse(
-        gen(),
+        csv_service.stream_export(session, deck_id),
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="deck-{deck_id}.csv"'},
     )

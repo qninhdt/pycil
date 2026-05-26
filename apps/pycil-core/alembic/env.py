@@ -44,6 +44,26 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
+def _widen_alembic_version(connection) -> None:
+    """Widen alembic_version.version_num to fit revision IDs > 32 chars.
+
+    Default Alembic creates VARCHAR(32); descriptive IDs like
+    `0013_user_definition_stats_and_overrides` (41 chars) overflow it.
+    Idempotent: ALTER TYPE TEXT is a no-op when already TEXT.
+    """
+    from sqlalchemy import text as _t
+    connection.execute(
+        _t(
+            "CREATE TABLE IF NOT EXISTS alembic_version ("
+            "version_num VARCHAR(64) NOT NULL, "
+            "CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num))"
+        )
+    )
+    connection.execute(
+        _t("ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(64)")
+    )
+
+
 def run_migrations_online() -> None:
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
@@ -52,6 +72,8 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
+        _widen_alembic_version(connection)
+        connection.commit()
         context.configure(connection=connection, target_metadata=target_metadata)
         with context.begin_transaction():
             context.run_migrations()
