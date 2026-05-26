@@ -21,16 +21,36 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from pycil_core.api.deps import RedisDep, SessionDep, UserDep
-from pycil_core.services import activity_feed_service
-from pycil_core.services import admin_audit_service
-from pycil_core.services import cefr_threshold_service
-from pycil_core.services import daily_goal_service
-from pycil_core.services import data_export_service
-from pycil_core.services import feature_flag_service
-from pycil_core.services import push_notification_service
-from pycil_core.services import social_service
-from pycil_core.services import term_notes_service
-from pycil_core.services import tos_service
+from pycil_core.services.activity_feed_service import (
+    list_for_followees as feed_list_followees,
+)
+from pycil_core.services.cefr_threshold_service import (
+    get_thresholds as cefr_get,
+    set_thresholds as cefr_set,
+)
+from pycil_core.services.daily_goal_service import (
+    goal_summary,
+    update_goal,
+)
+from pycil_core.services.data_export_service import export as ndjson_export
+from pycil_core.services.feature_flag_service import is_enabled as flag_enabled
+from pycil_core.services.push_notification_service import (
+    subscribe as push_subscribe_,
+    unsubscribe as push_unsubscribe_,
+)
+from pycil_core.services.social_service import (
+    toggle_follow,
+    toggle_like,
+)
+from pycil_core.services.term_notes_service import (
+    delete as note_delete,
+    get as note_get,
+    upsert as note_upsert,
+)
+from pycil_core.services.tos_service import (
+    ack as tos_ack_,
+    needs_ack,
+)
 
 router = APIRouter(tags=["batch-routes"])
 
@@ -41,7 +61,7 @@ router = APIRouter(tags=["batch-routes"])
 @router.get("/me/data-export")
 async def export_my_data(user: UserDep, session: SessionDep):
     return StreamingResponse(
-        data_export_service.export(session, user.id),
+        ndjson_export(session, user.id),
         media_type="application/x-ndjson",
         headers={"Content-Disposition": 'attachment; filename="pycil-export.ndjson"'},
     )
@@ -70,7 +90,7 @@ async def toggle_follow_by_username(
     ).first()
     if not target:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "user_not_found")
-    now_following = await social_service.toggle_follow(session, user.id, target.id)
+    now_following = await toggle_follow(session, user.id, target.id)
     await session.commit()
     return {"following": now_following}
 
@@ -81,7 +101,7 @@ async def toggle_deck_like(
     user: UserDep,
     session: SessionDep,
 ):
-    liked = await social_service.toggle_like(session, user.id, deck_id)
+    liked = await toggle_like(session, user.id, deck_id)
     await session.commit()
     return {"liked": liked}
 
@@ -102,7 +122,7 @@ async def push_subscribe(
     user: UserDep,
     session: SessionDep,
 ):
-    sub_id = await push_notification_service.subscribe(
+    sub_id = await push_subscribe_(
         session,
         user.id,
         endpoint=payload.endpoint,
@@ -120,7 +140,7 @@ async def push_unsubscribe(
     user: UserDep,
     session: SessionDep,
 ):
-    removed = await push_notification_service.unsubscribe(
+    removed = await push_unsubscribe_(
         session, user.id, payload.endpoint
     )
     await session.commit()
@@ -132,7 +152,7 @@ async def push_unsubscribe(
 
 @router.get("/tos/needs-ack")
 async def tos_needs_ack(user: UserDep, session: SessionDep):
-    pending = await tos_service.needs_ack(session, user.id)
+    pending = await needs_ack(session, user.id)
     if not pending:
         return {"needs_ack": False}
     return {
@@ -144,7 +164,7 @@ async def tos_needs_ack(user: UserDep, session: SessionDep):
 
 @router.post("/tos/{version}/ack")
 async def tos_ack(version: str, user: UserDep, session: SessionDep):
-    await tos_service.ack(session, user.id, version)
+    await tos_ack_(session, user.id, version)
     await session.commit()
     return {"ack": True, "version": version}
 
@@ -158,7 +178,7 @@ class TermNotePayload(BaseModel):
 
 @router.get("/me/notes/{term_id}")
 async def get_term_note(term_id: int, user: UserDep, session: SessionDep):
-    body = await term_notes_service.get(session, user.id, term_id)
+    body = await note_get(session, user.id, term_id)
     return {"body": body}
 
 
@@ -169,7 +189,7 @@ async def put_term_note(
     user: UserDep,
     session: SessionDep,
 ):
-    await term_notes_service.upsert(session, user.id, term_id, payload.body)
+    await note_upsert(session, user.id, term_id, payload.body)
     await session.commit()
     return {"saved": True}
 
@@ -178,7 +198,7 @@ async def put_term_note(
 async def delete_term_note(
     term_id: int, user: UserDep, session: SessionDep
 ):
-    await term_notes_service.delete(session, user.id, term_id)
+    await note_delete(session, user.id, term_id)
     await session.commit()
     return {"deleted": True}
 
@@ -193,7 +213,7 @@ class GoalPayload(BaseModel):
 
 @router.get("/me/goal")
 async def my_goal(user: UserDep, session: SessionDep):
-    s = await daily_goal_service.goal_summary(session, user.id)
+    s = await goal_summary(session, user.id)
     return {
         "daily_goal": s.daily_goal,
         "answered_today": s.answered_today,
@@ -206,7 +226,7 @@ async def my_goal(user: UserDep, session: SessionDep):
 async def update_my_goal(
     payload: GoalPayload, user: UserDep, session: SessionDep
 ):
-    await daily_goal_service.update_goal(
+    await update_goal(
         session,
         user.id,
         daily_goal=payload.daily_goal,
@@ -222,18 +242,16 @@ class ThresholdsPayload(BaseModel):
 
 @router.get("/me/cefr-thresholds")
 async def get_cefr_thresholds(user: UserDep, session: SessionDep):
-    return await cefr_threshold_service.get_thresholds(session, user.id)
+    return await cefr_get(session, user.id)
 
 
 @router.put("/me/cefr-thresholds")
 async def put_cefr_thresholds(
     payload: ThresholdsPayload, user: UserDep, session: SessionDep
 ):
-    await cefr_threshold_service.set_thresholds(
-        session, user.id, payload.thresholds
-    )
+    await cefr_set(session, user.id, payload.thresholds)
     await session.commit()
-    return await cefr_threshold_service.get_thresholds(session, user.id)
+    return await cefr_get(session, user.id)
 
 
 # ── Activity feed ─────────────────────────────────────────────────────────
@@ -241,7 +259,7 @@ async def put_cefr_thresholds(
 
 @router.get("/me/feed")
 async def my_feed(user: UserDep, session: SessionDep, limit: int = 50):
-    events = await activity_feed_service.list_for_followees(
+    events = await feed_list_followees(
         session, user.id, limit=min(limit, 200)
     )
     return {"events": events}
@@ -254,7 +272,7 @@ async def my_feed(user: UserDep, session: SessionDep, limit: int = 50):
 async def get_flag(
     name: str, user: UserDep, session: SessionDep
 ):
-    enabled = await feature_flag_service.is_enabled(session, name, user.id)
+    enabled = await flag_enabled(session, name, user.id)
     return {"name": name, "enabled": enabled}
 
 
@@ -282,7 +300,3 @@ async def list_audit(
         )
     ).all()
     return {"actions": [dict(r._mapping) for r in rows]}
-
-
-# Touch admin_audit_service so import survives lint passes.
-_ = admin_audit_service.record
