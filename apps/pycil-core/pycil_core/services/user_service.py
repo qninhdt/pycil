@@ -45,7 +45,8 @@ async def upsert_user(
         )
     ).one()
     await session.commit()
-    return row[0] if isinstance(row, tuple) else row.id
+    # .returning(col) yields a single-column Row; index positionally.
+    return row[0]
 
 
 async def get_with_token_version_check(
@@ -90,7 +91,7 @@ async def revoke_tokens(
     if row is None:
         raise LookupError("user_not_found")
     await session.commit()
-    return int(row[0] if isinstance(row, tuple) else row.token_version)
+    return int(row[0])
 
 
 async def soft_delete_user(session: AsyncSession, *, user_id: UUID) -> None:

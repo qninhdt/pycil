@@ -59,7 +59,7 @@ async def record_lapse(
     ).first()
     if not row:
         return UserTermStatus.ACTIVE.value
-    lapse_count = int(row[0] if isinstance(row, tuple) else row.lapse_count)
+    lapse_count = int(row[0])
     if lapse_count >= LeechThreshold:
         await set_status(session, user_id, term_id, UserTermStatus.SUSPENDED)
         return UserTermStatus.SUSPENDED.value

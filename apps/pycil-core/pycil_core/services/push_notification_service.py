@@ -48,7 +48,7 @@ async def subscribe(
             ).returning(PushSubscription.id)
         )
     ).one()
-    return int(row[0] if isinstance(row, tuple) else row.id)
+    return int(row[0])
 
 
 async def unsubscribe(
