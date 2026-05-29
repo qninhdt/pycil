@@ -7,9 +7,8 @@ Webhook idempotency: insert event_id BEFORE dispatch.
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request, status
-from sqlalchemy.exc import IntegrityError
-
 from shared.db import StripeWebhookEvent
+from sqlalchemy.exc import IntegrityError
 
 from pycil_core.api.deps import SessionDep, UserDep
 from pycil_core.config import get_settings
@@ -79,7 +78,7 @@ async def webhook(request: Request, session: SessionDep) -> dict:
     metadata = obj.get("metadata") or {}
     user_id = metadata.get("user_id")
     pe_epoch = obj.get("current_period_end")
-    pe_int = int(pe_epoch) if isinstance(pe_epoch, (int, float, str)) and pe_epoch else None
+    pe_int = int(pe_epoch) if isinstance(pe_epoch, int | float | str) and pe_epoch else None
     event_created = int(event.get("created") or 0)
     event_id_str = str(event.get("id") or "")
 

@@ -9,7 +9,6 @@ from __future__ import annotations
 from typing import Any
 
 from pydantic import BaseModel, Field
-
 from shared.questions.base import BaseQuestion, CheckResult, QuestionType
 from shared.questions.normalize import normalize_answer
 

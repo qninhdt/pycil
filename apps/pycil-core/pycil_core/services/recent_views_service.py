@@ -4,10 +4,9 @@ from __future__ import annotations
 from collections.abc import Sequence
 from uuid import UUID
 
+from shared.db import DeckTerm, Definition, Node, Term, UserTermStat
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
-
-from shared.db import DeckTerm, Definition, Node, Term, UserTermStat
 
 
 async def recently_added(

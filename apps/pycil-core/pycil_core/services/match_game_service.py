@@ -11,11 +11,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import and_, func, or_, select
-from sqlmodel.ext.asyncio.session import AsyncSession
-
 from shared.db import DeckTerm, Definition, Term, UserTermStat
 from shared.db.enums import UserTermStatus
+from sqlalchemy import and_, func, or_, select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 DEFAULT_PAIR_COUNT = 6
 MAX_PAIR_COUNT = 12

@@ -13,10 +13,9 @@ import time
 from dataclasses import dataclass
 from uuid import UUID
 
+from shared.db import FeatureFlag
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
-
-from shared.db import FeatureFlag
 
 _CACHE_TTL_SECONDS = 30.0
 

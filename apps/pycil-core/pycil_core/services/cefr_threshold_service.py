@@ -10,11 +10,10 @@ import json
 from collections.abc import Mapping
 from uuid import UUID
 
+from shared.db import User
 from sqlalchemy import update
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
-
-from shared.db import User
 
 DEFAULT_THRESHOLDS: dict[str, int] = {
     "A1": 5,

@@ -11,10 +11,9 @@ from collections.abc import Sequence
 from typing import Any
 from uuid import UUID
 
+from shared.db import ActivityEvent, Follow
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
-
-from shared.db import ActivityEvent, Follow
 
 
 async def append(

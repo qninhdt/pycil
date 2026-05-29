@@ -9,11 +9,10 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from shared.db import Definition
 from sqlalchemy import update
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
-
-from shared.db import Definition
 
 
 @dataclass

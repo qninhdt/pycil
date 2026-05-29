@@ -12,10 +12,9 @@ from datetime import datetime
 from uuid import UUID
 
 from fastapi import HTTPException, status
+from shared.db import DefinitionComment, User
 from sqlalchemy import func, select, update
 from sqlmodel.ext.asyncio.session import AsyncSession
-
-from shared.db import DefinitionComment, User
 
 COMMENT_MAX_BYTES = 4096
 

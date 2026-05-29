@@ -12,10 +12,9 @@ from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
-from sqlalchemy import select, text
-
 from shared.db import Node
 from shared.db.enums import NodeType, Visibility
+from sqlalchemy import select, text
 
 from pycil_core.api.deps import SessionDep, UserDep
 from pycil_core.middleware.rate_limit import client_ip, enforce

@@ -5,11 +5,10 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
 from fastapi.responses import JSONResponse
-from sqlalchemy import select
-from starlette.requests import Request
-from sqlmodel.ext.asyncio.session import AsyncSession
-
 from shared.db import User
+from sqlalchemy import select
+from sqlmodel.ext.asyncio.session import AsyncSession
+from starlette.requests import Request
 
 from pycil_core.api.routes import admin as admin_routes
 from pycil_core.api.routes import auth as auth_routes

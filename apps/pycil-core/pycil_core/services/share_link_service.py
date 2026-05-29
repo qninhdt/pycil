@@ -8,11 +8,10 @@ from __future__ import annotations
 import secrets
 from uuid import UUID
 
-from sqlalchemy import delete, func, update
+from shared.db import Node, NodeShareLink
+from sqlalchemy import func, update
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
-
-from shared.db import Node, NodeShareLink
 
 
 def _new_token() -> str:

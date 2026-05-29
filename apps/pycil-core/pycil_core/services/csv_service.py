@@ -23,11 +23,10 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from uuid import UUID
 
+from shared.db import DeckTerm, Definition, DefinitionOverride, Term, TermExampleSentence
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import aggregate_order_by, insert
 from sqlmodel.ext.asyncio.session import AsyncSession
-
-from shared.db import DeckTerm, Definition, DefinitionOverride, Term, TermExampleSentence
 
 MAX_ROWS = 5000
 MAX_BYTES = 5 * 1024 * 1024

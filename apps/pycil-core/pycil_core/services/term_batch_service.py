@@ -13,10 +13,9 @@ from uuid import UUID
 
 from fastapi import HTTPException, status
 from redis.asyncio import Redis
+from shared.db import Definition, Term
 from sqlalchemy import select, update
 from sqlmodel.ext.asyncio.session import AsyncSession
-
-from shared.db import Definition, Term
 
 from pycil_core.services.job_service import enqueue_generate_term
 from pycil_core.services.term_service import add_term_to_deck

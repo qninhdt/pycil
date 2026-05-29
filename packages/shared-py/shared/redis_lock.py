@@ -7,7 +7,7 @@ from the lock holder rather than starting a duplicate job.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from redis.asyncio import Redis
 
@@ -34,7 +34,7 @@ async def acquire_or_get_lock(
 
 def spend_key_today() -> str:
     """UTC-day partitioned spend counter; resets at 00:00Z naturally."""
-    return f"{SPEND_KEY_PREFIX}:{datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
+    return f"{SPEND_KEY_PREFIX}:{datetime.now(UTC).strftime('%Y-%m-%d')}"
 
 
 async def get_spend_daily(redis: Redis) -> float:

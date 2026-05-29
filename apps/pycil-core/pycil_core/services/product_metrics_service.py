@@ -8,11 +8,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, timedelta
 
+from shared.db import Node, NodeType, Response, User
 from sqlalchemy import func
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
-
-from shared.db import Node, NodeType, Response, User
 
 
 @dataclass

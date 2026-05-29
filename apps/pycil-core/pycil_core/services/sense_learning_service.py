@@ -11,11 +11,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from uuid import UUID
 
+from shared.db import Definition, UserDefinitionStat
 from sqlalchemy import and_, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlmodel.ext.asyncio.session import AsyncSession
-
-from shared.db import Definition, UserDefinitionStat
 
 
 @dataclass

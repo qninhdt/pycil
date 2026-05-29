@@ -6,13 +6,13 @@ from uuid import UUID
 
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
 from fastapi.responses import Response
+from shared.db import Node
 from sqlmodel import select
 
 from pycil_core.api.deps import RedisDep, SessionDep, UserDep
 from pycil_core.api.routes.terms_batch import BatchResponse, _to_response
 from pycil_core.services import anki_import_service
 from pycil_core.services.term_batch_service import add_terms_batch
-from shared.db import Node
 
 router = APIRouter(prefix="/decks", tags=["anki"])
 

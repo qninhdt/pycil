@@ -14,11 +14,10 @@ from __future__ import annotations
 import logging
 import math
 
+from shared.db import Question, Response, UserTermStat
 from sqlalchemy import case, func, update
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
-
-from shared.db import Question, Response, UserTermStat
 
 _log = logging.getLogger(__name__)
 

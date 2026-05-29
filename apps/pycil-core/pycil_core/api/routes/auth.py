@@ -14,9 +14,8 @@ import hmac
 
 from fastapi import APIRouter, Header, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy import func, text, update
-
 from shared.db import User
+from sqlalchemy import func, text, update
 
 from pycil_core.api.deps import SessionDep, UserDep
 from pycil_core.config import get_settings

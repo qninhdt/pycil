@@ -10,11 +10,10 @@ import logging
 from pathlib import Path
 from uuid import UUID
 
-from sqlalchemy import select
-from sqlmodel.ext.asyncio.session import AsyncSession
-
 from shared.db import Node
 from shared.db.enums import NodeType
+from sqlalchemy import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 _log = logging.getLogger(__name__)
 

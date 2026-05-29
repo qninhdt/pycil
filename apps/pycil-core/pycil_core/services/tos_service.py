@@ -10,11 +10,11 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
+from shared.db import TosVersion as TosVersionRecord
+from shared.db import UserTosAck
 from sqlalchemy.dialects.postgresql import insert
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
-
-from shared.db import TosVersion as TosVersionRecord, UserTosAck
 
 
 @dataclass

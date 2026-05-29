@@ -7,17 +7,17 @@ correlation later.
 """
 from __future__ import annotations
 
+import json
 import logging
 from typing import Literal, Protocol
 from uuid import UUID
 
 import httpx
-import json
+from shared.db import EmailEvent
 from sqlalchemy.dialects.postgresql import insert
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from pycil_core.config import get_settings
-from shared.db import EmailEvent
 
 _log = logging.getLogger(__name__)
 

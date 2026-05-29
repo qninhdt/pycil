@@ -10,9 +10,7 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
-
 from shared.questions.base import BaseQuestion, CheckResult, QuestionType
-
 
 _OptionStr = Annotated[str, StringConstraints(min_length=1, max_length=200)]
 _RationaleStr = Annotated[str, StringConstraints(min_length=1, max_length=400)]

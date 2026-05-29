@@ -10,9 +10,8 @@ import json
 from typing import Any
 from uuid import UUID
 
-from sqlmodel.ext.asyncio.session import AsyncSession
-
 from shared.db import AdminAction
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 
 async def record(

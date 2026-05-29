@@ -6,16 +6,15 @@ ENFORCE_TIERS feature flag default false.
 """
 from __future__ import annotations
 
-from datetime import UTC, datetime
 import logging
+from datetime import UTC, datetime
 from uuid import UUID
 
+from shared.db import Subscription, User
 from sqlalchemy import tuple_, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
-
-from shared.db import Subscription, User
 
 _log = logging.getLogger(__name__)
 

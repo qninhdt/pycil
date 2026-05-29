@@ -10,12 +10,11 @@ import json
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import delete
+from shared.db import DefinitionOverride
+from sqlalchemy import delete as sa_delete
 from sqlalchemy.dialects.postgresql import insert
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
-
-from shared.db import DefinitionOverride
 
 
 async def upsert(
@@ -55,7 +54,7 @@ async def delete(
     session: AsyncSession, user_id: UUID, term_id: int
 ) -> None:
     await session.exec(
-        delete(DefinitionOverride).where(
+        sa_delete(DefinitionOverride).where(
             DefinitionOverride.user_id == user_id,
             DefinitionOverride.term_id == term_id,
         )

@@ -11,11 +11,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import and_, or_, select
-from sqlmodel.ext.asyncio.session import AsyncSession
-
 from shared.db import DeckTerm, Definition, Term, UserTermStat
 from shared.db.enums import UserTermStatus
+from sqlalchemy import and_, or_, select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from pycil_core.services.answer_grading_service import grade
 

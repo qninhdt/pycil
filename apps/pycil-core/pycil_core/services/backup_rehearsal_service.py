@@ -14,13 +14,12 @@ import logging
 from datetime import datetime
 from typing import Literal
 
+from shared.db import BackupRehearsal
 from sqlalchemy.dialects.postgresql import insert
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 _log = logging.getLogger(__name__)
-
-from shared.db import BackupRehearsal
 
 OutcomeStatus = Literal["success", "failure"]
 

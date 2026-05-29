@@ -6,10 +6,9 @@ listens via existing SSE on the returned job_id.
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import delete, select
-
 from shared.db import DeckDefinition, Definition, Job, Node, Question
 from shared.db.enums import QuestionType
+from sqlalchemy import delete, select
 
 from pycil_core.api.deps import SessionDep, UserDep
 

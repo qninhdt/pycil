@@ -10,12 +10,11 @@ import logging
 from typing import Any
 from uuid import UUID
 
+from shared.db import PushSubscription
 from sqlalchemy import delete, func
 from sqlalchemy.dialects.postgresql import insert
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
-
-from shared.db import PushSubscription
 
 _log = logging.getLogger(__name__)
 

@@ -8,12 +8,11 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import delete
+from shared.db import TermNote
+from sqlalchemy import delete as sa_delete
 from sqlalchemy.dialects.postgresql import insert
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
-
-from shared.db import TermNote
 
 MAX_NOTE_BYTES = 8192
 
@@ -50,7 +49,7 @@ async def delete(
     session: AsyncSession, user_id: UUID, term_id: int
 ) -> None:
     await session.exec(
-        delete(TermNote).where(
+        sa_delete(TermNote).where(
             TermNote.user_id == user_id,
             TermNote.term_id == term_id,
         )

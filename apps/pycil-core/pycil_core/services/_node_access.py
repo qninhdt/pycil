@@ -10,10 +10,9 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import HTTPException, status
+from shared.db import Node
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
-
-from shared.db import Node
 
 
 async def assert_node_owner(

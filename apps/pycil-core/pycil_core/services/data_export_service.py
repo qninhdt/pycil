@@ -16,9 +16,6 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select, text
-from sqlmodel.ext.asyncio.session import AsyncSession
-
 from shared.db import (
     ActivityEvent,
     AdminAction,
@@ -31,6 +28,8 @@ from shared.db import (
     UserTermStat,
     UserTosAck,
 )
+from sqlalchemy import select, text
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 _TABLES_FOR_USER: list[tuple[str, Callable[[UUID], Any] | str]] = [
     ("profile", lambda uid: select(User).where(User.id == uid)),
@@ -58,7 +57,7 @@ def _serialize(value: Any) -> Any:
         return {k: _serialize(v) for k, v in value.items()}
     if isinstance(value, list | tuple):
         return [_serialize(v) for v in value]
-    if isinstance(value, (date, datetime)):
+    if isinstance(value, date | datetime):
         return value.isoformat()
     if isinstance(value, UUID):
         return str(value)

@@ -22,11 +22,10 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from uuid import UUID
 
+from shared.db import DeckTerm, Definition, Term, TermExampleSentence
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import aggregate_order_by
 from sqlmodel.ext.asyncio.session import AsyncSession
-
-from shared.db import DeckTerm, Definition, Term, TermExampleSentence
 
 _log = logging.getLogger(__name__)
 

@@ -19,9 +19,8 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
-
 from shared.db import AdminAction, User
+from sqlalchemy import func, select
 
 from pycil_core.api.deps import SessionDep, UserDep
 from pycil_core.services.activity_feed_service import (

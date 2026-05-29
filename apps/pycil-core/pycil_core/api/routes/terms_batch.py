@@ -6,6 +6,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
+from shared.db import Node, Term
 from sqlmodel import select
 
 from pycil_core.api.deps import RedisDep, SessionDep, UserDep
@@ -15,7 +16,6 @@ from pycil_core.services.term_batch_service import (
     BatchResult,
     add_terms_batch,
 )
-from shared.db import Node, Term
 
 router = APIRouter(prefix="/decks", tags=["terms-batch"])
 

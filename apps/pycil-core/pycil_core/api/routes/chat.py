@@ -7,10 +7,9 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from shared.db import ChatSession, DeckDefinition, Definition, Term
 from sqlalchemy import delete, select
 from sqlmodel.ext.asyncio.session import AsyncSession
-
-from shared.db import ChatSession, DeckDefinition, Definition, Term
 
 from pycil_core.api.deps import SessionDep, UserDep
 from pycil_core.services import chat_service

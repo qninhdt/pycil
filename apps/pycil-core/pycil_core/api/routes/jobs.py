@@ -6,12 +6,12 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
+from shared.db import Job, UserTermJob
 from sqlalchemy import or_
 from sqlmodel import select
 
 from pycil_core.api.deps import SessionDep, UserDep
 from pycil_core.services import job_stream_service
-from shared.db import Job, UserTermJob
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 

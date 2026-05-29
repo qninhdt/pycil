@@ -119,7 +119,7 @@ async def async_engine(_async_dsn, _migrate_schema):
 async def session(async_engine) -> AsyncGenerator:
     """Per-test AsyncSession. Truncate domain tables BEFORE the test runs."""
     from sqlalchemy import text
-    from sqlalchemy.ext.asyncio import AsyncSession
+    from sqlmodel.ext.asyncio.session import AsyncSession
 
     # Truncate cycle: order respects FK dependencies via CASCADE.
     truncate_sql = text(
@@ -230,7 +230,7 @@ async def second_user(session) -> dict:
 @pytest_asyncio.fixture
 async def client(async_engine, test_user) -> AsyncGenerator:
     from httpx import ASGITransport, AsyncClient
-    from sqlalchemy.ext.asyncio import AsyncSession
+    from sqlmodel.ext.asyncio.session import AsyncSession
 
     from pycil_core.auth import CurrentUser, get_current_user
     from pycil_core.db import get_session
@@ -268,7 +268,7 @@ async def client(async_engine, test_user) -> AsyncGenerator:
 async def client_real_auth(async_engine) -> AsyncGenerator:
     """ASGI client with `get_current_user` NOT overridden — for auth path tests."""
     from httpx import ASGITransport, AsyncClient
-    from sqlalchemy.ext.asyncio import AsyncSession
+    from sqlmodel.ext.asyncio.session import AsyncSession
 
     from pycil_core.db import get_session
     from pycil_core.main import app

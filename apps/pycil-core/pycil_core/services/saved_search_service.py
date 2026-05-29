@@ -6,19 +6,19 @@ runs the same WHERE-builder used by custom-study sessions.
 """
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
-import json
-
-from sqlalchemy import delete, update
+from shared.db import SavedSearch as SavedSearchRecord
+from sqlalchemy import delete as sa_delete
+from sqlalchemy import update as sa_update
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from pycil_core.services.custom_study_filter import CustomStudyFilter
-from shared.db import SavedSearch as SavedSearchRecord
 
 
 @dataclass
@@ -87,7 +87,7 @@ async def update(
     if not values:
         return False
     result = await session.exec(
-        update(SavedSearchRecord)
+        sa_update(SavedSearchRecord)
         .where(SavedSearchRecord.id == search_id, SavedSearchRecord.user_id == user_id)
         .values(**values)
     )
@@ -98,7 +98,7 @@ async def delete(
     session: AsyncSession, user_id: UUID, search_id: int
 ) -> bool:
     result = await session.exec(
-        delete(SavedSearchRecord).where(
+        sa_delete(SavedSearchRecord).where(
             SavedSearchRecord.id == search_id,
             SavedSearchRecord.user_id == user_id,
         )

@@ -22,10 +22,9 @@ from uuid import UUID
 
 from fastapi import HTTPException, status
 from redis.asyncio import Redis
+from shared.db import Job, UserTermJob
 from sqlalchemy import and_, or_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
-
-from shared.db import Job, UserTermJob
 
 from pycil_core.services.redis_pool import get_redis
 

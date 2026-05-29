@@ -9,11 +9,10 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from shared.db import Notification
 from sqlalchemy import func, update
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
-
-from shared.db import Notification
 
 
 async def create(

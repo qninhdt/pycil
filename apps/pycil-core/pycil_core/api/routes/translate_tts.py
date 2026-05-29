@@ -11,9 +11,8 @@ worker code follow.
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import select
-
 from shared.db import DeckDefinition, Definition, Job, Node
+from sqlalchemy import select
 
 from pycil_core.api.deps import SessionDep, UserDep
 

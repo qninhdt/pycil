@@ -10,11 +10,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
 
+from shared.db import Response, User
 from sqlalchemy import func, update
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
-
-from shared.db import Response, User
 
 
 @dataclass

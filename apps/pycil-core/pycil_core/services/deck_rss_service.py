@@ -12,10 +12,9 @@ from email.utils import format_datetime
 from uuid import UUID
 from xml.sax.saxutils import escape
 
+from shared.db import Node, NodeType, User, Visibility
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
-
-from shared.db import Node, NodeType, User, Visibility
 
 
 def _rss_date(dt: datetime) -> str:

@@ -5,23 +5,6 @@ from datetime import date, datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import (
-    JSON,
-    BigInteger,
-    Boolean,
-    Column,
-    Date,
-    DateTime,
-    Float,
-    Integer,
-    Numeric,
-    SmallInteger,
-    String,
-    Text,
-)
-from sqlalchemy.dialects.postgresql import ARRAY, ENUM as PGEnum, INET, JSONB, UUID as PGUUID
-from sqlmodel import Field, SQLModel
-
 from shared.db.enums import (
     CefrLevel,
     ClassroomRole,
@@ -33,24 +16,65 @@ from shared.db.enums import (
     UserTermStatus,
     Visibility,
 )
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    Column,
+    Date,
+    DateTime,
+    Float,
+    Integer,
+    Numeric,
+    SmallInteger,
+    Text,
+    text,
+)
+from sqlalchemy.dialects.postgresql import ARRAY, INET, JSONB
+from sqlalchemy.dialects.postgresql import ENUM as PGEnum
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
+from sqlmodel import Field, SQLModel
 
 
 def _pg_enum(enum_type: type, name: str) -> PGEnum:
-    return PGEnum(enum_type, name=name, create_type=False)
+    # values_callable maps on the enum *value* (DB label), not the member name.
+    # Several DB enums use lowercase labels (e.g. profile_visibility_enum) whose
+    # Python member names are uppercase; without this, read-back raises KeyError.
+    return PGEnum(
+        enum_type,
+        name=name,
+        create_type=False,
+        values_callable=lambda e: [member.value for member in e],
+    )
 
 
-def _uuid_column(*, primary_key: bool = False, nullable: bool = True) -> Column[Any]:
-    return Column(PGUUID(as_uuid=True), primary_key=primary_key, nullable=nullable)
+def _uuid_column(
+    *, primary_key: bool = False, nullable: bool = True, server_default: str | None = None
+) -> Column[Any]:
+    # No auto server_default: surrogate `id` PKs are omitted from INSERT when the
+    # Python value is None (SQLAlchemy fills via the DB's gen_random_uuid()), and
+    # composite-PK member columns are FK values the caller always supplies — so a
+    # blanket gen_random_uuid() would both be unnecessary and misrepresent FK PKs.
+    kwargs: dict[str, Any] = {}
+    if server_default is not None:
+        kwargs["server_default"] = text(server_default)
+    return Column(PGUUID(as_uuid=True), primary_key=primary_key, nullable=nullable, **kwargs)
 
 
-def _dt_column(*, nullable: bool = True) -> Column[Any]:
-    return Column(DateTime(timezone=True), nullable=nullable)
+def _dt_column(*, nullable: bool = True, server_default: str | None = None) -> Column[Any]:
+    # Every NOT NULL timestamp in the schema is DDL `DEFAULT NOW()`; mirror that so
+    # the ORM omits the column on INSERT instead of sending NULL.
+    if server_default is None and not nullable:
+        server_default = "now()"
+    kwargs: dict[str, Any] = {}
+    if server_default is not None:
+        kwargs["server_default"] = text(server_default)
+    return Column(DateTime(timezone=True), nullable=nullable, **kwargs)
 
 
 class User(SQLModel, table=True):
     __tablename__ = "users"
 
-    id: UUID | None = Field(default=None, sa_column=_uuid_column(primary_key=True, nullable=False))
+    id: UUID | None = Field(default=None, sa_column=_uuid_column(primary_key=True, nullable=False, server_default="gen_random_uuid()"))
     name: str | None = Field(default=None, sa_column=Column(Text))
     email: str = Field(sa_column=Column(Text, nullable=False))
     email_verified: datetime | None = Field(
@@ -93,7 +117,7 @@ class User(SQLModel, table=True):
 class Node(SQLModel, table=True):
     __tablename__ = "nodes"
 
-    id: UUID | None = Field(default=None, sa_column=_uuid_column(primary_key=True, nullable=False))
+    id: UUID | None = Field(default=None, sa_column=_uuid_column(primary_key=True, nullable=False, server_default="gen_random_uuid()"))
     author_id: UUID = Field(sa_column=_uuid_column(nullable=False))
     type: NodeType = Field(
         sa_column=Column(_pg_enum(NodeType, "node_type"), nullable=False),
@@ -208,7 +232,7 @@ class TermExampleSentence(SQLModel, table=True):
 class Question(SQLModel, table=True):
     __tablename__ = "questions"
 
-    id: UUID | None = Field(default=None, sa_column=_uuid_column(primary_key=True, nullable=False))
+    id: UUID | None = Field(default=None, sa_column=_uuid_column(primary_key=True, nullable=False, server_default="gen_random_uuid()"))
     type: QuestionType = Field(
         sa_column=Column(_pg_enum(QuestionType, "question_type"), nullable=False),
     )
@@ -223,7 +247,7 @@ class Question(SQLModel, table=True):
 class Response(SQLModel, table=True):
     __tablename__ = "responses"
 
-    id: UUID | None = Field(default=None, sa_column=_uuid_column(primary_key=True, nullable=False))
+    id: UUID | None = Field(default=None, sa_column=_uuid_column(primary_key=True, nullable=False, server_default="gen_random_uuid()"))
     user_id: UUID = Field(sa_column=_uuid_column(nullable=False))
     question_id: UUID = Field(sa_column=_uuid_column(nullable=False))
     is_correct: bool = Field(sa_column=Column(Boolean, nullable=False))
@@ -286,7 +310,7 @@ class DeckTerm(SQLModel, table=True):
 class Job(SQLModel, table=True):
     __tablename__ = "jobs"
 
-    id: UUID | None = Field(default=None, sa_column=_uuid_column(primary_key=True, nullable=False))
+    id: UUID | None = Field(default=None, sa_column=_uuid_column(primary_key=True, nullable=False, server_default="gen_random_uuid()"))
     type: str = Field(sa_column=Column(Text, nullable=False))
     status: str = Field(default="pending", sa_column=Column(Text, nullable=False))
     payload: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB, nullable=False))
@@ -313,7 +337,7 @@ class UserTermJob(SQLModel, table=True):
 class Notification(SQLModel, table=True):
     __tablename__ = "notifications"
 
-    id: UUID | None = Field(default=None, sa_column=_uuid_column(primary_key=True, nullable=False))
+    id: UUID | None = Field(default=None, sa_column=_uuid_column(primary_key=True, nullable=False, server_default="gen_random_uuid()"))
     user_id: UUID = Field(sa_column=_uuid_column(nullable=False))
     kind: str = Field(sa_column=Column(Text, nullable=False))
     payload: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB, nullable=False))
@@ -324,7 +348,7 @@ class Notification(SQLModel, table=True):
 class DeckClone(SQLModel, table=True):
     __tablename__ = "deck_clones"
 
-    id: UUID | None = Field(default=None, sa_column=_uuid_column(primary_key=True, nullable=False))
+    id: UUID | None = Field(default=None, sa_column=_uuid_column(primary_key=True, nullable=False, server_default="gen_random_uuid()"))
     source_deck_id: UUID | None = Field(default=None, sa_column=_uuid_column())
     cloned_deck_id: UUID | None = Field(default=None, sa_column=_uuid_column())
     cloned_by_user: UUID = Field(sa_column=_uuid_column(nullable=False))
@@ -334,7 +358,7 @@ class DeckClone(SQLModel, table=True):
 class ChatSession(SQLModel, table=True):
     __tablename__ = "chat_sessions"
 
-    id: UUID | None = Field(default=None, sa_column=_uuid_column(primary_key=True, nullable=False))
+    id: UUID | None = Field(default=None, sa_column=_uuid_column(primary_key=True, nullable=False, server_default="gen_random_uuid()"))
     user_id: UUID = Field(sa_column=_uuid_column(nullable=False))
     deck_id: UUID | None = Field(default=None, sa_column=_uuid_column())
     created_at: datetime | None = Field(default=None, sa_column=_dt_column(nullable=False))
@@ -347,7 +371,7 @@ class ChatSession(SQLModel, table=True):
 class ChatMessage(SQLModel, table=True):
     __tablename__ = "chat_messages"
 
-    id: UUID | None = Field(default=None, sa_column=_uuid_column(primary_key=True, nullable=False))
+    id: UUID | None = Field(default=None, sa_column=_uuid_column(primary_key=True, nullable=False, server_default="gen_random_uuid()"))
     session_id: UUID = Field(sa_column=_uuid_column(nullable=False))
     role: str = Field(sa_column=Column(Text, nullable=False))
     content: str = Field(sa_column=Column(Text, nullable=False))
@@ -357,7 +381,7 @@ class ChatMessage(SQLModel, table=True):
 class TestRun(SQLModel, table=True):
     __tablename__ = "test_runs"
 
-    id: UUID | None = Field(default=None, sa_column=_uuid_column(primary_key=True, nullable=False))
+    id: UUID | None = Field(default=None, sa_column=_uuid_column(primary_key=True, nullable=False, server_default="gen_random_uuid()"))
     user_id: UUID = Field(sa_column=_uuid_column(nullable=False))
     deck_id: UUID | None = Field(default=None, sa_column=_uuid_column())
     question_count: int = Field(sa_column=Column(SmallInteger, nullable=False))
@@ -370,7 +394,7 @@ class TestRun(SQLModel, table=True):
 class TestRunItem(SQLModel, table=True):
     __tablename__ = "test_run_items"
 
-    id: UUID | None = Field(default=None, sa_column=_uuid_column(primary_key=True, nullable=False))
+    id: UUID | None = Field(default=None, sa_column=_uuid_column(primary_key=True, nullable=False, server_default="gen_random_uuid()"))
     run_id: UUID = Field(sa_column=_uuid_column(nullable=False))
     question_id: UUID = Field(sa_column=_uuid_column(nullable=False))
     answered_at: datetime | None = Field(default=None, sa_column=_dt_column())
@@ -382,7 +406,7 @@ class TestRunItem(SQLModel, table=True):
 class Subscription(SQLModel, table=True):
     __tablename__ = "subscriptions"
 
-    id: UUID | None = Field(default=None, sa_column=_uuid_column(primary_key=True, nullable=False))
+    id: UUID | None = Field(default=None, sa_column=_uuid_column(primary_key=True, nullable=False, server_default="gen_random_uuid()"))
     user_id: UUID = Field(sa_column=_uuid_column(nullable=False))
     tier: str = Field(default="free", sa_column=Column(Text, nullable=False))
     stripe_subscription_id: str | None = Field(default=None, sa_column=Column(Text))
@@ -404,7 +428,7 @@ class StripeWebhookEvent(SQLModel, table=True):
 class NodeShareLink(SQLModel, table=True):
     __tablename__ = "node_share_links"
 
-    id: UUID | None = Field(default=None, sa_column=_uuid_column(primary_key=True, nullable=False))
+    id: UUID | None = Field(default=None, sa_column=_uuid_column(primary_key=True, nullable=False, server_default="gen_random_uuid()"))
     node_id: UUID = Field(sa_column=_uuid_column(nullable=False))
     token: str = Field(sa_column=Column(Text, nullable=False))
     created_by: UUID = Field(sa_column=_uuid_column(nullable=False))
@@ -469,7 +493,7 @@ class Follow(SQLModel, table=True):
 class Classroom(SQLModel, table=True):
     __tablename__ = "classrooms"
 
-    id: UUID | None = Field(default=None, sa_column=_uuid_column(primary_key=True, nullable=False))
+    id: UUID | None = Field(default=None, sa_column=_uuid_column(primary_key=True, nullable=False, server_default="gen_random_uuid()"))
     owner_id: UUID = Field(sa_column=_uuid_column(nullable=False))
     name: str = Field(sa_column=Column(Text, nullable=False))
     join_code: str = Field(sa_column=Column(Text, nullable=False))
@@ -600,7 +624,11 @@ class BackupRehearsal(SQLModel, table=True):
     __tablename__ = "backup_rehearsals"
 
     backup_id: str = Field(primary_key=True)
-    rehearsed_at: datetime = Field(sa_column=_dt_column(nullable=False))
+    # DDL exception: rehearsed_at is NOT NULL with NO db default (caller always
+    # supplies it), so it must not inherit the _dt_column auto-now() default.
+    rehearsed_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False)
+    )
     status: str = Field(sa_column=Column(Text, nullable=False))
     rows_users: int | None = Field(default=None, sa_column=Column(Integer))
     rows_decks: int | None = Field(default=None, sa_column=Column(Integer))

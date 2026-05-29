@@ -12,11 +12,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import and_, or_, select
-from sqlmodel.ext.asyncio.session import AsyncSession
-
 from shared.db import DeckTerm, Definition, TermExampleSentence, UserTermStat
 from shared.db.enums import UserTermStatus
+from sqlalchemy import and_, or_, select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 _WORD_RE = re.compile(r"\b[a-zA-Z][a-zA-Z'-]{3,}\b")
 _STOPWORDS = {

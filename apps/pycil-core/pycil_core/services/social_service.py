@@ -12,11 +12,10 @@ import re
 from uuid import UUID
 
 from fastapi import HTTPException, status
+from shared.db import DeckLike, Follow, Node, User
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlmodel.ext.asyncio.session import AsyncSession
-
-from shared.db import DeckLike, Follow, Node, User
 
 _USERNAME_RE = re.compile(r"^[a-z0-9_]{3,32}$")
 _RESERVED = {"admin", "support", "system", "api", "pycil", "root", "anonymous"}

@@ -5,9 +5,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import select
-
 from shared.db import TestRun
+from sqlalchemy import select
 
 from pycil_core.api.deps import SessionDep, UserDep
 from pycil_core.services import test_mode_service
