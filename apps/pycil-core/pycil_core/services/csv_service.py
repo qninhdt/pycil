@@ -18,14 +18,16 @@ from __future__ import annotations
 
 import csv
 import io
-import json
 import re
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import AsyncIterator
 from uuid import UUID
 
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import aggregate_order_by, insert
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from shared.db import DeckTerm, Definition, DefinitionOverride, Term, TermExampleSentence
 
 MAX_ROWS = 5000
 MAX_BYTES = 5 * 1024 * 1024
@@ -129,20 +131,23 @@ async def store_overrides(
         term_id = term_value_to_id.get(row.value)
         if term_id is None:
             continue
-        await session.execute(
-            text(
-                """
-                INSERT INTO definition_overrides (user_id, term_id, payload)
-                VALUES (:uid, :tid, CAST(:payload AS jsonb))
-                ON CONFLICT (user_id, term_id) DO UPDATE
-                  SET payload = EXCLUDED.payload, updated_at = NOW()
-                """
-            ),
-            {
-                "uid": user_id,
-                "tid": term_id,
-                "payload": json.dumps(row.override_payload()),
-            },
+        payload = row.override_payload()
+        stmt = insert(DefinitionOverride).values(
+            user_id=user_id,
+            term_id=term_id,
+            payload=payload,
+        )
+        await session.exec(
+            stmt.on_conflict_do_update(
+                index_elements=[
+                    DefinitionOverride.user_id,
+                    DefinitionOverride.term_id,
+                ],
+                set_={
+                    "payload": stmt.excluded.payload,
+                    "updated_at": func.now(),
+                },
+            )
         )
         written += 1
     if written:
@@ -170,27 +175,33 @@ async def stream_export(
     buf.seek(0)
     buf.truncate()
 
-    rows = (
-        await session.execute(
-            text(
-                """
-                SELECT t.value AS term,
-                       d.canonical_meaning AS definition,
-                       d.synonyms, d.antonyms,
-                       ARRAY(
-                         SELECT value FROM term_example_sentences
-                          WHERE definition_id = d.id ORDER BY id
-                       ) AS examples
-                  FROM deck_terms dt
-                  JOIN terms t ON t.id = dt.term_id
-             LEFT JOIN definitions d ON d.term_id = t.id
-                 WHERE dt.deck_id = :deck
-                 ORDER BY dt.position
-                """
-            ),
-            {"deck": deck_id},
+    examples_subquery = (
+        select(
+            func.array_agg(
+                aggregate_order_by(
+                    TermExampleSentence.value,
+                    TermExampleSentence.id.asc(),
+                )
+            )
         )
-    ).all()
+        .where(TermExampleSentence.definition_id == Definition.id)
+        .scalar_subquery()
+    )
+    stmt = (
+        select(
+            Term.value.label("term"),
+            Definition.canonical_meaning.label("definition"),
+            Definition.synonyms,
+            Definition.antonyms,
+            examples_subquery.label("examples"),
+        )
+        .select_from(DeckTerm)
+        .join(Term, Term.id == DeckTerm.term_id)
+        .outerjoin(Definition, Definition.term_id == Term.id)
+        .where(DeckTerm.deck_id == deck_id)
+        .order_by(DeckTerm.position.asc())
+    )
+    rows = (await session.exec(stmt)).all()
     for r in rows:
         writer.writerow(
             [

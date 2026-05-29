@@ -6,7 +6,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
-from sqlalchemy import text
+from sqlmodel import select
 
 from pycil_core.api.deps import RedisDep, SessionDep, UserDep
 from pycil_core.services import csv_service
@@ -15,6 +15,7 @@ from pycil_core.services.term_batch_service import (
     BatchResult,
     add_terms_batch,
 )
+from shared.db import Node, Term
 
 router = APIRouter(prefix="/decks", tags=["terms-batch"])
 
@@ -112,9 +113,8 @@ async def csv_import(
         }
         if accepted_values:
             id_rows = (
-                await session.execute(
-                    text("SELECT id, value FROM terms WHERE value = ANY(:vals)"),
-                    {"vals": list(accepted_values)},
+                await session.exec(
+                    select(Term.id, Term.value).where(Term.value.in_(list(accepted_values)))
                 )
             ).all()
             value_to_id = {r.value: r.id for r in id_rows}
@@ -131,15 +131,10 @@ async def csv_export(
 ):
     from fastapi.responses import StreamingResponse
 
-    deck_row = (
-        await session.execute(
-            text("SELECT author_id FROM nodes WHERE id = :id"),
-            {"id": deck_id},
-        )
-    ).first()
+    deck_row = (await session.exec(select(Node.author_id).where(Node.id == deck_id))).first()
     if not deck_row:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "deck_not_found")
-    if deck_row.author_id != user.id:
+    if deck_row != user.id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "deck_forbidden")
 
     return StreamingResponse(

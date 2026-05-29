@@ -6,7 +6,6 @@ except the tails. See plan §"Mastery Levels (11 buckets)".
 """
 from __future__ import annotations
 
-
 MASTERY_LABELS: dict[int, str] = {
     0: "Unseen",
     1: "Brand new",

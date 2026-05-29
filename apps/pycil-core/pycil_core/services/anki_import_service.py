@@ -18,12 +18,15 @@ import sqlite3
 import tempfile
 import time
 import zipfile
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from typing import Iterable, Sequence
 from uuid import UUID
 
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import aggregate_order_by
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from shared.db import DeckTerm, Definition, Term, TermExampleSentence
 
 _log = logging.getLogger(__name__)
 
@@ -287,24 +290,29 @@ async def fetch_deck_notes_for_export(
     session: AsyncSession, deck_id: UUID
 ) -> list[tuple[str, str | None, list[str]]]:
     """Returns (term, canonical_meaning, examples) tuples for a deck."""
-    rows = (
-        await session.execute(
-            text(
-                """
-                SELECT t.value AS term,
-                       d.canonical_meaning AS definition,
-                       ARRAY(
-                         SELECT value FROM term_example_sentences
-                          WHERE definition_id = d.id ORDER BY id
-                       ) AS examples
-                  FROM deck_terms dt
-                  JOIN terms t ON t.id = dt.term_id
-             LEFT JOIN definitions d ON d.term_id = t.id
-                 WHERE dt.deck_id = :deck
-                 ORDER BY dt.position
-                """
-            ),
-            {"deck": deck_id},
+    examples_subquery = (
+        select(
+            func.array_agg(
+                aggregate_order_by(
+                    TermExampleSentence.value,
+                    TermExampleSentence.id.asc(),
+                )
+            )
         )
-    ).all()
+        .where(TermExampleSentence.definition_id == Definition.id)
+        .scalar_subquery()
+    )
+    stmt = (
+        select(
+            Term.value.label("term"),
+            Definition.canonical_meaning.label("definition"),
+            examples_subquery.label("examples"),
+        )
+        .select_from(DeckTerm)
+        .join(Term, Term.id == DeckTerm.term_id)
+        .outerjoin(Definition, Definition.term_id == Term.id)
+        .where(DeckTerm.deck_id == deck_id)
+        .order_by(DeckTerm.position.asc())
+    )
+    rows = (await session.exec(stmt)).all()
     return [(r.term, r.definition, list(r.examples or [])) for r in rows]

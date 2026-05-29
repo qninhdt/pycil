@@ -14,12 +14,13 @@ import hmac
 
 from fastapi import APIRouter, Header, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy import text
+from sqlalchemy import func, text, update
+
+from shared.db import User
 
 from pycil_core.api.deps import SessionDep, UserDep
 from pycil_core.config import get_settings
 from pycil_core.services import image_upload_service, user_service
-
 
 router = APIRouter(tags=["auth"])
 
@@ -127,33 +128,41 @@ async def update_me(
     if name_value is not None and not name_value:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "name_empty")
 
-    set_clauses: list[str] = []
     params: dict = {"uid": user.id}
+    update_values: dict[str, object] = {}
     if name_value is not None:
-        set_clauses.append("name = :name")
         params["name"] = name_value
+        update_values["name"] = name_value
     if body.image_url is not None:
-        set_clauses.append("image_url = :image_url")
         params["image_url"] = body.image_url
+        update_values["image_url"] = body.image_url
     if body.bio is not None:
-        set_clauses.append("bio = :bio")
         params["bio"] = body.bio
+        update_values["bio"] = body.bio
     if settings_json is not None:
-        set_clauses.append("study_settings = CAST(:settings AS jsonb)")
         params["settings"] = settings_json
+        update_values["study_settings"] = body.study_settings
 
     try:
         await session.execute(
             text("SELECT pg_advisory_xact_lock(hashtext('user-mutate:' || CAST(:uid AS text)))"),
             {"uid": user.id},
         )
-        if set_clauses:
-            set_clauses.append("updated_at = NOW()")
-            sql = (
-                "UPDATE users SET " + ", ".join(set_clauses)
-                + " WHERE id = :uid RETURNING id, email, name, image, image_url"
-            )
-            row = (await session.execute(text(sql), params)).first()
+        if update_values:
+            row = (
+                await session.exec(
+                    update(User)
+                    .where(User.id == user.id)
+                    .values(**update_values, updated_at=func.now())
+                    .returning(
+                        User.id,
+                        User.email,
+                        User.name,
+                        User.image,
+                        User.image_url,
+                    )
+                )
+            ).first()
             if row is None:
                 await session.rollback()
                 raise HTTPException(
@@ -179,10 +188,10 @@ async def update_me(
         await session.commit()
     except ValueError as exc:
         await session.rollback()
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
-    except LookupError:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    except LookupError as exc:
         await session.rollback()
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "user_not_found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "user_not_found") from exc
     return MeResponse(
         id=str(updated["id"]),
         email=updated["email"],
@@ -196,8 +205,8 @@ async def update_me(
 async def delete_me(user: UserDep, session: SessionDep) -> DeleteMeResponse:
     """Soft-delete the calling user. Cron hard-deletes after 14d."""
     await user_service.soft_delete_user(session, user_id=user.id)
-    from datetime import datetime, timezone
-    return DeleteMeResponse(deleted_at=datetime.now(timezone.utc).isoformat())
+    from datetime import UTC, datetime
+    return DeleteMeResponse(deleted_at=datetime.now(UTC).isoformat())
 
 
 class ImageUploadUrlBody(BaseModel):
@@ -212,7 +221,6 @@ async def image_upload_url(body: ImageUploadUrlBody, user: UserDep) -> dict:
             user_id=user.id, content_type=body.content_type
         )
     except ValueError as exc:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
     except RuntimeError as exc:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc))
-
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc

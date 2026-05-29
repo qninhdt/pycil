@@ -6,7 +6,6 @@ from fastapi import APIRouter, Query
 from pycil_core.api.deps import SessionDep, UserDep
 from pycil_core.services import search_service
 
-
 router = APIRouter(prefix="/search", tags=["search"])
 
 

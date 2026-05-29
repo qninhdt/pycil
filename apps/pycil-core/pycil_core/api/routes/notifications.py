@@ -10,7 +10,6 @@ from pydantic import BaseModel
 from pycil_core.api.deps import SessionDep, UserDep
 from pycil_core.services import notification_service
 
-
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
 

@@ -17,7 +17,6 @@ from starlette.requests import Request
 
 from pycil_core.services.redis_pool import get_redis
 
-
 _WINDOW_SECONDS = 60
 _LIMIT_PER_IP = 60
 

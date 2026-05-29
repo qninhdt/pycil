@@ -7,12 +7,15 @@ primary sense.
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 from uuid import UUID
 
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import and_, func, select
+from sqlalchemy.dialects.postgresql import insert
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from shared.db import Definition, UserDefinitionStat
 
 
 @dataclass
@@ -27,25 +30,30 @@ class SenseCandidate:
 async def next_sense_for_term(
     session: AsyncSession, user_id: UUID, term_id: int
 ) -> SenseCandidate | None:
-    rows = (
-        await session.execute(
-            text(
-                """
-                SELECT d.id, d.sense_index, d.canonical_meaning,
-                       COALESCE(uds.elo, 800) AS elo,
-                       uds.last_seen_at
-                  FROM definitions d
-             LEFT JOIN user_definition_stats uds
-                    ON uds.user_id = :u AND uds.definition_id = d.id
-                 WHERE d.term_id = :t
-                 ORDER BY uds.last_seen_at NULLS FIRST,
-                          d.sense_index ASC
-                 LIMIT 1
-                """
-            ),
-            {"u": user_id, "t": term_id},
+    stmt = (
+        select(
+            Definition.id,
+            Definition.sense_index,
+            Definition.canonical_meaning,
+            func.coalesce(UserDefinitionStat.elo, 800).label("elo"),
+            UserDefinitionStat.last_seen_at,
         )
-    ).all()
+        .select_from(Definition)
+        .outerjoin(
+            UserDefinitionStat,
+            and_(
+                UserDefinitionStat.user_id == user_id,
+                UserDefinitionStat.definition_id == Definition.id,
+            ),
+        )
+        .where(Definition.term_id == term_id)
+        .order_by(
+            UserDefinitionStat.last_seen_at.asc().nullsfirst(),
+            Definition.sense_index.asc(),
+        )
+        .limit(1)
+    )
+    rows = (await session.exec(stmt)).all()
     if not rows:
         return None
     r = rows[0]
@@ -66,43 +74,55 @@ async def update_sense_stats(
     is_correct: bool,
     new_elo: int,
 ) -> None:
-    await session.execute(
-        text(
-            """
-            INSERT INTO user_definition_stats
-              (user_id, definition_id, elo, total_seen, total_correct, last_seen_at)
-            VALUES (:u, :d, :e, 1, :c, NOW())
-            ON CONFLICT (user_id, definition_id) DO UPDATE
-              SET elo = :e,
-                  total_seen = user_definition_stats.total_seen + 1,
-                  total_correct = user_definition_stats.total_correct + :c,
-                  last_seen_at = NOW()
-            """
-        ),
-        {"u": user_id, "d": definition_id, "e": new_elo, "c": int(is_correct)},
+    await session.exec(
+        insert(UserDefinitionStat)
+        .values(
+            user_id=user_id,
+            definition_id=definition_id,
+            elo=new_elo,
+            total_seen=1,
+            total_correct=int(is_correct),
+            last_seen_at=func.now(),
+        )
+        .on_conflict_do_update(
+            index_elements=[
+                UserDefinitionStat.user_id,
+                UserDefinitionStat.definition_id,
+            ],
+            set_={
+                "elo": new_elo,
+                "total_seen": UserDefinitionStat.total_seen + 1,
+                "total_correct": UserDefinitionStat.total_correct
+                + int(is_correct),
+                "last_seen_at": func.now(),
+            },
+        )
     )
 
 
 async def list_senses_for_user(
     session: AsyncSession, user_id: UUID, term_id: int
 ) -> Sequence[SenseCandidate]:
-    rows = (
-        await session.execute(
-            text(
-                """
-                SELECT d.id, d.sense_index, d.canonical_meaning,
-                       COALESCE(uds.elo, 800) AS elo,
-                       uds.last_seen_at
-                  FROM definitions d
-             LEFT JOIN user_definition_stats uds
-                    ON uds.user_id = :u AND uds.definition_id = d.id
-                 WHERE d.term_id = :t
-                 ORDER BY d.is_primary DESC, d.sense_index ASC
-                """
-            ),
-            {"u": user_id, "t": term_id},
+    stmt = (
+        select(
+            Definition.id,
+            Definition.sense_index,
+            Definition.canonical_meaning,
+            func.coalesce(UserDefinitionStat.elo, 800).label("elo"),
+            UserDefinitionStat.last_seen_at,
         )
-    ).all()
+        .select_from(Definition)
+        .outerjoin(
+            UserDefinitionStat,
+            and_(
+                UserDefinitionStat.user_id == user_id,
+                UserDefinitionStat.definition_id == Definition.id,
+            ),
+        )
+        .where(Definition.term_id == term_id)
+        .order_by(Definition.is_primary.desc(), Definition.sense_index.asc())
+    )
+    rows = (await session.exec(stmt)).all()
     return [
         SenseCandidate(
             definition_id=int(r.id),

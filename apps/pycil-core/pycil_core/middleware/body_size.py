@@ -12,7 +12,6 @@ from __future__ import annotations
 
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-
 _OVERSIZED_BODY = b'{"detail":"request_body_too_large"}'
 
 

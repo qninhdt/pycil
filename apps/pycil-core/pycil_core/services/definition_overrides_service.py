@@ -10,8 +10,12 @@ import json
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import delete
+from sqlalchemy.dialects.postgresql import insert
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from shared.db import DefinitionOverride
 
 
 async def upsert(
@@ -20,41 +24,39 @@ async def upsert(
     term_id: int,
     payload: dict[str, Any],
 ) -> None:
-    await session.execute(
-        text(
-            """
-            INSERT INTO definition_overrides (user_id, term_id, payload)
-            VALUES (:u, :t, CAST(:p AS jsonb))
-            ON CONFLICT (user_id, term_id) DO UPDATE
-              SET payload = EXCLUDED.payload, updated_at = NOW()
-            """
-        ),
-        {"u": user_id, "t": term_id, "p": json.dumps(payload, default=str)},
+    stmt = insert(DefinitionOverride).values(
+        user_id=user_id,
+        term_id=term_id,
+        payload=json.loads(json.dumps(payload, default=str)),
+    )
+    await session.exec(
+        stmt.on_conflict_do_update(
+            index_elements=[DefinitionOverride.user_id, DefinitionOverride.term_id],
+            set_={"payload": stmt.excluded.payload},
+        )
     )
 
 
 async def get(
     session: AsyncSession, user_id: UUID, term_id: int
 ) -> dict[str, Any] | None:
-    row = (
-        await session.execute(
-            text(
-                "SELECT payload FROM definition_overrides "
-                "WHERE user_id = :u AND term_id = :t"
-            ),
-            {"u": user_id, "t": term_id},
+    payload = (
+        await session.exec(
+            select(DefinitionOverride.payload).where(
+                DefinitionOverride.user_id == user_id,
+                DefinitionOverride.term_id == term_id,
+            )
         )
     ).first()
-    return dict(row.payload) if row and row.payload else None
+    return dict(payload or {}) if payload else None
 
 
 async def delete(
     session: AsyncSession, user_id: UUID, term_id: int
 ) -> None:
-    await session.execute(
-        text(
-            "DELETE FROM definition_overrides "
-            "WHERE user_id = :u AND term_id = :t"
-        ),
-        {"u": user_id, "t": term_id},
+    await session.exec(
+        delete(DefinitionOverride).where(
+            DefinitionOverride.user_id == user_id,
+            DefinitionOverride.term_id == term_id,
+        )
     )

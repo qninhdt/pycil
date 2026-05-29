@@ -10,6 +10,7 @@ from uuid import UUID
 
 from fastapi import HTTPException, status
 from redis.asyncio import Redis
+from shared.redis_lock import spend_key_today
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,7 +19,6 @@ from pycil_core.services._job_enqueue import (
     enqueue_arq_job,
 )
 from pycil_core.services.redis_pool import get_redis
-from shared.redis_lock import spend_key_today
 
 _LOCK_TTL_SECONDS = 600
 _RATE_LIMIT_PER_HOUR = 5

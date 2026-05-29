@@ -1,11 +1,16 @@
 """Node service: CRUD for folders + decks. Owner-scoped (PRIVATE only in v1)."""
+
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import text
+from shared.db.enums import NodeType as DbNodeType
+from shared.db.models import DeckAttribute, FolderAttribute, Node, UserNode
+from sqlalchemy import desc, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import col, delete, select, update
 
 from pycil_core.schemas.node import (
     BreadcrumbEntry,
@@ -16,6 +21,13 @@ from pycil_core.schemas.node import (
 )
 
 _BREADCRUMB_DEPTH = 10
+
+
+def _node_read_from_row(row) -> NodeRead:
+    values = dict(row._mapping)
+    values["is_starred"] = bool(values.get("is_starred"))
+    values["is_pinned"] = bool(values.get("is_pinned"))
+    return NodeRead(**values)
 
 
 async def _breadcrumb(session: AsyncSession, node_id: UUID) -> list[BreadcrumbEntry]:
@@ -40,71 +52,71 @@ async def _breadcrumb(session: AsyncSession, node_id: UUID) -> list[BreadcrumbEn
 
 async def _ensure_owner(session: AsyncSession, user_id: UUID, node_id: UUID) -> dict:
     """Fetch node and ensure user is the author. 404 if not found, 403 if not owner."""
-    sql = text(
-        """
-        SELECT id, author_id, type, name, description, parent_node_id, visibility,
-               definition_count, created_at, updated_at
-        FROM nodes WHERE id = :id
-        """
-    )
-    row = (await session.execute(sql, {"id": node_id})).first()
+    row = (await session.exec(select(Node).where(Node.id == node_id))).first()
     if not row:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "node_not_found")
     if row.author_id != user_id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "node_forbidden")
-    return dict(row._mapping)
+    return row.model_dump()
 
 
 async def list_root_nodes(session: AsyncSession, user_id: UUID) -> list[NodeRead]:
-    sql = text(
-        """
-        SELECT n.id, n.type, n.name, n.description, n.parent_node_id,
-               n.visibility::text AS visibility, n.definition_count,
-               n.created_at, n.updated_at,
-               COALESCE(un.is_starred, FALSE) AS is_starred,
-               COALESCE(un.is_pinned, FALSE) AS is_pinned
-        FROM nodes n
-        LEFT JOIN user_nodes un ON un.node_id = n.id AND un.user_id = :uid
-        WHERE n.author_id = :uid AND n.parent_node_id IS NULL
-        ORDER BY un.is_pinned DESC NULLS LAST, n.updated_at DESC
-        """
+    stmt = (
+        select(
+            Node.id,
+            Node.type,
+            Node.name,
+            Node.description,
+            Node.parent_node_id,
+            Node.visibility,
+            Node.definition_count,
+            Node.created_at,
+            Node.updated_at,
+            UserNode.is_starred,
+            UserNode.is_pinned,
+        )
+        .outerjoin(UserNode, (UserNode.node_id == Node.id) & (UserNode.user_id == user_id))
+        .where(Node.author_id == user_id, col(Node.parent_node_id).is_(None))
+        .order_by(desc(UserNode.is_pinned).nulls_last(), desc(Node.updated_at))
     )
-    rows = (await session.execute(sql, {"uid": user_id})).all()
-    return [NodeRead(**dict(r._mapping)) for r in rows]
+    rows = (await session.exec(stmt)).all()
+    return [_node_read_from_row(r) for r in rows]
 
 
-async def list_children(
-    session: AsyncSession, user_id: UUID, parent_id: UUID
-) -> list[NodeRead]:
+async def list_children(session: AsyncSession, user_id: UUID, parent_id: UUID) -> list[NodeRead]:
     await _ensure_owner(session, user_id, parent_id)
-    sql = text(
-        """
-        SELECT n.id, n.type, n.name, n.description, n.parent_node_id,
-               n.visibility::text AS visibility, n.definition_count,
-               n.created_at, n.updated_at,
-               COALESCE(un.is_starred, FALSE) AS is_starred,
-               COALESCE(un.is_pinned, FALSE) AS is_pinned
-        FROM nodes n
-        LEFT JOIN user_nodes un ON un.node_id = n.id AND un.user_id = :uid
-        WHERE n.author_id = :uid AND n.parent_node_id = :pid
-        ORDER BY un.is_pinned DESC NULLS LAST, n.updated_at DESC
-        """
+    stmt = (
+        select(
+            Node.id,
+            Node.type,
+            Node.name,
+            Node.description,
+            Node.parent_node_id,
+            Node.visibility,
+            Node.definition_count,
+            Node.created_at,
+            Node.updated_at,
+            UserNode.is_starred,
+            UserNode.is_pinned,
+        )
+        .outerjoin(UserNode, (UserNode.node_id == Node.id) & (UserNode.user_id == user_id))
+        .where(Node.author_id == user_id, Node.parent_node_id == parent_id)
+        .order_by(desc(UserNode.is_pinned).nulls_last(), desc(Node.updated_at))
     )
-    rows = (await session.execute(sql, {"uid": user_id, "pid": parent_id})).all()
-    return [NodeRead(**dict(r._mapping)) for r in rows]
+    rows = (await session.exec(stmt)).all()
+    return [_node_read_from_row(r) for r in rows]
 
 
-async def get_node(
-    session: AsyncSession, user_id: UUID, node_id: UUID
-) -> NodeRead:
+async def get_node(session: AsyncSession, user_id: UUID, node_id: UUID) -> NodeRead:
     row = await _ensure_owner(session, user_id, node_id)
     breadcrumb = await _breadcrumb(session, node_id)
-    star_sql = text(
-        "SELECT is_starred, is_pinned FROM user_nodes "
-        "WHERE user_id = :uid AND node_id = :nid"
-    )
     star_row = (
-        await session.execute(star_sql, {"uid": user_id, "nid": node_id})
+        await session.exec(
+            select(UserNode).where(
+                UserNode.user_id == user_id,
+                UserNode.node_id == node_id,
+            )
+        )
     ).first()
     return NodeRead(
         id=row["id"],
@@ -122,57 +134,37 @@ async def get_node(
     )
 
 
-async def create_node(
-    session: AsyncSession, user_id: UUID, payload: NodeCreate
-) -> NodeRead:
+async def create_node(session: AsyncSession, user_id: UUID, payload: NodeCreate) -> NodeRead:
     if payload.parent_node_id is not None:
         # Owner check on parent
         parent = await _ensure_owner(session, user_id, payload.parent_node_id)
         if parent["type"] != "FOLDER":
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST, "parent_must_be_folder"
-            )
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "parent_must_be_folder")
 
-    insert_sql = text(
-        """
-        INSERT INTO nodes (author_id, type, parent_node_id, name, description)
-        VALUES (:uid, :type, :pid, :name, :desc)
-        RETURNING id, created_at, updated_at
-        """
+    node = Node(
+        author_id=user_id,
+        type=DbNodeType(payload.type.value),
+        parent_node_id=payload.parent_node_id,
+        name=payload.name,
+        description=payload.description,
     )
-    row = (
-        await session.execute(
-            insert_sql,
-            {
-                "uid": user_id,
-                "type": payload.type.value,
-                "pid": payload.parent_node_id,
-                "name": payload.name,
-                "desc": payload.description,
-            },
-        )
-    ).one()
+    session.add(node)
+    await session.flush()
+    if node.id is None:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "node_create_failed")
     if payload.type == NodeType.FOLDER:
-        await session.execute(
-            text("INSERT INTO folder_attributes (node_id) VALUES (:id)"),
-            {"id": row.id},
-        )
+        session.add(FolderAttribute(node_id=node.id))
         # Update parent's subfolder_count if parent is folder
         if payload.parent_node_id:
-            await session.execute(
-                text(
-                    "UPDATE folder_attributes SET subfolder_count = subfolder_count + 1 "
-                    "WHERE node_id = :id"
-                ),
-                {"id": payload.parent_node_id},
+            await session.exec(
+                update(FolderAttribute)
+                .where(FolderAttribute.node_id == payload.parent_node_id)
+                .values(subfolder_count=FolderAttribute.subfolder_count + 1)
             )
     else:
-        await session.execute(
-            text("INSERT INTO deck_attributes (node_id) VALUES (:id)"),
-            {"id": row.id},
-        )
+        session.add(DeckAttribute(node_id=node.id))
     await session.commit()
-    return await get_node(session, user_id, row.id)
+    return await get_node(session, user_id, node.id)
 
 
 async def update_node(
@@ -186,21 +178,16 @@ async def update_node(
         fields["description"] = payload.description
     if not fields:
         return await get_node(session, user_id, node_id)
-    set_clause = ", ".join(f"{k} = :{k}" for k in fields)
-    fields["id"] = node_id
-    await session.execute(
-        text(f"UPDATE nodes SET {set_clause}, updated_at = NOW() WHERE id = :id"),
-        fields,
+    await session.exec(
+        update(Node).where(Node.id == node_id).values(**fields, updated_at=datetime.now(UTC))
     )
     await session.commit()
     return await get_node(session, user_id, node_id)
 
 
-async def delete_node(
-    session: AsyncSession, user_id: UUID, node_id: UUID
-) -> None:
+async def delete_node(session: AsyncSession, user_id: UUID, node_id: UUID) -> None:
     await _ensure_owner(session, user_id, node_id)
-    await session.execute(text("DELETE FROM nodes WHERE id = :id"), {"id": node_id})
+    await session.exec(delete(Node).where(Node.id == node_id))
     await session.commit()
 
 

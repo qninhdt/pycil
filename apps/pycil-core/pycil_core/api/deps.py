@@ -6,7 +6,7 @@ from typing import Annotated
 
 from fastapi import Depends
 from redis.asyncio import Redis
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from pycil_core.auth import CurrentUser, get_current_user
 from pycil_core.db import get_session

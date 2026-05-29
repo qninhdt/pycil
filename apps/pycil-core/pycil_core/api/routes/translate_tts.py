@@ -10,13 +10,12 @@ worker code follow.
 """
 from __future__ import annotations
 
-import json
-
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import text
+from sqlalchemy import select
+
+from shared.db import DeckDefinition, Definition, Job, Node
 
 from pycil_core.api.deps import SessionDep, UserDep
-
 
 router = APIRouter(prefix="/definitions", tags=["translate-tts"])
 
@@ -25,16 +24,12 @@ _SUPPORTED_LANGS = {"en", "vi", "ja", "ko", "es", "fr", "de"}
 
 async def _assert_owner(session, *, definition_id: int, user_id) -> None:
     row = (
-        await session.execute(
-            text(
-                """
-                SELECT 1 FROM definitions d
-                  JOIN deck_definitions dd ON dd.definition_id = d.id
-                  JOIN nodes n ON n.id = dd.deck_id
-                 WHERE d.id = :did AND n.author_id = :uid LIMIT 1
-                """
-            ),
-            {"did": definition_id, "uid": user_id},
+        await session.exec(
+            select(Definition.id)
+            .join(DeckDefinition, DeckDefinition.definition_id == Definition.id)
+            .join(Node, Node.id == DeckDefinition.deck_id)
+            .where(Definition.id == definition_id, Node.author_id == user_id)
+            .limit(1)
         )
     ).first()
     if not row:
@@ -52,28 +47,22 @@ async def translate(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "unsupported_lang")
     await _assert_owner(session, definition_id=definition_id, user_id=user.id)
     cached = (
-        await session.execute(
-            text(
-                "SELECT translation->:lang AS t FROM definitions WHERE id = :id"
-            ),
-            {"id": definition_id, "lang": lang},
+        await session.exec(
+            select(Definition.translation[lang].astext.label("t")).where(
+                Definition.id == definition_id
+            )
         )
     ).first()
     if cached and cached.t is not None:
         return {"cached": True, "translation": cached.t}
-    job = (
-        await session.execute(
-            text(
-                "INSERT INTO jobs (type, status, payload, created_by_user_id) "
-                "VALUES ('translate_definition', 'queued', "
-                "CAST(:p AS jsonb), :uid) RETURNING id"
-            ),
-            {
-                "p": json.dumps({"definition_id": definition_id, "lang": lang}),
-                "uid": user.id,
-            },
-        )
-    ).one()
+    job = Job(
+        type="translate_definition",
+        status="queued",
+        payload={"definition_id": definition_id, "lang": lang},
+        created_by_user_id=user.id,
+    )
+    session.add(job)
+    await session.flush()
     await session.commit()
     return {"cached": False, "job_id": str(job.id)}
 
@@ -89,25 +78,21 @@ async def tts(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "unsupported_lang")
     await _assert_owner(session, definition_id=definition_id, user_id=user.id)
     cached = (
-        await session.execute(
-            text("SELECT tts_url->>:lang AS u FROM definitions WHERE id = :id"),
-            {"id": definition_id, "lang": lang},
+        await session.exec(
+            select(Definition.tts_url[lang].astext.label("u")).where(
+                Definition.id == definition_id
+            )
         )
     ).first()
     if cached and cached.u:
         return {"cached": True, "url": cached.u}
-    job = (
-        await session.execute(
-            text(
-                "INSERT INTO jobs (type, status, payload, created_by_user_id) "
-                "VALUES ('tts_render', 'queued', CAST(:p AS jsonb), :uid) "
-                "RETURNING id"
-            ),
-            {
-                "p": json.dumps({"definition_id": definition_id, "lang": lang}),
-                "uid": user.id,
-            },
-        )
-    ).one()
+    job = Job(
+        type="tts_render",
+        status="queued",
+        payload={"definition_id": definition_id, "lang": lang},
+        created_by_user_id=user.id,
+    )
+    session.add(job)
+    await session.flush()
     await session.commit()
     return {"cached": False, "job_id": str(job.id)}

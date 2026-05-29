@@ -11,7 +11,9 @@ import logging
 import time
 
 from pydantic import BaseModel
-from sqlalchemy import text
+from sqlalchemy import select, text
+
+from shared.db import Definition, Term
 
 from worker.db import SessionLocal
 from worker.jobs.lifecycle import commit_terminal, is_terminal
@@ -44,16 +46,14 @@ async def translate_definition(
 
     async with SessionLocal() as session:
         row = (
-            await session.execute(
-                text(
-                    """
-                    SELECT d.canonical_meaning, t.value AS term_value
-                      FROM definitions d
-                      JOIN terms t ON t.id = d.term_id
-                     WHERE d.id = :id
-                    """
-                ),
-                {"id": definition_id},
+            await session.exec(
+                select(
+                    Definition.canonical_meaning,
+                    Term.value.label("term_value"),
+                )
+                .select_from(Definition)
+                .join(Term, Term.id == Definition.term_id)
+                .where(Definition.id == definition_id)
             )
         ).first()
         if row is None or row.canonical_meaning is None:

@@ -7,14 +7,15 @@ and rate-limits per-user creation.
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
-from typing import Sequence
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import func, select, update
+from sqlmodel.ext.asyncio.session import AsyncSession
 
+from shared.db import DefinitionComment, User
 
 COMMENT_MAX_BYTES = 4096
 
@@ -29,56 +30,58 @@ async def create(
         raise HTTPException(
             status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "comment_too_large"
         )
-    row = (
-        await session.execute(
-            text(
-                "INSERT INTO definition_comments (definition_id, author_id, body) "
-                "VALUES (:d, :a, :b) RETURNING id"
-            ),
-            {"d": definition_id, "a": author_id, "b": body},
-        )
-    ).one()
-    return int(row.id)
+    comment = DefinitionComment(
+        definition_id=definition_id,
+        author_id=author_id,
+        body=body,
+    )
+    session.add(comment)
+    await session.flush()
+    return int(comment.id or 0)
 
 
 async def list_for_definition(
     session: AsyncSession, definition_id: int, limit: int = 100
 ) -> Sequence[dict]:
-    rows = (
-        await session.execute(
-            text(
-                """
-                SELECT c.id, c.author_id, c.body, c.created_at,
-                       u.username AS author_username
-                  FROM definition_comments c
-             LEFT JOIN users u ON u.id = c.author_id
-                 WHERE c.definition_id = :d
-                   AND c.deleted_at IS NULL
-                 ORDER BY c.created_at ASC
-                 LIMIT :n
-                """
-            ),
-            {"d": definition_id, "n": limit},
+    stmt = (
+        select(
+            DefinitionComment.id,
+            DefinitionComment.author_id,
+            DefinitionComment.body,
+            DefinitionComment.created_at,
+            User.username.label("author_username"),
         )
-    ).all()
+        .select_from(DefinitionComment)
+        .outerjoin(User, User.id == DefinitionComment.author_id)
+        .where(
+            DefinitionComment.definition_id == definition_id,
+            DefinitionComment.deleted_at.is_(None),
+        )
+        .order_by(DefinitionComment.created_at.asc())
+        .limit(limit)
+    )
+    rows = (await session.exec(stmt)).all()
     return [dict(r._mapping) for r in rows]
 
 
 async def soft_delete(
-    session: AsyncSession, comment_id: int, actor_id: UUID
+    session: AsyncSession,
+    comment_id: int,
+    actor_id: UUID,
+    *,
+    is_admin: bool = False,
 ) -> bool:
     """Author or admin can soft-delete. Caller checks admin role."""
-    result = await session.execute(
-        text(
-            """
-            UPDATE definition_comments
-               SET deleted_at = NOW()
-             WHERE id = :id
-               AND (author_id = :a OR :a IN (SELECT id FROM users WHERE is_admin))
-               AND deleted_at IS NULL
-            """
-        ),
-        {"id": comment_id, "a": actor_id},
+    conditions = [
+        DefinitionComment.id == comment_id,
+        DefinitionComment.deleted_at.is_(None),
+    ]
+    if not is_admin:
+        conditions.append(DefinitionComment.author_id == actor_id)
+    result = await session.exec(
+        update(DefinitionComment)
+        .where(*conditions)
+        .values(deleted_at=func.now())
     )
     return bool(getattr(result, "rowcount", 0))
 
@@ -86,13 +89,11 @@ async def soft_delete(
 async def latest_comment_at(
     session: AsyncSession, definition_id: int
 ) -> datetime | None:
-    row = (
-        await session.execute(
-            text(
-                "SELECT MAX(created_at) AS ts FROM definition_comments "
-                "WHERE definition_id = :d AND deleted_at IS NULL"
-            ),
-            {"d": definition_id},
+    return (
+        await session.exec(
+            select(func.max(DefinitionComment.created_at)).where(
+                DefinitionComment.definition_id == definition_id,
+                DefinitionComment.deleted_at.is_(None),
+            )
         )
-    ).first()
-    return row.ts if row else None
+    ).one()

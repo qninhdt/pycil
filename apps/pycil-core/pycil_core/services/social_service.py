@@ -12,9 +12,11 @@ import re
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import delete, func, select, update
+from sqlalchemy.dialects.postgresql import insert
+from sqlmodel.ext.asyncio.session import AsyncSession
 
+from shared.db import DeckLike, Follow, Node, User
 
 _USERNAME_RE = re.compile(r"^[a-z0-9_]{3,32}$")
 _RESERVED = {"admin", "support", "system", "api", "pycil", "root", "anonymous"}
@@ -28,17 +30,15 @@ async def claim_username(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "username_invalid")
     if name in _RESERVED:
         raise HTTPException(status.HTTP_409_CONFLICT, "username_reserved")
-    existing = (
-        await session.execute(
-            text("SELECT id FROM users WHERE LOWER(username) = :n"),
-            {"n": name},
+    existing_id = (
+        await session.exec(
+            select(User.id).where(func.lower(User.username) == name)
         )
     ).first()
-    if existing and existing.id != user_id:
+    if existing_id and existing_id != user_id:
         raise HTTPException(status.HTTP_409_CONFLICT, "username_taken")
-    await session.execute(
-        text("UPDATE users SET username = :n WHERE id = :id"),
-        {"n": name, "id": user_id},
+    await session.exec(
+        update(User).where(User.id == user_id).values(username=name)
     )
     return name
 
@@ -50,29 +50,27 @@ async def toggle_follow(
     if follower_id == followee_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "cannot_follow_self")
     existing = (
-        await session.execute(
-            text(
-                "SELECT 1 FROM follows "
-                "WHERE follower_id = :f AND followee_id = :t"
-            ),
-            {"f": follower_id, "t": followee_id},
+        await session.exec(
+            select(Follow.follower_id).where(
+                Follow.follower_id == follower_id,
+                Follow.followee_id == followee_id,
+            )
         )
     ).first()
     if existing:
-        await session.execute(
-            text(
-                "DELETE FROM follows "
-                "WHERE follower_id = :f AND followee_id = :t"
-            ),
-            {"f": follower_id, "t": followee_id},
+        await session.exec(
+            delete(Follow).where(
+                Follow.follower_id == follower_id,
+                Follow.followee_id == followee_id,
+            )
         )
         return False
-    await session.execute(
-        text(
-            "INSERT INTO follows (follower_id, followee_id) "
-            "VALUES (:f, :t) ON CONFLICT DO NOTHING"
-        ),
-        {"f": follower_id, "t": followee_id},
+    await session.exec(
+        insert(Follow)
+        .values(follower_id=follower_id, followee_id=followee_id)
+        .on_conflict_do_nothing(
+            index_elements=[Follow.follower_id, Follow.followee_id]
+        )
     )
     return True
 
@@ -81,46 +79,46 @@ async def toggle_like(
     session: AsyncSession, user_id: UUID, deck_id: UUID
 ) -> bool:
     existing = (
-        await session.execute(
-            text(
-                "SELECT 1 FROM deck_likes "
-                "WHERE user_id = :u AND deck_id = :d"
-            ),
-            {"u": user_id, "d": deck_id},
+        await session.exec(
+            select(DeckLike.user_id).where(
+                DeckLike.user_id == user_id,
+                DeckLike.deck_id == deck_id,
+            )
         )
     ).first()
     if existing:
-        await session.execute(
-            text(
-                "DELETE FROM deck_likes "
-                "WHERE user_id = :u AND deck_id = :d"
-            ),
-            {"u": user_id, "d": deck_id},
+        await session.exec(
+            delete(DeckLike).where(
+                DeckLike.user_id == user_id,
+                DeckLike.deck_id == deck_id,
+            )
         )
-        await session.execute(
-            text(
-                "UPDATE nodes SET likes_count = GREATEST(0, likes_count - 1) "
-                "WHERE id = :d"
-            ),
-            {"d": deck_id},
+        await session.exec(
+            update(Node)
+            .where(Node.id == deck_id)
+            .values(likes_count=func.greatest(0, Node.likes_count - 1))
         )
         return False
-    await session.execute(
-        text(
-            "INSERT INTO deck_likes (user_id, deck_id) "
-            "VALUES (:u, :d) ON CONFLICT DO NOTHING"
-        ),
-        {"u": user_id, "d": deck_id},
+    inserted = await session.exec(
+        insert(DeckLike)
+        .values(user_id=user_id, deck_id=deck_id)
+        .on_conflict_do_nothing(
+            index_elements=[DeckLike.user_id, DeckLike.deck_id]
+        )
+        .returning(DeckLike.user_id)
     )
-    await session.execute(
-        text("UPDATE nodes SET likes_count = likes_count + 1 WHERE id = :d"),
-        {"d": deck_id},
-    )
+    if inserted.first() is not None:
+        await session.exec(
+            update(Node)
+            .where(Node.id == deck_id)
+            .values(likes_count=Node.likes_count + 1)
+        )
     return True
 
 
 async def record_fork(session: AsyncSession, source_deck_id: UUID) -> None:
-    await session.execute(
-        text("UPDATE nodes SET forks_count = forks_count + 1 WHERE id = :d"),
-        {"d": source_deck_id},
+    await session.exec(
+        update(Node)
+        .where(Node.id == source_deck_id)
+        .values(forks_count=Node.forks_count + 1)
     )

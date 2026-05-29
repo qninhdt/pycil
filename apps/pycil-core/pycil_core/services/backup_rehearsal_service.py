@@ -14,10 +14,13 @@ import logging
 from datetime import datetime
 from typing import Literal
 
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.dialects.postgresql import insert
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 _log = logging.getLogger(__name__)
+
+from shared.db import BackupRehearsal
 
 OutcomeStatus = Literal["success", "failure"]
 
@@ -33,41 +36,41 @@ async def record_rehearsal(
     rows_terms: int | None = None,
     error: str | None = None,
 ) -> None:
-    await session.execute(
-        text(
-            """
-            INSERT INTO backup_rehearsals
-              (backup_id, rehearsed_at, status,
-               rows_users, rows_decks, rows_terms, error)
-            VALUES (:b, :t, :s, :u, :d, :tr, :e)
-            ON CONFLICT (backup_id) DO UPDATE
-              SET rehearsed_at = EXCLUDED.rehearsed_at,
-                  status = EXCLUDED.status,
-                  rows_users = EXCLUDED.rows_users,
-                  rows_decks = EXCLUDED.rows_decks,
-                  rows_terms = EXCLUDED.rows_terms,
-                  error = EXCLUDED.error
-            """
-        ),
-        {
-            "b": backup_id,
-            "t": rehearsed_at,
-            "s": status,
-            "u": rows_users,
-            "d": rows_decks,
-            "tr": rows_terms,
-            "e": error,
-        },
+    stmt = insert(BackupRehearsal).values(
+        backup_id=backup_id,
+        rehearsed_at=rehearsed_at,
+        status=status,
+        rows_users=rows_users,
+        rows_decks=rows_decks,
+        rows_terms=rows_terms,
+        error=error,
+    )
+    await session.exec(
+        stmt.on_conflict_do_update(
+            index_elements=[BackupRehearsal.backup_id],
+            set_={
+                "rehearsed_at": stmt.excluded.rehearsed_at,
+                "status": stmt.excluded.status,
+                "rows_users": stmt.excluded.rows_users,
+                "rows_decks": stmt.excluded.rows_decks,
+                "rows_terms": stmt.excluded.rows_terms,
+                "error": stmt.excluded.error,
+            },
+        )
     )
 
 
 async def latest(session: AsyncSession) -> dict | None:
     row = (
-        await session.execute(
-            text(
-                "SELECT backup_id, rehearsed_at, status, error "
-                "FROM backup_rehearsals ORDER BY rehearsed_at DESC LIMIT 1"
+        await session.exec(
+            select(
+                BackupRehearsal.backup_id,
+                BackupRehearsal.rehearsed_at,
+                BackupRehearsal.status,
+                BackupRehearsal.error,
             )
+            .order_by(BackupRehearsal.rehearsed_at.desc())
+            .limit(1)
         )
     ).first()
     if not row:

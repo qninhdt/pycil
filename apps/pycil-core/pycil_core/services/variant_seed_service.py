@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import random
-from typing import Sequence
+from collections.abc import Sequence
 from uuid import UUID
 
 

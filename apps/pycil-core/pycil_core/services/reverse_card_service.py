@@ -8,12 +8,15 @@ ELO updates don't double-count.
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 from uuid import UUID
 
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import and_, func, or_, select
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from shared.db import DeckTerm, Definition, Term, UserTermStat
+from shared.db.enums import UserTermStatus
 
 
 @dataclass
@@ -32,47 +35,53 @@ async def build_prompts(
     limit: int = 10,
     distractors_per: int = 3,
 ) -> Sequence[ReversePrompt]:
-    rows = (
-        await session.execute(
-            text(
-                """
-                SELECT t.value AS term_value,
-                       d.id AS definition_id,
-                       d.canonical_meaning
-                  FROM deck_terms dt
-                  JOIN terms t ON t.id = dt.term_id
-                  JOIN definitions d ON d.term_id = t.id AND d.is_primary
-             LEFT JOIN user_term_stats uts
-                    ON uts.user_id = :u AND uts.term_id = t.id
-                 WHERE dt.deck_id = :d
-                   AND COALESCE(uts.status::text, 'active') = 'active'
-                 ORDER BY uts.last_seen_at NULLS FIRST
-                 LIMIT :n
-                """
-            ),
-            {"u": user_id, "d": deck_id, "n": limit},
+    stmt = (
+        select(
+            Term.value.label("term_value"),
+            Definition.id.label("definition_id"),
+            Definition.canonical_meaning,
         )
-    ).all()
+        .select_from(DeckTerm)
+        .join(Term, Term.id == DeckTerm.term_id)
+        .join(
+            Definition,
+            and_(
+                Definition.term_id == Term.id,
+                Definition.is_primary.is_(True),
+            ),
+        )
+        .outerjoin(
+            UserTermStat,
+            and_(
+                UserTermStat.user_id == user_id,
+                UserTermStat.definition_id == Definition.id,
+            ),
+        )
+        .where(
+            DeckTerm.deck_id == deck_id,
+            or_(
+                UserTermStat.status.is_(None),
+                UserTermStat.status == UserTermStatus.ACTIVE,
+            ),
+        )
+        .order_by(UserTermStat.last_review_date.asc().nullsfirst())
+        .limit(limit)
+    )
+    rows = (await session.exec(stmt)).all()
     if not rows:
         return []
 
-    distractor_rows = (
-        await session.execute(
-            text(
-                """
-                SELECT canonical_meaning FROM definitions
-                 WHERE is_primary AND id <> ALL(:exclude)
-                 ORDER BY RANDOM()
-                 LIMIT :n
-                """
-            ),
-            {
-                "exclude": [int(r.definition_id) for r in rows],
-                "n": len(rows) * distractors_per,
-            },
+    distractor_stmt = (
+        select(Definition.canonical_meaning)
+        .where(
+            Definition.is_primary.is_(True),
+            Definition.id.not_in([int(r.definition_id) for r in rows]),
         )
-    ).all()
-    pool = [r.canonical_meaning for r in distractor_rows]
+        .order_by(func.random())
+        .limit(len(rows) * distractors_per)
+    )
+    distractor_rows = (await session.exec(distractor_stmt)).all()
+    pool = [meaning for meaning in distractor_rows if meaning]
 
     out: list[ReversePrompt] = []
     for i, r in enumerate(rows):

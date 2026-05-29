@@ -81,16 +81,16 @@ async def get_current_user(
 
     try:
         claims = decode_session(pycil_session)
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "expired_session")
-    except jwt.PyJWTError:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid_session")
+    except jwt.ExpiredSignatureError as exc:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "expired_session") from exc
+    except jwt.PyJWTError as exc:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid_session") from exc
 
     try:
         user_id = UUID(str(claims["sub"]))
         token_version = int(claims["tv"])
-    except (KeyError, ValueError, TypeError):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid_session_claims")
+    except (KeyError, ValueError, TypeError) as exc:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid_session_claims") from exc
 
     user = await user_service.get_with_token_version_check(
         session, user_id=user_id, token_version=token_version

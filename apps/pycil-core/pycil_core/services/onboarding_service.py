@@ -3,13 +3,15 @@
 Idempotent — checks for existing user_nodes rows before seeding so re-login
 or session cookie refresh never double-seeds.
 """
+
 from __future__ import annotations
 
 from uuid import UUID
 
+from shared.db.models import Node
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-
+from sqlmodel import select
 
 _SAMPLE_TERMS = [
     {
@@ -47,12 +49,7 @@ _SAMPLE_TERMS = [
 
 async def _user_has_content(session: AsyncSession, user_id: UUID) -> bool:
     """Has the user authored any nodes? Cheaper than counting rows."""
-    row = (
-        await session.execute(
-            text("SELECT 1 FROM nodes WHERE author_id = :uid LIMIT 1"),
-            {"uid": user_id},
-        )
-    ).first()
+    row = (await session.exec(select(Node.id).where(Node.author_id == user_id).limit(1))).first()
     return row is not None
 
 

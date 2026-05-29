@@ -22,11 +22,12 @@ from uuid import UUID
 
 from fastapi import HTTPException, status
 from redis.asyncio import Redis
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import and_, or_, select
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from shared.db import Job, UserTermJob
 
 from pycil_core.services.redis_pool import get_redis
-
 
 _HEARTBEAT_INTERVAL = 15.0
 _MAX_DURATION = 60.0
@@ -45,23 +46,34 @@ async def _load_owned_job(
     session: AsyncSession, *, user_id: UUID, job_id: UUID
 ) -> dict:
     """Return job row dict if user owns it; raise 404 otherwise (no oracle)."""
-    row = (
-        await session.execute(
-            text(
-                """
-                SELECT j.id, j.type, j.status, j.result, j.error, j.payload,
-                       utj.last_event
-                FROM jobs j
-           LEFT JOIN user_term_jobs utj
-                  ON utj.job_id = j.id AND utj.user_id = :uid
-                WHERE j.id = :jid
-                  AND (utj.user_id IS NOT NULL OR j.created_by_user_id = :uid)
-                LIMIT 1
-                """
-            ),
-            {"jid": job_id, "uid": user_id},
+    stmt = (
+        select(
+            Job.id,
+            Job.type,
+            Job.status,
+            Job.result,
+            Job.error,
+            Job.payload,
+            UserTermJob.last_event,
         )
-    ).first()
+        .select_from(Job)
+        .outerjoin(
+            UserTermJob,
+            and_(
+                UserTermJob.job_id == Job.id,
+                UserTermJob.user_id == user_id,
+            ),
+        )
+        .where(
+            Job.id == job_id,
+            or_(
+                UserTermJob.user_id.is_not(None),
+                Job.created_by_user_id == user_id,
+            ),
+        )
+        .limit(1)
+    )
+    row = (await session.exec(stmt)).first()
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "job_not_found")
     payload = row.payload

@@ -13,7 +13,6 @@ from uuid import UUID
 from fastapi import HTTPException, status
 from redis.asyncio import Redis
 
-
 DEFAULT_PER_USER_DAILY_USD = 1.0
 USER_SPEND_KEY_PREFIX = "openrouter:spend"
 

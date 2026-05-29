@@ -11,8 +11,8 @@ exist yet.
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 
 from sqlalchemy import text
 from sqlalchemy.exc import ProgrammingError

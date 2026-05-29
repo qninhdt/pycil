@@ -13,8 +13,10 @@ from uuid import UUID
 
 from fastapi import HTTPException, status
 from redis.asyncio import Redis
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, update
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from shared.db import Definition, Term
 
 from pycil_core.services.job_service import enqueue_generate_term
 from pycil_core.services.term_service import add_term_to_deck
@@ -104,9 +106,8 @@ async def _check_batch_budget(
 async def _term_already_enriched(session: AsyncSession, term_id: int) -> bool:
     """Skip enqueue when canonical enrichment is already cached."""
     row = (
-        await session.execute(
-            text("SELECT 1 FROM definitions WHERE term_id = :tid LIMIT 1"),
-            {"tid": term_id},
+        await session.exec(
+            select(Definition.id).where(Definition.term_id == term_id).limit(1)
         )
     ).first()
     return row is not None
@@ -156,12 +157,15 @@ async def add_terms_batch(
             )
 
     if outcomes:
-        await session.execute(
-            text(
-                "UPDATE terms SET source = :s "
-                "WHERE value = ANY(:vals) AND source = 'manual'"
-            ),
-            {"s": source, "vals": [o.value for o in outcomes if o.status != "invalid"]},
+        await session.exec(
+            update(Term)
+            .where(
+                Term.value.in_(
+                    [o.value for o in outcomes if o.status != "invalid"]
+                ),
+                Term.source == "manual",
+            )
+            .values(source=source)
         )
         await session.commit()
 

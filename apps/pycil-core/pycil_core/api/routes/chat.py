@@ -7,11 +7,13 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import text
+from sqlalchemy import delete, select
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from shared.db import ChatSession, DeckDefinition, Definition, Term
 
 from pycil_core.api.deps import SessionDep, UserDep
 from pycil_core.services import chat_service
-
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -80,11 +82,11 @@ async def send_message(
 async def delete_session(
     session_id: UUID, user: UserDep, session: SessionDep
 ) -> dict:
-    result = await session.execute(
-        text(
-            "DELETE FROM chat_sessions WHERE id = :sid AND user_id = :uid"
-        ),
-        {"sid": session_id, "uid": user.id},
+    result = await session.exec(
+        delete(ChatSession).where(
+            ChatSession.id == session_id,
+            ChatSession.user_id == user.id,
+        )
     )
     await session.commit()
     return {"deleted": int(getattr(result, "rowcount", 0) or 0)}
@@ -94,7 +96,6 @@ async def _chat_stream(session_id: UUID, user_id: UUID):
     """Real SSE stream of LLM tokens with deck-grounded system prompt."""
     from pycil_core.db import get_engine
     from pycil_core.services import llm_streaming
-    from sqlalchemy.ext.asyncio import AsyncSession
 
     engine = get_engine()
     async with AsyncSession(engine, expire_on_commit=False) as s:
@@ -102,19 +103,14 @@ async def _chat_stream(session_id: UUID, user_id: UUID):
             s, session_id=session_id, user_id=user_id, limit=20
         )
         deck_terms = (
-            await s.execute(
-                text(
-                    """
-                    SELECT t.value, d.canonical_meaning
-                      FROM chat_sessions cs
-                      JOIN deck_definitions dd ON dd.deck_id = cs.deck_id
-                      JOIN definitions d ON d.id = dd.definition_id
-                      JOIN terms t ON t.id = d.term_id
-                     WHERE cs.id = :sid
-                     LIMIT 50
-                    """
-                ),
-                {"sid": session_id},
+            await s.exec(
+                select(Term.value, Definition.canonical_meaning)
+                .select_from(ChatSession)
+                .join(DeckDefinition, DeckDefinition.deck_id == ChatSession.deck_id)
+                .join(Definition, Definition.id == DeckDefinition.definition_id)
+                .join(Term, Term.id == Definition.term_id)
+                .where(ChatSession.id == session_id)
+                .limit(50)
             )
         ).all()
 

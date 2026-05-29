@@ -13,7 +13,6 @@ from redis.asyncio import ConnectionPool, Redis
 
 from pycil_core.config import get_settings
 
-
 _pool: ConnectionPool | None = None
 
 

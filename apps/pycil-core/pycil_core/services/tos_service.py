@@ -10,8 +10,11 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.dialects.postgresql import insert
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from shared.db import TosVersion as TosVersionRecord, UserTosAck
 
 
 @dataclass
@@ -24,11 +27,15 @@ class TosVersion:
 
 async def latest(session: AsyncSession) -> TosVersion | None:
     row = (
-        await session.execute(
-            text(
-                "SELECT version, summary, body_md, effective_at "
-                "FROM tos_versions ORDER BY effective_at DESC LIMIT 1"
+        await session.exec(
+            select(
+                TosVersionRecord.version,
+                TosVersionRecord.summary,
+                TosVersionRecord.body_md,
+                TosVersionRecord.effective_at,
             )
+            .order_by(TosVersionRecord.effective_at.desc())
+            .limit(1)
         )
     ).first()
     if not row:
@@ -46,19 +53,21 @@ async def needs_ack(
 ) -> TosVersion | None:
     """Returns the latest version that the user has NOT yet ack'd."""
     row = (
-        await session.execute(
-            text(
-                """
-                SELECT v.version, v.summary, v.body_md, v.effective_at
-                  FROM tos_versions v
-             LEFT JOIN user_tos_acks a
-                    ON a.user_id = :uid AND a.version = v.version
-                 WHERE a.version IS NULL
-                 ORDER BY v.effective_at DESC
-                 LIMIT 1
-                """
-            ),
-            {"uid": user_id},
+        await session.exec(
+            select(
+                TosVersionRecord.version,
+                TosVersionRecord.summary,
+                TosVersionRecord.body_md,
+                TosVersionRecord.effective_at,
+            )
+            .outerjoin(
+                UserTosAck,
+                (UserTosAck.user_id == user_id)
+                & (UserTosAck.version == TosVersionRecord.version),
+            )
+            .where(UserTosAck.version.is_(None))
+            .order_by(TosVersionRecord.effective_at.desc())
+            .limit(1)
         )
     ).first()
     if not row:
@@ -72,11 +81,8 @@ async def needs_ack(
 
 
 async def ack(session: AsyncSession, user_id: UUID, version: str) -> None:
-    await session.execute(
-        text(
-            "INSERT INTO user_tos_acks (user_id, version) "
-            "VALUES (:u, :v) "
-            "ON CONFLICT DO NOTHING"
-        ),
-        {"u": user_id, "v": version},
+    await session.exec(
+        insert(UserTosAck)
+        .values(user_id=user_id, version=version)
+        .on_conflict_do_nothing()
     )

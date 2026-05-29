@@ -19,13 +19,18 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import func, select
 
-from pycil_core.api.deps import RedisDep, SessionDep, UserDep
+from shared.db import AdminAction, User
+
+from pycil_core.api.deps import SessionDep, UserDep
 from pycil_core.services.activity_feed_service import (
     list_for_followees as feed_list_followees,
 )
 from pycil_core.services.cefr_threshold_service import (
     get_thresholds as cefr_get,
+)
+from pycil_core.services.cefr_threshold_service import (
     set_thresholds as cefr_set,
 )
 from pycil_core.services.daily_goal_service import (
@@ -36,6 +41,8 @@ from pycil_core.services.data_export_service import export as ndjson_export
 from pycil_core.services.feature_flag_service import is_enabled as flag_enabled
 from pycil_core.services.push_notification_service import (
     subscribe as push_subscribe_,
+)
+from pycil_core.services.push_notification_service import (
     unsubscribe as push_unsubscribe_,
 )
 from pycil_core.services.social_service import (
@@ -44,11 +51,17 @@ from pycil_core.services.social_service import (
 )
 from pycil_core.services.term_notes_service import (
     delete as note_delete,
+)
+from pycil_core.services.term_notes_service import (
     get as note_get,
+)
+from pycil_core.services.term_notes_service import (
     upsert as note_upsert,
 )
 from pycil_core.services.tos_service import (
     ack as tos_ack_,
+)
+from pycil_core.services.tos_service import (
     needs_ack,
 )
 
@@ -80,17 +93,14 @@ async def toggle_follow_by_username(
     user: UserDep,
     session: SessionDep,
 ):
-    from sqlalchemy import text
-
-    target = (
-        await session.execute(
-            text("SELECT id FROM users WHERE LOWER(username) = :n"),
-            {"n": username.lower()},
+    target_id = (
+        await session.exec(
+            select(User.id).where(func.lower(User.username) == username.lower())
         )
     ).first()
-    if not target:
+    if not target_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "user_not_found")
-    now_following = await toggle_follow(session, user.id, target.id)
+    now_following = await toggle_follow(session, user.id, target_id)
     await session.commit()
     return {"following": now_following}
 
@@ -287,16 +297,18 @@ async def list_audit(
 ):
     if not getattr(user, "is_admin", False):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "admin_required")
-    from sqlalchemy import text
-
-    rows = (
-        await session.execute(
-            text(
-                "SELECT id, actor_user_id, target_user_id, action, metadata, "
-                "created_at, ip_address::text AS ip_address "
-                "FROM admin_actions ORDER BY created_at DESC LIMIT :n"
-            ),
-            {"n": min(limit, 500)},
+    stmt = (
+        select(
+            AdminAction.id,
+            AdminAction.actor_user_id,
+            AdminAction.target_user_id,
+            AdminAction.action,
+            AdminAction.metadata_json.label("metadata"),
+            AdminAction.created_at,
+            AdminAction.ip_address,
         )
-    ).all()
+        .order_by(AdminAction.created_at.desc())
+        .limit(min(limit, 500))
+    )
+    rows = (await session.exec(stmt)).all()
     return {"actions": [dict(r._mapping) for r in rows]}

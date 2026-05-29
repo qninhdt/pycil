@@ -6,8 +6,8 @@ the simpler endpoint hit from the deck detail view's search box.
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 from uuid import UUID
 
 from sqlalchemy import text

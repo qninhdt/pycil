@@ -12,7 +12,9 @@ import logging
 import os
 import time
 
-from sqlalchemy import text
+from sqlalchemy import select, text
+
+from shared.db import Definition, Term
 
 from worker.db import SessionLocal
 from worker.jobs.lifecycle import commit_terminal, is_terminal
@@ -47,13 +49,14 @@ async def tts_render(
 
     async with SessionLocal() as session:
         row = (
-            await session.execute(
-                text(
-                    "SELECT d.canonical_meaning, t.value AS term_value "
-                    "FROM definitions d JOIN terms t ON t.id = d.term_id "
-                    "WHERE d.id = :id"
-                ),
-                {"id": definition_id},
+            await session.exec(
+                select(
+                    Definition.canonical_meaning,
+                    Term.value.label("term_value"),
+                )
+                .select_from(Definition)
+                .join(Term, Term.id == Definition.term_id)
+                .where(Definition.id == definition_id)
             )
         ).first()
         if row is None or row.canonical_meaning is None:
@@ -86,7 +89,7 @@ async def tts_render(
 
         try:
             url = await _upload_and_sign(definition_id, lang, mp3_bytes)
-        except Exception as exc:  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             _log.exception("tts_upload_failed")
             try_n = int(ctx.get("job_try", 1) or 1)
             max_tries = int(ctx.get("max_tries", 1) or 1)

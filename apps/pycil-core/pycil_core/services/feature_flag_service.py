@@ -13,9 +13,10 @@ import time
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
+from shared.db import FeatureFlag
 
 _CACHE_TTL_SECONDS = 30.0
 
@@ -41,12 +42,12 @@ async def _load(session: AsyncSession, name: str) -> FlagRecord | None:
     if cached and now - cached[0] < _CACHE_TTL_SECONDS:
         return cached[1]
     row = (
-        await session.execute(
-            text(
-                "SELECT rollout_percentage, enabled_user_ids, payload "
-                "FROM feature_flags WHERE name = :n"
-            ),
-            {"n": name},
+        await session.exec(
+            select(
+                FeatureFlag.rollout_percentage,
+                FeatureFlag.enabled_user_ids,
+                FeatureFlag.payload,
+            ).where(FeatureFlag.name == name)
         )
     ).first()
     record = (

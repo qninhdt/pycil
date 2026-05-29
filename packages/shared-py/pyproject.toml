@@ -5,6 +5,7 @@ description = "Shared Python types: question ABC + MCQ subclass."
 requires-python = ">=3.12"
 dependencies = [
     "pydantic>=2.9,<3.0",
+    "sqlmodel>=0.0.38,<0.1",
 ]
 
 [build-system]

@@ -6,12 +6,13 @@ from uuid import UUID
 
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
 from fastapi.responses import Response
-from sqlalchemy import text
+from sqlmodel import select
 
 from pycil_core.api.deps import RedisDep, SessionDep, UserDep
 from pycil_core.api.routes.terms_batch import BatchResponse, _to_response
 from pycil_core.services import anki_import_service
 from pycil_core.services.term_batch_service import add_terms_batch
+from shared.db import Node
 
 router = APIRouter(prefix="/decks", tags=["anki"])
 
@@ -61,15 +62,10 @@ async def anki_export(
     user: UserDep,
     session: SessionDep,
 ):
-    deck_row = (
-        await session.execute(
-            text("SELECT author_id FROM nodes WHERE id = :id"),
-            {"id": deck_id},
-        )
-    ).first()
+    deck_row = (await session.exec(select(Node.author_id).where(Node.id == deck_id))).first()
     if not deck_row:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "deck_not_found")
-    if deck_row.author_id != user.id:
+    if deck_row != user.id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "deck_forbidden")
 
     notes = await anki_import_service.fetch_deck_notes_for_export(session, deck_id)

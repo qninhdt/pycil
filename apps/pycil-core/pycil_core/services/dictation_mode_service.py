@@ -8,8 +8,8 @@ Uses the existing translate_tts_service for audio URLs.
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 from uuid import UUID
 
 from sqlalchemy import text

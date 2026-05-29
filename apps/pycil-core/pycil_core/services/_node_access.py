@@ -10,21 +10,20 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from shared.db import Node
 
 
 async def assert_node_owner(
     session: AsyncSession, *, node_id: UUID, user_id: UUID
 ) -> None:
     """Raise 404 if node missing, 403 if not owned by user_id."""
-    row = (
-        await session.execute(
-            text("SELECT author_id FROM nodes WHERE id = :nid"),
-            {"nid": node_id},
-        )
+    owner_id = (
+        await session.exec(select(Node.author_id).where(Node.id == node_id))
     ).first()
-    if row is None:
+    if owner_id is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "node_not_found")
-    if row.author_id != user_id:
+    if owner_id != user_id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "not_owner")

@@ -5,7 +5,11 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
 from fastapi.responses import JSONResponse
+from sqlalchemy import select
 from starlette.requests import Request
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from shared.db import User
 
 from pycil_core.api.routes import admin as admin_routes
 from pycil_core.api.routes import auth as auth_routes
@@ -88,19 +92,21 @@ def create_app() -> FastAPI:
     @app.get("/me")
     async def me(user: CurrentUser = Depends(get_current_user)):
         """Returns the canonical user with gamification fields layered in."""
-        from sqlalchemy import text
         from pycil_core.db import get_engine
-        from sqlalchemy.ext.asyncio import AsyncSession
 
         async with AsyncSession(get_engine(), expire_on_commit=False) as session:
             row = (
-                await session.execute(
-                    text(
-                        "SELECT image_url, streak_days, xp_total, level, "
-                        "badges, league_rank, locale, bio "
-                        "FROM users WHERE id = :uid"
-                    ),
-                    {"uid": user.id},
+                await session.exec(
+                    select(
+                        User.image_url,
+                        User.streak_days,
+                        User.xp_total,
+                        User.level,
+                        User.badges,
+                        User.league_rank,
+                        User.locale,
+                        User.bio,
+                    ).where(User.id == user.id)
                 )
             ).first()
         return {

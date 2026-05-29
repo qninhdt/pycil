@@ -35,7 +35,7 @@ class CustomStudyFilter:
         return d
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "CustomStudyFilter":
+    def from_dict(cls, d: dict[str, Any]) -> CustomStudyFilter:
         return cls(
             deck_ids=[UUID(x) for x in d.get("deck_ids") or []],
             cefr_levels=list(d.get("cefr_levels") or []),

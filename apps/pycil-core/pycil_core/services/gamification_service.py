@@ -13,7 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from pycil_core.services import notification_service
 
-
 XP_DELTA = {"correct_new": 10, "correct_review": 5, "wrong": 2}
 
 LEVEL_TABLE = [

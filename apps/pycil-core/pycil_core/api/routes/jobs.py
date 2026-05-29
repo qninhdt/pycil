@@ -6,10 +6,12 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import text
+from sqlalchemy import or_
+from sqlmodel import select
 
 from pycil_core.api.deps import SessionDep, UserDep
 from pycil_core.services import job_stream_service
+from shared.db import Job, UserTermJob
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -20,33 +22,23 @@ async def get_job(
 ) -> dict:
     # Ownership: user_term_jobs (term jobs) OR jobs.created_by_user_id (translate/tts/regenerate).
     own = (
-        await session.execute(
-            text(
-                """
-                SELECT 1
-                  FROM jobs j
-             LEFT JOIN user_term_jobs utj
-                    ON utj.job_id = j.id AND utj.user_id = :uid
-                 WHERE j.id = :jid
-                   AND (utj.user_id IS NOT NULL OR j.created_by_user_id = :uid)
-                 LIMIT 1
-                """
-            ),
-            {"uid": user.id, "jid": job_id},
+        await session.exec(
+            select(Job.id)
+            .outerjoin(
+                UserTermJob,
+                (UserTermJob.job_id == Job.id) & (UserTermJob.user_id == user.id),
+            )
+            .where(
+                Job.id == job_id,
+                or_(UserTermJob.user_id.is_not(None), Job.created_by_user_id == user.id),
+            )
+            .limit(1)
         )
     ).first()
     if not own:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "job_forbidden")
 
-    row = (
-        await session.execute(
-            text(
-                "SELECT id, type, status, result, error, created_at, updated_at "
-                "FROM jobs WHERE id = :id"
-            ),
-            {"id": job_id},
-        )
-    ).first()
+    row = (await session.exec(select(Job).where(Job.id == job_id))).first()
     if not row:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "job_not_found")
 

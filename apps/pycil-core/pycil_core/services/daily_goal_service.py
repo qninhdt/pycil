@@ -7,11 +7,14 @@ question_answers from the user's local-day window.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import func, update
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from shared.db import Response, User
 
 
 @dataclass
@@ -31,17 +34,13 @@ async def update_goal(
 ) -> None:
     if daily_goal is None and reminder_hour is None:
         return
-    sets: list[str] = []
-    params: dict = {"id": user_id}
+    values: dict[str, int] = {}
     if daily_goal is not None:
-        sets.append("daily_goal = :g")
-        params["g"] = max(1, min(daily_goal, 500))
+        values["daily_goal"] = max(1, min(daily_goal, 500))
     if reminder_hour is not None:
-        sets.append("reminder_hour = :h")
-        params["h"] = max(0, min(reminder_hour, 23))
-    await session.execute(
-        text(f"UPDATE users SET {', '.join(sets)} WHERE id = :id"),
-        params,
+        values["reminder_hour"] = max(0, min(reminder_hour, 23))
+    await session.exec(
+        update(User).where(User.id == user_id).values(**values)
     )
 
 
@@ -49,30 +48,24 @@ async def goal_summary(
     session: AsyncSession, user_id: UUID
 ) -> GoalSummary:
     user_row = (
-        await session.execute(
-            text(
-                "SELECT daily_goal, current_streak FROM users WHERE id = :id"
-            ),
-            {"id": user_id},
+        await session.exec(
+            select(User.daily_goal, User.streak_days).where(User.id == user_id)
         )
     ).first()
     daily_goal = int(user_row.daily_goal) if user_row else 20
-    streak = int(getattr(user_row, "current_streak", 0) or 0)
+    streak = int(getattr(user_row, "streak_days", 0) or 0)
 
-    today_start = datetime.now(timezone.utc).replace(
+    today_start = datetime.now(UTC).replace(
         hour=0, minute=0, second=0, microsecond=0
     )
     counts = (
-        await session.execute(
-            text(
-                """
-                SELECT COUNT(*)::int AS total,
-                       COUNT(*) FILTER (WHERE is_correct)::int AS correct
-                  FROM question_answers
-                 WHERE user_id = :u AND answered_at >= :start
-                """
-            ),
-            {"u": user_id, "start": today_start},
+        await session.exec(
+            select(
+                func.count(Response.id).label("total"),
+                func.count(Response.id)
+                .filter(Response.is_correct.is_(True))
+                .label("correct"),
+            ).where(Response.user_id == user_id, Response.created_at >= today_start)
         )
     ).first()
     return GoalSummary(

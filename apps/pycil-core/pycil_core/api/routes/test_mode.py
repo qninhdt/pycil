@@ -5,11 +5,12 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import text
+from sqlalchemy import select
+
+from shared.db import TestRun
 
 from pycil_core.api.deps import SessionDep, UserDep
 from pycil_core.services import test_mode_service
-
 
 router = APIRouter(prefix="/decks", tags=["test-mode"])
 
@@ -40,7 +41,7 @@ async def start_run(
             types=body.types,
         )
     except LookupError as exc:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc))
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
 
 
 @router.post("/{deck_id}/test/runs/{run_id}/answers")
@@ -60,9 +61,9 @@ async def submit_answer(
             user_answer=body.user_answer,
         )
     except LookupError as exc:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc))
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
     except ValueError as exc:
-        raise HTTPException(status.HTTP_409_CONFLICT, str(exc))
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
 
 
 @router.post("/{deck_id}/test/runs/{run_id}/complete")
@@ -82,18 +83,18 @@ async def list_runs(
     deck_id: UUID, user: UserDep, session: SessionDep
 ) -> dict:
     rows = (
-        await session.execute(
-            text(
-                """
-                SELECT id, question_count, correct_count, score_pct,
-                       started_at, completed_at
-                  FROM test_runs
-                 WHERE user_id = :uid AND deck_id = :did
-                 ORDER BY started_at DESC
-                 LIMIT 50
-                """
-            ),
-            {"uid": user.id, "did": deck_id},
+        await session.exec(
+            select(
+                TestRun.id,
+                TestRun.question_count,
+                TestRun.correct_count,
+                TestRun.score_pct,
+                TestRun.started_at,
+                TestRun.completed_at,
+            )
+            .where(TestRun.user_id == user.id, TestRun.deck_id == deck_id)
+            .order_by(TestRun.started_at.desc())
+            .limit(50)
         )
     ).all()
     return {

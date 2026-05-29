@@ -14,8 +14,10 @@ import json
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import func, select, text, update
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from shared.db import Job
 
 
 async def commit_terminal(
@@ -34,25 +36,19 @@ async def commit_terminal(
     """
     assert status in ("completed", "failed"), status
     row = (
-        await session.execute(
-            text(
-                """
-                UPDATE jobs
-                   SET status = :s,
-                       result = CAST(:r AS jsonb),
-                       error  = :e,
-                       updated_at = NOW()
-                 WHERE id = :id
-                   AND status NOT IN ('completed', 'failed')
-                 RETURNING id
-                """
-            ),
-            {
-                "s": status,
-                "r": json.dumps(result) if result is not None else None,
-                "e": error,
-                "id": job_id,
-            },
+        await session.exec(
+            update(Job)
+            .where(
+                Job.id == job_id,
+                Job.status.not_in(("completed", "failed")),
+            )
+            .values(
+                status=status,
+                result=result,
+                error=error,
+                updated_at=func.now(),
+            )
+            .returning(Job.id)
         )
     ).first()
     await session.commit()
@@ -61,13 +57,10 @@ async def commit_terminal(
 
 async def is_terminal(session: AsyncSession, job_id: str) -> bool:
     """Cheap pre-check before kicking off paid side-effects on retry."""
-    row = (
-        await session.execute(
-            text("SELECT status FROM jobs WHERE id = :id"),
-            {"id": job_id},
-        )
+    status = (
+        await session.exec(select(Job.status).where(Job.id == job_id))
     ).first()
-    return row is not None and row.status in ("completed", "failed")
+    return status in ("completed", "failed")
 
 
 async def append_event(session: AsyncSession, job_id: UUID, event: dict[str, Any]) -> None:
@@ -94,21 +87,18 @@ async def mark_job(
     Prefer `commit_terminal` for new code — it returns whether the transition
     actually happened and refuses to overwrite an existing terminal row.
     """
-    await session.execute(
-        text(
-            "UPDATE jobs SET status = :s, result = :r, error = :e, updated_at = NOW() "
-            "WHERE id = :id"
-        ),
-        {
-            "s": status,
-            "r": json.dumps(result, default=str) if result is not None else None,
-            "e": error,
-            "id": job_id,
-        },
+    await session.exec(
+        update(Job)
+        .where(Job.id == job_id)
+        .values(
+            status=status,
+            result=result,
+            error=error,
+            updated_at=func.now(),
+        )
     )
 
 
 async def publish_status(redis, channel: str, payload: dict[str, Any]) -> None:
     """Publish a JSON-encoded SSE payload onto the given Redis channel."""
     await redis.publish(channel, json.dumps(payload, default=str))
-

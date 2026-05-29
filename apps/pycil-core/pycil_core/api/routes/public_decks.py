@@ -12,12 +12,14 @@ from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
-from sqlalchemy import text
+from sqlalchemy import select, text
+
+from shared.db import Node
+from shared.db.enums import NodeType, Visibility
 
 from pycil_core.api.deps import SessionDep, UserDep
 from pycil_core.middleware.rate_limit import client_ip, enforce
 from pycil_core.services import clone_service
-
 
 router = APIRouter(prefix="/public", tags=["public"])
 
@@ -53,8 +55,8 @@ async def list_public_decks(
     if cursor:
         try:
             cur_ts, cur_id = _decode_cursor(cursor)
-        except (ValueError, TypeError, binascii.Error):
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid_cursor")
+        except (ValueError, TypeError, binascii.Error) as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid_cursor") from exc
         sql += " AND (n.updated_at, n.id) < (:cur_ts, :cur_id) "
         params["cur_ts"] = cur_ts
         params["cur_id"] = cur_id
@@ -88,15 +90,17 @@ async def list_public_decks(
 async def get_public_deck(deck_id: UUID, request: Request, session: SessionDep) -> dict:
     await enforce(client_ip(request), "public_get")
     row = (
-        await session.execute(
-            text(
-                """
-                SELECT id, name, description, updated_at
-                  FROM nodes
-                 WHERE id = :id AND type = 'DECK' AND visibility = 'PUBLIC'
-                """
-            ),
-            {"id": deck_id},
+        await session.exec(
+            select(
+                Node.id,
+                Node.name,
+                Node.description,
+                Node.updated_at,
+            ).where(
+                Node.id == deck_id,
+                Node.type == NodeType.DECK,
+                Node.visibility == Visibility.PUBLIC,
+            )
         )
     ).first()
     if row is None:
@@ -118,5 +122,5 @@ async def clone_public_deck(
             session, user_id=user.id, source_deck_id=deck_id
         )
     except LookupError as exc:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc))
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
     return {"new_deck_id": str(new_id)}

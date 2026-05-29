@@ -6,11 +6,13 @@ account changes in user data dump.
 """
 from __future__ import annotations
 
+import json
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from shared.db import AdminAction
 
 
 async def record(
@@ -23,31 +25,14 @@ async def record(
     ip_address: str | None = None,
     user_agent: str | None = None,
 ) -> int:
-    row = (
-        await session.execute(
-            text(
-                """
-                INSERT INTO admin_actions
-                  (actor_user_id, target_user_id, action, metadata,
-                   ip_address, user_agent)
-                VALUES (:actor, :target, :action, CAST(:meta AS jsonb),
-                        :ip::inet, :ua)
-                RETURNING id
-                """
-            ),
-            {
-                "actor": actor_user_id,
-                "target": target_user_id,
-                "action": action,
-                "meta": _json_dumps(metadata or {}),
-                "ip": ip_address,
-                "ua": user_agent,
-            },
-        )
-    ).one()
-    return int(row.id)
-
-
-def _json_dumps(d: dict[str, Any]) -> str:
-    import json
-    return json.dumps(d, default=str)
+    record = AdminAction(
+        actor_user_id=actor_user_id,
+        target_user_id=target_user_id,
+        action=action,
+        metadata_json=json.loads(json.dumps(metadata or {}, default=str)),
+        ip_address=ip_address,
+        user_agent=user_agent,
+    )
+    session.add(record)
+    await session.flush()
+    return int(record.id or 0)

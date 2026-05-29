@@ -8,9 +8,12 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import delete
+from sqlalchemy.dialects.postgresql import insert
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
+from shared.db import TermNote
 
 MAX_NOTE_BYTES = 8192
 
@@ -22,40 +25,33 @@ async def upsert(
         raise HTTPException(
             status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "term_note_too_large"
         )
-    await session.execute(
-        text(
-            """
-            INSERT INTO term_notes (user_id, term_id, body)
-            VALUES (:u, :t, :b)
-            ON CONFLICT (user_id, term_id) DO UPDATE
-              SET body = EXCLUDED.body, updated_at = NOW()
-            """
-        ),
-        {"u": user_id, "t": term_id, "b": body},
+    stmt = insert(TermNote).values(user_id=user_id, term_id=term_id, body=body)
+    await session.exec(
+        stmt.on_conflict_do_update(
+            index_elements=[TermNote.user_id, TermNote.term_id],
+            set_={"body": stmt.excluded.body},
+        )
     )
     return body
 
 
 async def get(session: AsyncSession, user_id: UUID, term_id: int) -> str | None:
-    row = (
-        await session.execute(
-            text(
-                "SELECT body FROM term_notes "
-                "WHERE user_id = :u AND term_id = :t"
-            ),
-            {"u": user_id, "t": term_id},
+    return (
+        await session.exec(
+            select(TermNote.body).where(
+                TermNote.user_id == user_id,
+                TermNote.term_id == term_id,
+            )
         )
     ).first()
-    return row.body if row else None
 
 
 async def delete(
     session: AsyncSession, user_id: UUID, term_id: int
 ) -> None:
-    await session.execute(
-        text(
-            "DELETE FROM term_notes "
-            "WHERE user_id = :u AND term_id = :t"
-        ),
-        {"u": user_id, "t": term_id},
+    await session.exec(
+        delete(TermNote).where(
+            TermNote.user_id == user_id,
+            TermNote.term_id == term_id,
+        )
     )

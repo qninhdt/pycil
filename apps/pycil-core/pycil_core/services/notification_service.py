@@ -9,8 +9,11 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import func, update
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from shared.db import Notification
 
 
 async def create(
@@ -21,21 +24,11 @@ async def create(
     payload: dict[str, Any] | None = None,
 ) -> UUID:
     """Insert a notification. `kind` is a snake_case discriminator."""
-    import json as _json
-    row = (
-        await session.execute(
-            text(
-                """
-                INSERT INTO notifications (user_id, kind, payload)
-                VALUES (:uid, :kind, CAST(:payload AS jsonb))
-                RETURNING id
-                """
-            ),
-            {"uid": user_id, "kind": kind, "payload": _json.dumps(payload or {})},
-        )
-    ).one()
+    record = Notification(user_id=user_id, kind=kind, payload=payload or {})
+    session.add(record)
     await session.commit()
-    return row.id
+    await session.refresh(record)
+    return record.id
 
 
 async def list_for_user(
@@ -46,21 +39,21 @@ async def list_for_user(
     limit: int = 50,
 ) -> list[dict]:
     """Return user's recent notifications. `since` filters strictly after that ts."""
-    rows = (
-        await session.execute(
-            text(
-                """
-                SELECT id, kind, payload, read_at, created_at
-                  FROM notifications
-                 WHERE user_id = :uid
-                   AND (:since IS NULL OR created_at > :since)
-                 ORDER BY created_at DESC
-                 LIMIT :limit
-                """
-            ),
-            {"uid": user_id, "since": since, "limit": limit},
+    stmt = (
+        select(
+            Notification.id,
+            Notification.kind,
+            Notification.payload,
+            Notification.read_at,
+            Notification.created_at,
         )
-    ).all()
+        .where(Notification.user_id == user_id)
+        .order_by(Notification.created_at.desc())
+        .limit(limit)
+    )
+    if since is not None:
+        stmt = stmt.where(Notification.created_at > since)
+    rows = (await session.exec(stmt)).all()
     return [
         {
             "id": str(r.id),
@@ -85,17 +78,14 @@ async def mark_read(
         return 0
     if len(ids) > 500:
         ids = ids[:500]
-    result = await session.execute(
-        text(
-            """
-            UPDATE notifications
-               SET read_at = NOW()
-             WHERE user_id = :uid
-               AND id = ANY(CAST(:ids AS uuid[]))
-               AND read_at IS NULL
-            """
-        ),
-        {"uid": user_id, "ids": [str(i) for i in ids]},
+    result = await session.exec(
+        update(Notification)
+        .where(
+            Notification.user_id == user_id,
+            Notification.id.in_(ids),
+            Notification.read_at.is_(None),
+        )
+        .values(read_at=func.now())
     )
     await session.commit()
     return int(getattr(result, "rowcount", 0) or 0)
@@ -104,13 +94,12 @@ async def mark_read(
 async def unread_count(
     session: AsyncSession, *, user_id: UUID
 ) -> int:
-    row = (
-        await session.execute(
-            text(
-                "SELECT COUNT(*) AS n FROM notifications "
-                "WHERE user_id = :uid AND read_at IS NULL"
-            ),
-            {"uid": user_id},
-        )
-    ).one()
-    return int(row.n)
+    return int(
+        (
+            await session.exec(
+                select(func.count())
+                .select_from(Notification)
+                .where(Notification.user_id == user_id, Notification.read_at.is_(None))
+            )
+        ).one()
+    )

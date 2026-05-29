@@ -15,7 +15,6 @@ from botocore.config import Config
 
 from pycil_core.config import get_settings
 
-
 _ALLOWED_TYPES = {
     "image/jpeg": "jpg",
     "image/png": "png",

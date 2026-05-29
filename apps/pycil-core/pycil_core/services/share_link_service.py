@@ -8,8 +8,11 @@ from __future__ import annotations
 import secrets
 from uuid import UUID
 
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import delete, func, update
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from shared.db import Node, NodeShareLink
 
 
 def _new_token() -> str:
@@ -24,31 +27,21 @@ async def create_link(
 ) -> dict:
     """Create a fresh share link. Returns the new row."""
     owns = (
-        await session.execute(
-            text("SELECT 1 FROM nodes WHERE id = :nid AND author_id = :uid"),
-            {"nid": node_id, "uid": created_by},
+        await session.exec(
+            select(Node.id).where(Node.id == node_id, Node.author_id == created_by)
         )
     ).first()
     if owns is None:
         raise LookupError("node_not_found_or_not_owned")
     token = _new_token()
-    row = (
-        await session.execute(
-            text(
-                """
-                INSERT INTO node_share_links (node_id, token, created_by)
-                VALUES (:nid, :token, :uid)
-                RETURNING id, token, created_at
-                """
-            ),
-            {"nid": node_id, "token": token, "uid": created_by},
-        )
-    ).one()
+    record = NodeShareLink(node_id=node_id, token=token, created_by=created_by)
+    session.add(record)
     await session.commit()
+    await session.refresh(record)
     return {
-        "id": str(row.id),
-        "token": row.token,
-        "created_at": row.created_at.isoformat(),
+        "id": str(record.id),
+        "token": record.token,
+        "created_at": record.created_at.isoformat() if record.created_at else "",
     }
 
 
@@ -59,17 +52,14 @@ async def revoke_link(
     user_id: UUID,
 ) -> bool:
     """Revoke a link if owned by user. Returns True if updated."""
-    result = await session.execute(
-        text(
-            """
-            UPDATE node_share_links
-               SET revoked_at = NOW()
-             WHERE id = :lid
-               AND created_by = :uid
-               AND revoked_at IS NULL
-            """
-        ),
-        {"lid": link_id, "uid": user_id},
+    result = await session.exec(
+        update(NodeShareLink)
+        .where(
+            NodeShareLink.id == link_id,
+            NodeShareLink.created_by == user_id,
+            NodeShareLink.revoked_at.is_(None),
+        )
+        .values(revoked_at=func.now())
     )
     await session.commit()
     return bool(getattr(result, "rowcount", 0))
@@ -80,16 +70,15 @@ async def resolve_token(
 ) -> dict | None:
     """Return active link details by token, or None if missing/revoked."""
     row = (
-        await session.execute(
-            text(
-                """
-                SELECT id, node_id, created_by, created_at
-                  FROM node_share_links
-                 WHERE token = :token AND revoked_at IS NULL
-                 LIMIT 1
-                """
-            ),
-            {"token": token},
+        await session.exec(
+            select(
+                NodeShareLink.id,
+                NodeShareLink.node_id,
+                NodeShareLink.created_by,
+                NodeShareLink.created_at,
+            )
+            .where(NodeShareLink.token == token, NodeShareLink.revoked_at.is_(None))
+            .limit(1)
         )
     ).first()
     if row is None:
@@ -109,16 +98,18 @@ async def list_for_node(
     user_id: UUID,
 ) -> list[dict]:
     rows = (
-        await session.execute(
-            text(
-                """
-                SELECT id, token, created_at, revoked_at
-                  FROM node_share_links
-                 WHERE node_id = :nid AND created_by = :uid
-                 ORDER BY created_at DESC
-                """
-            ),
-            {"nid": node_id, "uid": user_id},
+        await session.exec(
+            select(
+                NodeShareLink.id,
+                NodeShareLink.token,
+                NodeShareLink.created_at,
+                NodeShareLink.revoked_at,
+            )
+            .where(
+                NodeShareLink.node_id == node_id,
+                NodeShareLink.created_by == user_id,
+            )
+            .order_by(NodeShareLink.created_at.desc())
         )
     ).all()
     return [

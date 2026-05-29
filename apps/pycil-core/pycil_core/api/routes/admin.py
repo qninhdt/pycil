@@ -14,7 +14,6 @@ from pycil_core.api.deps import SessionDep
 from pycil_core.config import get_settings
 from pycil_core.services import user_service
 
-
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
@@ -33,6 +32,6 @@ async def revoke_tokens(
     _verify(x_internal_secret)
     try:
         new_tv = await user_service.revoke_tokens(session, user_id=user_id)
-    except LookupError:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "user_not_found")
+    except LookupError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "user_not_found") from exc
     return {"user_id": str(user_id), "token_version": new_tv}

@@ -11,7 +11,6 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-
 _INPUT_TOKEN_CAP = 20_000
 _OUTPUT_TOKEN_CAP = 8_000
 

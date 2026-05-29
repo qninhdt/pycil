@@ -13,13 +13,15 @@ Pipeline:
 """
 from __future__ import annotations
 
-import json
 import logging
 import time
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import text
+from sqlalchemy import select
+
+from shared.db import Definition, DefinitionParaphrase, Question, Term, TermExampleSentence
+from shared.db.enums import QuestionType
 
 from shared.questions.fill_in_blank import FillData, FillInBlankQuestion
 from shared.questions.multiple_choice import MCQData, MultipleChoiceQuestion
@@ -45,67 +47,63 @@ _ESTIMATED_COST_USD = 0.0003
 
 async def _load_inputs(session, definition_id: int) -> dict[str, Any] | None:
     row = (
-        await session.execute(
-            text(
-                """
-                SELECT
-                  d.id,
-                  d.cefr_level::text AS cefr_level,
-                  d.part_of_speech::text AS part_of_speech,
-                  d.notes,
-                  t.value AS term_value
-                FROM definitions d
-                JOIN terms t ON t.id = d.term_id
-                WHERE d.id = :id
-                """
-            ),
-            {"id": definition_id},
+        await session.exec(
+            select(
+                Definition.id,
+                Definition.cefr_level,
+                Definition.part_of_speech,
+                Definition.notes,
+                Term.value.label("term_value"),
+            )
+            .select_from(Definition)
+            .join(Term, Term.id == Definition.term_id)
+            .where(Definition.id == definition_id)
         )
     ).first()
     if not row:
         return None
     paraphrase = (
-        await session.execute(
-            text(
-                "SELECT value FROM definition_paraphrases "
-                "WHERE definition_id = :id ORDER BY id ASC LIMIT 1"
-            ),
-            {"id": definition_id},
+        await session.exec(
+            select(DefinitionParaphrase.value)
+            .where(DefinitionParaphrase.definition_id == definition_id)
+            .order_by(DefinitionParaphrase.id.asc())
+            .limit(1)
         )
     ).first()
     example = (
-        await session.execute(
-            text(
-                "SELECT value FROM term_example_sentences "
-                "WHERE definition_id = :id ORDER BY id ASC LIMIT 1"
-            ),
-            {"id": definition_id},
+        await session.exec(
+            select(TermExampleSentence.value)
+            .where(TermExampleSentence.definition_id == definition_id)
+            .order_by(TermExampleSentence.id.asc())
+            .limit(1)
         )
     ).first()
     notes = row.notes or []
     canonical = notes[0] if notes else None
     return {
         "term_value": row.term_value,
-        "part_of_speech": row.part_of_speech,
-        "cefr_level": row.cefr_level,
+        "part_of_speech": row.part_of_speech.value if row.part_of_speech else None,
+        "cefr_level": row.cefr_level.value if row.cefr_level else None,
         "canonical_meaning": canonical,
-        "paraphrase_sample": paraphrase.value if paraphrase else None,
-        "example_sample": example.value if example else None,
+        "paraphrase_sample": paraphrase,
+        "example_sample": example,
     }
 
 
-async def _existing_question_id(session, definition_id: int, q_type: str) -> int | None:
-    row = (
-        await session.execute(
-            text(
-                "SELECT id FROM questions "
-                "WHERE definition_id = :id AND type = :t "
-                "ORDER BY created_at ASC LIMIT 1"
-            ),
-            {"id": definition_id, "t": q_type},
+async def _existing_question_id(
+    session, definition_id: int, q_type: str
+) -> UUID | None:
+    return (
+        await session.exec(
+            select(Question.id)
+            .where(
+                Question.definition_id == definition_id,
+                Question.type == QuestionType(q_type),
+            )
+            .order_by(Question.created_at.asc())
+            .limit(1)
         )
     ).first()
-    return row.id if row else None
 
 
 def _sanitize_mcq(out: MCQData) -> dict[str, Any]:
@@ -216,19 +214,14 @@ async def generate_question(
                 duration_ms=(time.time() - started) * 1000.0,
             )
             data = _sanitize_question_data(question_type, output)
-            row = (
-                await session.execute(
-                    text(
-                        """
-                        INSERT INTO questions (definition_id, type, data)
-                        VALUES (:did, CAST(:t AS question_type), CAST(:data AS jsonb))
-                        RETURNING id
-                        """
-                    ),
-                    {"did": definition_id, "t": question_type, "data": json.dumps(data)},
-                )
-            ).one()
-            question_id = row.id
+            question = Question(
+                definition_id=definition_id,
+                type=QuestionType(question_type),
+                data=data,
+            )
+            session.add(question)
+            await session.flush()
+            question_id = question.id
             await append_event(
                 session,
                 job_uuid,

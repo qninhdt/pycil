@@ -7,12 +7,13 @@ Webhook idempotency: insert event_id BEFORE dispatch.
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request, status
-from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
+
+from shared.db import StripeWebhookEvent
 
 from pycil_core.api.deps import SessionDep, UserDep
 from pycil_core.config import get_settings
 from pycil_core.services import billing_service
-
 
 router = APIRouter(prefix="/billing", tags=["billing"])
 
@@ -60,21 +61,15 @@ async def webhook(request: Request, session: SessionDep) -> dict:
 
     try:
         event = stripe.Webhook.construct_event(payload_bytes, sig, webhook_secret)
-    except Exception:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid_signature")
+    except Exception as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid_signature") from exc
 
     # Insert event_id BEFORE dispatch within ONE transaction. If dispatch
     # raises, the txn rolls back and Stripe retries; on retry the PK
     # conflict short-circuits to 200. Idempotent + lossless.
-    from sqlalchemy.exc import IntegrityError
-
     try:
-        await session.execute(
-            text(
-                "INSERT INTO stripe_webhook_events (event_id) VALUES (:eid)"
-            ),
-            {"eid": event["id"]},
-        )
+        session.add(StripeWebhookEvent(event_id=event["id"]))
+        await session.flush()
     except IntegrityError:
         await session.rollback()
         return {"ok": True, "duplicate": True}

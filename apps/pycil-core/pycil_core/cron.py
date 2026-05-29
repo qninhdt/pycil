@@ -15,7 +15,6 @@ from pycil_core.db import get_engine
 from pycil_core.services import user_service
 from pycil_core.services.cache import advisory_lock
 
-
 logger = logging.getLogger(__name__)
 _scheduler: AsyncIOScheduler | None = None
 

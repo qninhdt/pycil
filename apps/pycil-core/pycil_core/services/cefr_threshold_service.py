@@ -7,12 +7,14 @@ user has no override.
 from __future__ import annotations
 
 import json
-from typing import Mapping
+from collections.abc import Mapping
 from uuid import UUID
 
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import update
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
+from shared.db import User
 
 DEFAULT_THRESHOLDS: dict[str, int] = {
     "A1": 5,
@@ -27,13 +29,9 @@ DEFAULT_THRESHOLDS: dict[str, int] = {
 async def get_thresholds(
     session: AsyncSession, user_id: UUID
 ) -> dict[str, int]:
-    row = (
-        await session.execute(
-            text("SELECT study_settings FROM users WHERE id = :id"),
-            {"id": user_id},
-        )
-    ).first()
-    settings = (row.study_settings or {}) if row else {}
+    settings = (
+        await session.exec(select(User.study_settings).where(User.id == user_id))
+    ).first() or {}
     overrides = settings.get("cefr_mastery", {}) if isinstance(settings, dict) else {}
     return {**DEFAULT_THRESHOLDS, **overrides}
 
@@ -48,15 +46,13 @@ async def set_thresholds(
         for k, v in thresholds.items()
         if k.upper() in DEFAULT_THRESHOLDS
     }
-    row = (
-        await session.execute(
-            text("SELECT study_settings FROM users WHERE id = :id"),
-            {"id": user_id},
-        )
+    current = (
+        await session.exec(select(User.study_settings).where(User.id == user_id))
     ).first()
-    settings = dict(row.study_settings or {}) if row else {}
+    settings = dict(current or {})
     settings["cefr_mastery"] = cleaned
-    await session.execute(
-        text("UPDATE users SET study_settings = CAST(:s AS jsonb) WHERE id = :id"),
-        {"s": json.dumps(settings, default=str), "id": user_id},
+    await session.exec(
+        update(User)
+        .where(User.id == user_id)
+        .values(study_settings=json.loads(json.dumps(settings, default=str)))
     )

@@ -10,7 +10,6 @@ from pycil_core.api.deps import SessionDep, UserDep
 from pycil_core.services import share_link_service
 from pycil_core.services._node_access import assert_node_owner
 
-
 router = APIRouter(prefix="/nodes", tags=["share-links"])
 
 

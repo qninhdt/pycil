@@ -8,8 +8,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, timedelta
 
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import func
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from shared.db import Node, NodeType, Response, User
 
 
 @dataclass
@@ -25,55 +28,27 @@ async def snapshot(session: AsyncSession) -> MetricsSnapshot:
     today_start = date.today()
     week_start = today_start - timedelta(days=7)
 
-    dau = (
-        await session.execute(
-            text(
-                "SELECT COUNT(DISTINCT user_id) AS n FROM question_answers "
-                "WHERE answered_at >= :d::timestamptz"
-            ),
-            {"d": today_start},
-        )
-    ).one()
-    wau = (
-        await session.execute(
-            text(
-                "SELECT COUNT(DISTINCT user_id) AS n FROM question_answers "
-                "WHERE answered_at >= :d::timestamptz"
-            ),
-            {"d": week_start},
-        )
-    ).one()
-    signups = (
-        await session.execute(
-            text(
-                "SELECT COUNT(*) AS n FROM users "
-                "WHERE created_at >= :d::timestamptz"
-            ),
-            {"d": today_start},
-        )
-    ).one()
-    answers = (
-        await session.execute(
-            text(
-                "SELECT COUNT(*) AS n FROM question_answers "
-                "WHERE answered_at >= :d::timestamptz"
-            ),
-            {"d": today_start},
-        )
-    ).one()
-    decks = (
-        await session.execute(
-            text(
-                "SELECT COUNT(*) AS n FROM nodes "
-                "WHERE type = 'DECK' AND created_at >= :d::timestamptz"
-            ),
-            {"d": today_start},
-        )
-    ).one()
+    dau = await session.exec(
+        select(func.count(func.distinct(Response.user_id))).where(Response.created_at >= today_start)
+    )
+    wau = await session.exec(
+        select(func.count(func.distinct(Response.user_id))).where(Response.created_at >= week_start)
+    )
+    signups = await session.exec(
+        select(func.count()).select_from(User).where(User.created_at >= today_start)
+    )
+    answers = await session.exec(
+        select(func.count()).select_from(Response).where(Response.created_at >= today_start)
+    )
+    decks = await session.exec(
+        select(func.count())
+        .select_from(Node)
+        .where(Node.type == NodeType.DECK, Node.created_at >= today_start)
+    )
     return MetricsSnapshot(
-        dau=int(dau.n),
-        wau=int(wau.n),
-        new_signups_today=int(signups.n),
-        questions_answered_today=int(answers.n),
-        decks_created_today=int(decks.n),
+        dau=int(dau.one()),
+        wau=int(wau.one()),
+        new_signups_today=int(signups.one()),
+        questions_answered_today=int(answers.one()),
+        decks_created_today=int(decks.one()),
     )

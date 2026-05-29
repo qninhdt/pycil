@@ -4,19 +4,23 @@ Session state lives in Redis (4h TTL); ELO/interval writes hit Postgres only
 on term-reviewed events (Q correct first-answers). Multi-tab races are
 serialized with a per-session lock acquired around every state mutation.
 """
+
 from __future__ import annotations
 
 import json
 import time
 import uuid as _uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException, status
 from redis.asyncio import Redis
+from shared.db.enums import NodeType
+from shared.db.models import Node
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
 
 from pycil_core.learning import elo as elo_mod
 from pycil_core.learning import term_selection
@@ -52,9 +56,7 @@ def _lock_key(session_id: str) -> str:
 async def _acquire_lock(redis: Redis, session_id: str) -> str:
     """SET NX EX lock. Returns request_id; raises 409 on contention."""
     request_id = _uuid.uuid4().hex
-    ok = await redis.set(
-        _lock_key(session_id), request_id, nx=True, ex=_LOCK_TTL_SECONDS
-    )
+    ok = await redis.set(_lock_key(session_id), request_id, nx=True, ex=_LOCK_TTL_SECONDS)
     if not ok:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
@@ -83,9 +85,7 @@ async def _load_state(redis: Redis, session_id: str) -> dict[str, Any]:
     try:
         return json.loads(raw)
     except (TypeError, ValueError) as e:
-        raise HTTPException(
-            status.HTTP_500_INTERNAL_SERVER_ERROR, "session_corrupt"
-        ) from e
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "session_corrupt") from e
 
 
 async def _save_state(redis: Redis, session_id: str, state: dict) -> None:
@@ -125,9 +125,7 @@ def _initial_state(
     }
 
 
-async def _hydrate_initial_elo(
-    session: AsyncSession, user_id: UUID, state: dict[str, Any]
-) -> None:
+async def _hydrate_initial_elo(session: AsyncSession, user_id: UUID, state: dict[str, Any]) -> None:
     """Replace the 1000 default with the user's stored ELO if any."""
     if not state["definition_ids"]:
         return
@@ -157,16 +155,13 @@ async def start_session(
 ) -> StartSessionResponse:
     """Pick terms, build state, persist to Redis, return id."""
     deck_row = (
-        await session.execute(
-            text("SELECT author_id, type FROM nodes WHERE id = :id"),
-            {"id": deck_id},
-        )
+        await session.exec(select(Node.author_id, Node.type).where(Node.id == deck_id))
     ).first()
     if not deck_row:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "deck_not_found")
     if deck_row.author_id != user_id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "deck_forbidden")
-    if deck_row.type != "DECK":
+    if deck_row.type != NodeType.DECK:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "node_not_deck")
 
     definition_ids = await term_selection.select_definition_ids(
@@ -195,9 +190,7 @@ async def start_session(
 def _next_round_queue(state: dict) -> list[int]:
     """Build the next round's queue from terms not yet completed."""
     return [
-        did
-        for did in state["definition_ids"]
-        if not state["term_tracking"][str(did)]["completed"]
+        did for did in state["definition_ids"] if not state["term_tracking"][str(did)]["completed"]
     ]
 
 
@@ -293,7 +286,7 @@ async def _persist_review(
     interval_seconds: int,
 ) -> datetime:
     """UPSERT user_term_stats with new ELO + next_review_date. Returns NRD."""
-    nrd = datetime.now(tz=timezone.utc) + timedelta(seconds=interval_seconds)
+    nrd = datetime.now(tz=UTC) + timedelta(seconds=interval_seconds)
     await session.execute(
         text(
             """
@@ -344,9 +337,7 @@ async def _previous_review(
     ).first()
     if not row or row.last_review_date is None:
         return (None, 0.0)
-    lapsed = (
-        datetime.now(tz=timezone.utc) - row.last_review_date
-    ).total_seconds()
+    lapsed = (datetime.now(tz=UTC) - row.last_review_date).total_seconds()
     return (lapsed, float(row.interval_seconds or 0))
 
 
@@ -358,6 +349,7 @@ async def submit_answer(
     selected_index: int,
 ) -> SubmitAnswerResponse:
     from shared.questions.multiple_choice import MultipleChoiceQuestion
+
     from pycil_core.services import gamification_service
 
     redis = _redis()
@@ -382,16 +374,12 @@ async def submit_answer(
         if not q_row:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "question_not_found")
         if q_row.type != "MULTIPLE_CHOICE":
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST, "unsupported_question_type"
-            )
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "unsupported_question_type")
         data = q_row.data
         if isinstance(data, str):
             data = json.loads(data)
 
-        check = MultipleChoiceQuestion.check_answer(
-            data, {"selected_index": selected_index}
-        )
+        check = MultipleChoiceQuestion.check_answer(data, {"selected_index": selected_index})
         correct = check.correct
         correct_idx = data.get("correct_index", 0)
 
@@ -413,19 +401,13 @@ async def submit_answer(
         if tracking["correct_firsts"] >= _REQUIRED_CORRECT_FIRSTS and not tracking["completed"]:
             tracking["completed"] = True
             elo_old = int(tracking["elo_at_start"])
-            R = elo_mod.realized_score(
-                tracking["correct_firsts"], _REQUIRED_CORRECT_FIRSTS
-            )
+            R = elo_mod.realized_score(tracking["correct_firsts"], _REQUIRED_CORRECT_FIRSTS)
             E = elo_mod.expected_score(elo_old, [elo_mod.INITIAL_ELO])
-            lapsed, interval_old = await _previous_review(
-                session, user_id, definition_id
-            )
+            lapsed, interval_old = await _previous_review(session, user_id, definition_id)
             T = elo_mod.lapsed_time_factor(lapsed, interval_old)
             d = elo_mod.elo_delta(R, E, T)
             elo_new = elo_mod.new_elo(elo_old, d)
-            new_interval_raw = elo_mod.new_interval_seconds(
-                elo_old, elo_new, interval_old
-            )
+            new_interval_raw = elo_mod.new_interval_seconds(elo_old, elo_new, interval_old)
             new_interval = snap_to_ladder(new_interval_raw)
             nrd = await _persist_review(
                 session, user_id, definition_id, elo_old, elo_new, new_interval

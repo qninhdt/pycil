@@ -11,7 +11,6 @@ from fastapi import APIRouter
 from pycil_core.api.deps import SessionDep, UserDep
 from pycil_core.services import onboarding_service
 
-
 router = APIRouter(prefix="/onboarding", tags=["onboarding"])
 
 

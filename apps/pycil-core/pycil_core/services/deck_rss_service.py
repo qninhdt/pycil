@@ -6,19 +6,21 @@ feed reader without an account.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from collections.abc import Sequence
+from datetime import UTC, datetime
 from email.utils import format_datetime
-from typing import Sequence
 from uuid import UUID
 from xml.sax.saxutils import escape
 
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from shared.db import Node, NodeType, User, Visibility
 
 
 def _rss_date(dt: datetime) -> str:
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
     return format_datetime(dt)
 
 
@@ -30,31 +32,34 @@ async def render_user_feed(
     limit: int = 50,
 ) -> str:
     user = (
-        await session.execute(
-            text("SELECT username, display_name FROM users WHERE id = :id"),
-            {"id": user_id},
+        await session.exec(
+            select(User.username, User.name).where(User.id == user_id)
         )
     ).first()
     if not user or not user.username:
         return _empty_feed(site_url, "Pycil user")
     decks = (
-        await session.execute(
-            text(
-                """
-                SELECT id, name, created_at, updated_at, definition_count
-                  FROM nodes
-                 WHERE author_id = :u AND type = 'DECK' AND is_public
-                 ORDER BY updated_at DESC
-                 LIMIT :n
-                """
-            ),
-            {"u": user_id, "n": limit},
+        await session.exec(
+            select(
+                Node.id,
+                Node.name,
+                Node.created_at,
+                Node.updated_at,
+                Node.definition_count,
+            )
+            .where(
+                Node.author_id == user_id,
+                Node.type == NodeType.DECK,
+                Node.visibility == Visibility.PUBLIC,
+            )
+            .order_by(Node.updated_at.desc())
+            .limit(limit)
         )
     ).all()
     return _build_feed(
         site_url=site_url,
         author_username=user.username,
-        author_display=user.display_name or user.username,
+        author_display=user.name or user.username,
         items=decks,
     )
 

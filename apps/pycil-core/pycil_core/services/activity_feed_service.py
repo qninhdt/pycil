@@ -7,11 +7,14 @@ followees, append a new event from any service that wants to emit.
 from __future__ import annotations
 
 import json
-from typing import Any, Sequence
+from collections.abc import Sequence
+from typing import Any
 from uuid import UUID
 
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from shared.db import ActivityEvent, Follow
 
 
 async def append(
@@ -20,28 +23,30 @@ async def append(
     kind: str,
     payload: dict[str, Any] | None = None,
 ) -> int:
-    row = (
-        await session.execute(
-            text(
-                "INSERT INTO activity_events (user_id, kind, payload) "
-                "VALUES (:u, :k, CAST(:p AS jsonb)) RETURNING id"
-            ),
-            {"u": user_id, "k": kind, "p": json.dumps(payload or {}, default=str)},
-        )
-    ).one()
-    return int(row.id)
+    event = ActivityEvent(
+        user_id=user_id,
+        kind=kind,
+        payload=json.loads(json.dumps(payload or {}, default=str)),
+    )
+    session.add(event)
+    await session.flush()
+    return int(event.id or 0)
 
 
 async def list_for_user(
     session: AsyncSession, user_id: UUID, limit: int = 50
 ) -> Sequence[dict]:
     rows = (
-        await session.execute(
-            text(
-                "SELECT id, kind, payload, created_at FROM activity_events "
-                "WHERE user_id = :u ORDER BY created_at DESC LIMIT :n"
-            ),
-            {"u": user_id, "n": limit},
+        await session.exec(
+            select(
+                ActivityEvent.id,
+                ActivityEvent.kind,
+                ActivityEvent.payload,
+                ActivityEvent.created_at,
+            )
+            .where(ActivityEvent.user_id == user_id)
+            .order_by(ActivityEvent.created_at.desc())
+            .limit(limit)
         )
     ).all()
     return [
@@ -59,19 +64,18 @@ async def list_for_followees(
     session: AsyncSession, user_id: UUID, limit: int = 50
 ) -> Sequence[dict]:
     rows = (
-        await session.execute(
-            text(
-                """
-                SELECT a.id, a.user_id, a.kind, a.payload, a.created_at
-                  FROM activity_events a
-                  JOIN follows f
-                    ON f.followee_id = a.user_id
-                   AND f.follower_id = :uid
-                 ORDER BY a.created_at DESC
-                 LIMIT :n
-                """
-            ),
-            {"uid": user_id, "n": limit},
+        await session.exec(
+            select(
+                ActivityEvent.id,
+                ActivityEvent.user_id,
+                ActivityEvent.kind,
+                ActivityEvent.payload,
+                ActivityEvent.created_at,
+            )
+            .join(Follow, Follow.followee_id == ActivityEvent.user_id)
+            .where(Follow.follower_id == user_id)
+            .order_by(ActivityEvent.created_at.desc())
+            .limit(limit)
         )
     ).all()
     return [

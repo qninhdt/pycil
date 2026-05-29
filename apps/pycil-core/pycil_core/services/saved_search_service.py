@@ -6,15 +6,19 @@ runs the same WHERE-builder used by custom-study sessions.
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Sequence
 from uuid import UUID
 
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+import json
+
+from sqlalchemy import delete, update
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from pycil_core.services.custom_study_filter import CustomStudyFilter
+from shared.db import SavedSearch as SavedSearchRecord
 
 
 @dataclass
@@ -31,30 +35,29 @@ async def create(
     name: str,
     filter_: CustomStudyFilter,
 ) -> int:
-    import json
-
-    row = (
-        await session.execute(
-            text(
-                "INSERT INTO saved_searches (user_id, name, filter_json) "
-                "VALUES (:u, :n, CAST(:f AS jsonb)) RETURNING id"
-            ),
-            {"u": user_id, "n": name, "f": json.dumps(filter_.to_dict(), default=str)},
-        )
-    ).one()
-    return int(row.id)
+    record = SavedSearchRecord(
+        user_id=user_id,
+        name=name,
+        filter_json=json.loads(json.dumps(filter_.to_dict(), default=str)),
+    )
+    session.add(record)
+    await session.flush()
+    return int(record.id or 0)
 
 
 async def list_for_user(
     session: AsyncSession, user_id: UUID
 ) -> Sequence[SavedSearch]:
     rows = (
-        await session.execute(
-            text(
-                "SELECT id, name, filter_json, updated_at FROM saved_searches "
-                "WHERE user_id = :u ORDER BY updated_at DESC"
-            ),
-            {"u": user_id},
+        await session.exec(
+            select(
+                SavedSearchRecord.id,
+                SavedSearchRecord.name,
+                SavedSearchRecord.filter_json,
+                SavedSearchRecord.updated_at,
+            )
+            .where(SavedSearchRecord.user_id == user_id)
+            .order_by(SavedSearchRecord.updated_at.desc())
         )
     ).all()
     return [
@@ -76,25 +79,17 @@ async def update(
     name: str | None = None,
     filter_: CustomStudyFilter | None = None,
 ) -> bool:
-    import json
-
-    sets: list[str] = []
-    params: dict = {"u": user_id, "id": search_id}
+    values: dict[str, object] = {}
     if name is not None:
-        sets.append("name = :n")
-        params["n"] = name
+        values["name"] = name
     if filter_ is not None:
-        sets.append("filter_json = CAST(:f AS jsonb)")
-        params["f"] = json.dumps(filter_.to_dict(), default=str)
-    if not sets:
+        values["filter_json"] = json.loads(json.dumps(filter_.to_dict(), default=str))
+    if not values:
         return False
-    sets.append("updated_at = NOW()")
-    result = await session.execute(
-        text(
-            f"UPDATE saved_searches SET {', '.join(sets)} "
-            "WHERE id = :id AND user_id = :u"
-        ),
-        params,
+    result = await session.exec(
+        update(SavedSearchRecord)
+        .where(SavedSearchRecord.id == search_id, SavedSearchRecord.user_id == user_id)
+        .values(**values)
     )
     return bool(getattr(result, "rowcount", 0))
 
@@ -102,10 +97,10 @@ async def update(
 async def delete(
     session: AsyncSession, user_id: UUID, search_id: int
 ) -> bool:
-    result = await session.execute(
-        text(
-            "DELETE FROM saved_searches WHERE id = :id AND user_id = :u"
-        ),
-        {"id": search_id, "u": user_id},
+    result = await session.exec(
+        delete(SavedSearchRecord).where(
+            SavedSearchRecord.id == search_id,
+            SavedSearchRecord.user_id == user_id,
+        )
     )
     return bool(getattr(result, "rowcount", 0))

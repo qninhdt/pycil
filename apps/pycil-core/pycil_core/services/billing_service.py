@@ -6,12 +6,16 @@ ENFORCE_TIERS feature flag default false.
 """
 from __future__ import annotations
 
+from datetime import UTC, datetime
 import logging
 from uuid import UUID
 
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import tuple_, update
+from sqlalchemy.dialects.postgresql import insert
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
+from shared.db import Subscription, User
 
 _log = logging.getLogger(__name__)
 
@@ -23,14 +27,11 @@ async def get_or_create_stripe_customer(
     email: str,
 ) -> str:
     """Fetch users.stripe_customer_id or create via Stripe + persist."""
-    row = (
-        await session.execute(
-            text("SELECT stripe_customer_id FROM users WHERE id = :uid"),
-            {"uid": user_id},
-        )
+    customer_id = (
+        await session.exec(select(User.stripe_customer_id).where(User.id == user_id))
     ).first()
-    if row and row.stripe_customer_id:
-        return row.stripe_customer_id
+    if customer_id:
+        return customer_id
 
     import asyncio
 
@@ -39,11 +40,10 @@ async def get_or_create_stripe_customer(
     customer = await asyncio.to_thread(
         stripe.Customer.create, email=email, metadata={"user_id": str(user_id)}
     )
-    await session.execute(
-        text(
-            "UPDATE users SET stripe_customer_id = :cid WHERE id = :uid"
-        ),
-        {"cid": customer.id, "uid": user_id},
+    await session.exec(
+        update(User)
+        .where(User.id == user_id)
+        .values(stripe_customer_id=customer.id)
     )
     await session.commit()
     return customer.id
@@ -65,39 +65,36 @@ async def upsert_subscription(
     Returns True if the row was inserted/updated, False when an older event
     (by `(event_created, event_id)` tiebreak) was rejected. Caller logs.
     """
+    current_period_end = (
+        datetime.fromtimestamp(current_period_end_epoch, UTC)
+        if current_period_end_epoch is not None
+        else None
+    )
+    event_created_at = datetime.fromtimestamp(event_created_epoch, UTC)
+    stmt = insert(Subscription).values(
+        user_id=user_id,
+        tier=tier,
+        stripe_subscription_id=stripe_subscription_id,
+        current_period_end=current_period_end,
+        status=status_str,
+        last_event_at=event_created_at,
+        last_event_id=event_id,
+    )
     row = (
-        await session.execute(
-            text(
-                """
-                INSERT INTO subscriptions (user_id, tier, stripe_subscription_id,
-                                           current_period_end, status,
-                                           last_event_at, last_event_id)
-                VALUES (:uid, :tier, :sid,
-                        CASE WHEN CAST(:pe AS BIGINT) IS NULL THEN NULL
-                             ELSE to_timestamp(CAST(:pe AS BIGINT)) END,
-                        :status, to_timestamp(CAST(:ev_ts AS BIGINT)), :ev_id)
-                ON CONFLICT (user_id) DO UPDATE
-                  SET tier = EXCLUDED.tier,
-                      stripe_subscription_id = EXCLUDED.stripe_subscription_id,
-                      current_period_end = EXCLUDED.current_period_end,
-                      status = EXCLUDED.status,
-                      last_event_at = EXCLUDED.last_event_at,
-                      last_event_id = EXCLUDED.last_event_id,
-                      updated_at = NOW()
-                  WHERE (EXCLUDED.last_event_at, EXCLUDED.last_event_id)
-                      > (subscriptions.last_event_at, subscriptions.last_event_id)
-                RETURNING user_id
-                """
-            ),
-            {
-                "uid": user_id,
-                "tier": tier,
-                "sid": stripe_subscription_id,
-                "pe": current_period_end_epoch,
-                "status": status_str,
-                "ev_ts": event_created_epoch,
-                "ev_id": event_id,
-            },
+        await session.exec(
+            stmt.on_conflict_do_update(
+                index_elements=[Subscription.user_id],
+                set_={
+                    "tier": stmt.excluded.tier,
+                    "stripe_subscription_id": stmt.excluded.stripe_subscription_id,
+                    "current_period_end": stmt.excluded.current_period_end,
+                    "status": stmt.excluded.status,
+                    "last_event_at": stmt.excluded.last_event_at,
+                    "last_event_id": stmt.excluded.last_event_id,
+                },
+                where=tuple_(stmt.excluded.last_event_at, stmt.excluded.last_event_id)
+                > tuple_(Subscription.last_event_at, Subscription.last_event_id),
+            ).returning(Subscription.user_id)
         )
     ).first()
     await session.commit()
@@ -117,10 +114,7 @@ async def upsert_subscription(
 async def get_user_tier(
     session: AsyncSession, *, user_id: UUID
 ) -> str:
-    row = (
-        await session.execute(
-            text("SELECT tier FROM subscriptions WHERE user_id = :uid"),
-            {"uid": user_id},
-        )
+    tier = (
+        await session.exec(select(Subscription.tier).where(Subscription.user_id == user_id))
     ).first()
-    return row.tier if row else "free"
+    return tier or "free"

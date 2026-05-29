@@ -21,7 +21,6 @@ from redis.asyncio import Redis
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-
 T = TypeVar("T")
 
 

@@ -10,8 +10,11 @@ import logging
 from pathlib import Path
 from uuid import UUID
 
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from shared.db import Node
+from shared.db.enums import NodeType
 
 _log = logging.getLogger(__name__)
 
@@ -31,12 +34,11 @@ async def get_or_render(
     cache_dir: Path,
 ) -> Path | None:
     row = (
-        await session.execute(
-            text(
-                "SELECT name, COALESCE(definition_count, 0) AS cnt "
-                "FROM nodes WHERE id = :id AND type = 'DECK'"
-            ),
-            {"id": deck_id},
+        await session.exec(
+            select(
+                Node.name,
+                Node.definition_count.label("cnt"),
+            ).where(Node.id == deck_id, Node.type == NodeType.DECK)
         )
     ).first()
     if not row:

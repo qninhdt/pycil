@@ -12,10 +12,12 @@ from typing import Literal, Protocol
 from uuid import UUID
 
 import httpx
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+import json
+from sqlalchemy.dialects.postgresql import insert
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from pycil_core.config import get_settings
+from shared.db import EmailEvent
 
 _log = logging.getLogger(__name__)
 
@@ -105,21 +107,16 @@ async def record_event(
     user_id: UUID | None,
     payload: dict,
 ) -> None:
-    import json
-
-    await session.execute(
-        text(
-            """
-            INSERT INTO email_events (provider, message_id, event, user_id, payload)
-            VALUES (:p, :m, :e, :u, CAST(:pl AS jsonb))
-            ON CONFLICT (provider, message_id, event) DO NOTHING
-            """
-        ),
-        {
-            "p": provider,
-            "m": message_id,
-            "e": event,
-            "u": user_id,
-            "pl": json.dumps(payload, default=str),
-        },
+    await session.exec(
+        insert(EmailEvent)
+        .values(
+            provider=provider,
+            message_id=message_id,
+            event=event,
+            user_id=user_id,
+            payload=json.loads(json.dumps(payload, default=str)),
+        )
+        .on_conflict_do_nothing(
+            index_elements=[EmailEvent.provider, EmailEvent.message_id, EmailEvent.event]
+        )
     )

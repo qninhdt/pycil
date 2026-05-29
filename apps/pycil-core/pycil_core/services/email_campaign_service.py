@@ -10,8 +10,8 @@ Templates live alongside this module; all sends route through email_service.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
-from typing import Sequence
+from collections.abc import Sequence
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import text
@@ -26,7 +26,7 @@ async def streak_break_targets(
     session: AsyncSession,
 ) -> Sequence[tuple[UUID, str, int]]:
     """Users who broke a streak >=3 days yesterday. Returns (id, email, streak)."""
-    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
     yesterday_start = today_start - timedelta(days=1)
     rows = (
         await session.execute(
@@ -50,7 +50,7 @@ async def weekly_digest_targets(
     session: AsyncSession,
 ) -> Sequence[tuple[UUID, str, int]]:
     """Active in the last 7 days. (id, email, answers_count)."""
-    week_ago = datetime.now(timezone.utc) - timedelta(days=7)
+    week_ago = datetime.now(UTC) - timedelta(days=7)
     rows = (
         await session.execute(
             text(
@@ -73,7 +73,7 @@ async def weekly_digest_targets(
 async def reactivation_targets(
     session: AsyncSession,
 ) -> Sequence[tuple[UUID, str]]:
-    cutoff = datetime.now(timezone.utc) - timedelta(days=14)
+    cutoff = datetime.now(UTC) - timedelta(days=14)
     rows = (
         await session.execute(
             text(

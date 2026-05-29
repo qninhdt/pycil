@@ -1,33 +1,34 @@
 """Recently-added + recently-reviewed feeds (P5 phases 3-4)."""
 from __future__ import annotations
 
-from typing import Sequence
+from collections.abc import Sequence
 from uuid import UUID
 
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from shared.db import DeckTerm, Definition, Node, Term, UserTermStat
 
 
 async def recently_added(
     session: AsyncSession, user_id: UUID, limit: int = 30
 ) -> Sequence[dict]:
     rows = (
-        await session.execute(
-            text(
-                """
-                SELECT t.id AS term_id, t.value, t.created_at,
-                       d.canonical_meaning,
-                       n.id AS deck_id, n.name AS deck_name
-                  FROM deck_terms dt
-                  JOIN terms t ON t.id = dt.term_id
-                  JOIN nodes n ON n.id = dt.deck_id
-             LEFT JOIN definitions d ON d.term_id = t.id AND d.is_primary
-                 WHERE n.author_id = :u
-                 ORDER BY t.created_at DESC
-                 LIMIT :n
-                """
-            ),
-            {"u": user_id, "n": min(limit, 100)},
+        await session.exec(
+            select(
+                Term.id.label("term_id"),
+                Term.value,
+                Term.created_at,
+                Definition.canonical_meaning,
+                Node.id.label("deck_id"),
+                Node.name.label("deck_name"),
+            )
+            .join(DeckTerm, DeckTerm.term_id == Term.id)
+            .join(Node, Node.id == DeckTerm.deck_id)
+            .outerjoin(Definition, (Definition.term_id == Term.id) & (Definition.is_primary.is_(True)))
+            .where(Node.author_id == user_id)
+            .order_by(Term.created_at.desc())
+            .limit(min(limit, 100))
         )
     ).all()
     return [dict(r._mapping) for r in rows]
@@ -37,22 +38,22 @@ async def recently_reviewed(
     session: AsyncSession, user_id: UUID, limit: int = 30
 ) -> Sequence[dict]:
     rows = (
-        await session.execute(
-            text(
-                """
-                SELECT t.id AS term_id, t.value,
-                       uts.last_seen_at, uts.elo,
-                       d.canonical_meaning
-                  FROM user_term_stats uts
-                  JOIN terms t ON t.id = uts.term_id
-             LEFT JOIN definitions d ON d.term_id = t.id AND d.is_primary
-                 WHERE uts.user_id = :u
-                   AND uts.last_seen_at IS NOT NULL
-                 ORDER BY uts.last_seen_at DESC
-                 LIMIT :n
-                """
-            ),
-            {"u": user_id, "n": min(limit, 100)},
+        await session.exec(
+            select(
+                Term.id.label("term_id"),
+                Term.value,
+                UserTermStat.last_review_date.label("last_seen_at"),
+                UserTermStat.mastery_score.label("elo"),
+                Definition.canonical_meaning,
+            )
+            .join(Definition, Definition.id == UserTermStat.definition_id)
+            .join(Term, Term.id == Definition.term_id)
+            .where(
+                UserTermStat.user_id == user_id,
+                UserTermStat.last_review_date.is_not(None),
+            )
+            .order_by(UserTermStat.last_review_date.desc())
+            .limit(min(limit, 100))
         )
     ).all()
     return [dict(r._mapping) for r in rows]

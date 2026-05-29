@@ -7,13 +7,15 @@ the final score for leaderboard purposes.
 from __future__ import annotations
 
 import random
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 from uuid import UUID
 
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import and_, func, or_, select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
+from shared.db import DeckTerm, Definition, Term, UserTermStat
+from shared.db.enums import UserTermStatus
 
 DEFAULT_PAIR_COUNT = 6
 MAX_PAIR_COUNT = 12
@@ -31,32 +33,46 @@ async def deal(
     session: AsyncSession, user_id: UUID, deck_id: UUID, n: int = DEFAULT_PAIR_COUNT
 ) -> Sequence[MatchPair]:
     n = max(2, min(n, MAX_PAIR_COUNT))
-    rows = (
-        await session.execute(
-            text(
-                """
-                SELECT t.id AS term_id, t.value AS term_value,
-                       d.id AS definition_id, d.canonical_meaning
-                  FROM deck_terms dt
-                  JOIN terms t ON t.id = dt.term_id
-                  JOIN definitions d ON d.term_id = t.id AND d.is_primary
-             LEFT JOIN user_term_stats uts
-                    ON uts.user_id = :u AND uts.term_id = t.id
-                 WHERE dt.deck_id = :d
-                   AND COALESCE(uts.status::text, 'active') = 'active'
-                 ORDER BY RANDOM()
-                 LIMIT :n
-                """
-            ),
-            {"u": user_id, "d": deck_id, "n": n},
+    stmt = (
+        select(
+            Term.id.label("term_id"),
+            Term.value.label("term_value"),
+            Definition.id.label("definition_id"),
+            Definition.canonical_meaning,
         )
-    ).all()
+        .select_from(DeckTerm)
+        .join(Term, Term.id == DeckTerm.term_id)
+        .join(
+            Definition,
+            and_(
+                Definition.term_id == Term.id,
+                Definition.is_primary.is_(True),
+            ),
+        )
+        .outerjoin(
+            UserTermStat,
+            and_(
+                UserTermStat.user_id == user_id,
+                UserTermStat.definition_id == Definition.id,
+            ),
+        )
+        .where(
+            DeckTerm.deck_id == deck_id,
+            or_(
+                UserTermStat.status.is_(None),
+                UserTermStat.status == UserTermStatus.ACTIVE,
+            ),
+        )
+        .order_by(func.random())
+        .limit(n)
+    )
+    rows = (await session.exec(stmt)).all()
     pairs = [
         MatchPair(
             term_id=int(r.term_id),
             term_value=r.term_value,
             definition_id=int(r.definition_id),
-            short_meaning=_truncate(r.canonical_meaning, 80),
+            short_meaning=_truncate(r.canonical_meaning or "", 80),
         )
         for r in rows
     ]

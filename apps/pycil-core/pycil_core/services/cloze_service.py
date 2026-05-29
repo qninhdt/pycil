@@ -8,13 +8,15 @@ from __future__ import annotations
 
 import random
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 from uuid import UUID
 
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import and_, or_, select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
+from shared.db import DeckTerm, Definition, TermExampleSentence, UserTermStat
+from shared.db.enums import UserTermStatus
 
 _WORD_RE = re.compile(r"\b[a-zA-Z][a-zA-Z'-]{3,}\b")
 _STOPWORDS = {
@@ -47,27 +49,44 @@ def _make_cloze(sentence: str) -> tuple[str, str] | None:
 async def next_prompts(
     session: AsyncSession, user_id: UUID, deck_id: UUID, limit: int = 10
 ) -> Sequence[ClozePrompt]:
-    rows = (
-        await session.execute(
-            text(
-                """
-                SELECT d.id AS definition_id,
-                       (SELECT value FROM term_example_sentences
-                         WHERE definition_id = d.id ORDER BY id ASC LIMIT 1) AS sentence
-                  FROM deck_terms dt
-                  JOIN terms t ON t.id = dt.term_id
-                  JOIN definitions d ON d.term_id = t.id AND d.is_primary
-             LEFT JOIN user_term_stats uts
-                    ON uts.user_id = :u AND uts.term_id = t.id
-                 WHERE dt.deck_id = :d
-                   AND COALESCE(uts.status::text, 'active') = 'active'
-                 ORDER BY uts.last_seen_at NULLS FIRST
-                 LIMIT :n
-                """
-            ),
-            {"u": user_id, "d": deck_id, "n": limit * 2},
+    sentence_subquery = (
+        select(TermExampleSentence.value)
+        .where(TermExampleSentence.definition_id == Definition.id)
+        .order_by(TermExampleSentence.id.asc())
+        .limit(1)
+        .scalar_subquery()
+    )
+    stmt = (
+        select(
+            Definition.id.label("definition_id"),
+            sentence_subquery.label("sentence"),
         )
-    ).all()
+        .select_from(DeckTerm)
+        .join(
+            Definition,
+            and_(
+                Definition.term_id == DeckTerm.term_id,
+                Definition.is_primary.is_(True),
+            ),
+        )
+        .outerjoin(
+            UserTermStat,
+            and_(
+                UserTermStat.user_id == user_id,
+                UserTermStat.definition_id == Definition.id,
+            ),
+        )
+        .where(
+            DeckTerm.deck_id == deck_id,
+            or_(
+                UserTermStat.status.is_(None),
+                UserTermStat.status == UserTermStatus.ACTIVE,
+            ),
+        )
+        .order_by(UserTermStat.last_review_date.asc().nullsfirst())
+        .limit(limit * 2)
+    )
+    rows = (await session.exec(stmt)).all()
     out: list[ClozePrompt] = []
     for r in rows:
         if not r.sentence:

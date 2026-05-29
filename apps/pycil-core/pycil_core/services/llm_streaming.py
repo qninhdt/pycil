@@ -13,7 +13,6 @@ import httpx
 
 from pycil_core.config import get_settings
 
-
 _OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 

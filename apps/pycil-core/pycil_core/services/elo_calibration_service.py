@@ -14,8 +14,11 @@ from __future__ import annotations
 import logging
 import math
 
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import case, func, update
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from shared.db import Question, Response, UserTermStat
 
 _log = logging.getLogger(__name__)
 
@@ -28,21 +31,22 @@ ELO_CEILING = 2400
 async def calibrate_questions(session: AsyncSession) -> int:
     """Run a calibration pass; return number of questions updated."""
     rows = (
-        await session.execute(
-            text(
-                """
-                SELECT q.id, q.elo, COUNT(*)::int AS n,
-                       AVG(CASE WHEN qa.is_correct THEN 1.0 ELSE 0.0 END) AS p,
-                       AVG(uts.elo) AS mean_user_elo
-                  FROM questions q
-                  JOIN question_answers qa ON qa.question_id = q.id
-                  JOIN user_term_stats uts ON uts.user_id = qa.user_id
-                                          AND uts.term_id = q.definition_id
-                 GROUP BY q.id, q.elo
-                HAVING COUNT(*) >= :min_n
-                """
-            ),
-            {"min_n": MIN_SAMPLE_SIZE},
+        await session.exec(
+            select(
+                Question.id,
+                Question.elo,
+                func.count(Response.id).label("n"),
+                func.avg(case((Response.is_correct.is_(True), 1.0), else_=0.0)).label("p"),
+                func.avg(UserTermStat.mastery_score).label("mean_user_elo"),
+            )
+            .join(Response, Response.question_id == Question.id)
+            .join(
+                UserTermStat,
+                (UserTermStat.user_id == Response.user_id)
+                & (UserTermStat.definition_id == Question.definition_id),
+            )
+            .group_by(Question.id, Question.elo)
+            .having(func.count(Response.id) >= MIN_SAMPLE_SIZE)
         )
     ).all()
     updated = 0
@@ -54,9 +58,8 @@ async def calibrate_questions(session: AsyncSession) -> int:
         delta = abs(target - float(r.elo))
         if delta < MIN_DELTA_TO_UPDATE:
             continue
-        await session.execute(
-            text("UPDATE questions SET elo = :e WHERE id = :id"),
-            {"e": int(target), "id": r.id},
+        await session.exec(
+            update(Question).where(Question.id == r.id).values(elo=int(target))
         )
         updated += 1
     await session.commit()

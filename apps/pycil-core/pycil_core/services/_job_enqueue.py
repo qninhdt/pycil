@@ -13,9 +13,9 @@ from uuid import uuid4
 
 from arq.connections import RedisSettings, create_pool
 from redis.asyncio import Redis
+from shared.redis_lock import LOCK_LUA
 
 from pycil_core.config import get_settings
-from shared.redis_lock import LOCK_LUA
 
 
 async def acquire_lock_or_get_owner(
