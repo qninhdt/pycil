@@ -1,6 +1,6 @@
 # Pycil — Codebase Summary
 
-**Last sync:** 2026-05-26 (post v0.2 feature-fill cook, 17 phases scaffolded)
+**Last sync:** 2026-05-30 (post Phase 5 Playwright E2E suite)
 **Plans:** `plans/260525-0124-pycil-mvp-implementation/plan.md` (v1), `plans/260525-1446-pycil-v02-feature-fill/plan.md` (v0.2)
 **Source design:** `docs/project-overview-pdr.md` (locked)
 
@@ -20,12 +20,28 @@
 
 ---
 
+## Admin dashboard additions (post v0.2)
+
+`plans/260529-2356-admin-dashboard-implementation/` — admin-only `/admin` surface gated by `users.role`.
+
+- **Migrations**: `0019_user_role_and_ban` (role enum + ban cols + `token_version` widen), `0020_llm_spend_events` (persistent spend ledger), `0021_content_reports` (moderation reports + `nodes.deleted_at`).
+- **shared-py**: `UserRole` enum; `LlmSpendEvent`, `ContentReport` models; `User.role/banned_at/ban_reason`, `Node.deleted_at`.
+- **pycil-core auth/deps**: `CurrentUser.role/banned_at`, ban lockout in `get_current_user`, `require_admin`/`AdminDep`.
+- **pycil-core services**: `spend_ledger_service.py` (aggregations), `content_report_service.py` (create/list/resolve), `feature_flag_service.py` (+CRUD), `product_metrics_service.py` (+signup_funnel), `user_service.py` (+ban/search/detail), `node_service.py` (+admin_soft_delete_node).
+- **pycil-core routes** (`/admin-api/*`): `admin_human.py` (ping), `admin_users.py`, `admin_metrics.py`, `admin_reports.py`, `admin_flags.py`, `admin_health.py`; user `reports.py` (`/reports`); `me_extras.py` audit handler re-gated → `/admin-api/audit`.
+- **worker**: `observability/spend_ledger.py` (best-effort dedicated-session writer); `main.py` heartbeat cron.
+- **Web FE** (`app/admin/`): `layout.tsx` (role re-check + noindex shell), `users/`, `metrics/`, `reports/`, `flags/`, `health/`, `audit/` pages; `components/reports/report-dialog.tsx`; `lib/api-client/admin.ts` + `api-hooks/use-admin-{users,metrics,reports,flags,system}.ts`.
+- **Routing**: human admin routes mount under `/admin-api/*` (Caddy catch-all `/api/core/*`); internal-secret routes stay `/admin/*` (404'd publicly).
+
+---
+
 ## Repository Layout
 
 ```
 pycil/
 ├── apps/
 │   ├── web/             # Next.js 15 (App Router) + Auth.js v5 + Shadcn
+│   │   └── e2e/           # Playwright E2E test suite (6 specs)
 │   ├── pycil-core/      # FastAPI + SQLModel + Alembic (sync API)
 │   └── worker/          # arq consumer + LangChain + Jinja2 prompts
 ├── packages/
@@ -255,6 +271,30 @@ Auth.js session lookup is mandatory `WHERE expires > NOW()` so revoked / expired
 
 ---
 
+## Data-access convention (post raw-SQL→SQLModel conversion)
+
+`pycil-core` services and `worker` jobs persist via SQLModel models in
+`packages/shared-py/shared/db/` (43 `table=True` models + PG enums). Query
+convention and the one hard rule learned from the 2026-05-29 audit:
+
+- **Import `select` from `sqlmodel`, NOT `sqlalchemy`, whenever the result is
+  fed to `session.exec()`.** SQLModel's `AsyncSession.exec()` auto-scalarizes a
+  single-column `sqlmodel.select(Model.col)` to the bare value; a
+  `sqlalchemy.select(Model.col)` returns a `Row` (e.g. `('x',)`), silently
+  breaking any scalar comparison/consumption. Multi-column selects return a
+  `Row` with attribute access either way. The mechanical conversion's main
+  defect was importing `select` from `sqlalchemy`; fixed at every
+  scalar-consumed site.
+- Shape rules (proven on live PG): `select(Model).first()` → model instance;
+  `sqlmodel.select(Model.col).first()` → scalar; `select(a, b).first()` → `Row`
+  (use `row.a` / `row._mapping`). Use `.first()` (returns `None` on 0 rows), not
+  `.one()`, where the original SQL tolerated an empty result.
+- Raw `session.execute(text(...))` holdouts remain for JSONB `jsonb_set` updates
+  and a few aggregates. When binding a param adjacent to a Postgres cast, use
+  `CAST(:param AS type)` — `text()` ignores `:param` immediately before `::`.
+- `alembic/env.py` is wired to `SQLModel.metadata`, so `--autogenerate` works.
+  Model–schema parity is asserted by `tests/service/test_model_schema_parity.py`.
+
 ## v1 Scope Reminders (User-Locked)
 
 - LangChain `ChatOpenAI` called directly — no `LLMClient` abstraction layer.
@@ -274,9 +314,53 @@ Auth.js session lookup is mandatory `WHERE expires > NOW()` so revoked / expired
 - Hosted on **Vercel** (separate platform from the VPS docker stack). The repo no longer ships a `web` Dockerfile or compose service.
 - Header: search box (UI-only, returns "No results" — search backend deferred), `NotificationDropdown`, `UserDropdown`. Removed: "Create" button, "Rewards" gift button, command-palette deck/action shortcuts.
 - File browser: `CreateShortcutDialog` deleted (file-level removal). "New" button on toolbar wires only Folder + Deck creation via `useCreateNode`.
-- Verified: `grep -rE "/classes|/saved|/trash|/decks/new|/decks/\[id\]/(edit|chat|test)" apps/web/src` → 0 hits.
+- Verified (2026-05-29 audit): `study-modes.tsx` had shipped live `/decks/[id]/chat` + `/decks/[id]/test` links despite those routes being cut — now reduced to Flashcard + Learn. `grep -rE "/classes|/saved|/trash|/decks/new|/decks/\[id\]/(edit|chat|test)"` over live `<Link>`/router targets in `apps/web/src` → 0 hits (the remaining `/test/` strings are the Test-mode API paths in the unrouted `test-runner.tsx`).
 
 **Profile gamification gap.** Legacy profile rendered streaks, XP, level, badges, league rank — none of these fields exist on the v1 BE `users` table. `/profile` shows: avatar, name, email, "Stats coming soon" badge, "Edit profile" dialog (PATCH `/me` — name only). Gamification deferred post-MVP.
 
 **Settings page.** Two cards only: appearance (mode + color theme + font via `next-themes` + custom theme provider) and account (email display + sign-out button that runs `qc.clear()` before `signOut({ callbackUrl: "/sign-in" })` to prevent 401 cache leak).
+
+---
+
+## E2E Tests (Playwright)
+
+`apps/web/e2e/` — 6 browser-level specs covering critical user paths:
+
+| # | Spec | Description |
+|---|------|-------------|
+| 01 | auth-flow | Sign-in page renders; auth user redirected to dashboard |
+| 02 | create-deck-and-term | Pre-seeded deck loads; terms page shows "ephemeral" |
+| 03 | learn-session | Learn mode loads with pre-seeded enriched terms |
+| 04 | flashcard-mode | Flashcard mode loads with pre-seeded enriched terms |
+| 05 | explore-page | Explore public decks page loads for auth user |
+| 06 | sign-out | Log out clears session → redirects to sign-in |
+
+**Fixtures** (`e2e/fixtures/`):
+- `auth.ts` — JWT cookie injection via `jose` (bypasses Google OAuth entirely)
+- `db-seed.ts` — idempotent psql seed (test user + pre-enriched "E2E Starter Deck" with term `ephemeral`)
+- `docker-stack.ts` — docker compose health-check waiter
+
+**Page objects** (`e2e/pages/`): sign-in, dashboard, deck, learn, flashcard, explore.
+
+**LLM cost avoidance** — tests never call OpenRouter:
+- `WORKER_LLM_STUB=true` → `invoke_with_fallback` returns canned responses from `apps/worker/tests/fixtures/llm_responses.json`
+- `LLM_STUB_MODE=true` → `stream_chat` yields canned chat response
+- Pre-seeded data: `ephemeral` term is fully enriched in DB seed
+
+**CI:** `.github/workflows/test.yml` `e2e` job spins up Postgres + Redis, runs migrations, builds Next.js, executes `pnpm e2e`, uploads `playwright-report/` on failure.
+
+**Config:** `apps/web/playwright.config.ts` — Chromium only, `webServer` boots `next dev` on port 3000.
+
+---
+
+## LLM Stub Mode
+
+Two env vars prevent real LLM calls in CI/tests:
+
+| Var | Service | Behavior |
+|-----|---------|----------|
+| `WORKER_LLM_STUB=true` | worker | `invoke_with_fallback` returns canned JSON from `apps/worker/tests/fixtures/llm_responses.json` keyed by schema class name |
+| `LLM_STUB_MODE=true` | pycil-core | `stream_chat` yields canned chat response without calling OpenRouter |
+
+Both are set in the CI e2e job and can be used for local dev/test runs to avoid LLM costs.
 

@@ -211,7 +211,7 @@ Top-of-stack from the retro template — all five shipped as scaffolds + critica
 
 - PWA icon assets (192/512/maskable.png, og-image.png)
 - Stripe checkout UI + ENFORCE_TIERS flip
-- Playwright E2E suite (auth-flow, create-deck-and-term, learn-session, chat-mode, test-mode, sign-out-everywhere)
+- ✓ Playwright E2E suite (auth-flow, create-deck-and-term, learn-session, flashcard-mode, explore-page, sign-out-everywhere)
 - `last_llm_response` retry idempotency wired into worker code paths
 - OpenRouter model fallback chain implementation
 - Caddy `@sse` matcher widened to `/chat/sessions/*/stream`

@@ -22,6 +22,7 @@ from worker.llm.exceptions import (
     OpenRouterTerminalError,
     classify_exception,
 )
+from worker.llm.stub import get_stub_output, is_stub_mode
 
 _log = logging.getLogger(__name__)
 _OPENROUTER_BASE = "https://openrouter.ai/api/v1"
@@ -72,7 +73,25 @@ async def invoke_with_fallback(
     Retryable error → log + continue to next model.
     Terminal error → re-raise (no fallback; this is a real bug).
     Whole-chain wall budget enforced via asyncio.timeout.
+
+    When WORKER_LLM_STUB=true, returns a canned response keyed by
+    schema.__name__ without calling OpenRouter (e2e cost avoidance).
     """
+    if is_stub_mode():
+        _log.info("llm_stub_mode_short_circuit", extra={"schema": schema.__name__})
+        try:
+            output = get_stub_output(schema)
+            if output is not None:
+                return FallbackResult(
+                    output=output,
+                    model_used="stub",
+                    hops=0,
+                    elapsed_seconds=0,
+                )
+        except Exception as exc:  # noqa: BLE001
+            _log.error("llm_stub_validation_failed", extra={"err": str(exc)[:300]})
+            raise OpenRouterTerminalError(f"stub_validation_failed: {exc}") from exc
+
     settings = get_settings()
     chain = models if models is not None else settings.fallback_models
     if not chain:

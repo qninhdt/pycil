@@ -3,10 +3,14 @@
 Used by chat-with-AI (phase 11). Worker keeps its own LangChain client
 for batch jobs; chat is synchronous SSE on pycil-core, so it talks
 directly to the HTTP API and yields tokens as they arrive.
+
+When LLM_STUB_MODE=true, yields a canned chat response instead of
+calling OpenRouter (e2e test cost avoidance).
 """
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import AsyncGenerator
 
 import httpx
@@ -14,6 +18,26 @@ import httpx
 from pycil_core.config import get_settings
 
 _OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+_CANNED_CHAT = (
+    "That's a great question! In English, 'ephemeral' means something "
+    "that lasts for a very short time or is fleeting and transient. "
+    "It comes from the Greek word 'ephemeros', meaning 'lasting only one day.' "
+    "You might describe a sunset, a trend, or a moment of joy as ephemeral."
+)
+
+
+def _is_stub_mode() -> bool:
+    return os.environ.get("LLM_STUB_MODE", "").lower() in ("1", "true", "yes")
+
+
+async def _yield_canned_chat() -> AsyncGenerator[dict, None]:
+    """Yield the canned response word by word to simulate streaming."""
+    words = _CANNED_CHAT.split(" ")
+    for i, word in enumerate(words):
+        token = word if i == 0 else f" {word}"
+        yield {"kind": "token", "token": token}
+    yield {"kind": "usage", "usage": {"completion_tokens": len(_CANNED_CHAT.split())}}  # type: ignore[typeddict-item]
 
 
 async def stream_chat(
@@ -27,7 +51,15 @@ async def stream_chat(
     Caller is responsible for persisting the assembled assistant message.
     Token stream stops on `[DONE]` sentinel; usage frame (if returned by
     OpenRouter) follows it.
+
+    When LLM_STUB_MODE=true, yields a canned chat response without
+    calling OpenRouter (no settings load needed).
     """
+    if _is_stub_mode():
+        async for token in _yield_canned_chat():
+            yield token
+        return
+
     settings = get_settings()
     api_key = getattr(settings, "openrouter_api_key", None)
     model = getattr(settings, "openrouter_chat_model", None) or getattr(

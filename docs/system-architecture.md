@@ -1,6 +1,6 @@
 # Pycil — System Architecture
 
-**Last sync:** 2026-05-26 (post v0.2 feature-fill cook)
+**Last sync:** 2026-05-30 (post Phase 5 Playwright E2E suite)
 **Source design:** `docs/project-overview-pdr.md` (locked)
 **Implementation map:** `docs/codebase-summary.md`
 
@@ -167,3 +167,24 @@ worker (arq):
 ---
 
 ## Learning Session Flow
+
+---
+
+## Test Strategy
+
+### Backend unit tests
+
+`pytest` suites per service:
+- `apps/pycil-core/tests/` — conftest, migration, answer grading, gamification, model-schema parity
+- `apps/worker/tests/` — conftest + canned LLM responses (no OpenRouter calls)
+- `packages/shared-py/tests/` — question ABCs
+
+### E2E tests (Playwright)
+
+`apps/web/e2e/` — 6 Chromium specs covering auth, CRUD, learn, flashcard, explore, sign-out. See `apps/web/e2e/README.md` for architecture.
+
+**Auth bypass**: JWT cookie injection via `jose` — no Google OAuth flow runs.
+
+**LLM cost avoidance**: `WORKER_LLM_STUB=true` + `LLM_STUB_MODE=true` env vars prevent all OpenRouter calls. Worker returns canned responses from `apps/worker/tests/fixtures/llm_responses.json`. Core `stream_chat` yields a canned SSE response. Pre-seeded DB data eliminates enrichment needs.
+
+**CI**: `.github/workflows/test.yml` `e2e` job — Postgres + Redis services, Alembic migrate, `next build`, `pnpm e2e` against `localhost:3000`.

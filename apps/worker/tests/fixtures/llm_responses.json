@@ -1,0 +1,35 @@
+{
+  "TermGenerationOutput": {
+    "definition": {
+      "part_of_speech": "ADJECTIVE",
+      "cefr_level": "B2",
+      "canonical_meaning": "Lasting for a very short time; transient.",
+      "synonyms": ["fleeting", "momentary", "brief", "short-lived"],
+      "antonyms": ["permanent", "lasting", "eternal", "enduring"]
+    },
+    "paraphrases": [
+      { "value": "Something that does not last long.", "cefr_level": "B1" },
+      { "value": "A quality or experience that quickly fades away.", "cefr_level": "C1" }
+    ],
+    "examples": [
+      { "value": "The joy of a new purchase is often ephemeral.", "cefr_level": "B2" },
+      { "value": "Ephemeral trends come and go with each season.", "cefr_level": "B2" }
+    ]
+  },
+  "MCQData": {
+    "stem": "What does 'ephemeral' mean?",
+    "options": [
+      "Lasting for a very short time",
+      "Extremely heavy and dense",
+      "Related to outer space",
+      "Of great importance"
+    ],
+    "correct_index": 0,
+    "explanation": "'Ephemeral' describes something short-lived or transient, from Greek 'ephemeros' meaning lasting only one day.",
+    "distractor_rationale": [
+      "Confusion with 'enormous' or physical heaviness",
+      "Confusion with 'ethereal' or celestial concepts",
+      "Confusion with 'paramount' or high importance"
+    ]
+  }
+}
