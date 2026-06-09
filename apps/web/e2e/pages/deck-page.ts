@@ -13,12 +13,12 @@ export class DeckPage {
 
   async expectLoaded(): Promise<void> {
     await expect(
-      this.page.getByText("E2E Starter Deck"),
+      this.page.getByRole("heading", { name: "E2E Starter Deck" }),
     ).toBeVisible({ timeout: 10_000 });
   }
 
   async openTerms(): Promise<void> {
-    await this.page.getByRole("link", { name: /terms/i }).click();
+    await this.page.getByRole("tab", { name: /terms/i }).click();
   }
 
   async expectTermVisible(value: string): Promise<void> {

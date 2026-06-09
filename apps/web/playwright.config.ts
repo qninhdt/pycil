@@ -1,6 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const BASE_URL = process.env.BASE_URL ?? "http://localhost:3000";
+const PORT = Number(process.env.E2E_WEB_PORT ?? 3000);
+const BASE_URL = process.env.BASE_URL ?? `http://localhost:${PORT}`;
 
 export default defineConfig({
   testDir: "./e2e/tests",
@@ -30,8 +31,8 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: `cd apps/web && npx next dev --turbopack -p 3000`,
-    port: 3000,
+    command: `npx next dev --turbopack -p ${PORT}`,
+    port: PORT,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },

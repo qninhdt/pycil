@@ -9,7 +9,7 @@ export class DashboardPage {
   }
 
   async expectAuthenticated(): Promise<void> {
-    await this.page.waitForURL(/^\/(?!sign-in)/);
+    await this.page.waitForURL((url) => !url.pathname.startsWith("/sign-in"));
     await expect(
       this.page.getByRole("heading", { name: "Start Learning Today" }),
     ).toBeVisible();

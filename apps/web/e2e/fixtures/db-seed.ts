@@ -56,23 +56,25 @@ export function seedDatabase(): SeededData {
     ON CONFLICT (id) DO NOTHING;
   `);
 
-  // Upsert the term.
-  const tidRaw = psql(`
+  // Upsert the term, then read its id with a plain SELECT. psql -c on an
+  // INSERT…RETURNING also emits the "INSERT 0 1" command tag on stdout, which
+  // pollutes the captured value (→ NaN); a separate SELECT returns a clean int.
+  psqlFile(`
     INSERT INTO terms (value, type)
     VALUES ('${termValue}', 'SINGLE_WORD')
-    ON CONFLICT (value) DO UPDATE SET value = EXCLUDED.value
-    RETURNING id
+    ON CONFLICT (value) DO NOTHING;
   `);
-  const termId = Number(tidRaw);
+  const termId = Number(psql(`SELECT id FROM terms WHERE value = '${termValue}'`));
 
-  // Upsert a pre-enriched definition (no LLM call needed).
-  const didRaw = psql(`
-    INSERT INTO definitions (term_id, cefr_level, part_of_speech, canonical_meaning, synonyms, antonyms, frequency)
-    VALUES (${termId}, 'B2', 'ADJECTIVE', 'Lasting for a very short time; transient.', ARRAY['fleeting','momentary','brief'], ARRAY['permanent','lasting','eternal'], 1)
-    ON CONFLICT (term_id) DO NOTHING
-    RETURNING id
+  // Upsert a pre-enriched definition (no LLM call needed), then SELECT its id.
+  psqlFile(`
+    INSERT INTO definitions (term_id, sense_index, cefr_level, part_of_speech, canonical_meaning, synonyms, antonyms, frequency)
+    VALUES (${termId}, 0, 'B2', 'ADJECTIVE', 'Lasting for a very short time; transient.', ARRAY['fleeting','momentary','brief'], ARRAY['permanent','lasting','eternal'], 1)
+    ON CONFLICT (term_id, sense_index) DO NOTHING;
   `);
-  const definitionId = Number(didRaw);
+  const definitionId = Number(
+    psql(`SELECT id FROM definitions WHERE term_id = ${termId} AND sense_index = 0`),
+  );
 
   // Upsert paraphrases.
   psqlFile(`
