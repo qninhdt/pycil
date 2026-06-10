@@ -232,3 +232,35 @@ async def count_active_admins(session: AsyncSession) -> int:
             )
         ).one()
     )
+
+
+async def get_me_profile(session: AsyncSession, user) -> dict:
+    """Canonical /me payload: identity fields + gamification layered in."""
+    row = (
+        await session.exec(
+            select(
+                User.image_url,
+                User.streak_days,
+                User.xp_total,
+                User.level,
+                User.badges,
+                User.league_rank,
+                User.locale,
+                User.bio,
+            ).where(User.id == user.id)
+        )
+    ).first()
+    return {
+        "id": str(user.id),
+        "email": user.email,
+        "name": user.name,
+        "image": user.image,
+        "image_url": row.image_url if row else None,
+        "streak_days": int(row.streak_days) if row else 0,
+        "xp_total": int(row.xp_total) if row else 0,
+        "level": int(row.level) if row else 1,
+        "badges": (row.badges if row else []) or [],
+        "league_rank": int(row.league_rank) if row else 0,
+        "locale": (row.locale if row else "en") or "en",
+        "bio": row.bio if row else None,
+    }

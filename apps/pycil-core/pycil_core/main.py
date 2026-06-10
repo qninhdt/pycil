@@ -5,8 +5,6 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
 from fastapi.responses import JSONResponse
-from shared.db import User
-from sqlalchemy import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from starlette.requests import Request
 
@@ -98,36 +96,10 @@ def create_app() -> FastAPI:
     async def me(user: CurrentUser = Depends(get_current_user)):
         """Returns the canonical user with gamification fields layered in."""
         from pycil_core.db import get_engine
+        from pycil_core.services import user_service
 
         async with AsyncSession(get_engine(), expire_on_commit=False) as session:
-            row = (
-                await session.exec(
-                    select(
-                        User.image_url,
-                        User.streak_days,
-                        User.xp_total,
-                        User.level,
-                        User.badges,
-                        User.league_rank,
-                        User.locale,
-                        User.bio,
-                    ).where(User.id == user.id)
-                )
-            ).first()
-        return {
-            "id": str(user.id),
-            "email": user.email,
-            "name": user.name,
-            "image": user.image,
-            "image_url": row.image_url if row else None,
-            "streak_days": int(row.streak_days) if row else 0,
-            "xp_total": int(row.xp_total) if row else 0,
-            "level": int(row.level) if row else 1,
-            "badges": (row.badges if row else []) or [],
-            "league_rank": int(row.league_rank) if row else 0,
-            "locale": (row.locale if row else "en") or "en",
-            "bio": row.bio if row else None,
-        }
+            return await user_service.get_me_profile(session, user)
 
     app.include_router(auth_routes.router)
     app.include_router(admin_routes.router)
