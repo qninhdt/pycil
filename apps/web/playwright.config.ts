@@ -58,6 +58,11 @@ export default defineConfig({
     // single login (faster + gentler on Dex) while staying fully zero-mock.
     {
       name: "setup",
+      // auth.setup.ts lives in e2e/ (one level above the global testDir
+      // e2e/tests), so the setup project needs its own testDir or it collects
+      // zero tests — Dex login never runs and every authed spec ENOENTs on the
+      // missing storageState.
+      testDir: "./e2e",
       testMatch: /auth\.setup\.ts/,
     },
     {
