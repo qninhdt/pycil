@@ -14,7 +14,7 @@ from pycil_core.schemas.learning import (
     SubmitAnswerRequest,
     SubmitAnswerResponse,
 )
-from pycil_core.services import learning_service
+from pycil_core.services.learning import answer_grading, session_flow
 
 router = APIRouter(tags=["learning"])
 
@@ -30,7 +30,7 @@ async def start_session(
     user: UserDep,
     session: SessionDep,
 ) -> StartSessionResponse:
-    return await learning_service.start_session(
+    return await session_flow.start_session(
         session, user.id, deck_id, payload.session_size, payload.theme_id
     )
 
@@ -42,7 +42,7 @@ async def start_session(
 async def get_next_question(
     session_id: str, user: UserDep, session: SessionDep
 ) -> SessionQuestionResponse:
-    return await learning_service.next_question(session, user.id, session_id)
+    return await session_flow.next_question(session, user.id, session_id)
 
 
 @router.post(
@@ -55,7 +55,7 @@ async def submit_answer(
     user: UserDep,
     session: SessionDep,
 ) -> SubmitAnswerResponse | AsyncGradePending:
-    return await learning_service.submit_answer(
+    return await answer_grading.submit_answer(
         session,
         user.id,
         session_id,
@@ -79,6 +79,6 @@ async def apply_verdict(
 
     Called by the FE after the SSE verdict frame arrives. Idempotent.
     """
-    return await learning_service.apply_async_verdict(
+    return await answer_grading.apply_async_verdict(
         session, user.id, session_id, payload.response_id
     )

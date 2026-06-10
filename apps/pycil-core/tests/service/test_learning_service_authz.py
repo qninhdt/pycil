@@ -11,7 +11,7 @@ from uuid import UUID, uuid4
 import pytest
 from fastapi import HTTPException
 
-from pycil_core.services import learning_service as ls
+from pycil_core.services.learning import answer_grading, session_state
 from tests.factories import make_session_state
 
 
@@ -25,10 +25,10 @@ async def test_submit_wrong_user_403(session, fakeredis_client, test_user, secon
         current_question_id=str(uuid4()),
         current_definition_id=1,
     )
-    await ls._save_state(fakeredis_client, sid, state)
+    await session_state._save_state(fakeredis_client, sid, state)
 
     with pytest.raises(HTTPException) as exc:
-        await ls.submit_answer(
+        await answer_grading.submit_answer(
             session,
             user_id=second_user["id"],
             session_id=sid,
@@ -51,11 +51,11 @@ async def test_submit_with_question_mismatch_409(
         current_question_id=str(uuid4()),
         current_definition_id=1,
     )
-    await ls._save_state(fakeredis_client, sid, state)
+    await session_state._save_state(fakeredis_client, sid, state)
 
     # Stale question_id (not the current one).
     with pytest.raises(HTTPException) as exc:
-        await ls.submit_answer(
+        await answer_grading.submit_answer(
             session,
             user_id=UUID(str(test_user["id"])),
             session_id=sid,

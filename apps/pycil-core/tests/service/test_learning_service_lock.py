@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 from fastapi import HTTPException
 
-from pycil_core.services import learning_service as ls
+from pycil_core.services.learning import session_state as ls
 
 
 SESSION_ID = "11111111-2222-3333-4444-555555555555"

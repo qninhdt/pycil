@@ -11,7 +11,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import text
 
-from pycil_core.services import learning_service as ls
+from pycil_core.services.learning import answer_grading, session_state
 from tests.factories import (
     attach_definition_to_deck,
     make_deck,
@@ -44,9 +44,9 @@ async def test_elo_writes_at_required_correct_firsts(
         current_question_id=str(mcq["id"]),
         current_definition_id=def_id,
     )
-    await ls._save_state(fakeredis_client, sid, state)
+    await session_state._save_state(fakeredis_client, sid, state)
 
-    response = await ls.submit_answer(
+    response = await answer_grading.submit_answer(
         session,
         user_id=UUID(str(test_user["id"])),
         session_id=sid,
@@ -97,10 +97,10 @@ async def test_wrong_answer_does_not_commit(
         current_question_id=str(mcq["id"]),
         current_definition_id=def_id,
     )
-    await ls._save_state(fakeredis_client, sid, state)
+    await session_state._save_state(fakeredis_client, sid, state)
 
     # Wrong index.
-    response = await ls.submit_answer(
+    response = await answer_grading.submit_answer(
         session,
         user_id=UUID(str(test_user["id"])),
         session_id=sid,
