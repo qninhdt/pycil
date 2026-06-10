@@ -38,6 +38,10 @@ dev = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "unit: pure-logic tests, no I/O and no network (exception classification, fallback hops with fake clients).",
+    "llm_live: real OpenRouter contract tests. Skipped unless RUN_LLM_LIVE=1 (costs money, needs OPENROUTER_API_KEY).",
+]
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]
