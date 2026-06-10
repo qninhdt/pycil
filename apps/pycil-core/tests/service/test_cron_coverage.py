@@ -72,6 +72,49 @@ async def test_hard_delete_invokes_service_under_lock(session, monkeypatch):
     assert calls[0] is not None
 
 
+async def test_hard_delete_purges_pii_then_removes_user(session):
+    """GDPR path: a user soft-deleted past the grace window has PII rows
+    purged AND the user row removed; a recently-deleted user is untouched."""
+    expired = await _seed_user(session, deleted_days_ago=30)
+    recent = await _seed_user(session, deleted_days_ago=2)
+    # Seed a PII row (term_notes) for each via the user_id FK.
+    for uid in (expired, recent):
+        await session.execute(
+            text(
+                "INSERT INTO term_notes (user_id, term_id, body) "
+                "VALUES (:u, 1, 'n') ON CONFLICT DO NOTHING"
+            ),
+            {"u": uid},
+        )
+    await session.commit()
+
+    await svc.run_job("hard_delete_expired_users")
+
+    # Expired user + its PII gone; recent user + its PII retained.
+    gone = (
+        await session.execute(
+            text("SELECT 1 FROM users WHERE id = :i"), {"i": expired}
+        )
+    ).first()
+    kept = (
+        await session.execute(
+            text("SELECT 1 FROM users WHERE id = :i"), {"i": recent}
+        )
+    ).first()
+    pii_expired = (
+        await session.execute(
+            text("SELECT 1 FROM term_notes WHERE user_id = :i"), {"i": expired}
+        )
+    ).first()
+    pii_recent = (
+        await session.execute(
+            text("SELECT 1 FROM term_notes WHERE user_id = :i"), {"i": recent}
+        )
+    ).first()
+    assert gone is None and pii_expired is None
+    assert kept is not None and pii_recent is not None
+
+
 # --- compute_league_rank ----------------------------------------------------
 
 async def test_compute_league_rank_orders_by_xp(session):
