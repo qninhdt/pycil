@@ -12,7 +12,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from pycil_core.db import get_engine
-from pycil_core.services import user_service
+from pycil_core.services import data_retention_service, user_service
 from pycil_core.services.cache import advisory_lock
 
 logger = logging.getLogger(__name__)
@@ -20,18 +20,28 @@ _scheduler: AsyncIOScheduler | None = None
 
 
 async def _hard_delete_expired_users() -> None:
-    """Daily 03:00 UTC: drop users soft-deleted >14d ago."""
+    """Daily 03:00 UTC: GDPR-purge then drop users soft-deleted >14d ago."""
     engine = get_engine()
     async with engine.begin() as conn:
         async with advisory_lock(conn, "hard_delete_expired_users") as acquired:
             if not acquired:
                 logger.info("hard_delete_expired_users: lock held by another replica")
                 return
-            from sqlalchemy.ext.asyncio import AsyncSession
+            # sqlmodel AsyncSession (not the plain sqlalchemy one) — service-
+            # layer fns call session.exec(), which only sqlmodel's session has.
+            from sqlmodel.ext.asyncio.session import AsyncSession
 
             async with AsyncSession(engine, expire_on_commit=False) as session:
+                # Explicit PII purge first (auditable per-table counts, covers
+                # non-cascading FKs), then remove the user rows themselves.
+                purged = await data_retention_service.purge_due(session)
+                await session.commit()
                 count = await user_service.hard_delete_expired(session)
-                logger.info("hard_delete_expired_users: removed=%d", count)
+                logger.info(
+                    "hard_delete_expired_users: removed=%d purged=%s",
+                    count,
+                    purged,
+                )
 
 
 async def _compute_league_rank() -> None:
