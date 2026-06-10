@@ -147,8 +147,16 @@ def create_app() -> FastAPI:
     app.include_router(terms_batch_routes.router)
     from pycil_core.api.routes import anki_routes as anki_routes
     app.include_router(anki_routes.router)
-    from pycil_core.api.routes import me_extras as me_extras_routes
-    app.include_router(me_extras_routes.router)
+    from pycil_core.api.routes import (
+        account_routes,
+        admin_audit_routes,
+        push_routes,
+        social_routes,
+    )
+    app.include_router(account_routes.router)
+    app.include_router(social_routes.router)
+    app.include_router(push_routes.router)
+    app.include_router(admin_audit_routes.router)
     app.include_router(jobs_routes.router)
     app.include_router(questions_routes.router)
     app.include_router(question_regenerate_routes.router)
