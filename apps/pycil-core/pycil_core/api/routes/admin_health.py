@@ -1,4 +1,4 @@
-"""Admin system-health snapshot (Phase 7), gated by `AdminDep`.
+"""Admin system-health snapshot, gated by `AdminDep`.
 
 Four bounded, never-throw checks — a down dependency reports `fail`, never a
 500 (red-team F7: inline, no health_service module until logic grows):

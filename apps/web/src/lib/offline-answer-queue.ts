@@ -1,4 +1,4 @@
-// Offline answer queue backed by IndexedDB (P11 phase 2).
+// Offline answer queue backed by IndexedDB.
 //
 // Stores `{ question_id, user_answer, answered_at, definition_id }` rows
 // when the user is offline. On reconnect (or background-sync flush), the

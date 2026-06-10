@@ -1,4 +1,4 @@
-"""Admin user-management routes (Phase 2), gated by `AdminDep`.
+"""Admin user-management routes, gated by `AdminDep`.
 
 All routes mount under `/admin-api/*`. Every write records an `admin_actions`
 row in the SAME transaction as the mutation (caller-owned txn — red-team F7).

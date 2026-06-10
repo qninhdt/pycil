@@ -1,7 +1,7 @@
 """Term service: validate ownership, normalize, upsert.
 
-Phase 2: just creates the term row + deck_definitions placeholder. Phase 3
-fires the generate_term job and returns job_id.
+Creates the term row + deck_definitions placeholder, fires the generate_term
+enrichment job, and returns its job_id.
 """
 from __future__ import annotations
 

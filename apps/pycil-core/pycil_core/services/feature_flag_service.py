@@ -1,4 +1,4 @@
-"""Feature flags lookup (P6 phase 2).
+"""Feature flags lookup.
 
 Two evaluation modes:
 - explicit: user_id in `enabled_user_ids` array → enabled.
@@ -82,7 +82,7 @@ def invalidate_cache() -> None:
     _cache.clear()
 
 
-# ── Admin CRUD (Phase 6) — mutators do NOT commit; caller owns the txn ──────
+# ── Admin CRUD — mutators do NOT commit; caller owns the txn ──────
 
 
 def _validate_rollout(rollout_percentage: int) -> None:

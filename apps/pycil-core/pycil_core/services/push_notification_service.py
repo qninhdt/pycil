@@ -1,4 +1,4 @@
-"""Web push notifications via VAPID (P4 phase 3).
+"""Web push notifications via VAPID.
 
 Stores push subscriptions on subscribe, signs WebPush messages on send.
 Uses pywebpush so we don't reinvent encryption.

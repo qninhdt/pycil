@@ -7,8 +7,8 @@ Mounted under `/admin-api/*` (NOT `/admin/*`). Rationale (red-team F1/F2):
   /api/core/*` forwards untouched. FE base URL is `/api/core`, so calls land at
   `/api/core/admin-api/*`.
 
-Phase 1 ships only `/admin-api/ping` (the load-bearing gate smoke route).
-Later phases mount users / reports / metrics / flags / health / audit routers.
+`/admin-api/ping` is the load-bearing gate smoke route; the users / reports /
+metrics / flags / health / audit routers mount alongside it.
 """
 from __future__ import annotations
 

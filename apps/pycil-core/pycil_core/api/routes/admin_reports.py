@@ -1,4 +1,4 @@
-"""Admin moderation queue routes (Phase 5), gated by `AdminDep`.
+"""Admin moderation queue routes, gated by `AdminDep`.
 
 `GET /admin-api/reports?status=pending` lists the queue.
 `POST /admin-api/reports/{id}/resolve {action, note?}` resolves a report.

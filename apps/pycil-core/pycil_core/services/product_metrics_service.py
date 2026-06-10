@@ -1,4 +1,4 @@
-"""Per-user product metrics (P6 phase 4).
+"""Per-user product metrics.
 
 Aggregates the things admin dashboard cares about: DAU/WAU, daily LLM
 spend, top decks by activity, signup funnel. Read-only — pure SELECT.

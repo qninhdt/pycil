@@ -1,4 +1,4 @@
-"""Per-user LLM spend cap (P6 phase 1).
+"""Per-user LLM spend cap.
 
 Reads spend from `openrouter:spend:{user_id}:{YYYY-MM-DD}` Redis counter
 that worker increments via `add_spend(redis, user_id, cost)`. Default cap

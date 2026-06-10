@@ -1,4 +1,4 @@
-"""Anki .apkg import/export helpers (P2 phase 3).
+"""Anki .apkg import/export helpers.
 
 Import: graceful best-effort SQLite parse → flat term list. On schema
 mismatch we return [] and let the caller surface a friendly "upgrade Anki

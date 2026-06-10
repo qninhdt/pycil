@@ -22,8 +22,8 @@ class TermRead(BaseModel):
 class TermAddResponse(BaseModel):
     """Returned from POST /decks/{id}/terms.
 
-    Phase 2: just returns the term row. Phase 3 extends with `job_id` for the
-    enrichment job.
+    Returns the created term row plus `job_id` for the async enrichment job
+    (None when enrichment is not enqueued).
     """
 
     term: TermRead

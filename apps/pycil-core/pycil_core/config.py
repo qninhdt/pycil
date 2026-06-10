@@ -56,7 +56,7 @@ class Settings(BaseSettings):
     openrouter_model: str | None = Field(default=None, alias="OPENROUTER_MODEL")
     openrouter_chat_model: str | None = Field(default=None, alias="OPENROUTER_CHAT_MODEL")
 
-    # --- LLM-as-judge tier-4 grading (P1 phase 6, default off) ---
+    # --- LLM-as-judge tier-4 grading (default off) ---
     llm_judge_enabled: bool = Field(default=False, alias="LLM_JUDGE_ENABLED")
     llm_judge_model: str = Field(
         default="anthropic/claude-haiku-4-5", alias="LLM_JUDGE_MODEL"

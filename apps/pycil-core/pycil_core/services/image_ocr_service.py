@@ -1,4 +1,4 @@
-"""Image-OCR ingestion (P2 phase 6).
+"""Image-OCR ingestion.
 
 Receives an uploaded image, runs `tesseract` (or stub when env unset),
 extracts candidate words, dedupes against deck, and pipes through

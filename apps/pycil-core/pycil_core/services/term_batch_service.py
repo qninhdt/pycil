@@ -1,4 +1,4 @@
-"""Term batch ingestion service (P2 phase 1).
+"""Term batch ingestion service.
 
 Wraps `term_service.add_term_to_deck` for bulk paste / CSV / Anki / extension
 flows. Per-batch budget pre-flight + per-user batch rate limit enforced

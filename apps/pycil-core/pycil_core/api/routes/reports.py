@@ -1,4 +1,4 @@
-"""User-facing content report endpoint (Phase 5).
+"""User-facing content report endpoint.
 
 `POST /reports` lets an authenticated user report a public deck or a definition
 comment. Rate-limited; the service validates the target and forbids self-report

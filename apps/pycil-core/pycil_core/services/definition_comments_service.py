@@ -1,4 +1,4 @@
-"""Definition comments (P9 phase 5).
+"""Definition comments.
 
 Threaded discussion attached to a definition row. Soft-delete only —
 moderators may flip deleted_at; comments aren't physically removed so

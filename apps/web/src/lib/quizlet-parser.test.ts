@@ -1,5 +1,5 @@
 /**
- * Quizlet paste parser tests (P2 phase 4).
+ * Quizlet paste parser tests.
  *
  * Uses the node built-in `node:test` runner so we don't need to drag in a
  * full vitest/jest setup just for one pure module. Run with:

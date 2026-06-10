@@ -1,4 +1,4 @@
-"""Daily goal + reminder hour persistence (P4 phase 2 + P10 phase 3).
+"""Daily goal + reminder hour persistence.
 
 Reads/writes users.daily_goal and users.reminder_hour columns added in
 migration 0017. Exposes a helper for "today's progress" summing

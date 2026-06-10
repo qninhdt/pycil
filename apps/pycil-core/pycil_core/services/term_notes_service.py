@@ -1,4 +1,4 @@
-"""Term notes (P10 phase 2).
+"""Term notes.
 
 User-private markdown notes attached to a term. Plain CRUD, length-capped,
 sanitized at render-time (FE) — server keeps raw markdown.

@@ -1,4 +1,4 @@
-"""Custom CEFR mastery thresholds (P10 phase 3).
+"""Custom CEFR mastery thresholds.
 
 Lets a user override the default per-CEFR mastery requirement (i.e. how
 many correct answers count as "mastered"). Defaults preserved when the

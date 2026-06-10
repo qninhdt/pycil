@@ -39,9 +39,10 @@ class SessionQuestionResponse(BaseModel):
 
 class SubmitAnswerRequest(BaseModel):
     question_id: UUID
-    # MCQ-shaped today; the generic {answer: dict} payload (for Write/Fill)
-    # lands in phase 5 alongside the FE submit-contract migration. `answer` is
-    # the forward-compatible generic payload; when present it takes precedence.
+    # Dual-shape submit contract (intentional, permanent): `selected_index` is
+    # the MCQ shape the learn loop sends today; `answer` is the generic
+    # {answer: dict} payload for plugin types (Write/Fill). When `answer` is
+    # present it takes precedence.
     selected_index: int = Field(default=0, ge=0, le=3)
     answer: dict[str, Any] | None = None
 
@@ -64,7 +65,8 @@ class SubmitAnswerResponse(BaseModel):
     score: float = 0.0
     feedback: str | None = None
     reveal: dict[str, Any] = Field(default_factory=dict)
-    # Back-compat derived fields for the current MCQ FE (migrated in phase 5).
+    # Derived fields the MCQ FE consumes alongside the generic shape (part of
+    # the permanent dual-shape contract).
     explanation: str | None = None
     correct_index: int = 0
     round_complete: bool = False

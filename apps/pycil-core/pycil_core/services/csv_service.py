@@ -1,4 +1,4 @@
-"""CSV import + export helpers (P2 phase 2).
+"""CSV import + export helpers.
 
 Parse policy:
 - Required column: `term`. Missing → 422.

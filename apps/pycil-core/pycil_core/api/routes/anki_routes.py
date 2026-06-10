@@ -1,4 +1,4 @@
-"""Anki .apkg import + export routes (P2 phase 3)."""
+"""Anki .apkg import + export routes."""
 from __future__ import annotations
 
 from typing import Annotated
