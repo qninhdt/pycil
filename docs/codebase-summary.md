@@ -1,6 +1,6 @@
 # Pycil — Codebase Summary
 
-**Last sync:** 2026-05-30 (post Phase 5 Playwright E2E suite)
+**Last sync:** 2026-06-11 (post rehab Phase 11 — structured logging)
 **Plans:** `plans/260525-0124-pycil-mvp-implementation/plan.md` (v1), `plans/260525-1446-pycil-v02-feature-fill/plan.md` (v0.2)
 **Source design:** `docs/project-overview-pdr.md` (locked)
 
@@ -11,7 +11,7 @@
 - **pycil-core middleware**: `rate_limit.py` (Redis sliding window 60 RPM/IP).
 - **pycil-core cron**: apscheduler in `cron.py` runs `hard_delete_expired_users` (daily) + `compute_league_rank` (weekly), each under `pg_advisory_xact_lock`.
 - **Worker jobs**: `translate_definition.py`, `tts_render.py` (Gemini Flash + B2 upload), `generate_question.py` extended for WRITE/FILL dispatch via `_TYPE_MAP`.
-- **Worker observability**: `worker/observability/spend_metrics.py` structured logger.
+- **Worker observability**: `worker/observability/spend_metrics.py` structured logger (fields serialize via the shared JSON log config — see Observability section).
 - **shared-py**: `shared/questions/write.py`, `fill_in_blank.py` ABCs.
 - **Web FE**: `(dashboard)/explore/page.tsx`, `legal/{privacy,terms}/page.tsx`, `components/study/{learn/write-question, learn/fill-in-blank-question, chat/chat-panel, test/test-runner, tts-play-button, translation-button}.tsx`, `components/file-browser/share-link-dialog.tsx`, `components/search/search-palette.tsx`, `hooks/use-broadcast-sync.ts`.
 - **Web config**: `next.config.ts` wraps with `next-pwa`, manifest.webmanifest, NetworkOnly for `/api/core/*`.
@@ -249,6 +249,18 @@ Auth.js session lookup is mandatory `WHERE expires > NOW()` so revoked / expired
 - **Web auth -> pycil-core**: cookie passthrough through Caddy; `pycil_core/auth.py` reads `__Secure-authjs.session-token` (prod) or `authjs.session-token` (dev), joins `sessions` + `users` with the mandatory `expires > NOW()` clause.
 - **CSRF**: `apps/pycil-core/pycil_core/middleware/csrf.py` rejects POST/PATCH/PUT/DELETE when `Origin` header is missing or not in `ALLOWED_ORIGINS`. Auth.js cookie configured `SameSite=Strict`.
 - **User input -> LLM**: term value validated at API boundary, fenced inside `<USER_TERM>` in the prompt, output sanitized before INSERT.
+
+---
+
+## Observability
+
+Coherent strategy across the three pillars — what's wired, what's deferred:
+
+- **Logs (active).** `shared/logging_config.py` `configure_logging()` installs one stdlib JSON formatter on the root logger; called once at startup by both `pycil_core/main.py` (lifespan) and `worker/main.py` (module load). Every call site already uses `logger.info(msg, extra={...})`; the formatter emits each non-reserved `LogRecord` attribute, so those `extra` fields actually reach stdout (the prior text formatter silently dropped them). Knobs: `LOG_LEVEL` (default INFO), `LOG_FORMAT=text` for a human-readable line locally (anything else → JSON). The handler is rebuilt each call, so uvicorn `--reload` / test re-entry never stacks duplicate handlers. Worker spend lines (`worker/observability/spend_metrics.py` `emit_spend`) and the best-effort ledger writer (`spend_ledger.py`) ride this same shape.
+- **Traces (active, opt-in).** `pycil_core/observability/telemetry.py` `setup_telemetry()` wires an OTLP **trace** exporter + auto-instrumentation (FastAPI / SQLAlchemy / Redis / httpx). No-op when `OTEL_EXPORTER_OTLP_ENDPOINT` is unset, and skips cleanly if the OTEL SDK isn't installed. Traces only — no MeterProvider (the docstring previously overclaimed "metrics").
+- **Errors (active, opt-in).** Sentry init in `pycil_core/main.py` lifespan, guarded by `SENTRY_DSN_CORE`; no-op + `ImportError`-safe when unset (`traces_sample_rate=0.1`, `send_default_pii=False`).
+- **Product metrics (active).** `/admin-api/metrics` serves a DB-derived product snapshot; `/admin-api/health` reports DB / Redis / queue depth / worker-heartbeat age. These are the metrics surface in v1.
+- **Deferred (post-v1).** A real MeterProvider + OTLP metric export, and the full Grafana / Loki / Tempo stack, are explicitly out of v1 scope. The OTLP trace export hook is the only external-collector integration wired.
 
 ---
 

@@ -4,11 +4,12 @@ Run with: `arq worker.main.WorkerSettings`
 """
 from __future__ import annotations
 
-import logging
 import time
 
 from arq import cron
 from arq.connections import RedisSettings
+
+from shared.logging_config import configure_logging
 
 from worker.config import get_settings
 from worker.jobs.generate_question import generate_question
@@ -18,7 +19,7 @@ from worker.jobs.prewarm_questions import prewarm_questions
 from worker.jobs.translate_definition import translate_definition
 from worker.jobs.tts_render import tts_render
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+configure_logging(service="worker")
 
 # Refreshed every minute by the heartbeat cron; the admin health endpoint reads
 # this key to report worker liveness (`worker_heartbeat_age_s`).
