@@ -1,7 +1,10 @@
 """OpenTelemetry boot.
 
-Single-call initializer: read OTEL_* env, install OTLP exporter for traces
-and metrics, instrument FastAPI / SQLAlchemy / Redis / httpx automatically.
+Single-call initializer: read OTEL_* env, install an OTLP exporter for
+**traces** and instrument FastAPI / SQLAlchemy / Redis / httpx automatically.
+Metrics and logs are NOT wired here — metrics are deferred (see
+docs/codebase-summary.md → Observability), and structured logs go through
+``shared.logging_config`` instead.
 
 No-op when OTEL_EXPORTER_OTLP_ENDPOINT is missing — keeps dev runs free
 of trace overhead and external dependency.

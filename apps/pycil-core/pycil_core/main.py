@@ -1,10 +1,12 @@
 """FastAPI app entrypoint."""
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
 from fastapi.responses import JSONResponse
+from shared.logging_config import configure_logging
 from sqlmodel.ext.asyncio.session import AsyncSession
 from starlette.requests import Request
 
@@ -44,12 +46,11 @@ from pycil_core.services.redis_pool import close_redis_pool
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    configure_logging(service="pycil-core")
     settings = get_settings()
     # Resolved-config summary (secret VALUES never logged — only presence + the
     # non-sensitive knobs that change behavior between environments).
-    import logging as _logging
-
-    _logging.getLogger(__name__).info(
+    logging.getLogger(__name__).info(
         "config_resolved",
         extra={
             "app_env": settings.app_env,
@@ -101,7 +102,6 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(Exception)
     async def _unhandled(request: Request, exc: Exception):  # noqa: ARG001
-        import logging
         logging.getLogger(__name__).exception("unhandled", exc_info=exc)
         return JSONResponse({"detail": "internal_error"}, status_code=500)
 
