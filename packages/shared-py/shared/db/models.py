@@ -7,7 +7,6 @@ from uuid import UUID
 
 from shared.db.enums import (
     CefrLevel,
-    ClassroomRole,
     NodeType,
     PartOfSpeech,
     ProfileVisibility,
@@ -512,36 +511,6 @@ class Follow(SQLModel, table=True):
     followed_at: datetime | None = Field(default=None, sa_column=_dt_column(nullable=False))
 
 
-class Classroom(SQLModel, table=True):
-    __tablename__ = "classrooms"
-
-    id: UUID | None = Field(default=None, sa_column=_uuid_column(primary_key=True, nullable=False, server_default="gen_random_uuid()"))
-    owner_id: UUID = Field(sa_column=_uuid_column(nullable=False))
-    name: str = Field(sa_column=Column(Text, nullable=False))
-    join_code: str = Field(sa_column=Column(Text, nullable=False))
-    created_at: datetime | None = Field(default=None, sa_column=_dt_column(nullable=False))
-    max_students: int = Field(default=50, sa_column=Column(SmallInteger, nullable=False))
-
-
-class ClassroomMember(SQLModel, table=True):
-    __tablename__ = "classroom_members"
-
-    classroom_id: UUID = Field(sa_column=_uuid_column(primary_key=True, nullable=False))
-    user_id: UUID = Field(sa_column=_uuid_column(primary_key=True, nullable=False))
-    role: ClassroomRole = Field(
-        sa_column=Column(_pg_enum(ClassroomRole, "classroom_role_enum"), nullable=False),
-    )
-    joined_at: datetime | None = Field(default=None, sa_column=_dt_column(nullable=False))
-
-
-class ClassroomDeck(SQLModel, table=True):
-    __tablename__ = "classroom_decks"
-
-    classroom_id: UUID = Field(sa_column=_uuid_column(primary_key=True, nullable=False))
-    deck_id: UUID = Field(sa_column=_uuid_column(primary_key=True, nullable=False))
-    assigned_at: datetime | None = Field(default=None, sa_column=_dt_column(nullable=False))
-
-
 class DefinitionComment(SQLModel, table=True):
     __tablename__ = "definition_comments"
 
@@ -641,17 +610,6 @@ class UserTosAck(SQLModel, table=True):
     acked_at: datetime | None = Field(default=None, sa_column=_dt_column(nullable=False))
 
 
-class SavedSearch(SQLModel, table=True):
-    __tablename__ = "saved_searches"
-
-    id: int | None = Field(default=None, sa_column=Column(BigInteger, primary_key=True))
-    user_id: UUID = Field(sa_column=_uuid_column(nullable=False))
-    name: str = Field(sa_column=Column(Text, nullable=False))
-    filter_json: dict[str, Any] = Field(sa_column=Column(JSONB, nullable=False))
-    created_at: datetime | None = Field(default=None, sa_column=_dt_column(nullable=False))
-    updated_at: datetime | None = Field(default=None, sa_column=_dt_column(nullable=False))
-
-
 class PushSubscription(SQLModel, table=True):
     __tablename__ = "push_subscriptions"
 
@@ -673,19 +631,3 @@ class ActivityEvent(SQLModel, table=True):
     kind: str = Field(sa_column=Column(Text, nullable=False))
     payload: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB, nullable=False))
     created_at: datetime | None = Field(default=None, sa_column=_dt_column(nullable=False))
-
-
-class BackupRehearsal(SQLModel, table=True):
-    __tablename__ = "backup_rehearsals"
-
-    backup_id: str = Field(primary_key=True)
-    # DDL exception: rehearsed_at is NOT NULL with NO db default (caller always
-    # supplies it), so it must not inherit the _dt_column auto-now() default.
-    rehearsed_at: datetime = Field(
-        sa_column=Column(DateTime(timezone=True), nullable=False)
-    )
-    status: str = Field(sa_column=Column(Text, nullable=False))
-    rows_users: int | None = Field(default=None, sa_column=Column(Integer))
-    rows_decks: int | None = Field(default=None, sa_column=Column(Integer))
-    rows_terms: int | None = Field(default=None, sa_column=Column(Integer))
-    error: str | None = Field(default=None, sa_column=Column(Text))
