@@ -24,7 +24,6 @@ _PURGE_TABLES = [
     "activity_events",
     "definition_overrides",
     "term_notes",
-    "saved_searches",
     "user_term_jobs",
     "user_term_stats",
     "user_definition_stats",
