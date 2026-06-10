@@ -45,6 +45,23 @@ from pycil_core.services.redis_pool import close_redis_pool
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     settings = get_settings()
+    # Resolved-config summary (secret VALUES never logged — only presence + the
+    # non-sensitive knobs that change behavior between environments).
+    import logging as _logging
+
+    _logging.getLogger(__name__).info(
+        "config_resolved",
+        extra={
+            "app_env": settings.app_env,
+            "llm_judge_enabled": settings.llm_judge_enabled,
+            "enforce_tiers": settings.enforce_tiers,
+            "question_bank_prewarm_enabled": settings.question_bank_prewarm_enabled,
+            "s3_configured": bool(settings.s3_bucket),
+            "openrouter_configured": bool(settings.openrouter_api_key),
+            "sentry_configured": bool(settings.sentry_dsn_core),
+            "jwt_rotation_armed": bool(settings.auth_jwt_secret_previous),
+        },
+    )
     sentry_dsn = getattr(settings, "sentry_dsn_core", None)
     if sentry_dsn:
         try:

@@ -5,7 +5,21 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Pycil-core runtime config. Loaded from env or .env file."""
+    """Pycil-core runtime config. Loaded from env or .env file.
+
+    Feature-flag boundary (two intentionally-separate systems):
+      - Env flags here (`enforce_tiers`, `llm_judge_enabled`,
+        `question_bank_prewarm_enabled`) are deploy-time kill switches: they
+        change only on redeploy and apply process-wide.
+      - Runtime per-user/cohort toggles live in the DB-backed
+        `feature_flag_service` (the `feature_flags` table), evaluated per
+        request. Do not duplicate a flag across both systems.
+
+    Secret aliases (e.g. `AUTH_JWT_SECRET`, `S3_APPLICATION_KEY`) are the
+    deployed env-var / GitHub-secret names. Do NOT rename the `alias=` values:
+    pydantic binds to the alias, so renaming silently drops the prod value.
+    Required prod secrets are enforced fail-closed by `_require_prod_secrets`.
+    """
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -39,7 +53,7 @@ class Settings(BaseSettings):
     s3_secret_key: str | None = Field(default=None, alias="S3_APPLICATION_KEY")
     s3_public_url_prefix: str | None = Field(default=None, alias="S3_PUBLIC_URL_PREFIX")
 
-    # --- Stripe (phase 16 stub) ---
+    # --- Stripe ---
     stripe_secret_key: str | None = Field(default=None, alias="STRIPE_SECRET_KEY")
     stripe_webhook_secret: str | None = Field(default=None, alias="STRIPE_WEBHOOK_SECRET")
     stripe_price_id_pro: str | None = Field(default=None, alias="STRIPE_PRICE_ID_PRO")
@@ -47,11 +61,17 @@ class Settings(BaseSettings):
     stripe_cancel_url: str | None = Field(default=None, alias="STRIPE_CANCEL_URL")
     enforce_tiers: bool = Field(default=False, alias="ENFORCE_TIERS")
 
-    # --- Sentry / observability (phase 15) ---
+    # --- Sentry / observability ---
     sentry_dsn_core: str | None = Field(default=None, alias="SENTRY_DSN_CORE")
     app_env: str = Field(default="dev", alias="APP_ENV")
 
-    # --- OpenRouter (phase 11 chat streaming) ---
+    # --- OpenRouter LLM models ---
+    # Precedence (do NOT rename these env vars — they are the deployed secret/
+    # config names; see AUTH_JWT_SECRET note below):
+    #   - Chat/streaming path resolves OPENROUTER_CHAT_MODEL first, then falls
+    #     back to OPENROUTER_MODEL (llm_streaming.py).
+    #   - Worker term/question generation uses OPENROUTER_MODEL directly.
+    #   - LLM-judge grading uses its own LLM_JUDGE_MODEL.
     openrouter_api_key: str | None = Field(default=None, alias="OPENROUTER_API_KEY")
     openrouter_model: str | None = Field(default=None, alias="OPENROUTER_MODEL")
     openrouter_chat_model: str | None = Field(default=None, alias="OPENROUTER_CHAT_MODEL")
@@ -100,7 +120,35 @@ class Settings(BaseSettings):
                 )
         return v
 
+    @field_validator("app_env")
+    @classmethod
+    def _normalize_app_env(cls, v: str) -> str:
+        return v.strip().lower()
+
+    def _require_prod_secrets(self) -> "Settings":
+        """Fail closed in prod: required external secrets must be set.
+
+        DATABASE_URL / REDIS_URL / AUTH_JWT_SECRET / INTERNAL_API_SECRET are
+        already required everywhere (no default). In prod we ALSO require the
+        OpenRouter key + S3 storage so the app cannot boot half-configured and
+        silently serve a degraded experience (no LLM, no avatar/TTS uploads).
+        """
+        if self.app_env != "prod":
+            return self
+        missing: list[str] = []
+        if not self.openrouter_api_key:
+            missing.append("OPENROUTER_API_KEY")
+        if not self.s3_bucket:
+            missing.append("S3_BUCKET")
+        if not self.s3_secret_key:
+            missing.append("S3_APPLICATION_KEY")
+        if missing:
+            raise ValueError(
+                "prod boot rejected; required secrets unset: " + ", ".join(missing)
+            )
+        return self
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    return Settings()  # type: ignore[call-arg]
+    return Settings()._require_prod_secrets()  # type: ignore[call-arg]
