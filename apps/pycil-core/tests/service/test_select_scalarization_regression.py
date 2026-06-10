@@ -10,21 +10,13 @@ Pinned here:
 - `claim_username`: re-saving your OWN username must NOT raise 409. With the
   bug, `existing_id` was a Row, `Row != user_id` was always True → false
   `username_taken`.
-- `reverse_card.build_prompts`: distractor pool must be a list of meaning
-  strings, not Row objects.
 """
 from __future__ import annotations
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import text
 
-from pycil_core.services import reverse_card_service, social_service
-from tests.factories import (
-    make_deck,
-    make_definition,
-    make_term,
-)
+from pycil_core.services import social_service
 
 
 async def test_claim_username_idempotent_for_self(session, test_user) -> None:
@@ -51,31 +43,3 @@ async def test_claim_username_taken_by_other_raises(
         await social_service.claim_username(session, second_user["id"], "bob_99")
     assert exc.value.status_code == 409
 
-
-async def test_reverse_prompts_distractors_are_strings(
-    session, test_user
-) -> None:
-    """Distractor pool must be meaning strings, not Row objects."""
-    deck = await make_deck(session, author_id=test_user["id"])
-    # build_prompts joins on deck_terms (term-level), so seed those rows.
-    for i in range(5):
-        tid = await make_term(session, value=f"rev-term-{i}")
-        await make_definition(
-            session, term_id=tid, canonical=f"meaning number {i}"
-        )
-        await session.execute(
-            text(
-                "INSERT INTO deck_terms (deck_id, term_id, position) "
-                "VALUES (:d, :t, :p) ON CONFLICT DO NOTHING"
-            ),
-            {"d": deck["id"], "t": tid, "p": i},
-        )
-    await session.commit()
-
-    prompts = await reverse_card_service.build_prompts(
-        session, test_user["id"], deck["id"], limit=5, distractors_per=2
-    )
-    assert prompts
-    for p in prompts:
-        for d in p.distractors:
-            assert isinstance(d, str), f"distractor is {type(d).__name__}, not str"

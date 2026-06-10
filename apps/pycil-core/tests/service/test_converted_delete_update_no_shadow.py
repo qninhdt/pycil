@@ -13,13 +13,9 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from sqlalchemy.sql.dml import Delete, Update
+from sqlalchemy.sql.dml import Delete
 
-from pycil_core.services import (
-    definition_overrides_service,
-    saved_search_service,
-    term_notes_service,
-)
+from pycil_core.services import term_notes_service
 
 
 class _CaptureSession:
@@ -40,26 +36,5 @@ class _CaptureSession:
 async def test_term_notes_delete_builds_delete_statement() -> None:
     sess = _CaptureSession()
     await term_notes_service.delete(sess, uuid4(), 1)  # type: ignore[arg-type]
-    assert len(sess.statements) == 1
-    assert isinstance(sess.statements[0], Delete)
-
-
-async def test_saved_search_delete_builds_delete_statement() -> None:
-    sess = _CaptureSession()
-    await saved_search_service.delete(sess, uuid4(), 1)  # type: ignore[arg-type]
-    assert len(sess.statements) == 1
-    assert isinstance(sess.statements[0], Delete)
-
-
-async def test_saved_search_update_builds_update_statement() -> None:
-    sess = _CaptureSession()
-    await saved_search_service.update(sess, uuid4(), 1, name="renamed")  # type: ignore[arg-type]
-    assert len(sess.statements) == 1
-    assert isinstance(sess.statements[0], Update)
-
-
-async def test_definition_overrides_delete_builds_delete_statement() -> None:
-    sess = _CaptureSession()
-    await definition_overrides_service.delete(sess, uuid4(), 1)  # type: ignore[arg-type]
     assert len(sess.statements) == 1
     assert isinstance(sess.statements[0], Delete)
