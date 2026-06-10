@@ -3,6 +3,7 @@ import type { MCQDataPublic } from "./question";
 
 export interface StartSessionRequest {
   session_size?: number;
+  theme_id?: string | null;
 }
 
 export interface StartSessionResponse {
@@ -15,6 +16,9 @@ export type SessionStatus = "ready" | "pending" | "session_complete";
 
 export interface SessionQuestionPayload {
   id: UUID;
+  // Backend + mock always populate this on a "ready" question; optional so the
+  // post-answer reconstruction in the learn UI (which lacks it) still type-checks.
+  definition_id?: number;
   type: string;
   data: MCQDataPublic | Record<string, unknown>;
 }
@@ -25,6 +29,7 @@ export interface SessionQuestionResponse {
   round_index: number;
   round_position: number;
   round_size: number;
+  theme?: string | null;
 }
 
 export interface SubmitAnswerRequest {
@@ -49,4 +54,9 @@ export interface SubmitAnswerResponse {
   round_complete: boolean;
   session_complete: boolean;
   term_reviewed: TermReviewedResult | null;
+  // Generic grading fields (type-agnostic). reveal carries post-submit
+  // disclosure such as MCQ distractor_rationale.
+  score?: number;
+  feedback?: string | null;
+  reveal?: Record<string, unknown>;
 }

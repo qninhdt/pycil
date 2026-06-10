@@ -8,7 +8,11 @@ import { MultipleChoiceQuestion } from "./multiple-choice-question";
 import { ReviewFooter } from "./review-footer";
 import { LearningSessionLoading } from "./learning-session-loading";
 import { SessionCompleteSummary } from "./session-complete";
+import { TtsPlayButton } from "@/components/study/tts-play-button";
+import { TranslationButton } from "@/components/study/translation-button";
 import { useBeLearningSession } from "@/hooks/use-be-learning-session";
+import { get as getRenderer } from "@/lib/questions";
+import { themeSkin } from "@/lib/questions/themes";
 import {
   beQuestionToFe,
   beQuestionWithResultToFe,
@@ -19,6 +23,7 @@ import type { LearningProgress, Question } from "@/types/learning";
 interface LearningSessionComponentProps {
   deckId: string;
   sessionSize?: number;
+  themeId?: string | null;
   onRestart?: () => void;
   onNewSession?: () => void;
   className?: string;
@@ -27,11 +32,12 @@ interface LearningSessionComponentProps {
 export function LearningSessionComponent({
   deckId,
   sessionSize = 25,
+  themeId = null,
   onRestart,
   onNewSession,
   className,
 }: LearningSessionComponentProps) {
-  const session = useBeLearningSession(deckId, sessionSize);
+  const session = useBeLearningSession(deckId, sessionSize, themeId);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
 
   useEffect(() => {
@@ -44,7 +50,8 @@ export function LearningSessionComponent({
         { id: session.current.question_id, type: "MCQ", data: session.current.data },
         session.current.selected_index,
         session.current.result.correct_index,
-        session.current.result.correct
+        session.current.result.correct,
+        session.current.result
       );
     }
     if (session.question?.status === "ready" && session.question.question) {
@@ -54,6 +61,14 @@ export function LearningSessionComponent({
   }, [session.current, session.question]);
 
   const showResult = !!session.current;
+
+  // definition_id rides the ready-phase QuestionRead (the post-answer reveal
+  // payload omits it). Drives the TTS + translation buttons, which key off the
+  // numeric definition id.
+  const definitionId =
+    currentQuestion?.definitionId ??
+    session.question?.question?.definition_id ??
+    null;
 
   const progressData = session.question ?? {
     round_index: 0,
@@ -156,6 +171,13 @@ export function LearningSessionComponent({
     session.current.result.round_complete &&
     !session.current.result.session_complete;
 
+  // Resolve the renderer by the backend question type; fall back to MCQ for the
+  // post-answer reconstruction path (which lacks the original BE type string).
+  const beType =
+    session.question?.question?.type ?? "MULTIPLE_CHOICE";
+  const QuestionComponent =
+    getRenderer(beType)?.Component ?? MultipleChoiceQuestion;
+
   return (
     <div className={cn("space-y-6 pb-24", className)}>
       <div className="w-full mx-auto">
@@ -171,13 +193,19 @@ export function LearningSessionComponent({
         </div>
       )}
 
-      <Card className="w-full mx-auto">
+      <Card className={cn("w-full mx-auto", themeSkin(session.question?.theme).cardClass)}>
         <CardContent>
-          <MultipleChoiceQuestion
+          <QuestionComponent
             question={currentQuestion}
             onAnswer={handleAnswer}
             showResult={showResult}
           />
+          {definitionId !== null && (
+            <div className="mt-4 flex items-center gap-2 border-t pt-3">
+              <TtsPlayButton definitionId={definitionId} />
+              <TranslationButton definitionId={definitionId} />
+            </div>
+          )}
           {selectedIndex !== null && !session.current && (
             <div className="mt-4 text-center text-sm text-muted-foreground">
               Submitting…

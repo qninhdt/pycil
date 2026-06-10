@@ -126,7 +126,7 @@ async def seed_sample(session: AsyncSession, user_id: UUID) -> bool:
                         term_id, part_of_speech, cefr_level, canonical_meaning
                     )
                     VALUES (:tid, :pos, :cefr, :meaning)
-                    ON CONFLICT (term_id) DO UPDATE
+                    ON CONFLICT (term_id, sense_index) DO UPDATE
                     SET canonical_meaning = EXCLUDED.canonical_meaning
                     RETURNING id
                     """

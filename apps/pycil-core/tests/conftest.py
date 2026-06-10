@@ -52,6 +52,11 @@ postgresql_proc = pg_factories.postgresql_noproc(
     dbname="postgres",
 )
 
+# Per-run test DB name. Override (PYTEST_PG_DBNAME) so concurrent suite runs on
+# the same Postgres process use isolated databases and don't race each other's
+# DROP/CREATE DATABASE in `_migrate_schema`.
+_TEST_DBNAME = os.environ.get("PYTEST_PG_DBNAME", "pycil_test")
+
 
 @pytest.fixture(scope="session")
 def _pg_dsn(postgresql_proc) -> str:
@@ -59,7 +64,7 @@ def _pg_dsn(postgresql_proc) -> str:
     pwd = os.environ.get("PYTEST_PG_PASSWORD", "test")
     return (
         f"postgresql+psycopg://{postgresql_proc.user}:{pwd}@"
-        f"{postgresql_proc.host}:{postgresql_proc.port}/pycil_test"
+        f"{postgresql_proc.host}:{postgresql_proc.port}/{_TEST_DBNAME}"
     )
 
 
@@ -68,7 +73,7 @@ def _async_dsn(postgresql_proc) -> str:
     pwd = os.environ.get("PYTEST_PG_PASSWORD", "test")
     return (
         f"postgresql+asyncpg://{postgresql_proc.user}:{pwd}@"
-        f"{postgresql_proc.host}:{postgresql_proc.port}/pycil_test"
+        f"{postgresql_proc.host}:{postgresql_proc.port}/{_TEST_DBNAME}"
     )
 
 
@@ -91,8 +96,8 @@ def _migrate_schema(postgresql_proc, _pg_dsn):
     )
     with psycopg.connect(admin_dsn, autocommit=True) as conn:
         with conn.cursor() as cur:
-            cur.execute("DROP DATABASE IF EXISTS pycil_test")
-            cur.execute("CREATE DATABASE pycil_test")
+            cur.execute(f'DROP DATABASE IF EXISTS "{_TEST_DBNAME}"')
+            cur.execute(f'CREATE DATABASE "{_TEST_DBNAME}"')
 
     cfg = Config(str(_APP_ROOT / "alembic.ini"))
     cfg.set_main_option("script_location", str(_APP_ROOT / "alembic"))
@@ -107,10 +112,15 @@ def _migrate_schema(postgresql_proc, _pg_dsn):
 # ---------------------------------------------------------------------------
 
 @pytest_asyncio.fixture
-async def async_engine(_async_dsn, _migrate_schema):
+async def async_engine(_async_dsn, _migrate_schema, monkeypatch):
     from sqlalchemy.ext.asyncio import create_async_engine
 
     eng = create_async_engine(_async_dsn, future=True, pool_pre_ping=False)
+    # Redirect the process-global engine (used by handlers that open their own
+    # session, e.g. `/me` via `get_engine()`) to this function-scoped engine.
+    # Without this, those handlers pool asyncpg connections bound to a prior
+    # test's event loop, which accumulate and eventually error under load.
+    monkeypatch.setattr("pycil_core.db.engine", eng)
     yield eng
     await eng.dispose()
 
@@ -129,6 +139,8 @@ async def session(async_engine) -> AsyncGenerator:
         "questions, deck_definitions, definition_paraphrases, "
         "term_example_sentences, definitions, deck_terms, terms, "
         "node_share_links, deck_clones, folder_attributes, nodes, "
+        "llm_spend_events, admin_actions, content_reports, "
+        "definition_comments, feature_flags, "
         "subscriptions, notifications, users "
         "RESTART IDENTITY CASCADE"
     )
@@ -169,6 +181,14 @@ def _patch_redis(monkeypatch, fakeredis_client):
         "pycil_core.services.redis_pool.get_redis",
         lambda: fakeredis_client,
     )
+    # Modules that imported the `get_redis` symbol directly (bound at import).
+    for target in (
+        "pycil_core.middleware.rate_limit.get_redis",
+    ):
+        try:
+            monkeypatch.setattr(target, lambda: fakeredis_client)
+        except AttributeError:
+            pass
     # Modules that imported `get_redis` symbol directly.
     for mod in (
         "pycil_core.services.learning_service",
@@ -221,6 +241,25 @@ async def second_user(session) -> dict:
     ).one()
     await session.commit()
     return {"id": row.id, "email": email, "name": "OtherUser"}
+
+
+@pytest_asyncio.fixture
+async def admin_user(session) -> dict:
+    """A seeded user with role='admin' (Phase 1 RBAC)."""
+    from sqlalchemy import text
+
+    email = f"pytest-admin-{uuid4().hex[:8]}@example.test"
+    row = (
+        await session.execute(
+            text(
+                "INSERT INTO users (email, name, role) "
+                "VALUES (:e, :n, 'admin') RETURNING id"
+            ),
+            {"e": email, "n": "AdminUser"},
+        )
+    ).one()
+    await session.commit()
+    return {"id": row.id, "email": email, "name": "AdminUser", "role": "admin"}
 
 
 # ---------------------------------------------------------------------------
@@ -291,3 +330,87 @@ async def client_real_auth(async_engine) -> AsyncGenerator:
             yield c
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def signed_cookie():
+    """Build a valid JWT session cookie for a given user id + token_version."""
+    import time
+
+    import jwt
+
+    from pycil_core.config import get_settings
+
+    def _make(user_id, *, tv: int = 0) -> str:
+        settings = get_settings()
+        now = int(time.time())
+        claims = {
+            "sub": str(user_id),
+            "tv": tv,
+            "iat": now,
+            "exp": now + settings.jwt_max_age_seconds,
+        }
+        return jwt.encode(
+            claims, settings.auth_jwt_secret_current, algorithm="HS256"
+        )
+
+    return _make
+
+
+@pytest_asyncio.fixture
+async def admin_client(async_engine, admin_user, fakeredis_client) -> AsyncGenerator:
+    """ASGI client whose `get_current_user` resolves to an admin CurrentUser.
+
+    Uses a dedicated FakeRedis bound to THIS test's event loop (a fresh
+    FakeServer) for any `RedisDep` routes — reusing the shared module-level
+    client across the ASGI boundary in different loops trips fakeredis's
+    "bound to a different event loop" guard.
+    """
+    import fakeredis
+    import fakeredis.aioredis
+
+    from httpx import ASGITransport, AsyncClient
+    from sqlmodel.ext.asyncio.session import AsyncSession
+
+    from pycil_core.api.deps import RedisDep
+    from pycil_core.auth import CurrentUser, get_current_user
+    from pycil_core.db import get_session
+    from pycil_core.main import app
+
+    # The exact dependency object FastAPI captured (autouse `_patch_redis`
+    # rebinds the module attribute, so `import get_redis` would miss the key).
+    _redis_dep = RedisDep.__metadata__[0].dependency
+
+    admin_redis = fakeredis.aioredis.FakeRedis(
+        decode_responses=True, server=fakeredis.FakeServer()
+    )
+
+    async def _override_user() -> CurrentUser:
+        return CurrentUser(
+            id=UUID(str(admin_user["id"])),
+            email=admin_user["email"],
+            name=admin_user["name"],
+            role="admin",
+        )
+
+    async def _override_session():
+        async with AsyncSession(async_engine, expire_on_commit=False) as s:
+            try:
+                yield s
+            except Exception:
+                await s.rollback()
+                raise
+
+    app.dependency_overrides[get_current_user] = _override_user
+    app.dependency_overrides[get_session] = _override_session
+    app.dependency_overrides[_redis_dep] = lambda: admin_redis
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+            headers={"origin": "http://test"},
+        ) as c:
+            yield c
+    finally:
+        app.dependency_overrides.clear()
+        await admin_redis.aclose()

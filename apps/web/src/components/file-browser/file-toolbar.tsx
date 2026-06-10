@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ChevronDown, MoreHorizontal, Grid3X3, List, Plus } from "lucide-react";
 import { CreateNodeDialog } from "@/components/dialogs/create-node-dialog";
+import { CreateShortcutDialog } from "@/components/dialogs/create-shortcut-dialog";
 import type { NodeType, UUID } from "@/types/domain";
 
 interface FileToolbarProps {
@@ -29,6 +30,7 @@ export function FileToolbar({
 }: FileToolbarProps) {
   const [createOpen, setCreateOpen] = useState(false);
   const [createType, setCreateType] = useState<NodeType>("FOLDER");
+  const [shortcutOpen, setShortcutOpen] = useState(false);
 
   const openCreate = (type: NodeType) => {
     setCreateType(type);
@@ -52,6 +54,9 @@ export function FileToolbar({
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => openCreate("DECK")}>
               New deck
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setShortcutOpen(true)}>
+              New shortcut
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -108,6 +113,11 @@ export function FileToolbar({
         onOpenChange={setCreateOpen}
         parentNodeId={parentNodeId}
         defaultType={createType}
+      />
+      <CreateShortcutDialog
+        open={shortcutOpen}
+        onOpenChange={setShortcutOpen}
+        parentNodeId={parentNodeId}
       />
     </div>
   );

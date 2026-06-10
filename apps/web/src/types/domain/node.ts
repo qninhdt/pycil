@@ -1,7 +1,7 @@
 export type UUID = string;
 export type ISODateString = string;
 
-export type NodeType = "FOLDER" | "DECK";
+export type NodeType = "FOLDER" | "DECK" | "SHORTCUT";
 
 export interface BreadcrumbEntry {
   id: UUID;
@@ -15,6 +15,7 @@ export interface NodeRead {
   name: string;
   description: string | null;
   parent_node_id: UUID | null;
+  target_node_id: UUID | null;
   visibility: "PRIVATE" | "PUBLIC";
   definition_count: number;
   is_starred: boolean;
@@ -29,6 +30,8 @@ export interface NodeCreate {
   name: string;
   description?: string | null;
   parent_node_id?: UUID | null;
+  // Required when type === "SHORTCUT": the node this shortcut points at.
+  target_node_id?: UUID | null;
 }
 
 export interface NodeUpdate {

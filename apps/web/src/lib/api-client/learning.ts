@@ -1,5 +1,6 @@
 import { fetchJson } from "./base";
 import type {
+  ApplyVerdictRequest,
   SessionQuestionResponse,
   StartSessionRequest,
   StartSessionResponse,
@@ -9,7 +10,7 @@ import type {
 } from "@/types/domain";
 
 export function startSession(deckId: UUID, body: StartSessionRequest = {}) {
-  return fetchJson<StartSessionResponse>(`/decks/${deckId}/sessions`, {
+  return fetchJson<StartSessionResponse>(`/decks/${deckId}/learn`, {
     method: "POST",
     body: JSON.stringify(body),
   });
@@ -24,4 +25,14 @@ export function submitAnswer(sessionId: string, body: SubmitAnswerRequest) {
     method: "POST",
     body: JSON.stringify(body),
   });
+}
+
+export function applyVerdict(sessionId: string, body: ApplyVerdictRequest) {
+  return fetchJson<SubmitAnswerResponse>(
+    `/sessions/${sessionId}/apply-verdict`,
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+    }
+  );
 }

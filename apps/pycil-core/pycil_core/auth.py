@@ -8,12 +8,13 @@ All decode paths funnel through `decode_session`. A lint rule forbids
 
 `get_current_user` re-reads the `users` row on every request and verifies
 the JWT `tv` claim against `users.token_version` for lightweight per-user
-revocation. A 60s Redis cache layer wraps `user_service.get_with_token_version_check`
-for hot-path latency.
+revocation. It also hard-locks out banned users (403 `account_banned`) — the
+authoritative ban gate is this per-request DB read, not the JWT.
 """
 from __future__ import annotations
 
 import time
+from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
@@ -32,6 +33,8 @@ class CurrentUser(BaseModel):
     email: str
     name: str | None = None
     image: str | None = None
+    role: str = "user"
+    banned_at: datetime | None = None
 
 
 _REQUIRED_CLAIMS = ["exp", "iat", "sub", "tv"]
@@ -97,4 +100,6 @@ async def get_current_user(
     )
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "session_revoked")
+    if user.get("banned_at") is not None:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "account_banned")
     return CurrentUser(**user)

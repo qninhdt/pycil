@@ -68,6 +68,7 @@ async def list_root_nodes(session: AsyncSession, user_id: UUID) -> list[NodeRead
             Node.name,
             Node.description,
             Node.parent_node_id,
+            Node.target_node_id,
             Node.visibility,
             Node.definition_count,
             Node.created_at,
@@ -92,6 +93,7 @@ async def list_children(session: AsyncSession, user_id: UUID, parent_id: UUID) -
             Node.name,
             Node.description,
             Node.parent_node_id,
+            Node.target_node_id,
             Node.visibility,
             Node.definition_count,
             Node.created_at,
@@ -124,6 +126,7 @@ async def get_node(session: AsyncSession, user_id: UUID, node_id: UUID) -> NodeR
         name=row["name"],
         description=row["description"],
         parent_node_id=row["parent_node_id"],
+        target_node_id=row["target_node_id"],
         visibility=row["visibility"],
         definition_count=row["definition_count"],
         is_starred=bool(star_row.is_starred) if star_row else False,
@@ -141,10 +144,21 @@ async def create_node(session: AsyncSession, user_id: UUID, payload: NodeCreate)
         if parent["type"] != "FOLDER":
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "parent_must_be_folder")
 
+    target_node_id = None
+    if payload.type == NodeType.SHORTCUT:
+        # NodeCreate's validator guarantees target_node_id is set for SHORTCUT.
+        target_node_id = payload.target_node_id
+        assert target_node_id is not None
+        # Validate the target exists and is owned by the caller before pointing a
+        # shortcut at it — a shortcut must not grant access to a node the user
+        # cannot already see. _ensure_owner 404s on missing, 403s on non-owner.
+        await _ensure_owner(session, user_id, target_node_id)
+
     node = Node(
         author_id=user_id,
         type=DbNodeType(payload.type.value),
         parent_node_id=payload.parent_node_id,
+        target_node_id=target_node_id,
         name=payload.name,
         description=payload.description,
     )
@@ -161,8 +175,9 @@ async def create_node(session: AsyncSession, user_id: UUID, payload: NodeCreate)
                 .where(FolderAttribute.node_id == payload.parent_node_id)
                 .values(subfolder_count=FolderAttribute.subfolder_count + 1)
             )
-    else:
+    elif payload.type == NodeType.DECK:
         session.add(DeckAttribute(node_id=node.id))
+    # SHORTCUT carries no folder/deck attribute — it is a pure pointer row.
     await session.commit()
     return await get_node(session, user_id, node.id)
 
@@ -189,6 +204,22 @@ async def delete_node(session: AsyncSession, user_id: UUID, node_id: UUID) -> No
     await _ensure_owner(session, user_id, node_id)
     await session.exec(delete(Node).where(Node.id == node_id))
     await session.commit()
+
+
+async def admin_soft_delete_node(session: AsyncSession, node_id: UUID) -> bool:
+    """Reversible admin soft-delete: set `deleted_at`, NO owner check, NO commit.
+
+    Distinct from `delete_node` (a HARD owner-gated DELETE). Used by the reports
+    moderation pipeline so a wrongly-deleted deck can be restored by nulling
+    `deleted_at`. Caller owns the transaction (single commit with the audit row).
+    Returns False if the node is gone or already soft-deleted.
+    """
+    result = await session.exec(
+        update(Node)
+        .where(Node.id == node_id, Node.deleted_at.is_(None))
+        .values(deleted_at=datetime.now(UTC))
+    )
+    return bool(getattr(result, "rowcount", 0))
 
 
 async def toggle_flag(

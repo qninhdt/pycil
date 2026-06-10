@@ -1,6 +1,10 @@
 export interface Question {
   id: string;
-  type: "multiple-choice" | "write";
+  // Numeric definition id behind this question — lets the study UI reach the
+  // per-definition TTS/translate endpoints. Optional: the post-answer
+  // reconstruction path does not carry it.
+  definitionId?: number;
+  type: string;
   term: string;
   definition: string;
   options?: string[]; // For multiple choice questions
@@ -9,6 +13,10 @@ export interface Question {
   isCorrect?: boolean;
   skipped?: boolean;
   timeSpent?: number;
+  // Post-submit reveal: per-option rationale (MCQ) + generic grading feedback.
+  distractorRationale?: string[];
+  feedback?: string;
+  score?: number;
 }
 
 export interface LearningRound {

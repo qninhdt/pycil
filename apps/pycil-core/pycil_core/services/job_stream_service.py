@@ -110,8 +110,16 @@ async def stream_job(
         yield _sse_frame("status", job["last_event"] or job)
         return
 
+    # Channel selection: term-generation jobs publish on results:{term_id};
+    # grade_answer jobs (no term_id) publish on results:job_{job_id}. Other
+    # non-term jobs (translate/tts) have no live stream — emit one frame + close
+    # exactly as before (do NOT subscribe a channel nobody publishes to).
     term_id = job.get("term_id")
-    if term_id is None:
+    if term_id is not None:
+        channel = f"results:{term_id}"
+    elif job.get("type") == "grade_answer":
+        channel = f"results:job_{job['id']}"
+    else:
         yield _sse_frame("status", job)
         return
 
@@ -119,7 +127,6 @@ async def stream_job(
 
     redis = _redis()
     pubsub = redis.pubsub()
-    channel = f"results:{term_id}"
     started = asyncio.get_event_loop().time()
     try:
         await pubsub.subscribe(channel)

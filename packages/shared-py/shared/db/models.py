@@ -13,6 +13,7 @@ from shared.db.enums import (
     ProfileVisibility,
     QuestionType,
     TermType,
+    UserRole,
     UserTermStatus,
     Visibility,
 )
@@ -84,7 +85,7 @@ class User(SQLModel, table=True):
     image: str | None = Field(default=None, sa_column=Column(Text))
     created_at: datetime | None = Field(default=None, sa_column=_dt_column(nullable=False))
     updated_at: datetime | None = Field(default=None, sa_column=_dt_column(nullable=False))
-    token_version: int = Field(default=0, sa_column=Column(SmallInteger, nullable=False))
+    token_version: int = Field(default=0, sa_column=Column(Integer, nullable=False))
     image_url: str | None = Field(default=None, sa_column=Column(Text))
     streak_days: int = Field(default=0, sa_column=Column(Integer, nullable=False))
     last_session_date: date | None = Field(default=None, sa_column=Column(Date))
@@ -112,6 +113,16 @@ class User(SQLModel, table=True):
     streak_public: bool = Field(default=False, sa_column=Column(Boolean, nullable=False))
     daily_goal: int = Field(default=20, sa_column=Column(SmallInteger, nullable=False))
     reminder_hour: int | None = Field(default=None, sa_column=Column(SmallInteger))
+    role: UserRole = Field(
+        default=UserRole.USER,
+        sa_column=Column(
+            _pg_enum(UserRole, "user_role_enum"),
+            nullable=False,
+            server_default=text("'user'"),
+        ),
+    )
+    banned_at: datetime | None = Field(default=None, sa_column=_dt_column())
+    ban_reason: str | None = Field(default=None, sa_column=Column(Text))
 
 
 class Node(SQLModel, table=True):
@@ -135,6 +146,7 @@ class Node(SQLModel, table=True):
     forks_count: int = Field(default=0, sa_column=Column(Integer, nullable=False))
     created_at: datetime | None = Field(default=None, sa_column=_dt_column(nullable=False))
     updated_at: datetime | None = Field(default=None, sa_column=_dt_column(nullable=False))
+    deleted_at: datetime | None = Field(default=None, sa_column=_dt_column())
 
 
 class FolderAttribute(SQLModel, table=True):
@@ -254,6 +266,16 @@ class Response(SQLModel, table=True):
     user_answer: str | None = Field(default=None, sa_column=Column(Text))
     grade_reason: str | None = Field(default=None, sa_column=Column(Text))
     grade_confidence: float | None = Field(default=None, sa_column=Column(Numeric(asdecimal=False)))
+    # Async (LLM-judge) grading: 'pending' until the grade_answer worker writes
+    # the verdict; 'graded' for sync responses + resolved async ones.
+    grade_status: str = Field(default="graded", sa_column=Column(Text, nullable=False, server_default="graded"))
+    # Learning session that produced this response, so apply_async_verdict can
+    # re-enter it under the session lock once the verdict resolves.
+    session_id: str | None = Field(default=None, sa_column=Column(Text))
+    # Exactly-once guard for deferred ELO/XP application.
+    elo_applied: bool = Field(default=True, sa_column=Column(Boolean, nullable=False, server_default="true"))
+    grade_score: float | None = Field(default=None, sa_column=Column(Numeric(asdecimal=False)))
+    grade_feedback: str | None = Field(default=None, sa_column=Column(Text))
     created_at: datetime | None = Field(default=None, sa_column=_dt_column(nullable=False))
 
 
@@ -555,6 +577,39 @@ class AdminAction(SQLModel, table=True):
     created_at: datetime | None = Field(default=None, sa_column=_dt_column(nullable=False))
     ip_address: str | None = Field(default=None, sa_column=Column(INET))
     user_agent: str | None = Field(default=None, sa_column=Column(Text))
+
+
+class LlmSpendEvent(SQLModel, table=True):
+    __tablename__ = "llm_spend_events"
+
+    id: int | None = Field(default=None, sa_column=Column(BigInteger, primary_key=True))
+    user_id: UUID | None = Field(default=None, sa_column=_uuid_column())
+    job_id: UUID | None = Field(default=None, sa_column=_uuid_column())
+    job_type: str = Field(sa_column=Column(Text, nullable=False))
+    model: str = Field(sa_column=Column(Text, nullable=False))
+    cost_usd: float = Field(sa_column=Column(Numeric(10, 6, asdecimal=False), nullable=False))
+    input_tokens: int | None = Field(default=None, sa_column=Column(Integer))
+    output_tokens: int | None = Field(default=None, sa_column=Column(Integer))
+    created_at: datetime | None = Field(default=None, sa_column=_dt_column(nullable=False))
+
+
+class ContentReport(SQLModel, table=True):
+    __tablename__ = "content_reports"
+
+    id: int | None = Field(default=None, sa_column=Column(BigInteger, primary_key=True))
+    reporter_user_id: UUID = Field(sa_column=_uuid_column(nullable=False))
+    content_type: str = Field(sa_column=Column(Text, nullable=False))
+    node_id: UUID | None = Field(default=None, sa_column=_uuid_column())
+    comment_id: int | None = Field(default=None, sa_column=Column(BigInteger))
+    reason: str = Field(sa_column=Column(Text, nullable=False))
+    details: str | None = Field(default=None, sa_column=Column(Text))
+    status: str = Field(default="pending", sa_column=Column(Text, nullable=False))
+    target_owner_id: UUID | None = Field(default=None, sa_column=_uuid_column())
+    target_snapshot: dict[str, Any] | None = Field(default=None, sa_column=Column(JSONB))
+    resolved_by: UUID | None = Field(default=None, sa_column=_uuid_column())
+    resolved_at: datetime | None = Field(default=None, sa_column=_dt_column())
+    resolution: str | None = Field(default=None, sa_column=Column(Text))
+    created_at: datetime | None = Field(default=None, sa_column=_dt_column(nullable=False))
 
 
 class EmailEvent(SQLModel, table=True):

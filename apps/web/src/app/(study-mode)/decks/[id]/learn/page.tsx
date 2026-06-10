@@ -1,8 +1,10 @@
 "use client";
 
 import React from "react";
-import { use } from "react";
+import { use, useState } from "react";
 import { LearningSessionComponent } from "@/components/study/learn";
+import { ThemePicker } from "@/components/study/learn/theme-picker";
+import { Button } from "@/components/ui/button";
 import { useDeckTerms } from "@/lib/api-hooks/use-terms";
 
 interface LearnPageProps {
@@ -12,6 +14,8 @@ interface LearnPageProps {
 export default function LearnPage({ params }: LearnPageProps) {
   const { id } = use(params);
   const { data: rows = [], isLoading } = useDeckTerms(id);
+  const [themeId, setThemeId] = useState<string | null>(null);
+  const [started, setStarted] = useState(false);
 
   if (isLoading) {
     return (
@@ -37,10 +41,24 @@ export default function LearnPage({ params }: LearnPageProps) {
     );
   }
 
+  if (!started) {
+    return (
+      <div className="container mx-auto pt-8">
+        <div className="max-w-md mx-auto space-y-6">
+          <h2 className="text-2xl font-semibold text-center">Start learning</h2>
+          <ThemePicker value={themeId} onChange={setThemeId} />
+          <Button className="w-full" onClick={() => setStarted(true)}>
+            Start session
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="container mx-auto pt-8">
       <div className="max-w-4xl mx-auto">
-        <LearningSessionComponent deckId={id} />
+        <LearningSessionComponent deckId={id} themeId={themeId} />
       </div>
     </div>
   );

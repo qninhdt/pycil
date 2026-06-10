@@ -63,7 +63,7 @@ export function EditProfileDialog({
       });
       if (!putRes.ok) throw new Error("upload_failed");
       if (public_url) {
-        await update.mutateAsync({ image_url: public_url } as any);
+        await update.mutateAsync({ image_url: public_url });
         toast.success("Profile image updated.");
       }
     } catch (err) {

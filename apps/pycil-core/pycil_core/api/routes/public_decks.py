@@ -48,7 +48,7 @@ async def list_public_decks(
            (SELECT COUNT(*) FROM deck_definitions dd WHERE dd.deck_id = n.id) AS term_count,
            (SELECT COUNT(*) FROM deck_clones c WHERE c.source_deck_id = n.id) AS clone_count
       FROM nodes n
-     WHERE n.type = 'DECK' AND n.visibility = 'PUBLIC'
+     WHERE n.type = 'DECK' AND n.visibility = 'PUBLIC' AND n.deleted_at IS NULL
     """
     params: dict = {"limit": limit + 1}
     if cursor:
@@ -99,6 +99,7 @@ async def get_public_deck(deck_id: UUID, request: Request, session: SessionDep) 
                 Node.id == deck_id,
                 Node.type == NodeType.DECK,
                 Node.visibility == Visibility.PUBLIC,
+                Node.deleted_at.is_(None),
             )
         )
     ).first()

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from enum import Enum
 
-from shared.questions.base import QuestionType
+from shared.questions.types import QuestionType
 
 
 class NodeType(str, Enum):
@@ -65,6 +65,11 @@ class ClassroomRole(str, Enum):
     STUDENT = "student"
 
 
+class UserRole(str, Enum):
+    USER = "user"
+    ADMIN = "admin"
+
+
 __all__ = [
     "CefrLevel",
     "ClassroomRole",
@@ -73,6 +78,7 @@ __all__ = [
     "ProfileVisibility",
     "QuestionType",
     "TermType",
+    "UserRole",
     "UserTermStatus",
     "Visibility",
 ]

@@ -20,6 +20,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { FileIcon } from "./file-icon";
 import { DeleteConfirmDialog } from "@/components/dialogs/delete-confirm-dialog";
@@ -27,7 +28,29 @@ import {
   useToggleStar,
   useTogglePin,
 } from "@/lib/api-hooks/use-nodes";
+import { getNode } from "@/lib/api-client/nodes";
 import { apiErrorMessage } from "@/lib/api-error-copy";
+
+/** Resolve a shortcut's target type at click time and route to it.
+ *
+ * NodeRead carries only `target_node_id`, not the target's type, so the
+ * folder-vs-deck route can't be built statically — fetch the target and branch
+ * on its type. 404/403 (deleted or now-unshared target) surfaces as a toast. */
+async function openShortcutTarget(
+  targetId: string | undefined,
+  push: (href: string) => void,
+): Promise<void> {
+  if (!targetId) {
+    toast.error("This shortcut has no target.");
+    return;
+  }
+  try {
+    const target = await getNode(targetId);
+    push(target.type === "FOLDER" ? `/folders/${target.id}` : `/decks/${target.id}`);
+  } catch (err) {
+    toast.error(apiErrorMessage(err, "Shortcut target is unavailable"));
+  }
+}
 
 interface FileListItemProps {
   readonly item: TermDeck;
@@ -49,6 +72,7 @@ const GridCard = memo<FileListItemProps>(
   ({ item, onEdit, onShare }) => {
     const href = useMemo(() => getItemHref(item), [item]);
     const [deleteOpen, setDeleteOpen] = useState(false);
+    const router = useRouter();
     const toggleStar = useToggleStar();
     const togglePin = useTogglePin();
 
@@ -69,6 +93,15 @@ const GridCard = memo<FileListItemProps>(
       });
     }, [togglePin, item.id]);
 
+    const handleOpenTarget = useCallback(
+      (e?: React.MouseEvent) => {
+        e?.preventDefault();
+        e?.stopPropagation();
+        void openShortcutTarget(item.targetId, (h) => router.push(h));
+      },
+      [router, item.targetId]
+    );
+
     const handleDelete = useCallback(() => setDeleteOpen(true), []);
 
     const handleMenuClick = useCallback((e: React.MouseEvent) => {
@@ -81,11 +114,12 @@ const GridCard = memo<FileListItemProps>(
     }, []);
 
     return (
-      <Card className="group hover:shadow-md transition-shadow h-full relative flex flex-col py-2">
+      <Card className="group hover:shadow-md hover:-translate-y-0.5 hover:border-primary/30 transition-all h-full relative flex flex-col py-2">
         <Link
           href={href}
           className="absolute inset-0 z-0"
           aria-label={`Open ${item.title}`}
+          onClick={item.isShortcut ? handleOpenTarget : undefined}
         />
         <CardHeader className="relative z-10 flex-shrink-0">
           <div className="flex items-center justify-between gap-2">
@@ -131,7 +165,7 @@ const GridCard = memo<FileListItemProps>(
               >
                 <AdaptiveMenuContent>
                   {item.isShortcut && (
-                    <AdaptiveMenuItem>
+                    <AdaptiveMenuItem onClick={handleOpenTarget}>
                       <ExternalLink className="h-4 w-4" />
                       Open target
                     </AdaptiveMenuItem>
@@ -189,10 +223,14 @@ const GridCard = memo<FileListItemProps>(
           </div>
 
           {/* Progress bar for all items */}
-          <div className="space-y-1 flex-shrink-0">
-            <div className="w-full bg-muted rounded-full h-1.5">
+          <div className="mt-auto space-y-1.5 flex-shrink-0">
+            <div className="flex items-center justify-between text-[11px] font-medium text-muted-foreground">
+              <span>Mastery</span>
+              <span className="tabular-nums">{item.masteryProgress}%</span>
+            </div>
+            <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
               <div
-                className="bg-primary h-1.5 rounded-full transition-all"
+                className="bg-primary h-1.5 rounded-full transition-all duration-500"
                 style={{ width: `${item.masteryProgress}%` }}
                 aria-label={`Progress: ${item.masteryProgress}%`}
               />
@@ -221,6 +259,7 @@ const ListItem = memo<FileListItemProps>(
   ({ item, onEdit, onShare }) => {
     const href = useMemo(() => getItemHref(item), [item]);
     const [deleteOpen, setDeleteOpen] = useState(false);
+    const router = useRouter();
     const toggleStar = useToggleStar();
     const togglePin = useTogglePin();
 
@@ -241,12 +280,22 @@ const ListItem = memo<FileListItemProps>(
       });
     }, [togglePin, item.id]);
 
+    const handleOpenTarget = useCallback(
+      (e?: React.MouseEvent) => {
+        e?.preventDefault();
+        e?.stopPropagation();
+        void openShortcutTarget(item.targetId, (h) => router.push(h));
+      },
+      [router, item.targetId]
+    );
+
     const handleDelete = useCallback(() => setDeleteOpen(true), []);
 
     return (
       <div className="flex items-center justify-between p-3 rounded-lg hover:bg-muted/50 transition-colors group min-h-[4rem]">
         <Link
           href={href}
+          onClick={item.isShortcut ? handleOpenTarget : undefined}
           className="flex items-center gap-3 flex-1 min-w-0"
           aria-label={`Open ${item.title}`}
         >
@@ -332,7 +381,7 @@ const ListItem = memo<FileListItemProps>(
           >
             <AdaptiveMenuContent>
               {item.isShortcut && (
-                <AdaptiveMenuItem>
+                <AdaptiveMenuItem onClick={handleOpenTarget}>
                   <ExternalLink className="h-4 w-4" />
                   Open target
                 </AdaptiveMenuItem>

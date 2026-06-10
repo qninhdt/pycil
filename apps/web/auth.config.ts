@@ -18,6 +18,14 @@ export const authConfig = {
         url.searchParams.set("callbackUrl", nextUrl.pathname);
         return Response.redirect(url);
       }
+      // Edge gate for /admin/* — convenience only; the backend DB role read is
+      // authoritative. Non-admins are bounced to the dashboard.
+      if (nextUrl.pathname.startsWith("/admin")) {
+        const role = (auth?.user as { role?: string } | undefined)?.role;
+        if (role !== "admin") {
+          return Response.redirect(new URL("/", nextUrl));
+        }
+      }
       return true;
     },
   },

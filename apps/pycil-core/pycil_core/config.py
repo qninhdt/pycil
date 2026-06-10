@@ -30,12 +30,14 @@ class Settings(BaseSettings):
     internal_api_secret: str = Field(..., alias="INTERNAL_API_SECRET")
     jwt_max_age_seconds: int = Field(default=60 * 60 * 24 * 7, alias="JWT_MAX_AGE_SECONDS")
 
-    # --- B2 / S3-compatible storage (avatars + TTS) ---
-    b2_bucket: str | None = Field(default=None, alias="B2_BUCKET")
-    b2_endpoint: str | None = Field(default=None, alias="B2_ENDPOINT")
-    b2_key_id: str | None = Field(default=None, alias="B2_KEY_ID")
-    b2_application_key: str | None = Field(default=None, alias="B2_APPLICATION_KEY")
-    b2_public_url_prefix: str | None = Field(default=None, alias="B2_PUBLIC_URL_PREFIX")
+    # --- S3-compatible object storage (avatars + TTS audio) ---
+    # MinIO locally, any S3 provider in prod. Distinct from the restic backup
+    # service's Backblaze-native B2_ACCOUNT_* vars (a different API).
+    s3_bucket: str | None = Field(default=None, alias="S3_BUCKET")
+    s3_endpoint: str | None = Field(default=None, alias="S3_ENDPOINT")
+    s3_key_id: str | None = Field(default=None, alias="S3_KEY_ID")
+    s3_secret_key: str | None = Field(default=None, alias="S3_APPLICATION_KEY")
+    s3_public_url_prefix: str | None = Field(default=None, alias="S3_PUBLIC_URL_PREFIX")
 
     # --- Stripe (phase 16 stub) ---
     stripe_secret_key: str | None = Field(default=None, alias="STRIPE_SECRET_KEY")
@@ -65,6 +67,21 @@ class Settings(BaseSettings):
     llm_judge_budget_daily_usd: float = Field(
         default=1.0, alias="LLM_JUDGE_BUDGET_DAILY_USD"
     )
+
+    # --- Question bank + prewarm ---
+    question_bank_target_depth: int = Field(
+        default=2, alias="QUESTION_BANK_TARGET_DEPTH"
+    )
+    question_bank_prewarm_enabled: bool = Field(
+        default=True, alias="QUESTION_BANK_PREWARM_ENABLED"
+    )
+    question_bank_prewarm_types: str = Field(
+        default="MULTIPLE_CHOICE", alias="QUESTION_BANK_PREWARM_TYPES"
+    )
+
+    @property
+    def question_bank_prewarm_types_list(self) -> list[str]:
+        return [t.strip() for t in self.question_bank_prewarm_types.split(",") if t.strip()]
 
     # --- CSRF / CORS ---
     allowed_origins: str = Field(default="http://localhost:3000", alias="ALLOWED_ORIGINS")

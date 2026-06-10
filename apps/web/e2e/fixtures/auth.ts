@@ -1,85 +1,85 @@
 /**
- * JWT-based auth fixture for Playwright e2e tests.
+ * Real-login auth fixture for Playwright e2e tests.
  *
- * Bypasses Google OAuth by minting a JWT with `jose` and
- * injecting it as the session cookie (`pycil-session` in dev).
- * Supports both dev (non-secure) and CI (secure if HTTPS).
+ * Replaces the old hand-minted JWT cookie with a real browser login against the
+ * Dex OIDC IdP — the same flow a human (and prod, swapping Dex→Google) uses.
+ * The session cookie is issued by the genuine Auth.js round-trip, so the tests
+ * exercise the actual auth path instead of a bypass.
+ *
+ * `authenticatedPage()` reuses the storageState captured once by the `setup`
+ * project (see playwright.config.ts) so only one real login happens per run.
+ * Pass an explicit user to force a fresh login as a different identity.
  */
-import { test as base, type Page } from "@playwright/test";
-import { SignJWT } from "jose";
+import { test as base, type Page, type BrowserContext } from "@playwright/test";
+import { DexLoginPage } from "../pages/dex-login-page";
 
 export interface AuthFixture {
-  /** Page authenticated as the given user. */
+  /** Page authenticated as the given user (default: reuse stored session). */
   authenticatedPage: (user?: TestUser) => Promise<Page>;
 }
 
 export interface TestUser {
-  id: string;
   email: string;
-  name: string;
-  image?: string;
-  role?: string;
-  tokenVersion?: number;
+  password: string;
 }
 
-const DEFAULT_USER: TestUser = {
-  id: "00000000-0000-0000-0000-00000000e2e1",
-  email: "e2e-test@pycil.local",
-  name: "E2E Test User",
-  role: "user",
-  tokenVersion: 0,
+export const DEFAULT_USER: TestUser = {
+  email: process.env.E2E_TEST_EMAIL ?? "e2e-test@pycil.local",
+  password: process.env.E2E_TEST_PASSWORD ?? "password123",
 };
 
-function cookieName(): string {
-  return process.env.SESSION_COOKIE_NAME ?? "pycil-session";
-}
+/** Absolute path of the stored session, shared with the setup project. */
+export const STORAGE_STATE =
+  process.env.E2E_STORAGE_STATE ?? "e2e/.auth/user.json";
 
-async function mintJwt(
-  secret: string,
-  user: TestUser,
-  maxAgeSeconds: number = 604800,
-): Promise<string> {
-  const key = new TextEncoder().encode(secret);
-  return new SignJWT({
-    sub: user.id,
-    email: user.email,
-    name: user.name,
-    picture: user.image ?? null,
-    role: user.role ?? "user",
-    tv: user.tokenVersion ?? 0,
-  })
-    .setProtectedHeader({ alg: "HS256" })
-    .setIssuedAt()
-    .setExpirationTime(`${maxAgeSeconds}s`)
-    .sign(key);
+/**
+ * Drive the real OIDC login: sign-in page → provider button → Dex form →
+ * redirect back to an authenticated app route. Throws if the post-login URL is
+ * still /sign-in (login did not take).
+ */
+export async function loginViaDex(
+  page: Page,
+  user: TestUser = DEFAULT_USER,
+): Promise<void> {
+  await page.goto("/sign-in");
+  // The provider button label is env-driven (OIDC_PROVIDER_NAME, "Dex" locally).
+  // Match the stable "Continue with" prefix so a provider rename does not break.
+  await page.getByRole("button", { name: /continue with/i }).click();
+
+  const dex = new DexLoginPage(page);
+  await dex.login(user.email, user.password);
+
+  // Auth.js consumes the callback, sets the session cookie, and redirects to the
+  // app. Dex skipApprovalScreen=true means no consent click. Land off /sign-in.
+  await page.waitForURL((url) => !url.pathname.startsWith("/sign-in"), {
+    timeout: 30_000,
+  });
 }
 
 export const test = base.extend<AuthFixture>({
   authenticatedPage: [
     async ({ browser }, use) => {
-      const secret =
-        process.env.AUTH_JWT_SECRET ?? "e2e-fake-jwt-secret-for-testing";
-      const maxAge = Number(
-        process.env.JWT_MAX_AGE_SECONDS ?? 60 * 60 * 24 * 7,
-      );
+      const contexts: BrowserContext[] = [];
 
-      async function createAuthPage(user: TestUser = DEFAULT_USER): Promise<Page> {
-        const context = await browser.newContext();
-        const jwt = await mintJwt(secret, user, maxAge);
-        await context.addCookies([
-          {
-            name: cookieName(),
-            value: jwt,
-            domain: "localhost",
-            path: "/",
-            httpOnly: true,
-            sameSite: "Lax",
-          },
-        ]);
-        return context.newPage();
+      async function createAuthPage(user?: TestUser): Promise<Page> {
+        // No explicit user → reuse the session captured by the setup project.
+        // Explicit user → fresh context + real login as that identity.
+        let context: BrowserContext;
+        if (!user) {
+          context = await browser.newContext({ storageState: STORAGE_STATE });
+          contexts.push(context);
+          return context.newPage();
+        }
+        context = await browser.newContext();
+        contexts.push(context);
+        const page = await context.newPage();
+        await loginViaDex(page, user);
+        return page;
       }
 
       await use(createAuthPage);
+
+      for (const c of contexts) await c.close();
     },
     { scope: "test" },
   ],

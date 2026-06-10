@@ -1,6 +1,7 @@
 "use client";
 
 import React, { memo, useMemo } from "react";
+import { FolderOpen, Plus } from "lucide-react";
 import type { TermDeck } from "@/types";
 import { FileListItem } from "./file-list-item";
 import { Button } from "../ui/button";
@@ -60,21 +61,23 @@ const EmptyState = memo<{
     readonly buttonAction?: () => void;
   };
 }>(({ state }) => (
-  <div className="text-center py-12">
-    <div className="mx-auto max-w-sm">
-      {state.icon && (
-        <div className="mb-4" aria-hidden="true">
-          {state.icon}
-        </div>
-      )}
-      <h3 className="text-lg font-medium">{state.title}</h3>
-      <p className="text-muted-foreground mt-2">{state.description}</p>
+  <div className="rounded-2xl border border-dashed bg-muted/20 py-16 text-center">
+    <div className="mx-auto max-w-sm px-6">
+      <div
+        className="mx-auto mb-4 flex size-14 items-center justify-center rounded-2xl bg-muted text-muted-foreground"
+        aria-hidden="true"
+      >
+        {state.icon ?? <FolderOpen className="size-7" />}
+      </div>
+      <h3 className="text-lg font-semibold">{state.title}</h3>
+      <p className="text-muted-foreground mt-1.5 text-sm">{state.description}</p>
       {state.buttonText && (
         <Button
-          className="mt-4"
+          className="mt-5"
           onClick={state.buttonAction}
           aria-label={state.buttonText}
         >
+          <Plus className="size-4" />
           {state.buttonText}
         </Button>
       )}

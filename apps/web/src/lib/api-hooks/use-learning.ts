@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as learningApi from "@/lib/api-client/learning";
 import { queryKeys } from "@/lib/api-client/query-keys";
 import type {
+  ApplyVerdictRequest,
   StartSessionRequest,
   SubmitAnswerRequest,
   UUID,
@@ -35,6 +36,17 @@ export function useSubmitAnswer(sessionId: string) {
   return useMutation({
     mutationFn: (body: SubmitAnswerRequest) =>
       learningApi.submitAnswer(sessionId, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.session.question(sessionId) });
+    },
+  });
+}
+
+export function useApplyVerdict(sessionId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: ApplyVerdictRequest) =>
+      learningApi.applyVerdict(sessionId, body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.session.question(sessionId) });
     },

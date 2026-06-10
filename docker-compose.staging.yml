@@ -1,0 +1,116 @@
+# Local-only staging/E2E overlay for host-driven `next dev` + one-command staging.
+# NOT named docker-compose.override.yml on purpose: an override file auto-merges
+# into EVERY bare `docker compose` (including the prod deploy's `docker compose
+# up -d`), which would silently push the dev server, LLM stubs, and dex/minio to
+# prod. This file only applies when explicitly passed, so it can never leak:
+#   docker compose -f docker-compose.yml -f docker-compose.staging.yml up …
+# `make staging` and the e2e prereqs use that explicit form; prod stays clean.
+#
+# Why the overlay exists: the base compose keeps ports on the internal network
+# only. Playwright's db-seed talks to Postgres on localhost:5432, and Next.js
+# dev-proxy rewrites hit pycil-core on localhost:8000 — both need host ports.
+#
+# Published backend ports bind 127.0.0.1 only: the host-exposed core gates
+# /auth/upsert-user solely on INTERNAL_API_SECRET, so loopback-only keeps it off
+# the LAN even when that secret is still a local placeholder.
+#
+# Stub flags default to "true" (deterministic, no OpenRouter spend) for the
+# per-PR E2E run, but are overridable from the shell — `staging-up.sh` exports
+# them "false" so `make staging` exercises the real LLM end-to-end.
+
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  redis:
+    ports:
+      - "127.0.0.1:6379:6379"
+
+  pycil-core:
+    ports:
+      - "127.0.0.1:8000:8000"
+    # Bind-mount host source + uvicorn --reload so backend fixes apply live
+    # without an image rebuild — essential for the self-healing E2E loop. The
+    # mounts shadow the baked /app copies with the working tree.
+    volumes:
+      - ./apps/pycil-core/pycil_core:/app/apps/pycil-core/pycil_core
+      - ./packages/shared-py/shared:/app/packages/shared-py/shared
+    command:
+      ["uvicorn", "pycil_core.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    environment:
+      LLM_STUB_MODE: "${LLM_STUB_MODE:-true}"
+      # The CSRF middleware checks the browser Origin against this list. Local
+      # E2E runs `next dev` on :3100 (3000 is often taken by another project),
+      # so that origin must be allowed or every POST 403s with csrf_mismatch and
+      # the learn session never starts. CI runs core+web both on :3000 with its
+      # own env, so this local-only addition does not affect CI.
+      ALLOWED_ORIGINS: "http://localhost,https://localhost,http://localhost:3000,http://localhost:3100,http://localhost:3210"
+      # S3-compatible object store (avatars + TTS audio) points at the local
+      # MinIO container. Endpoint is the in-cluster name; the browser-facing GET
+      # host is S3_PUBLIC_URL_PREFIX. The app reads these once storage config is
+      # renamed off the legacy B2_* aliases.
+      S3_BUCKET: "${S3_BUCKET:-pycil-media}"
+      S3_ENDPOINT: "${S3_ENDPOINT:-http://minio:9000}"
+      S3_KEY_ID: "${S3_KEY_ID:-minioadmin}"
+      S3_APPLICATION_KEY: "${S3_APPLICATION_KEY:-minioadmin}"
+      S3_PUBLIC_URL_PREFIX: "${S3_PUBLIC_URL_PREFIX:-http://localhost:9000/pycil-media}"
+
+  worker:
+    environment:
+      WORKER_LLM_STUB: "${WORKER_LLM_STUB:-true}"
+      S3_BUCKET: "${S3_BUCKET:-pycil-media}"
+      S3_ENDPOINT: "${S3_ENDPOINT:-http://minio:9000}"
+      S3_KEY_ID: "${S3_KEY_ID:-minioadmin}"
+      S3_APPLICATION_KEY: "${S3_APPLICATION_KEY:-minioadmin}"
+      S3_PUBLIC_URL_PREFIX: "${S3_PUBLIC_URL_PREFIX:-http://localhost:9000/pycil-media}"
+    # Base compose gives the worker no healthcheck, so `staging-up` has nothing
+    # to wait on and live specs can start before the worker consumes jobs —
+    # surfacing as a phantom "LLM timeout" that is really worker cold-start.
+    # python:3.12-slim has no redis-cli, so probe via the in-image redis client.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import arq, redis, os; redis.from_url(os.environ['REDIS_URL']).ping()"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Local OIDC IdP — stands in for Google. Prod uses Google (no Dex).
+  # Mounts the static config; published to localhost:5556 so the host-run
+  # Auth.js server and the browser both reach the issuer at the same string.
+  dex:
+    image: ghcr.io/dexidp/dex:v2.41.1
+    restart: unless-stopped
+    command: ["dex", "serve", "/etc/dex/config.yaml"]
+    volumes:
+      - ./infra/dex/config.yaml:/etc/dex/config.yaml:ro
+    ports:
+      - "127.0.0.1:5556:5556"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5556/dex/.well-known/openid-configuration"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Local S3-compatible object store. Stands in for the prod S3 provider so
+  # avatar uploads + TTS audio run fully local with no external account.
+  # Root creds are local-only values (never reuse prod S3 creds here).
+  minio:
+    image: minio/minio:RELEASE.2025-04-08T15-41-24Z
+    restart: unless-stopped
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: "${S3_KEY_ID:-minioadmin}"
+      MINIO_ROOT_PASSWORD: "${S3_APPLICATION_KEY:-minioadmin}"
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  miniodata:

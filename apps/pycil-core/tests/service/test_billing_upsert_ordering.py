@@ -11,7 +11,6 @@ Pinned via the WHERE-clause composite tiebreak `(last_event_at, last_event_id)`:
 """
 from __future__ import annotations
 
-import pytest
 from sqlalchemy import text
 
 from pycil_core.services import billing_service
@@ -175,3 +174,38 @@ async def test_unicode_event_id_roundtrips(session, test_user) -> None:
 async def test_get_user_tier_default_free(session, test_user) -> None:
     tier = await billing_service.get_user_tier(session, user_id=test_user["id"])
     assert tier == "free"
+
+
+async def test_updated_at_advances_on_conflict_update(session, test_user) -> None:
+    """Regression (D2): the conflict-UPDATE path must bump `updated_at = NOW()`.
+
+    The SQLModel conversion dropped `updated_at = NOW()` from the DO UPDATE set
+    clause; since the column has no ORM `onupdate=`, `updated_at` would freeze at
+    insert time across every webhook update. Newer event must advance it.
+    """
+    await billing_service.upsert_subscription(
+        session, user_id=test_user["id"], tier="pro",
+        stripe_subscription_id="sub_001", current_period_end_epoch=2000,
+        status_str="active", event_created_epoch=100, event_id="evt_001",
+    )
+    inserted = (
+        await session.execute(
+            text("SELECT created_at, updated_at FROM subscriptions WHERE user_id = :u"),
+            {"u": test_user["id"]},
+        )
+    ).first()
+
+    ok = await billing_service.upsert_subscription(
+        session, user_id=test_user["id"], tier="pro",
+        stripe_subscription_id="sub_001", current_period_end_epoch=3000,
+        status_str="active", event_created_epoch=200, event_id="evt_002",
+    )
+    assert ok is True
+    after = (
+        await session.execute(
+            text("SELECT updated_at FROM subscriptions WHERE user_id = :u"),
+            {"u": test_user["id"]},
+        )
+    ).first()
+    assert after.updated_at >= inserted.updated_at
+

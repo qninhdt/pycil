@@ -1,3 +1,4 @@
+import { GraduationCap } from "lucide-react";
 import { signIn } from "@/../auth";
 import { safeCallbackUrl } from "@/lib/safe-href";
 
@@ -10,20 +11,26 @@ const ERROR_COPY: Record<string, string> = {
   account_deleted: "Your account has been deleted.",
 };
 
-export default function SignInPage({
+export default async function SignInPage({
   searchParams,
 }: {
-  searchParams: { callbackUrl?: string; reason?: string; error?: string };
+  searchParams: Promise<{ callbackUrl?: string; reason?: string; error?: string }>;
 }) {
-  const callbackUrl = safeCallbackUrl(searchParams?.callbackUrl);
+  const params = await searchParams;
+  const callbackUrl = safeCallbackUrl(params?.callbackUrl);
   const banner =
-    (searchParams?.error && ERROR_COPY[searchParams.error]) ||
-    (searchParams?.reason && REASON_COPY[searchParams.reason]) ||
+    (params?.error && ERROR_COPY[params.error]) ||
+    (params?.reason && REASON_COPY[params.reason]) ||
     null;
+  const useMock = process.env.NEXT_PUBLIC_USE_MOCK === "true";
   return (
-    <main className="flex min-h-svh items-center justify-center px-6">
-      <section className="w-full max-w-sm space-y-8 rounded-2xl border border-border bg-card p-8 shadow-sm">
-        <header className="space-y-2 text-center">
+    <main className="relative flex min-h-svh items-center justify-center overflow-hidden px-6">
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-primary/10 via-background to-background" />
+      <section className="relative w-full max-w-sm space-y-8 rounded-2xl border border-border bg-card/80 p-8 shadow-lg backdrop-blur">
+        <header className="space-y-3 text-center">
+          <div className="mx-auto flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+            <GraduationCap className="size-6" />
+          </div>
           <h1 className="text-2xl font-semibold tracking-tight">Welcome to Pycil</h1>
           <p className="text-sm text-muted-foreground">
             Sign in to continue. Your decks, terms, and study progress live in
@@ -35,19 +42,36 @@ export default function SignInPage({
             {banner}
           </div>
         ) : null}
-        <form
-          action={async () => {
-            "use server";
-            await signIn("google", { redirectTo: callbackUrl });
-          }}
-        >
-          <button
-            type="submit"
-            className="flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
+        {useMock ? (
+          <div className="space-y-3">
+            <a
+              href={callbackUrl}
+              className="flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-all hover:bg-primary/90 active:scale-[0.98]"
+            >
+              Continue as Demo User
+            </a>
+            <p className="text-center text-xs text-muted-foreground">
+              Demo mode — no account needed. Explore every feature with sample
+              data.
+            </p>
+          </div>
+        ) : (
+          <form
+            action={async () => {
+              "use server";
+              await signIn(process.env.OIDC_PROVIDER_ID ?? "oidc", {
+                redirectTo: callbackUrl,
+              });
+            }}
           >
-            Continue with Google
-          </button>
-        </form>
+            <button
+              type="submit"
+              className="flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
+            >
+              Continue with {process.env.OIDC_PROVIDER_NAME ?? "SSO"}
+            </button>
+          </form>
+        )}
       </section>
     </main>
   );

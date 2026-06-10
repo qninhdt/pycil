@@ -9,15 +9,14 @@ Pinned:
 """
 from __future__ import annotations
 
-import asyncio
 from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
+from shared.redis_lock import spend_key_today
 from sqlalchemy import text
 
 from pycil_core.services import job_service
-from shared.redis_lock import spend_key_today
 from tests.factories import make_term
 
 
@@ -180,3 +179,31 @@ async def test_enqueue_failure_orphan_cleanup(
     ).one()
     assert row.status == "failed"
     assert row.error == "enqueue_failed"
+
+
+async def test_commit_failure_releases_lock(
+    session, fakeredis_client, test_user, monkeypatch
+) -> None:
+    """Regression (C1): a commit failure on the fresh-job INSERTs must still
+    release the term lock. Previously only the enqueue-failure path released
+    it, so a commit error leaked the lock for the full TTL window and left the
+    term un-enrichable."""
+    term_id = await make_term(session, value="commit-leak-term")
+
+    real_commit = session.commit
+    calls = {"n": 0}
+
+    async def flaky_commit():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("commit boom")
+        return await real_commit()
+
+    monkeypatch.setattr(session, "commit", flaky_commit)
+
+    with pytest.raises(RuntimeError, match="commit boom"):
+        await job_service.enqueue_generate_term(session, test_user["id"], term_id)
+
+    # Lock must be released despite the commit failure.
+    assert await fakeredis_client.get(f"lock:generate_term:{term_id}") is None
+

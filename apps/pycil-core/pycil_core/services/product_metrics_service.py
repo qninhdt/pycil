@@ -6,7 +6,7 @@ spend, top decks by activity, signup funnel. Read-only — pure SELECT.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from shared.db import Node, NodeType, Response, User
 from sqlalchemy import func
@@ -51,3 +51,40 @@ async def snapshot(session: AsyncSession) -> MetricsSnapshot:
         questions_answered_today=int(answers.one()),
         decks_created_today=int(decks.one()),
     )
+
+
+async def signup_funnel(
+    session: AsyncSession, *, start: datetime, end: datetime
+) -> dict:
+    """Signup → activation funnel for [start, end).
+
+    - total_signups: users created in range.
+    - activated: of those, how many recorded at least one Response (answered a
+      question) — the first meaningful action.
+    - activation_rate: activated / total_signups (0.0 when no signups).
+    """
+    total = int(
+        (
+            await session.exec(
+                select(func.count())
+                .select_from(User)
+                .where(User.created_at >= start, User.created_at < end)
+            )
+        ).one()
+    )
+    activated = int(
+        (
+            await session.exec(
+                select(func.count(func.distinct(User.id)))
+                .select_from(User)
+                .join(Response, Response.user_id == User.id)
+                .where(User.created_at >= start, User.created_at < end)
+            )
+        ).one()
+    )
+    rate = round(activated / total, 4) if total else 0.0
+    return {
+        "total_signups": total,
+        "activated": activated,
+        "activation_rate": rate,
+    }

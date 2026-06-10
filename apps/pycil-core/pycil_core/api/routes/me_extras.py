@@ -20,9 +20,10 @@ from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from shared.db import AdminAction, User
-from sqlalchemy import func, select
+from sqlalchemy import func
+from sqlmodel import select
 
-from pycil_core.api.deps import SessionDep, UserDep
+from pycil_core.api.deps import AdminDep, SessionDep, UserDep
 from pycil_core.services.activity_feed_service import (
     list_for_followees as feed_list_followees,
 )
@@ -285,29 +286,47 @@ async def get_flag(
     return {"name": name, "enabled": enabled}
 
 
-# ── Admin audit (read-only here; writes go through admin_audit_service) ──
+# ── Admin audit viewer (read-only; writes go through admin_audit_service) ──
+#
+# Re-gated to AdminDep and re-mounted under /admin-api/audit (Phase 7 F5 —
+# reuse the existing handler; do NOT create a second router at the same path).
 
 
-@router.get("/admin/audit")
+@router.get("/admin-api/audit")
 async def list_audit(
-    user: UserDep,
+    admin: AdminDep,
     session: SessionDep,
     limit: int = 100,
+    cursor: int | None = None,
+    action: str | None = None,
+    actor: UUID | None = None,
+    target: UUID | None = None,
 ):
-    if not getattr(user, "is_admin", False):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "admin_required")
-    stmt = (
-        select(
-            AdminAction.id,
-            AdminAction.actor_user_id,
-            AdminAction.target_user_id,
-            AdminAction.action,
-            AdminAction.metadata_json.label("metadata"),
-            AdminAction.created_at,
-            AdminAction.ip_address,
-        )
-        .order_by(AdminAction.created_at.desc())
-        .limit(min(limit, 500))
+    stmt = select(
+        AdminAction.id,
+        AdminAction.actor_user_id,
+        AdminAction.target_user_id,
+        AdminAction.action,
+        AdminAction.metadata_json.label("metadata"),
+        AdminAction.created_at,
+        AdminAction.ip_address,
     )
+    if cursor is not None:
+        stmt = stmt.where(AdminAction.id < cursor)
+    if action:
+        stmt = stmt.where(AdminAction.action == action)
+    if actor is not None:
+        stmt = stmt.where(AdminAction.actor_user_id == actor)
+    if target is not None:
+        stmt = stmt.where(AdminAction.target_user_id == target)
+    capped = min(max(limit, 1), 500)
+    stmt = stmt.order_by(AdminAction.id.desc()).limit(capped + 1)
     rows = (await session.exec(stmt)).all()
-    return {"actions": [dict(r._mapping) for r in rows]}
+    next_cursor = None
+    if len(rows) > capped:
+        rows = rows[:capped]
+        next_cursor = int(rows[-1].id)
+    return {
+        "actions": [dict(r._mapping) for r in rows],
+        "next_cursor": next_cursor,
+    }

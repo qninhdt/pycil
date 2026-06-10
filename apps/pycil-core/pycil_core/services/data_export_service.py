@@ -28,7 +28,8 @@ from shared.db import (
     UserTermStat,
     UserTosAck,
 )
-from sqlalchemy import select, text
+from sqlalchemy import text
+from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 _TABLES_FOR_USER: list[tuple[str, Callable[[UUID], Any] | str]] = [

@@ -13,7 +13,7 @@ from __future__ import annotations
 import hmac
 
 from fastapi import APIRouter, Header, HTTPException, status
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from shared.db import User
 from sqlalchemy import func, text, update
 
@@ -25,7 +25,9 @@ router = APIRouter(tags=["auth"])
 
 
 class UpsertUserBody(BaseModel):
-    google_sub: str
+    # Optional: legacy Google sign-in sent this, but identity is email-keyed and
+    # the field is unused downstream. Generic OIDC providers omit it.
+    google_sub: str | None = None
     email: EmailStr
     name: str | None = None
     image: str | None = None
@@ -33,9 +35,13 @@ class UpsertUserBody(BaseModel):
 
 class UpsertUserResponse(BaseModel):
     user_id: str
+    role: str
+    token_version: int
 
 
 class UpdateMeBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str | None = Field(default=None, min_length=1, max_length=120)
     image_url: str | None = None
     bio: str | None = Field(default=None, max_length=500)
@@ -71,7 +77,7 @@ def _validate_image_url(url: str) -> None:
     from urllib.parse import urlparse
 
     settings = get_settings()
-    prefix = getattr(settings, "b2_public_url_prefix", None)
+    prefix = getattr(settings, "s3_public_url_prefix", None)
     if not prefix:
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, "image_storage_not_configured"
@@ -97,13 +103,17 @@ async def upsert_user(
     _verify_internal_secret(x_internal_secret)
     if await user_service.is_soft_deleted(session, email=body.email):
         raise HTTPException(status.HTTP_410_GONE, "account_deleted")
-    user_id = await user_service.upsert_user(
+    result = await user_service.upsert_user(
         session,
         email=body.email,
         name=body.name,
         image=body.image,
     )
-    return UpsertUserResponse(user_id=str(user_id))
+    return UpsertUserResponse(
+        user_id=str(result.user_id),
+        role=result.role,
+        token_version=result.token_version,
+    )
 
 
 @router.patch("/me", response_model=MeResponse)
@@ -145,7 +155,7 @@ async def update_me(
     try:
         await session.execute(
             text("SELECT pg_advisory_xact_lock(hashtext('user-mutate:' || CAST(:uid AS text)))"),
-            {"uid": user.id},
+            {"uid": str(user.id)},
         )
         if update_values:
             row = (

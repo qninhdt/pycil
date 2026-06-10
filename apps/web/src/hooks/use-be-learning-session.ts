@@ -50,7 +50,8 @@ export interface BeLearningSession {
 
 export function useBeLearningSession(
   deckId: UUID,
-  sessionSize = 25
+  sessionSize = 25,
+  themeId: string | null = null
 ): BeLearningSession {
   const qc = useQueryClient();
   const startSession = useStartSession(deckId);
@@ -67,7 +68,7 @@ export function useBeLearningSession(
     if (startedRef.current) return;
     startedRef.current = true;
     startSession.mutate(
-      { session_size: sessionSize },
+      { session_size: sessionSize, theme_id: themeId },
       {
         onSuccess: (resp) => {
           setSessionId(resp.session_id);

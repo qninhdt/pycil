@@ -13,8 +13,9 @@ from uuid import UUID
 
 from fastapi import HTTPException, status
 from shared.db import DeckLike, Follow, Node, User
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, update
 from sqlalchemy.dialects.postgresql import insert
+from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 _USERNAME_RE = re.compile(r"^[a-z0-9_]{3,32}$")

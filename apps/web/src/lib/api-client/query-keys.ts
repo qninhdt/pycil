@@ -25,6 +25,16 @@ export const queryKeys = {
     detail: (id: string) => ["session", id] as const,
     question: (id: string) => ["session", id, "question"] as const,
   },
+
+  admin: {
+    users: (q?: string) => ["admin", "users", q ?? ""] as const,
+    userDetail: (id: string) => ["admin", "users", id] as const,
+    metrics: (days: number) => ["admin", "metrics", days] as const,
+    reports: (status: string) => ["admin", "reports", status] as const,
+    flags: () => ["admin", "flags"] as const,
+    health: () => ["admin", "health"] as const,
+    audit: (filters: string) => ["admin", "audit", filters] as const,
+  },
 } as const;
 
 export type QueryKeys = typeof queryKeys;

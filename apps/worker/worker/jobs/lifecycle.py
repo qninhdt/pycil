@@ -14,7 +14,8 @@ import json
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import func, select, text, update
+from sqlalchemy import func, text, update
+from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from shared.db import Job

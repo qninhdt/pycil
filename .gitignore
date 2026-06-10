@@ -12,6 +12,14 @@
 
 # testing
 /coverage
+.coverage
+**/.coverage
+
+# agent / tooling scratch
+.agents/
+.codegraph/
+.codex/
+logs/
 
 # next.js
 /.next/

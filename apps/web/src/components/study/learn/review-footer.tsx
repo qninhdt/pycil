@@ -9,7 +9,7 @@ interface ReviewFooterProps {
   isCorrect?: boolean;
   correctAnswer?: string;
   userAnswer?: string;
-  questionType: "multiple-choice" | "write";
+  questionType: string;
   onNext: () => void;
   isLastQuestion?: boolean;
   className?: string;

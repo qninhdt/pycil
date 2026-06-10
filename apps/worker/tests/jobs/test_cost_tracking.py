@@ -13,6 +13,7 @@ from sqlalchemy import text
 
 from shared.redis_lock import spend_key_today
 from worker.jobs import generate_term as gt_mod
+from worker.llm.openrouter import FallbackResult
 from worker.schemas.term_generation import (
     GeneratedDefinition,
     GeneratedExample,
@@ -44,10 +45,12 @@ def _canned() -> TermGenerationOutput:
 
 @pytest.fixture
 def llm_ok(monkeypatch):
-    async def fake(prompt, schema):
-        return _canned()
+    async def fake(prompt, schema, **kwargs):
+        return FallbackResult(
+            output=_canned(), model_used="test", hops=0, elapsed_seconds=0.0
+        )
 
-    monkeypatch.setattr("worker.jobs.generate_term.generate_with_schema", fake)
+    monkeypatch.setattr("worker.jobs.generate_term.invoke_with_fallback", fake)
     monkeypatch.setattr("worker.jobs.generate_term.render", lambda *a, **k: "P")
 
 
