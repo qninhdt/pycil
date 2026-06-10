@@ -16,7 +16,7 @@ from uuid import UUID, uuid4
 
 from fastapi import HTTPException
 
-from pycil_core.services import learning_service as ls
+from pycil_core.services.learning import answer_grading, session_state
 from tests.factories import (
     attach_definition_to_deck,
     make_deck,
@@ -48,13 +48,13 @@ async def test_concurrent_submits_lock_serialize(
         current_question_id=str(mcq["id"]),
         current_definition_id=def_id,
     )
-    await ls._save_state(fakeredis_client, sid, state)
+    await session_state._save_state(fakeredis_client, sid, state)
 
     qid = UUID(str(mcq["id"]))
     uid = UUID(str(test_user["id"]))
 
     async def _submit():
-        return await ls.submit_answer(
+        return await answer_grading.submit_answer(
             session,
             user_id=uid,
             session_id=sid,

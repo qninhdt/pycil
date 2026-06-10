@@ -19,6 +19,7 @@ from pycil_core.api.deps import AdminDep, RedisDep, SessionDep
 from pycil_core.middleware.rate_limit import enforce
 from pycil_core.services import (
     admin_audit_service,
+    admin_user_query_service,
     content_report_service,
     user_service,
     user_spend_service,
@@ -47,7 +48,7 @@ async def list_users(
     limit: int = 50,
     offset: int = 0,
 ) -> dict:
-    users = await user_service.search_users(
+    users = await admin_user_query_service.search_users(
         session, q=q, limit=min(max(limit, 1), 200), offset=max(offset, 0)
     )
     return {"users": users}
@@ -60,12 +61,12 @@ async def user_detail(
     session: SessionDep,
     redis: RedisDep,
 ) -> dict:
-    summary = await user_service.get_user_summary(session, user_id=user_id)
+    summary = await admin_user_query_service.get_user_summary(session, user_id=user_id)
     if summary is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "user_not_found")
     spend_today = await user_spend_service.get_user_spend_today(redis, user_id)
-    jobs = await user_service.recent_jobs(session, user_id=user_id)
-    mastery = await user_service.mastery_distribution(session, user_id=user_id)
+    jobs = await admin_user_query_service.recent_jobs(session, user_id=user_id)
+    mastery = await admin_user_query_service.mastery_distribution(session, user_id=user_id)
     reports_against = await content_report_service.count_reports_against(
         session, owner_id=user_id
     )

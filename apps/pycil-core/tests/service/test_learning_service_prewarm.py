@@ -8,7 +8,7 @@ Pinned:
 from __future__ import annotations
 
 from pycil_core.schemas.learning import SubmitAnswerResponse
-from pycil_core.services import learning_service as ls
+from pycil_core.services.learning import session_flow as ls
 from tests.factories import (
     attach_definition_to_deck,
     make_deck,

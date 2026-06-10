@@ -15,7 +15,11 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import text
 
-from pycil_core.services import learning_service as ls
+from pycil_core.services.learning import (
+    answer_grading,
+    session_flow,
+    session_state,
+)
 from tests.factories import (
     attach_definition_to_deck,
     make_deck,
@@ -69,16 +73,16 @@ async def test_next_question_ready_serves_bank_and_sets_current(
         deck_id=deck["id"],
         definition_ids=[def_id],
     )
-    await ls._save_state(fakeredis_client, sid, state)
+    await session_state._save_state(fakeredis_client, sid, state)
 
-    resp = await ls.next_question(session, UUID(str(test_user["id"])), sid)
+    resp = await session_flow.next_question(session, UUID(str(test_user["id"])), sid)
     assert resp.status == "ready"
     assert resp.question is not None
     assert resp.question["definition_id"] == def_id
     assert resp.theme is not None  # themed-pool rotation (no session theme)
 
     # State now points at the served question.
-    loaded = await ls._load_state(fakeredis_client, sid)
+    loaded = await session_state._load_state(fakeredis_client, sid)
     assert loaded["current_question_id"] == str(mcq["id"])
     assert loaded["current_definition_id"] == def_id
 
@@ -100,13 +104,13 @@ async def test_next_question_pending_when_generation_cold_start(
         deck_id=deck["id"],
         definition_ids=[def_id],
     )
-    await ls._save_state(fakeredis_client, sid, state)
+    await session_state._save_state(fakeredis_client, sid, state)
 
-    resp = await ls.next_question(session, UUID(str(test_user["id"])), sid)
+    resp = await session_flow.next_question(session, UUID(str(test_user["id"])), sid)
     assert resp.status == "pending"
     assert len(_stub_gen_enqueue) >= 1
 
-    loaded = await ls._load_state(fakeredis_client, sid)
+    loaded = await session_state._load_state(fakeredis_client, sid)
     assert loaded["current_question_id"] is None
 
 
@@ -121,9 +125,9 @@ async def test_next_question_session_complete_when_all_done(
         definition_ids=[1, 2],
         completed=[1, 2],
     )
-    await ls._save_state(fakeredis_client, sid, state)
+    await session_state._save_state(fakeredis_client, sid, state)
 
-    resp = await ls.next_question(session, UUID(str(test_user["id"])), sid)
+    resp = await session_flow.next_question(session, UUID(str(test_user["id"])), sid)
     assert resp.status == "session_complete"
 
 
@@ -146,9 +150,9 @@ async def test_next_question_replenishes_empty_round_queue(
     )
     # Force an empty round_queue with the term still incomplete.
     state["round_queue"] = []
-    await ls._save_state(fakeredis_client, sid, state)
+    await session_state._save_state(fakeredis_client, sid, state)
 
-    resp = await ls.next_question(session, UUID(str(test_user["id"])), sid)
+    resp = await session_flow.next_question(session, UUID(str(test_user["id"])), sid)
     assert resp.status == "ready"
     assert resp.round_index == 1  # incremented on replenish
 
@@ -163,10 +167,10 @@ async def test_next_question_wrong_user_403(
         deck_id=uuid4(),
         definition_ids=[1],
     )
-    await ls._save_state(fakeredis_client, sid, state)
+    await session_state._save_state(fakeredis_client, sid, state)
 
     with pytest.raises(HTTPException) as exc:
-        await ls.next_question(session, UUID(str(second_user["id"])), sid)
+        await session_flow.next_question(session, UUID(str(second_user["id"])), sid)
     assert exc.value.status_code == 403
 
 
@@ -188,10 +192,10 @@ async def test_submit_answer_question_not_found_404(
         current_question_id=str(ghost_qid),
         current_definition_id=1,
     )
-    await ls._save_state(fakeredis_client, sid, state)
+    await session_state._save_state(fakeredis_client, sid, state)
 
     with pytest.raises(HTTPException) as exc:
-        await ls.submit_answer(
+        await answer_grading.submit_answer(
             session,
             user_id=UUID(str(test_user["id"])),
             session_id=sid,
@@ -248,9 +252,9 @@ async def test_submit_answer_async_write_returns_pending_no_state_mutation(
         current_question_id=str(row.id),
         current_definition_id=def_id,
     )
-    await ls._save_state(fakeredis_client, sid, state)
+    await session_state._save_state(fakeredis_client, sid, state)
 
-    result = await ls.submit_answer(
+    result = await answer_grading.submit_answer(
         session,
         user_id=UUID(str(test_user["id"])),
         session_id=sid,
@@ -261,7 +265,7 @@ async def test_submit_answer_async_write_returns_pending_no_state_mutation(
     assert isinstance(result, AsyncGradePending)
 
     # Queue untouched — async path defers state mutation.
-    loaded = await ls._load_state(fakeredis_client, sid)
+    loaded = await session_state._load_state(fakeredis_client, sid)
     assert loaded["round_queue"] == [def_id]
 
 
@@ -286,7 +290,7 @@ async def test_completion_uses_previous_review_when_stats_exist(
         last_review_offset_seconds=3600,
     )
 
-    lapsed, interval_old = await ls._previous_review(
+    lapsed, interval_old = await answer_grading._previous_review(
         session, test_user["id"], def_id
     )
     assert lapsed is not None and lapsed > 0
@@ -302,9 +306,9 @@ async def test_completion_uses_previous_review_when_stats_exist(
         current_question_id=str(mcq["id"]),
         current_definition_id=def_id,
     )
-    await ls._save_state(fakeredis_client, sid, state)
+    await session_state._save_state(fakeredis_client, sid, state)
 
-    resp = await ls.submit_answer(
+    resp = await answer_grading.submit_answer(
         session,
         user_id=UUID(str(test_user["id"])),
         session_id=sid,
@@ -315,7 +319,7 @@ async def test_completion_uses_previous_review_when_stats_exist(
 
 
 async def test_previous_review_missing_returns_none_zero(session, test_user) -> None:
-    lapsed, interval_old = await ls._previous_review(
+    lapsed, interval_old = await answer_grading._previous_review(
         session, test_user["id"], 999_999
     )
     assert lapsed is None
@@ -380,7 +384,7 @@ async def test_apply_async_verdict_applies_then_idempotent(
         correct_firsts={def_id: 1},  # this correct verdict completes the term
         current_definition_id=def_id,
     )
-    await ls._save_state(fakeredis_client, sid, state)
+    await session_state._save_state(fakeredis_client, sid, state)
 
     rid = await _insert_graded_response(
         session,
@@ -391,7 +395,7 @@ async def test_apply_async_verdict_applies_then_idempotent(
         score=1.0,
     )
 
-    resp = await ls.apply_async_verdict(
+    resp = await answer_grading.apply_async_verdict(
         session, UUID(str(test_user["id"])), sid, UUID(str(rid))
     )
     assert resp.correct is True
@@ -408,7 +412,7 @@ async def test_apply_async_verdict_applies_then_idempotent(
     assert flag.elo_applied is True
 
     # Second call: idempotent no-op (no re-credit, term_reviewed None).
-    resp2 = await ls.apply_async_verdict(
+    resp2 = await answer_grading.apply_async_verdict(
         session, UUID(str(test_user["id"])), sid, UUID(str(rid))
     )
     assert resp2.correct is True
@@ -421,7 +425,7 @@ async def test_apply_async_verdict_response_not_found_404(
     session, fakeredis_client, test_user
 ) -> None:
     with pytest.raises(HTTPException) as exc:
-        await ls.apply_async_verdict(
+        await answer_grading.apply_async_verdict(
             session, UUID(str(test_user["id"])), "sess-x", uuid4()
         )
     assert exc.value.status_code == 404
@@ -442,7 +446,7 @@ async def test_apply_async_verdict_wrong_user_403(
     )
 
     with pytest.raises(HTTPException) as exc:
-        await ls.apply_async_verdict(
+        await answer_grading.apply_async_verdict(
             session, UUID(str(second_user["id"])), sid, UUID(str(rid))
         )
     assert exc.value.status_code == 403
@@ -471,7 +475,7 @@ async def test_apply_async_verdict_grade_pending_409(
     await session.commit()
 
     with pytest.raises(HTTPException) as exc:
-        await ls.apply_async_verdict(
+        await answer_grading.apply_async_verdict(
             session, UUID(str(test_user["id"])), sid, UUID(str(rid))
         )
     assert exc.value.status_code == 409
@@ -483,7 +487,7 @@ async def test_apply_async_verdict_grade_pending_409(
 
 async def test_start_session_unknown_theme_400(session, test_user) -> None:
     with pytest.raises(HTTPException) as exc:
-        await ls.start_session(
+        await session_flow.start_session(
             session, test_user["id"], uuid4(), session_size=1,
             theme_id="no-such-theme",
         )
@@ -492,7 +496,7 @@ async def test_start_session_unknown_theme_400(session, test_user) -> None:
 
 async def test_start_session_deck_not_found_404(session, test_user) -> None:
     with pytest.raises(HTTPException) as exc:
-        await ls.start_session(session, test_user["id"], uuid4(), session_size=1)
+        await session_flow.start_session(session, test_user["id"], uuid4(), session_size=1)
     assert exc.value.status_code == 404
 
 
@@ -501,7 +505,7 @@ async def test_start_session_deck_forbidden_403(
 ) -> None:
     deck = await make_deck(session, author_id=second_user["id"])
     with pytest.raises(HTTPException) as exc:
-        await ls.start_session(session, test_user["id"], deck["id"], session_size=1)
+        await session_flow.start_session(session, test_user["id"], deck["id"], session_size=1)
     assert exc.value.status_code == 403
 
 
@@ -522,7 +526,7 @@ async def test_start_session_node_not_deck_400(session, test_user) -> None:
     await session.commit()
 
     with pytest.raises(HTTPException) as exc:
-        await ls.start_session(session, test_user["id"], row.id, session_size=1)
+        await session_flow.start_session(session, test_user["id"], row.id, session_size=1)
     assert exc.value.status_code == 400
 
 
@@ -530,7 +534,7 @@ async def test_start_session_no_terms_400(session, test_user) -> None:
     """A deck with no linked definitions yields an empty selection → 400."""
     deck = await make_deck(session, author_id=test_user["id"])
     with pytest.raises(HTTPException) as exc:
-        await ls.start_session(session, test_user["id"], deck["id"], session_size=5)
+        await session_flow.start_session(session, test_user["id"], deck["id"], session_size=5)
     assert exc.value.status_code == 400
 
 
@@ -557,10 +561,10 @@ async def test_start_session_hydrates_initial_elo_from_stats(
         last_review_offset_seconds=3600,
     )
 
-    resp = await ls.start_session(
+    resp = await session_flow.start_session(
         session, test_user["id"], deck["id"], session_size=5
     )
     assert resp.selected_count >= 1
 
-    loaded = await ls._load_state(fakeredis_client, resp.session_id)
+    loaded = await session_state._load_state(fakeredis_client, resp.session_id)
     assert loaded["term_tracking"][str(def_id)]["elo_at_start"] == 1450

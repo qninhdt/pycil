@@ -191,7 +191,9 @@ def _patch_redis(monkeypatch, fakeredis_client):
             pass
     # Modules that imported `get_redis` symbol directly.
     for mod in (
-        "pycil_core.services.learning_service",
+        "pycil_core.services.learning.session_state",
+        "pycil_core.services.learning.session_flow",
+        "pycil_core.services.learning.answer_grading",
         "pycil_core.services.job_service",
         "pycil_core.services.question_service",
         "pycil_core.services.job_stream_service",

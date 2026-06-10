@@ -12,7 +12,7 @@ from uuid import UUID, uuid4
 import pytest
 from sqlalchemy import text
 
-from pycil_core.services import user_service
+from pycil_core.services import admin_user_query_service, user_service
 
 
 # ── upsert_user ─────────────────────────────────────────────────────────────
@@ -250,7 +250,7 @@ async def test_count_active_admins(session, admin_user, test_user) -> None:
 
 async def test_search_users_filter_by_query(session, test_user, second_user) -> None:
     # Filter narrows to the matching email.
-    results = await user_service.search_users(
+    results = await admin_user_query_service.search_users(
         session, q=test_user["email"][:10]
     )
     assert any(r["email"] == test_user["email"] for r in results)
@@ -261,12 +261,12 @@ async def test_search_users_excludes_soft_deleted(session, test_user) -> None:
     await user_service.soft_delete_user(
         session, user_id=UUID(str(test_user["id"]))
     )
-    results = await user_service.search_users(session)
+    results = await admin_user_query_service.search_users(session)
     assert all(r["id"] != str(test_user["id"]) for r in results)
 
 
 async def test_get_user_summary(session, test_user) -> None:
-    summary = await user_service.get_user_summary(
+    summary = await admin_user_query_service.get_user_summary(
         session, user_id=UUID(str(test_user["id"]))
     )
     assert summary is not None
@@ -277,7 +277,7 @@ async def test_get_user_summary(session, test_user) -> None:
 
 
 async def test_get_user_summary_unknown_none(session) -> None:
-    assert await user_service.get_user_summary(session, user_id=uuid4()) is None
+    assert await admin_user_query_service.get_user_summary(session, user_id=uuid4()) is None
 
 
 # ── recent_jobs / mastery_distribution ──────────────────────────────────────
@@ -293,7 +293,7 @@ async def test_recent_jobs(session, test_user) -> None:
             {"t": f"generate_term", "u": test_user["id"]},
         )
     await session.commit()
-    jobs = await user_service.recent_jobs(
+    jobs = await admin_user_query_service.recent_jobs(
         session, user_id=UUID(str(test_user["id"])), limit=5
     )
     assert len(jobs) == 2
@@ -349,7 +349,7 @@ async def test_mastery_distribution(session, test_user) -> None:
     )
     await session.commit()
 
-    dist = await user_service.mastery_distribution(
+    dist = await admin_user_query_service.mastery_distribution(
         session, user_id=UUID(str(test_user["id"]))
     )
     assert dist == {"4": 2, "0": 1}

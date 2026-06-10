@@ -16,6 +16,10 @@ export const queryKeys = {
 
   job: (id: string) => ["job", id] as const,
 
+  publicDecks: {
+    list: (q: string) => ["public-decks", q] as const,
+  },
+
   question: {
     forDefinition: (definitionId: number) =>
       ["question", "definition", definitionId] as const,

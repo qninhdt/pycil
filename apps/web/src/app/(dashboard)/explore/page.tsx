@@ -1,55 +1,29 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { useRouter } from "next/navigation";
-
-type PublicDeck = {
-  id: string;
-  name: string;
-  description: string | null;
-  term_count: number;
-  clone_count: number;
-};
+import {
+  usePublicDecks,
+  useClonePublicDeck,
+} from "@/lib/api-hooks/use-public-decks";
 
 export default function ExplorePage() {
-  const [decks, setDecks] = useState<PublicDeck[]>([]);
   const [q, setQ] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [submittedQ, setSubmittedQ] = useState("");
   const router = useRouter();
 
-  const load = async (query: string) => {
-    setLoading(true);
-    try {
-      const url = query
-        ? `/api/core/public/decks?q=${encodeURIComponent(query)}`
-        : "/api/core/public/decks";
-      const res = await fetch(url, { credentials: "include" });
-      if (res.ok) {
-        const data = (await res.json()) as { decks: PublicDeck[] };
-        setDecks(data.decks);
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
+  const { data, isFetching } = usePublicDecks(submittedQ);
+  const decks = data?.decks ?? [];
+  const cloneDeck = useClonePublicDeck();
 
-  useEffect(() => {
-    void load("");
-  }, []);
-
-  const clone = async (deckId: string) => {
-    const res = await fetch(`/api/core/public/decks/${deckId}/clone`, {
-      method: "POST",
-      credentials: "include",
+  const clone = (deckId: string) => {
+    cloneDeck.mutate(deckId, {
+      onSuccess: ({ new_deck_id }) => router.push(`/decks/${new_deck_id}`),
     });
-    if (res.ok) {
-      const { new_deck_id } = (await res.json()) as { new_deck_id: string };
-      router.push(`/decks/${new_deck_id}`);
-    }
   };
 
   return (
@@ -62,11 +36,11 @@ export default function ExplorePage() {
             value={q}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") void load(q);
+              if (e.key === "Enter") setSubmittedQ(q);
             }}
             className="w-48"
           />
-          <Button onClick={() => load(q)} disabled={loading}>
+          <Button onClick={() => setSubmittedQ(q)} disabled={isFetching}>
             Search
           </Button>
         </div>
@@ -74,7 +48,7 @@ export default function ExplorePage() {
 
       {decks.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          {loading ? "Loading…" : "No public decks yet."}
+          {isFetching ? "Loading…" : "No public decks yet."}
         </p>
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">

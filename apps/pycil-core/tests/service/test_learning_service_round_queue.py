@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from pycil_core.services import learning_service as ls
+from pycil_core.services.learning import session_flow as ls
 from tests.factories import make_session_state
 
 
