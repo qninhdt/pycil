@@ -1,4 +1,4 @@
-"""Content-report moderation pipeline (Phase 5).
+"""Content-report moderation pipeline.
 
 Users report public decks / definition comments; admins triage and resolve.
 
@@ -248,7 +248,7 @@ async def _verify_and_delete_comment(
 
 
 async def count_reports_against(session: AsyncSession, *, owner_id: UUID) -> int:
-    """Count reports where this user is the target owner (Phase 2 detail field)."""
+    """Count reports where this user is the target owner."""
     row = (
         await session.exec(
             select(func.count())

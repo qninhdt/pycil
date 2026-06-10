@@ -1,4 +1,4 @@
-"""Admin audit log writer (P12 phase 2).
+"""Admin audit log writer.
 
 Append-only ledger of every privileged admin operation. Read by
 admin UI to render "recent actions" and by GDPR-export to surface

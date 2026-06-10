@@ -1,4 +1,4 @@
-"""Email transport (P4 phase 1).
+"""Email transport.
 
 Provider-agnostic interface; concrete impls for Resend and Postmark
 selected via EMAIL_PROVIDER env. Each impl posts to the provider's

@@ -1,6 +1,6 @@
-"""Admin metrics dashboard route (Phase 4), gated by `AdminDep`.
+"""Admin metrics dashboard route, gated by `AdminDep`.
 
-Assembles `product_metrics_service.snapshot()` + signup funnel + the Phase 3
+Assembles `product_metrics_service.snapshot()` + signup funnel + the
 spend ledger aggregations. Read-only, all pure SELECT. Spend figures are
 ESTIMATED (flat per-call constant) — the UI labels them so.
 

@@ -1,4 +1,4 @@
-"""Admin feature-flag CRUD routes (Phase 6), gated by `AdminDep`.
+"""Admin feature-flag CRUD routes, gated by `AdminDep`.
 
 Every write is single-transaction: flag mutation + cache invalidation + audit
 row commit together (red-team F7). Mounts under `/admin-api/flags`.

@@ -1,4 +1,4 @@
-"""OpenTelemetry boot (P6 phase 5).
+"""OpenTelemetry boot.
 
 Single-call initializer: read OTEL_* env, install OTLP exporter for traces
 and metrics, instrument FastAPI / SQLAlchemy / Redis / httpx automatically.

@@ -147,7 +147,7 @@ async def is_soft_deleted(
     return deleted_at is not None
 
 
-# ── Admin user-management helpers (Phase 2) ─────────────────────────────────
+# ── Admin user-management helpers ─────────────────────────────────
 #
 # Ban/unban mutators DO NOT commit — the route owns the transaction so the
 # `admin_actions` audit row lands in the same unit of work (red-team F7).

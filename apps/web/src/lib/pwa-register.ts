@@ -1,4 +1,4 @@
-// Service worker registration helper (P11 phase 1).
+// Service worker registration helper.
 //
 // Call from app layout on the client. Registers /sw.js once per session,
 // updates silently on subsequent visits.

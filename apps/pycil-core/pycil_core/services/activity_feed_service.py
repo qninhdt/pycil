@@ -1,4 +1,4 @@
-"""Activity feed (P5 phase 5 + P9 phase 3).
+"""Activity feed.
 
 Append-only event log surfaced in the user's home screen and follower
 inbox. Minimal helpers — list current user's events, list events from

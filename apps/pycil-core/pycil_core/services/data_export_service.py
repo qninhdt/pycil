@@ -1,4 +1,4 @@
-"""GDPR data export (P12 phase 1).
+"""GDPR data export.
 
 Aggregates every row owned by a user into a JSON archive: profile,
 decks, terms, definitions, learning history, chat history, ToS acks,

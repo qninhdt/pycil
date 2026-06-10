@@ -1,4 +1,4 @@
-"""LLM spend ledger aggregations (Phase 3, read-only).
+"""LLM spend ledger aggregations (read-only).
 
 All figures are ESTIMATED — `cost_usd` is a flat per-call constant stored by
 the worker, not a measured token cost. The metrics page labels them as such.
