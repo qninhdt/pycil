@@ -1,5 +1,5 @@
 # Pycil — backend test runner targets
-.PHONY: test test-core test-worker test-cov staging staging-down
+.PHONY: test test-core test-worker test-unit test-integration test-cov staging staging-down
 
 test: test-core test-worker
 
@@ -24,6 +24,13 @@ test-core:
 test-worker:
 	cd apps/worker && uv run pytest \
 		--cov=worker --cov-fail-under=70 -q --maxfail=5
+
+test-unit:
+	cd apps/pycil-core && uv run pytest -m unit -q
+
+test-integration:
+	cd apps/pycil-core && uv run pytest -m integration \
+		--cov=pycil_core --cov-fail-under=70 -q
 
 test-cov:
 	cd apps/pycil-core && uv run pytest --cov=pycil_core --cov-report=term-missing

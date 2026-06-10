@@ -35,6 +35,20 @@ if str(_APP_ROOT) not in sys.path:
     sys.path.insert(0, str(_APP_ROOT))
 
 
+def pytest_collection_modifyitems(items) -> None:
+    """Auto-mark tests by location so CI/Make can select layers without
+    decorating 200+ tests by hand. `tests/unit/` → `unit` (pure logic, no I/O);
+    everything else under `tests/` → `integration` (service + real Postgres +
+    fakeredis). E2E lives in the web app (Playwright), not here.
+    """
+    for item in items:
+        path = str(item.fspath)
+        if f"{os.sep}tests{os.sep}unit{os.sep}" in path:
+            item.add_marker(pytest.mark.unit)
+        else:
+            item.add_marker(pytest.mark.integration)
+
+
 # ---------------------------------------------------------------------------
 # Postgres (pytest-postgresql) — session-scoped DB, schema migrated once.
 # ---------------------------------------------------------------------------

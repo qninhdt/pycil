@@ -45,6 +45,10 @@ dev = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "unit: pure-logic tests, no I/O (ELO math, intervals, parsers). Mock nothing.",
+    "integration: service + real Postgres + fakeredis, network blocked. Mock only paid/3rd-party boundaries (OpenRouter, Stripe, S3, arq enqueue).",
+]
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]
