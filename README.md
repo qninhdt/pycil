@@ -58,6 +58,18 @@ Deploy order is **migration-then-swap**:
 
 Rollback: `alembic downgrade -1` then `docker compose pull <previous-tag> && docker compose up -d`. If schema diverged irrecoverably, restore from the latest `pre-deploy-*.sql`.
 
+## Admin dashboard
+
+The `/admin` surface (users, reports, metrics, spend, flags, health, audit) is gated by `users.role`. There is no UI to grant admin — seed the first admin directly via SQL:
+
+```sql
+UPDATE users SET role = 'admin' WHERE email = 'you@example.com';
+```
+
+The backend re-reads `users.role` on every request (the JWT `role` claim is edge-convenience only), so a freshly promoted admin reaches `/admin` on their next login.
+
+**Rollback ordering for migration 0019 (`user_role_and_ban`):** `get_current_user` does `SELECT … role FROM users` on every authenticated request. If you `alembic downgrade -1` past 0019 while the new image is still live, the dropped `role` column 500s every authed request. **Swap the image back to a pre-0019 build BEFORE downgrading 0019** (or treat 0019's column-drop as a no-op). The same applies to 0020/0021 only in that they must be downgraded in reverse order (0021 → 0020 → 0019).
+
 ## Repo layout
 
 ```

@@ -13,6 +13,12 @@
 # testing
 /coverage
 
+# e2e (Playwright): saved session state holds a real session cookie — never
+# commit it; report/results are regenerated each run.
+/e2e/.auth
+/playwright-report
+/test-results
+
 # next.js
 /.next/
 /out/

@@ -80,24 +80,24 @@ export default function ProfilePage() {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <Stat label="Level" value={String((me as any).level ?? 1)} />
-            <Stat label="XP" value={String((me as any).xp_total ?? 0)} />
+            <Stat label="Level" value={String(me.level ?? 1)} />
+            <Stat label="XP" value={String(me.xp_total ?? 0)} />
             <Stat
               label="Streak"
-              value={`${(me as any).streak_days ?? 0}d`}
+              value={`${me.streak_days ?? 0}d`}
             />
             <Stat
               label="Rank"
               value={
-                (me as any).league_rank
-                  ? `#${(me as any).league_rank}`
+                me.league_rank
+                  ? `#${me.league_rank}`
                   : "—"
               }
             />
           </div>
-          {Array.isArray((me as any).badges) && (me as any).badges.length > 0 ? (
+          {Array.isArray(me.badges) && me.badges.length > 0 ? (
             <div className="mt-4 flex flex-wrap gap-2">
-              {((me as any).badges as string[]).map((b) => (
+              {me.badges.map((b) => (
                 <Badge key={b} variant="secondary">
                   {b.replace(/_/g, " ")}
                 </Badge>

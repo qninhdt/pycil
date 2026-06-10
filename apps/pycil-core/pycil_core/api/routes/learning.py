@@ -6,6 +6,7 @@ from uuid import UUID
 from fastapi import APIRouter, status
 
 from pycil_core.api.deps import SessionDep, UserDep
+from pycil_core.schemas.grading import ApplyVerdictRequest, AsyncGradePending
 from pycil_core.schemas.learning import (
     SessionQuestionResponse,
     StartSessionRequest,
@@ -30,7 +31,7 @@ async def start_session(
     session: SessionDep,
 ) -> StartSessionResponse:
     return await learning_service.start_session(
-        session, user.id, deck_id, payload.session_size
+        session, user.id, deck_id, payload.session_size, payload.theme_id
     )
 
 
@@ -46,18 +47,38 @@ async def get_next_question(
 
 @router.post(
     "/sessions/{session_id}/answer",
-    response_model=SubmitAnswerResponse,
+    response_model=SubmitAnswerResponse | AsyncGradePending,
 )
 async def submit_answer(
     session_id: str,
     payload: SubmitAnswerRequest,
     user: UserDep,
     session: SessionDep,
-) -> SubmitAnswerResponse:
+) -> SubmitAnswerResponse | AsyncGradePending:
     return await learning_service.submit_answer(
         session,
         user.id,
         session_id,
         payload.question_id,
         payload.selected_index,
+        payload.answer,
+    )
+
+
+@router.post(
+    "/sessions/{session_id}/apply-verdict",
+    response_model=SubmitAnswerResponse,
+)
+async def apply_verdict(
+    session_id: str,
+    payload: ApplyVerdictRequest,
+    user: UserDep,
+    session: SessionDep,
+) -> SubmitAnswerResponse:
+    """Apply a resolved async grade verdict to the session (ELO/XP under lock).
+
+    Called by the FE after the SSE verdict frame arrives. Idempotent.
+    """
+    return await learning_service.apply_async_verdict(
+        session, user.id, session_id, payload.response_id
     )

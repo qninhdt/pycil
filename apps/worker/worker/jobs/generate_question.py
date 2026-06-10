@@ -18,28 +18,22 @@ import time
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func
+from sqlmodel import select
 
-from shared.db import Definition, DefinitionParaphrase, Question, Term, TermExampleSentence
+from shared.db import Definition, DefinitionParaphrase, Job, Question, Term, TermExampleSentence
 from shared.db.enums import QuestionType
 
-from shared.questions.fill_in_blank import FillData, FillInBlankQuestion
-from shared.questions.multiple_choice import MCQData, MultipleChoiceQuestion
-from shared.questions.write import WriteData, WriteQuestion
+from shared.questions import registry
+from worker.config import get_settings
 from worker.db import SessionLocal
 from worker.jobs.lifecycle import append_event, is_terminal, mark_job, publish_status
 from worker.llm.openrouter import invoke_with_fallback
+from worker.observability.spend_ledger import record_spend_event
 from worker.observability.spend_metrics import emit_spend
 from worker.prompts import render
 from worker.redis_helpers import add_spend
-from worker.sanitize import sanitize_answer, sanitize_answer_list, sanitize_list, sanitize_text
 
-
-_TYPE_MAP = {
-    "MULTIPLE_CHOICE": (MultipleChoiceQuestion, MCQData),
-    "WRITE": (WriteQuestion, WriteData),
-    "FILL_IN_BLANK": (FillInBlankQuestion, FillData),
-}
 
 _log = logging.getLogger(__name__)
 _ESTIMATED_COST_USD = 0.0003
@@ -106,36 +100,26 @@ async def _existing_question_id(
     ).first()
 
 
-def _sanitize_mcq(out: MCQData) -> dict[str, Any]:
-    """Strip URLs/HTML/control chars from every string field."""
-    return {
-        "stem": sanitize_text(out.stem),
-        "options": sanitize_list(out.options),
-        "correct_index": out.correct_index,
-        "explanation": sanitize_text(out.explanation),
-        "distractor_rationale": sanitize_list(out.distractor_rationale),
-    }
+async def _bank_depth(
+    session, definition_id: int, q_type: str, difficulty: str
+) -> int:
+    """Count ready questions for this (definition, type, difficulty) slot.
 
-
-def _sanitize_question_data(question_type: str, output: Any) -> dict[str, Any]:
-    """Dispatch sanitization by question type.
-
-    `prompt`/`explanation` get full sanitize_text (URL+HTML+control strip).
-    `expected_answer`/`alt_answers[]` get control-chars-only — URLs/HTML may
-    legitimately be the correct answer.
+    Drives the depth-aware skip: generation stops once the bank holds
+    TARGET_DEPTH questions for the slot, replacing the old depth-1 cache-hit
+    guard so the bank can hold variants without unbounded regeneration.
     """
-    if question_type == "MULTIPLE_CHOICE":
-        return _sanitize_mcq(output)
-    raw = output.model_dump()
-    if "prompt" in raw:
-        raw["prompt"] = sanitize_text(raw["prompt"])
-    if "explanation" in raw:
-        raw["explanation"] = sanitize_text(raw["explanation"])
-    if "expected_answer" in raw and isinstance(raw["expected_answer"], str):
-        raw["expected_answer"] = sanitize_answer(raw["expected_answer"])
-    if "alt_answers" in raw and isinstance(raw["alt_answers"], list):
-        raw["alt_answers"] = sanitize_answer_list(raw["alt_answers"])
-    return raw
+    rows = (
+        await session.exec(
+            select(Question.id).where(
+                Question.definition_id == definition_id,
+                Question.type == QuestionType(q_type),
+                func.coalesce(Question.data["difficulty"].astext, "")
+                == difficulty,
+            )
+        )
+    ).all()
+    return len(rows)
 
 
 async def generate_question(
@@ -150,19 +134,26 @@ async def generate_question(
     job_uuid = UUID(job_id)
     started = time.time()
 
-    if question_type not in _TYPE_MAP:
+    if not registry.is_registered(question_type):
         raise ValueError(f"unsupported_question_type: {question_type}")
-    q_class, schema_cls = _TYPE_MAP[question_type]
+    plugin = registry.get(question_type)
+    schema_cls = plugin.data_schema
 
     async with SessionLocal() as gate:
         if await is_terminal(gate, job_id):
             return {"status": "duplicate"}
 
     async with SessionLocal() as session:
-        existing = await _existing_question_id(session, definition_id, question_type)
-        if existing is not None:
+        # Depth-aware skip: stop generating once the bank holds TARGET_DEPTH
+        # questions for this (definition, type, difficulty) slot. Replaces the
+        # old depth-1 cache-hit guard so the bank can accumulate variants while
+        # still bounding regeneration + spend.
+        target_depth = max(1, get_settings().question_bank_target_depth)
+        depth = await _bank_depth(session, definition_id, question_type, difficulty)
+        if depth >= target_depth:
+            existing = await _existing_question_id(session, definition_id, question_type)
             await append_event(
-                session, job_uuid, {"at": time.time(), "kind": "cache_hit"}
+                session, job_uuid, {"at": time.time(), "kind": "bank_full"}
             )
             await mark_job(
                 session,
@@ -178,6 +169,14 @@ async def generate_question(
             )
             return {"status": "completed", "cache_hit": True}
 
+        # created_by_user_id attributes spend to the requesting user (red-team
+        # F4/F10). Nullable — older jobs may not carry it.
+        job_owner = (
+            await session.exec(
+                select(Job.created_by_user_id).where(Job.id == job_uuid)
+            )
+        ).first()
+
         inputs = await _load_inputs(session, definition_id)
         if inputs is None:
             await mark_job(
@@ -192,17 +191,10 @@ async def generate_question(
             return {"status": "failed"}
 
         try:
-            if question_type == "MULTIPLE_CHOICE":
-                prompt = render(
-                    q_class.template_name(),
-                    **q_class.prompt_inputs(inputs, difficulty),
-                )
-            else:
-                prompt = render(
-                    q_class.template_name(),
-                    term_value=inputs["term_value"],
-                    definition_text=inputs.get("canonical_meaning") or "",
-                )
+            prompt = render(
+                plugin.template_name(),
+                **plugin.prompt_inputs(inputs, difficulty),
+            )
             fallback = await invoke_with_fallback(prompt, schema_cls)
             output = fallback.output
             await add_spend(redis, _ESTIMATED_COST_USD)
@@ -213,7 +205,10 @@ async def generate_question(
                 cost_usd=_ESTIMATED_COST_USD,
                 duration_ms=(time.time() - started) * 1000.0,
             )
-            data = _sanitize_question_data(question_type, output)
+            data = plugin.sanitize(output)
+            # Difficulty is a bank dimension; persist it so question_bank_service
+            # can filter ready questions by requested difficulty.
+            data["difficulty"] = difficulty
             question = Question(
                 definition_id=definition_id,
                 type=QuestionType(question_type),
@@ -234,6 +229,15 @@ async def generate_question(
             result = {"question_id": question_id, "data": data}
             await mark_job(session, job_uuid, status="completed", result=result)
             await session.commit()
+            # Persistent spend ledger — success path only, after persist +
+            # commit, idempotent on job_id so a retry never double-counts (F12).
+            await record_spend_event(
+                user_id=job_owner,
+                job_id=job_id,
+                job_type="generate_question",
+                model=fallback.model_used,
+                cost_usd=_ESTIMATED_COST_USD,
+            )
             await publish_status(
                 redis,
                 f"results:job_{job_id}",

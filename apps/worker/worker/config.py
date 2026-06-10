@@ -35,6 +35,16 @@ class WorkerSettings(BaseSettings):
     llm_response_cache_hours: int = Field(
         default=24, alias="LLM_RESPONSE_CACHE_HOURS"
     )
+    question_bank_target_depth: int = Field(
+        default=2, alias="QUESTION_BANK_TARGET_DEPTH"
+    )
+
+    # Async (LLM-judge) grading tier. Disabled by default → grade_answer falls
+    # back to tier-1-3 (exact/normalized via the plugin) with no LLM call.
+    llm_judge_enabled: bool = Field(default=False, alias="LLM_JUDGE_ENABLED")
+    llm_judge_model: str = Field(
+        default="anthropic/claude-haiku-4-5", alias="LLM_JUDGE_MODEL"
+    )
 
     @property
     def fallback_models(self) -> list[str]:

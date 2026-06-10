@@ -26,6 +26,7 @@ from pycil_core.learning import elo as elo_mod
 from pycil_core.learning import term_selection
 from pycil_core.learning.intervals import snap_to_ladder
 from pycil_core.learning.mastery_levels import level_for_elo
+from pycil_core.schemas.grading import AsyncGradePending
 from pycil_core.schemas.learning import (
     SessionQuestionResponse,
     StartSessionResponse,
@@ -101,12 +102,14 @@ def _initial_state(
     user_id: UUID,
     deck_id: UUID,
     definition_ids: list[int],
+    theme_id: str | None = None,
 ) -> dict[str, Any]:
     """Build the round-0 state. round_queue starts as the full session list."""
     return {
         "id": session_id,
         "user_id": str(user_id),
         "deck_id": str(deck_id),
+        "theme_id": theme_id,
         "definition_ids": definition_ids,
         "term_tracking": {
             str(did): {
@@ -152,8 +155,14 @@ async def start_session(
     user_id: UUID,
     deck_id: UUID,
     session_size: int,
+    theme_id: str | None = None,
 ) -> StartSessionResponse:
     """Pick terms, build state, persist to Redis, return id."""
+    from pycil_core.services import theme_service
+
+    if not theme_service.is_valid(theme_id):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "unknown_theme")
+
     deck_row = (
         await session.exec(select(Node.author_id, Node.type).where(Node.id == deck_id))
     ).first()
@@ -171,7 +180,7 @@ async def start_session(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "no_terms_to_study")
 
     session_id = str(uuid4())
-    state = _initial_state(session_id, user_id, deck_id, definition_ids)
+    state = _initial_state(session_id, user_id, deck_id, definition_ids, theme_id)
     await _hydrate_initial_elo(session, user_id, state)
 
     redis = _redis()
@@ -179,6 +188,16 @@ async def start_session(
         await _save_state(redis, session_id, state)
     finally:
         await redis.aclose()
+
+    # Fire-and-forget bank prewarm for the selected terms so subsequent
+    # next_question calls hit ready questions instead of waiting on generation.
+    # Best-effort: a prewarm enqueue failure must not block session start.
+    from pycil_core.services import question_bank_service
+
+    try:
+        await question_bank_service.enqueue_prewarm(definition_ids, user_id)
+    except Exception:  # noqa: BLE001
+        pass
 
     return StartSessionResponse(
         session_id=session_id,
@@ -192,6 +211,26 @@ def _next_round_queue(state: dict) -> list[int]:
     return [
         did for did in state["definition_ids"] if not state["term_tracking"][str(did)]["completed"]
     ]
+
+
+def _question_type_for(definition_id: int) -> str:
+    """Pick the question type the learn loop serves for a definition.
+
+    Currently always MULTIPLE_CHOICE. The learn-loop submit path is index-only
+    (selected_index) and the WRITE/FILL answer UIs are not yet mounted in the
+    session, so serving a non-MCQ type here would render a question the user
+    cannot answer. WRITE/FILL stay fully built + tested at the service/worker
+    layer (generation, grading, registry dispatch); the learn loop begins
+    serving them once the generic {answer: dict} submit contract + per-type
+    answer UIs land. Kept as a function (not inlined) so enabling type variation
+    is a one-line change to a stable, per-definition deterministic pick:
+
+        types = registry.all_types(); return types[definition_id % len(types)]
+
+    Deterministic-by-definition (not rotating) is the required shape so the
+    bank cache hits and a seed can pin a definition to a known type.
+    """
+    return "MULTIPLE_CHOICE"
 
 
 async def next_question(
@@ -216,7 +255,8 @@ async def next_question(
     fetched = None
     if peek_definition_id is not None:
         fetched = await question_service.get_or_generate(
-            session, peek_definition_id, "easy", user_id
+            session, peek_definition_id, "easy", user_id,
+            _question_type_for(peek_definition_id),
         )
 
     request_id = await _acquire_lock(redis, session_id)
@@ -244,7 +284,8 @@ async def next_question(
         # If the queue head shifted while we fetched, refetch under lock.
         if fetched is None or definition_id != peek_definition_id:
             fetched = await question_service.get_or_generate(
-                session, definition_id, "easy", user_id
+                session, definition_id, "easy", user_id,
+                _question_type_for(definition_id),
             )
         if fetched.status != "ready" or fetched.question is None:
             # Generation pending; client should retry.
@@ -260,6 +301,15 @@ async def next_question(
         state["current_definition_id"] = definition_id
         await _save_state(redis, session_id, state)
 
+        from pycil_core.services import theme_service
+
+        # Per-question theme: a concrete session theme stays stable; themed-pool
+        # mode (no session theme) rotates by definition_id so each term shows a
+        # different, deterministic theme. Presentation only — never grading.
+        question_theme = theme_service.rotate_theme_id(
+            state.get("theme_id"), definition_id
+        )
+
         return SessionQuestionResponse(
             question={
                 "id": str(fetched.question.id),
@@ -271,6 +321,7 @@ async def next_question(
             round_index=state["round_index"],
             round_position=0,
             round_size=len(state["round_queue"]),
+            theme=question_theme,
         )
     finally:
         await _release_lock(redis, session_id, request_id)
@@ -341,16 +392,108 @@ async def _previous_review(
     return (lapsed, float(row.interval_seconds or 0))
 
 
+async def _apply_answer_outcome(
+    session: AsyncSession,
+    redis: Redis,
+    *,
+    user_id: UUID,
+    session_id: str,
+    state: dict,
+    definition_id: int,
+    correct: bool,
+) -> tuple[TermReviewedResult | None, bool, bool, bool]:
+    """Apply a graded answer to session state + ELO + XP. Caller MUST hold the
+    session lock. Shared by the sync (submit_answer) and async
+    (apply_async_verdict) paths so the ELO/queue/XP logic stays single-sourced.
+
+    Returns (term_reviewed, round_complete, session_complete, was_first).
+    """
+    from pycil_core.services import gamification_service
+
+    tracking = state["term_tracking"][str(definition_id)]
+    was_first = tracking["is_first_attempt"]
+
+    if correct:
+        if was_first:
+            tracking["correct_firsts"] += 1
+        tracking["is_first_attempt"] = True
+        state["round_queue"] = state["round_queue"][1:]
+    else:
+        tracking["is_first_attempt"] = False
+
+    term_reviewed: TermReviewedResult | None = None
+    if tracking["correct_firsts"] >= _REQUIRED_CORRECT_FIRSTS and not tracking["completed"]:
+        tracking["completed"] = True
+        elo_old = int(tracking["elo_at_start"])
+        R = elo_mod.realized_score(tracking["correct_firsts"], _REQUIRED_CORRECT_FIRSTS)
+        E = elo_mod.expected_score(elo_old, [elo_mod.INITIAL_ELO])
+        lapsed, interval_old = await _previous_review(session, user_id, definition_id)
+        T = elo_mod.lapsed_time_factor(lapsed, interval_old)
+        d = elo_mod.elo_delta(R, E, T)
+        elo_new = elo_mod.new_elo(elo_old, d)
+        new_interval = snap_to_ladder(
+            elo_mod.new_interval_seconds(elo_old, elo_new, interval_old)
+        )
+        nrd = await _persist_review(
+            session, user_id, definition_id, elo_old, elo_new, new_interval
+        )
+        term_reviewed = TermReviewedResult(
+            definition_id=definition_id,
+            elo_old=elo_old,
+            elo_new=elo_new,
+            elo_delta=d,
+            next_review_date=nrd,
+            interval_seconds=new_interval,
+            mastery_level=level_for_elo(elo_new),
+        )
+        state["round_queue"] = [
+            did for did in state["round_queue"] if int(did) != definition_id
+        ]
+
+    round_complete = len(state["round_queue"]) == 0
+    session_complete = round_complete and all(
+        t["completed"] for t in state["term_tracking"].values()
+    )
+
+    state["current_question_id"] = None
+    state["current_definition_id"] = None
+    await _save_state(redis, session_id, state)
+
+    xp_delta = (
+        gamification_service.XP_DELTA["correct_new"]
+        if correct and was_first
+        else gamification_service.XP_DELTA["correct_review"]
+        if correct
+        else gamification_service.XP_DELTA["wrong"]
+    )
+    await gamification_service.award_xp(session, user_id=user_id, delta=xp_delta)
+    await gamification_service.tick_streak(session, user_id=user_id)
+    if term_reviewed is not None:
+        await gamification_service.check_badges(session, user_id=user_id)
+
+    return term_reviewed, round_complete, session_complete, was_first
+
+
 async def submit_answer(
     session: AsyncSession,
     user_id: UUID,
     session_id: str,
     question_id: UUID,
     selected_index: int,
-) -> SubmitAnswerResponse:
-    from shared.questions.multiple_choice import MultipleChoiceQuestion
+    answer: dict | None = None,
+) -> SubmitAnswerResponse | AsyncGradePending:
+    """Grade a submitted answer.
 
-    from pycil_core.services import gamification_service
+    Sync types (MCQ, Fill) grade inline and mutate session state immediately.
+    Async types (Write, ``requires_server_grading``) enqueue a grade job and
+    return ``AsyncGradePending`` WITHOUT mutating session state — ELO/XP and
+    queue advance happen later in ``apply_async_verdict`` once the verdict
+    resolves. ``answer`` is the generic plugin payload; ``selected_index`` is the
+    MCQ back-compat shape (the {answer: dict} request migration lands in phase 5).
+    """
+    from shared.questions import registry
+
+    from pycil_core.services import async_grade_service
 
     redis = _redis()
     request_id = await _acquire_lock(redis, session_id)
@@ -373,84 +516,146 @@ async def submit_answer(
         ).first()
         if not q_row:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "question_not_found")
-        if q_row.type != "MULTIPLE_CHOICE":
+        if not registry.is_registered(q_row.type):
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "unsupported_question_type")
         data = q_row.data
         if isinstance(data, str):
             data = json.loads(data)
 
-        check = MultipleChoiceQuestion.check_answer(data, {"selected_index": selected_index})
+        plugin = registry.get(q_row.type)
+
+        # Async grading: enqueue + return pending. Do NOT advance session state;
+        # apply_async_verdict commits ELO/XP/queue under the lock once graded.
+        if plugin.requires_server_grading:
+            user_answer = str((answer or {}).get("user_answer", ""))
+            return await async_grade_service.enqueue_grade(
+                session,
+                user_id=user_id,
+                question_id=question_id,
+                user_answer=user_answer,
+                session_id=session_id,
+            )
+
+        answer_payload = answer if answer is not None else {"selected_index": selected_index}
+        check = plugin.check_answer(data, answer_payload)
         correct = check.correct
-        correct_idx = data.get("correct_index", 0)
+        correct_idx = check.reveal.get("correct_index", data.get("correct_index", 0))
 
         definition_id = int(state["current_definition_id"])
-        tracking = state["term_tracking"][str(definition_id)]
-        was_first = tracking["is_first_attempt"]
-
-        if correct:
-            if was_first:
-                tracking["correct_firsts"] += 1
-            tracking["is_first_attempt"] = True
-            # pop from queue.
-            state["round_queue"] = state["round_queue"][1:]
-        else:
-            tracking["is_first_attempt"] = False
-            # leave in queue (front) so client retries.
-
-        term_reviewed: TermReviewedResult | None = None
-        if tracking["correct_firsts"] >= _REQUIRED_CORRECT_FIRSTS and not tracking["completed"]:
-            tracking["completed"] = True
-            elo_old = int(tracking["elo_at_start"])
-            R = elo_mod.realized_score(tracking["correct_firsts"], _REQUIRED_CORRECT_FIRSTS)
-            E = elo_mod.expected_score(elo_old, [elo_mod.INITIAL_ELO])
-            lapsed, interval_old = await _previous_review(session, user_id, definition_id)
-            T = elo_mod.lapsed_time_factor(lapsed, interval_old)
-            d = elo_mod.elo_delta(R, E, T)
-            elo_new = elo_mod.new_elo(elo_old, d)
-            new_interval_raw = elo_mod.new_interval_seconds(elo_old, elo_new, interval_old)
-            new_interval = snap_to_ladder(new_interval_raw)
-            nrd = await _persist_review(
-                session, user_id, definition_id, elo_old, elo_new, new_interval
-            )
-            term_reviewed = TermReviewedResult(
+        term_reviewed, round_complete, session_complete, _was_first = (
+            await _apply_answer_outcome(
+                session,
+                redis,
+                user_id=user_id,
+                session_id=session_id,
+                state=state,
                 definition_id=definition_id,
-                elo_old=elo_old,
-                elo_new=elo_new,
-                elo_delta=d,
-                next_review_date=nrd,
-                interval_seconds=new_interval,
-                mastery_level=level_for_elo(elo_new),
+                correct=correct,
             )
-            # Drop from any pending round_queue entry.
-            state["round_queue"] = [
-                did for did in state["round_queue"] if int(did) != definition_id
-            ]
-
-        round_complete = len(state["round_queue"]) == 0
-        session_complete = round_complete and all(
-            t["completed"] for t in state["term_tracking"].values()
         )
-
-        state["current_question_id"] = None
-        state["current_definition_id"] = None
-        await _save_state(redis, session_id, state)
-
-        xp_delta = (
-            gamification_service.XP_DELTA["correct_new"]
-            if correct and was_first
-            else gamification_service.XP_DELTA["correct_review"]
-            if correct
-            else gamification_service.XP_DELTA["wrong"]
-        )
-        await gamification_service.award_xp(session, user_id=user_id, delta=xp_delta)
-        await gamification_service.tick_streak(session, user_id=user_id)
-        if term_reviewed is not None:
-            await gamification_service.check_badges(session, user_id=user_id)
 
         return SubmitAnswerResponse(
             correct=correct,
+            score=check.score,
+            feedback=check.feedback,
+            reveal=check.reveal,
             explanation=check.explanation,
             correct_index=correct_idx,
+            round_complete=round_complete,
+            session_complete=session_complete,
+            term_reviewed=term_reviewed,
+        )
+    finally:
+        await _release_lock(redis, session_id, request_id)
+        await redis.aclose()
+
+
+async def apply_async_verdict(
+    session: AsyncSession,
+    user_id: UUID,
+    session_id: str,
+    response_id: UUID,
+) -> SubmitAnswerResponse:
+    """Apply an async (LLM-judge) verdict to session state + ELO/XP.
+
+    Called by the FE after the SSE verdict frame resolves. Runs under the
+    session lock and reuses ``_apply_answer_outcome`` so async grading matches
+    the sync path exactly. Exactly-once: atomically claims the response row
+    (``elo_applied`` FALSE→TRUE) — a second call no-ops and returns the verdict
+    without re-crediting ELO. The claim commits atomically with the ELO write.
+    """
+    redis = _redis()
+    request_id = await _acquire_lock(redis, session_id)
+    try:
+        row = (
+            await session.execute(
+                text(
+                    """
+                    SELECT user_id, is_correct, grade_status, elo_applied,
+                           session_id, grade_score, grade_feedback
+                      FROM responses WHERE id = :rid
+                    """
+                ),
+                {"rid": response_id},
+            )
+        ).first()
+        if row is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "response_not_found")
+        if str(row.user_id) != str(user_id) or row.session_id != session_id:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "response_forbidden")
+        if row.grade_status != "graded":
+            raise HTTPException(status.HTTP_409_CONFLICT, "grade_pending")
+
+        correct = bool(row.is_correct)
+        score = (
+            float(row.grade_score)
+            if row.grade_score is not None
+            else (1.0 if correct else 0.0)
+        )
+
+        # Idempotent claim: only the first caller flips elo_applied + applies.
+        claimed = (
+            await session.execute(
+                text(
+                    "UPDATE responses SET elo_applied = TRUE "
+                    "WHERE id = :rid AND elo_applied = FALSE RETURNING id"
+                ),
+                {"rid": response_id},
+            )
+        ).first()
+        if claimed is None:
+            await session.commit()
+            return SubmitAnswerResponse(
+                correct=correct,
+                score=score,
+                feedback=row.grade_feedback,
+                explanation=row.grade_feedback,
+                round_complete=False,
+                session_complete=False,
+                term_reviewed=None,
+            )
+
+        state = await _load_state(redis, session_id)
+        if state["user_id"] != str(user_id):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "session_forbidden")
+        definition_id = int(state["current_definition_id"])
+        term_reviewed, round_complete, session_complete, _ = (
+            await _apply_answer_outcome(
+                session,
+                redis,
+                user_id=user_id,
+                session_id=session_id,
+                state=state,
+                definition_id=definition_id,
+                correct=correct,
+            )
+        )
+        await session.commit()
+        return SubmitAnswerResponse(
+            correct=correct,
+            score=score,
+            feedback=row.grade_feedback,
+            explanation=row.grade_feedback,
             round_complete=round_complete,
             session_complete=session_complete,
             term_reviewed=term_reviewed,

@@ -43,7 +43,11 @@ export async function enqueueAnswer(answer: OfflineAnswer): Promise<void> {
     const reg = await navigator.serviceWorker.ready;
     if ("sync" in reg) {
       try {
-        await (reg as any).sync.register("pycil-answer-queue");
+        // Background Sync API is not in the standard lib DOM types.
+        const syncReg = reg as ServiceWorkerRegistration & {
+          sync: { register: (tag: string) => Promise<void> };
+        };
+        await syncReg.sync.register("pycil-answer-queue");
       } catch {
         // background sync registration is best-effort
       }

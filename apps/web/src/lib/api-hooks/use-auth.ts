@@ -15,7 +15,7 @@ export function useMe() {
 export function useUpdateMe() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: { name: string }) => authApi.updateMe(body),
+    mutationFn: (body: authApi.UpdateMeBody) => authApi.updateMe(body),
     onSuccess: (user) => {
       qc.setQueryData(queryKeys.me(), user);
     },

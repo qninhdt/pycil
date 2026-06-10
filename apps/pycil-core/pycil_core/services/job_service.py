@@ -97,47 +97,56 @@ async def enqueue_generate_term(
             await session.commit()
             return {"job_id": owner_job_id, "deduped": True}
 
-        # Fresh job: insert jobs row + user_term_jobs.
-        await session.execute(
-            text(
-                """
-                INSERT INTO jobs (id, type, status, payload)
-                VALUES (:id, 'generate_term', 'pending', CAST(:payload AS jsonb))
-                """
-            ),
-            {
-                "id": new_job_id,
-                "payload": json.dumps({"term_id": term_id}),
-            },
-        )
-        await session.execute(
-            text(
-                """
-                INSERT INTO user_term_jobs (user_id, term_id, job_id)
-                VALUES (:uid, :tid, :jid)
-                ON CONFLICT (user_id, term_id) DO UPDATE SET job_id = :jid
-                """
-            ),
-            {"uid": user_id, "tid": term_id, "jid": new_job_id},
-        )
-        await session.commit()
-
+        # Fresh job: insert jobs row + user_term_jobs, then enqueue.
+        # Any failure AFTER we acquired the lock must release it — otherwise
+        # this term is un-enrichable for the full TTL window. Previously only
+        # the enqueue failure released the lock; a commit failure on the INSERTs
+        # (unique violation, deadlock, dropped conn) leaked it.
         try:
+            await session.execute(
+                text(
+                    """
+                    INSERT INTO jobs (id, type, status, payload)
+                    VALUES (:id, 'generate_term', 'pending', CAST(:payload AS jsonb))
+                    """
+                ),
+                {
+                    "id": new_job_id,
+                    "payload": json.dumps({"term_id": term_id}),
+                },
+            )
+            await session.execute(
+                text(
+                    """
+                    INSERT INTO user_term_jobs (user_id, term_id, job_id)
+                    VALUES (:uid, :tid, :jid)
+                    ON CONFLICT (user_id, term_id) DO UPDATE SET job_id = :jid
+                    """
+                ),
+                {"uid": user_id, "tid": term_id, "jid": new_job_id},
+            )
+            await session.commit()
+
             await enqueue_arq_job(
                 "generate_term", term_id, new_job_id, _job_id=new_job_id
             )
         except Exception:
-            # Orphan-cleanup: enqueue failed → release lock + mark job failed
-            # so the user gets a clear error instead of a 10-minute spinner.
+            # Orphan-cleanup: release lock so the user gets a clear error
+            # instead of a 10-minute spinner. Then best-effort mark the job
+            # failed (only takes effect if its row was committed).
+            await session.rollback()
             await redis.delete(lock_key)
-            await session.execute(
-                text(
-                    "UPDATE jobs SET status = 'failed', error = 'enqueue_failed',"
-                    " updated_at = NOW() WHERE id = :id"
-                ),
-                {"id": new_job_id},
-            )
-            await session.commit()
+            try:
+                await session.execute(
+                    text(
+                        "UPDATE jobs SET status = 'failed', error = 'enqueue_failed',"
+                        " updated_at = NOW() WHERE id = :id"
+                    ),
+                    {"id": new_job_id},
+                )
+                await session.commit()
+            except Exception:
+                await session.rollback()
             raise
 
         return {"job_id": new_job_id, "deduped": False}

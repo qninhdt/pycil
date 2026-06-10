@@ -1,0 +1,49 @@
+# Dex static config — LOCAL/STAGING ONLY.
+#
+# Dex is the local OIDC IdP that stands in for Google. Production swaps to
+# Google by changing OIDC_* env vars only — Dex is never deployed to prod.
+#
+# The issuer string MUST byte-match OIDC_ISSUER_URL as seen by BOTH the browser
+# (authorize redirect) and the host-run Auth.js server (discovery + token
+# exchange). With web on the host and Dex published to localhost:5556, both
+# sides use the same string — no browser/server split-horizon.
+#
+# The static-client secret below is a real working value because Dex needs it
+# to validate the client; it is safe to commit because it only authenticates
+# the local app to the local IdP. `.env.example` still ships a placeholder so a
+# prod copy never silently points at a localhost issuer.
+issuer: http://localhost:5556/dex
+
+storage:
+  type: memory
+
+web:
+  http: 0.0.0.0:5556
+
+oauth2:
+  # Skip the consent screen so the E2E runner (and humans) land straight back
+  # on the app after login instead of stopping on an approval click.
+  skipApprovalScreen: true
+
+staticClients:
+  - id: pycil-web
+    name: Pycil
+    secret: pycil-dex-secret-local-only
+    redirectURIs:
+      # 3100 = host `next dev` (local staging); 3000 = CI / alternate dev port;
+      # 3210 = run-e2e.sh's default dedicated port (avoids foreign next-dev clashes).
+      # Auth.js builds the callback from AUTH_URL, so every port the suite runs on
+      # must be registered here or Dex rejects with "Unregistered redirect_uri".
+      - http://localhost:3100/api/auth/callback/oidc
+      - http://localhost:3000/api/auth/callback/oidc
+      - http://localhost:3210/api/auth/callback/oidc
+
+enablePasswordDB: true
+
+staticPasswords:
+  # Canonical E2E identity — this email threads through the staging seed and CI
+  # E2E_TEST_USER_ID. password123 hashed with bcrypt (cost 10).
+  - email: e2e-test@pycil.local
+    hash: "$2b$10$mS3i0lsHz6uGKAJEBq3nN..E3IVl8.5SZiZVTz7lZWO2DryQlLQqq"
+    username: admin
+    userID: "00000000-0000-0000-0000-00000000dex1"

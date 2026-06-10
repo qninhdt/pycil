@@ -14,6 +14,7 @@ from redis.asyncio import Redis
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from pycil_core.schemas.grading import AsyncGradePending
 from pycil_core.schemas.question import (
     QuestionCheckResponse,
     QuestionFetchResponse,
@@ -124,21 +125,41 @@ async def _existing_question(
     )
 
 async def get_or_generate(
-    session: AsyncSession, definition_id: int, difficulty: str, user_id: UUID
+    session: AsyncSession,
+    definition_id: int,
+    difficulty: str,
+    user_id: UUID,
+    question_type: str = "MULTIPLE_CHOICE",
 ) -> QuestionFetchResponse:
-    """Return cached MCQ or fire generation. Difficulty advisory only."""
+    """Return a cached question of the given type or fire generation.
+
+    Difficulty advisory only. ``question_type`` defaults to MCQ so callers that
+    only want multiple-choice (test mode, bank prewarm) need not pass it; the
+    learn loop threads a deterministic per-definition type so WRITE/FILL_IN_BLANK
+    get served too.
+    """
     if difficulty not in {"easy", "medium", "hard"}:
         difficulty = "easy"
 
     await _assert_user_can_access_definition(session, definition_id, user_id)
 
-    cached = await _existing_question(session, definition_id)
-    if cached is not None:
-        return QuestionFetchResponse(question=cached, status="ready")
+    # Bank read first: return a ready question with no enqueue + no wait when
+    # the bank has depth. On-demand generation below is the cold-start fallback.
+    from pycil_core.services import question_bank_service
+
+    ready = await question_bank_service.get_ready(
+        session, definition_id, question_type, difficulty, user_id
+    )
+    if ready is not None:
+        return QuestionFetchResponse(question=ready, status="ready")
 
     redis = _redis()
     try:
-        lock_key = f"lock:gen_question:{definition_id}:MCQ"
+        # Lock key uses the persisted type string so the on-demand path and the
+        # background prewarm job (worker/jobs/prewarm_questions.py) share one
+        # single-flight lock per (definition, type) slot — preventing duplicate
+        # generation + double spend when both fire for the same slot.
+        lock_key = f"lock:gen_question:{definition_id}:{question_type}"
         new_job_id, owner_job_id, is_owner = await acquire_lock_or_get_owner(
             redis, lock_key=lock_key, ttl_seconds=_LOCK_TTL_SECONDS
         )
@@ -157,7 +178,7 @@ async def get_or_generate(
                         {
                             "definition_id": definition_id,
                             "difficulty": difficulty,
-                            "type": "MULTIPLE_CHOICE",
+                            "type": question_type,
                         }
                     ),
                 },
@@ -170,6 +191,7 @@ async def get_or_generate(
                     definition_id,
                     new_job_id,
                     difficulty,
+                    question_type,
                     _job_id=new_job_id,
                 )
             except Exception:
@@ -190,11 +212,19 @@ async def get_or_generate(
 
 
 async def check_answer(
-    session: AsyncSession, question_id: UUID, selected_index: int, user_id: UUID
-) -> QuestionCheckResponse:
-    """Validate user's MCQ selection. Imports MCQ class lazily to avoid
-    coupling unrelated routes to the shared package import path."""
-    from shared.questions.multiple_choice import MultipleChoiceQuestion
+    session: AsyncSession,
+    question_id: UUID,
+    selected_index: int,
+    user_id: UUID,
+    answer: dict | None = None,
+) -> QuestionCheckResponse | AsyncGradePending:
+    """Validate an answer via the plugin registry. Sync types grade inline and
+    return ``QuestionCheckResponse``; async (``requires_server_grading``) types
+    enqueue a grade job and return ``AsyncGradePending`` (no session → no ELO,
+    standalone verdict streaming only)."""
+    from shared.questions import registry
+
+    from pycil_core.services import async_grade_service
 
     await _assert_user_can_access_question(session, question_id, user_id)
 
@@ -208,7 +238,7 @@ async def check_answer(
     ).first()
     if not row:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "question_not_found")
-    if row.type != "MULTIPLE_CHOICE":
+    if not registry.is_registered(row.type):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "unsupported_question_type")
 
     data = row.data
@@ -218,13 +248,27 @@ async def check_answer(
         except (TypeError, ValueError):
             data = {}
 
-    result = MultipleChoiceQuestion.check_answer(
-        data, {"selected_index": selected_index}
+    plugin = registry.get(row.type)
+    if plugin.requires_server_grading:
+        user_answer = str((answer or {}).get("user_answer", ""))
+        return await async_grade_service.enqueue_grade(
+            session,
+            user_id=user_id,
+            question_id=question_id,
+            user_answer=user_answer,
+            session_id=None,
+        )
+
+    result = plugin.check_answer(
+        data, answer if answer is not None else {"selected_index": selected_index}
     )
-    correct_idx = data.get("correct_index")
+    correct_idx = result.reveal.get("correct_index")
+    if not isinstance(correct_idx, int):
+        raw = data.get("correct_index")
+        correct_idx = raw if isinstance(raw, int) else 0
     return QuestionCheckResponse(
         correct=result.correct,
         explanation=result.explanation,
-        correct_index=correct_idx if isinstance(correct_idx, int) else 0,
+        correct_index=correct_idx,
     )
 

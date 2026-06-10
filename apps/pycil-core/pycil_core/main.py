@@ -11,6 +11,12 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from starlette.requests import Request
 
 from pycil_core.api.routes import admin as admin_routes
+from pycil_core.api.routes import admin_flags as admin_flags_routes
+from pycil_core.api.routes import admin_health as admin_health_routes
+from pycil_core.api.routes import admin_human as admin_human_routes
+from pycil_core.api.routes import admin_metrics as admin_metrics_routes
+from pycil_core.api.routes import admin_reports as admin_reports_routes
+from pycil_core.api.routes import admin_users as admin_users_routes
 from pycil_core.api.routes import auth as auth_routes
 from pycil_core.api.routes import billing as billing_routes
 from pycil_core.api.routes import chat as chat_routes
@@ -125,6 +131,14 @@ def create_app() -> FastAPI:
 
     app.include_router(auth_routes.router)
     app.include_router(admin_routes.router)
+    app.include_router(admin_human_routes.router)
+    app.include_router(admin_users_routes.router)
+    app.include_router(admin_metrics_routes.router)
+    app.include_router(admin_reports_routes.router)
+    app.include_router(admin_flags_routes.router)
+    app.include_router(admin_health_routes.router)
+    from pycil_core.api.routes import reports as reports_routes
+    app.include_router(reports_routes.router)
     app.include_router(billing_routes.router)
     app.include_router(chat_routes.router)
     app.include_router(nodes_routes.router)

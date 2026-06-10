@@ -29,9 +29,9 @@ def _client():
     s = get_settings()
     return boto3.client(
         "s3",
-        endpoint_url=getattr(s, "b2_endpoint", None),
-        aws_access_key_id=getattr(s, "b2_key_id", None),
-        aws_secret_access_key=getattr(s, "b2_application_key", None),
+        endpoint_url=getattr(s, "s3_endpoint", None),
+        aws_access_key_id=getattr(s, "s3_key_id", None),
+        aws_secret_access_key=getattr(s, "s3_secret_key", None),
         config=Config(signature_version="s3v4"),
     )
 
@@ -42,9 +42,9 @@ async def generate_put_url(
     if content_type not in _ALLOWED_TYPES:
         raise ValueError("unsupported_content_type")
     s = get_settings()
-    bucket = getattr(s, "b2_bucket", None)
+    bucket = getattr(s, "s3_bucket", None)
     if not bucket:
-        raise RuntimeError("b2_bucket_not_configured")
+        raise RuntimeError("s3_bucket_not_configured")
     ext = _ALLOWED_TYPES[content_type]
     key = f"users/{user_id}/avatars/{uuid4().hex}.{ext}"
     import asyncio
@@ -54,7 +54,7 @@ async def generate_put_url(
         Params={"Bucket": bucket, "Key": key, "ContentType": content_type},
         ExpiresIn=expires_in,
     )
-    public_prefix = getattr(s, "b2_public_url_prefix", "").rstrip("/")
+    public_prefix = getattr(s, "s3_public_url_prefix", "").rstrip("/")
     return {
         "put_url": url,
         "key": key,

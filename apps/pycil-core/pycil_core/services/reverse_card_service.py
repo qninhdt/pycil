@@ -14,7 +14,8 @@ from uuid import UUID
 
 from shared.db import DeckTerm, Definition, Term, UserTermStat
 from shared.db.enums import UserTermStatus
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_
+from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 

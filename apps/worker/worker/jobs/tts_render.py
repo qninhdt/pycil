@@ -1,7 +1,7 @@
 """tts_render arq job.
 
-Calls Gemini Flash TTS, uploads MP3 to B2 at `tts/{def_id}/{lang}.mp3`,
-caches signed URL in `definitions.tts_url` JSONB. Per phase 10 plan.
+Synthesizes MP3 via OpenRouter TTS, uploads to S3 at `tts/{def_id}/{lang}.mp3`,
+caches signed URL in `definitions.tts_url` JSONB.
 """
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from shared.db import Definition, Term
 
 from worker.db import SessionLocal
 from worker.jobs.lifecycle import commit_terminal, is_terminal
-from worker.llm.gemini_tts import synthesize
+from worker.llm.tts_client import synthesize
 
 
 _log = logging.getLogger(__name__)
@@ -30,13 +30,13 @@ async def tts_render(
     """Render TTS audio for a definition; persist signed URL in JSONB."""
     redis = ctx["redis"]
     started = time.time()
-    bucket = os.getenv("B2_BUCKET")
+    bucket = os.getenv("S3_BUCKET")
 
     async with SessionLocal() as gate:
         if await is_terminal(gate, job_id):
             return {"status": "duplicate"}
 
-    if not bucket or not (os.getenv("GEMINI_TTS_KEY") or os.getenv("GOOGLE_TTS_KEY")):
+    if not bucket or not os.getenv("OPENROUTER_API_KEY"):
         async with SessionLocal() as session:
             await commit_terminal(
                 session, job_id=job_id, status="failed", error="tts_not_configured"
@@ -110,7 +110,7 @@ async def tts_render(
                    SET tts_url = jsonb_set(
                          coalesce(tts_url, '{}'::jsonb),
                          ARRAY[:lang],
-                         to_jsonb(:url::text)
+                         to_jsonb(CAST(:url AS text))
                        )
                  WHERE id = :id
                 """
@@ -134,7 +134,7 @@ async def tts_render(
 
 async def _upload_and_sign(definition_id: int, lang: str, audio: bytes) -> str:
     """Upload MP3 to B2; return signed download URL valid 7d."""
-    bucket = os.getenv("B2_BUCKET", "")
+    bucket = os.getenv("S3_BUCKET", "")
     key = f"tts/{definition_id}/{lang}.mp3"
     client = _s3_client()
     await asyncio.to_thread(
@@ -161,8 +161,8 @@ def _s3_client():
 
     return boto3.client(
         "s3",
-        endpoint_url=os.getenv("B2_ENDPOINT"),
-        aws_access_key_id=os.getenv("B2_KEY_ID"),
-        aws_secret_access_key=os.getenv("B2_APPLICATION_KEY"),
+        endpoint_url=os.getenv("S3_ENDPOINT"),
+        aws_access_key_id=os.getenv("S3_KEY_ID"),
+        aws_secret_access_key=os.getenv("S3_APPLICATION_KEY"),
         config=Config(signature_version="s3v4"),
     )

@@ -1,18 +1,18 @@
 """Happy-path + cache-hit + retry semantics for `generate_term`.
 
-`worker.llm.openrouter.generate_with_schema` is monkeypatched per-test —
+`worker.llm.openrouter.invoke_with_fallback` is monkeypatched per-test —
 no network egress. `worker.prompts.render` is patched to a stub since
 the real Jinja templates are not in scope of this test.
 """
 from __future__ import annotations
 
-import json
 from uuid import uuid4
 
 import pytest
 from sqlalchemy import text
 
 from worker.jobs import generate_term as gt_mod
+from worker.llm.openrouter import FallbackResult
 from worker.schemas.term_generation import (
     GeneratedDefinition,
     GeneratedExample,
@@ -46,11 +46,13 @@ def _canned_output() -> TermGenerationOutput:
 def llm_calls(monkeypatch):
     calls: list[str] = []
 
-    async def fake(prompt, schema):
+    async def fake(prompt, schema, **kwargs):
         calls.append(prompt)
-        return _canned_output()
+        return FallbackResult(
+            output=_canned_output(), model_used="test", hops=0, elapsed_seconds=0.0
+        )
 
-    monkeypatch.setattr("worker.jobs.generate_term.generate_with_schema", fake)
+    monkeypatch.setattr("worker.jobs.generate_term.invoke_with_fallback", fake)
     monkeypatch.setattr("worker.jobs.generate_term.render", lambda *a, **k: "PROMPT")
     return calls
 
@@ -170,16 +172,18 @@ async def test_generate_term_validation_retry(session, arq_ctx, monkeypatch) -> 
 
     calls: list[str] = []
 
-    async def fake(prompt, schema):
+    async def fake(prompt, schema, **kwargs):
         calls.append(prompt)
         if len(calls) == 1:
             try:
                 schema.model_validate({"definition": None})
             except ValidationError as e:
                 raise e
-        return _canned_output()
+        return FallbackResult(
+            output=_canned_output(), model_used="test", hops=0, elapsed_seconds=0.0
+        )
 
-    monkeypatch.setattr("worker.jobs.generate_term.generate_with_schema", fake)
+    monkeypatch.setattr("worker.jobs.generate_term.invoke_with_fallback", fake)
     monkeypatch.setattr("worker.jobs.generate_term.render", lambda *a, **k: "PROMPT")
 
     term_id, job_id = await _seed_term_and_job(session, value="retry-term")
@@ -195,10 +199,10 @@ async def test_generate_term_two_strikes_failed_marks_terminal(
     session, fakeredis_client, monkeypatch
 ) -> None:
     """If both attempts fail AND `job_try == max_tries`, the job row is `failed`."""
-    async def always_fail(prompt, schema):
+    async def always_fail(prompt, schema, **kwargs):
         raise ValueError("malformed-output")
 
-    monkeypatch.setattr("worker.jobs.generate_term.generate_with_schema", always_fail)
+    monkeypatch.setattr("worker.jobs.generate_term.invoke_with_fallback", always_fail)
     monkeypatch.setattr("worker.jobs.generate_term.render", lambda *a, **k: "PROMPT")
 
     term_id, job_id = await _seed_term_and_job(session, value="two-strikes")
@@ -220,10 +224,10 @@ async def test_generate_term_non_terminal_attempt_reraises_without_failed(
     session, fakeredis_client, monkeypatch
 ) -> None:
     """`job_try < max_tries` → exception propagates BUT job is NOT marked failed."""
-    async def always_fail(prompt, schema):
+    async def always_fail(prompt, schema, **kwargs):
         raise ValueError("transient")
 
-    monkeypatch.setattr("worker.jobs.generate_term.generate_with_schema", always_fail)
+    monkeypatch.setattr("worker.jobs.generate_term.invoke_with_fallback", always_fail)
     monkeypatch.setattr("worker.jobs.generate_term.render", lambda *a, **k: "PROMPT")
 
     term_id, job_id = await _seed_term_and_job(session, value="transient")

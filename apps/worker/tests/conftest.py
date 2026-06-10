@@ -3,7 +3,7 @@
 Mirrors `apps/pycil-core/tests/conftest.py` for the worker package: shared
 Postgres (pytest-postgresql), fakeredis, and a fake `arq.ctx` for direct
 job invocation. Worker tests run with **zero** outbound network calls —
-`worker.llm.openrouter.generate_with_schema` is monkeypatched per-test.
+`worker.llm.openrouter.invoke_with_fallback` is monkeypatched per-test.
 """
 from __future__ import annotations
 
@@ -90,9 +90,17 @@ def _migrate_schema(postgresql_proc, _pg_dsn):
 
 @pytest_asyncio.fixture
 async def async_engine(_async_dsn, _migrate_schema):
+    import json
+    from functools import partial
+
     from sqlalchemy.ext.asyncio import create_async_engine
 
-    eng = create_async_engine(_async_dsn, future=True, pool_pre_ping=False)
+    eng = create_async_engine(
+        _async_dsn,
+        future=True,
+        pool_pre_ping=False,
+        json_serializer=partial(json.dumps, default=str),
+    )
     yield eng
     await eng.dispose()
 
@@ -125,8 +133,13 @@ def _bind_worker_session(monkeypatch, async_engine):
     (`from worker.db import SessionLocal`), so we have to patch each
     importer's symbol — patching `worker.db.SessionLocal` alone does
     nothing since the binding is already resolved.
+
+    The factory must produce SQLModel's `AsyncSession` (not the plain
+    SQLAlchemy one) to mirror runtime `worker.db.SessionLocal`; job code
+    calls `session.exec(...)`, which only exists on the SQLModel session.
     """
-    from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+    from sqlmodel.ext.asyncio.session import AsyncSession
 
     factory = async_sessionmaker(
         bind=async_engine, class_=AsyncSession, expire_on_commit=False
@@ -138,6 +151,7 @@ def _bind_worker_session(monkeypatch, async_engine):
         "worker.jobs.translate_definition",
         "worker.jobs.tts_render",
         "worker.jobs.lifecycle",
+        "worker.observability.spend_ledger",
     ):
         try:
             monkeypatch.setattr(f"{mod}.SessionLocal", factory)

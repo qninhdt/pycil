@@ -57,16 +57,21 @@ class BodySizeLimitMiddleware:
             chunks.append(body)
             more_body = bool(message.get("more_body"))
 
-        body_iter = iter(chunks)
+        # Whole body already buffered + size-checked; replay it as a single
+        # message. Emitting each chunk with more_body=False would make the
+        # downstream stream() stop after the first chunk and silently truncate
+        # multi-chunk bodies.
+        buffered = b"".join(chunks)
+        _replayed = False
 
         async def replay_receive() -> Message:
-            try:
-                chunk = next(body_iter)
-            except StopIteration:
+            nonlocal _replayed
+            if _replayed:
                 return {"type": "http.request", "body": b"", "more_body": False}
+            _replayed = True
             return {
                 "type": "http.request",
-                "body": chunk,
+                "body": buffered,
                 "more_body": False,
             }
 

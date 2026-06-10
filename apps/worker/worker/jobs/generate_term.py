@@ -30,6 +30,7 @@ from worker.config import get_settings
 from worker.db import SessionLocal
 from worker.jobs.lifecycle import append_event, mark_job, publish_status
 from worker.llm.openrouter import invoke_with_fallback
+from worker.observability.spend_ledger import record_spend_event
 from worker.observability.spend_metrics import emit_spend
 from worker.prompts import render
 from worker.redis_helpers import add_spend
@@ -147,7 +148,7 @@ async def _persist_definition(
             :tid, CAST(:cefr AS cefr_level), CAST(:pos AS part_of_speech),
             :syn, :ant, :notes, :canonical
         )
-        ON CONFLICT (term_id) DO UPDATE
+        ON CONFLICT (term_id, sense_index) DO UPDATE
           SET canonical_meaning = EXCLUDED.canonical_meaning,
               notes = EXCLUDED.notes,
               updated_at = NOW()
@@ -333,6 +334,17 @@ async def generate_term(ctx: dict, term_id: int, job_id: str) -> dict:
             )
             await mark_job(session, job_uuid, status="completed", result=payload)
             await session.commit()
+            # Persistent spend ledger — success path only, real LLM calls only.
+            # user_id is NULL: generate_term enrichment is global/cross-user
+            # cached, so the cost is not attributable to one user (red-team F10).
+            if model_used != "cache":
+                await record_spend_event(
+                    user_id=None,
+                    job_id=job_id,
+                    job_type="generate_term",
+                    model=model_used,
+                    cost_usd=_ESTIMATED_COST_USD,
+                )
             await _publish_event(redis, term_id, {"status": "completed", **payload})
             return {"status": "completed"}
         except Exception as exc:  # noqa: BLE001

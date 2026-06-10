@@ -1,13 +1,12 @@
 """Tests for shared-py question types."""
 from __future__ import annotations
 
-from shared.questions.fill_in_blank import (
+from shared.questions import (
     FillAnswerInput,
     FillData,
     FillInBlankQuestion,
-)
-from shared.questions.multiple_choice import MCQData, MultipleChoiceQuestion
-from shared.questions.write import (
+    MCQData,
+    MultipleChoiceQuestion,
     WriteAnswerInput,
     WriteData,
     WriteQuestion,

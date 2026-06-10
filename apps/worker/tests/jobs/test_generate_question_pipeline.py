@@ -15,8 +15,9 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import text
 
-from shared.questions.multiple_choice import MCQData
+from shared.questions import MCQData
 from worker.jobs import generate_question as gq_mod
+from worker.llm.openrouter import FallbackResult
 
 
 def _canned_mcq() -> MCQData:
@@ -61,10 +62,12 @@ def _canned_mcq_with_url() -> MCQData:
 def llm_mcq_ok(monkeypatch):
     canned = _canned_mcq()
 
-    async def fake(prompt, schema):
-        return canned
+    async def fake(prompt, schema, **kwargs):
+        return FallbackResult(
+            output=canned, model_used="test", hops=0, elapsed_seconds=0.0
+        )
 
-    monkeypatch.setattr("worker.jobs.generate_question.generate_with_schema", fake)
+    monkeypatch.setattr("worker.jobs.generate_question.invoke_with_fallback", fake)
     monkeypatch.setattr("worker.jobs.generate_question.render", lambda *a, **k: "P")
 
 
@@ -137,22 +140,27 @@ async def test_generate_question_cache_hit_skips_llm(
     """Pre-existing MCQ → mark completed without LLM call."""
     calls: list[str] = []
 
-    async def fake(prompt, schema):
+    async def fake(prompt, schema, **kwargs):
         calls.append("called")
-        return _canned_mcq()
+        return FallbackResult(
+            output=_canned_mcq(), model_used="test", hops=0, elapsed_seconds=0.0
+        )
 
-    monkeypatch.setattr("worker.jobs.generate_question.generate_with_schema", fake)
+    monkeypatch.setattr("worker.jobs.generate_question.invoke_with_fallback", fake)
     monkeypatch.setattr("worker.jobs.generate_question.render", lambda *a, **k: "P")
 
     def_id, job_id = await _seed_definition_and_job(session)
-    # Pre-insert MCQ.
-    await session.execute(
-        text(
-            "INSERT INTO questions (definition_id, type, data) "
-            "VALUES (:d, 'MULTIPLE_CHOICE'::question_type, '{}'::jsonb)"
-        ),
-        {"d": def_id},
-    )
+    # Fill the bank to the default target depth (2) for the easy MCQ slot so the
+    # depth-aware skip short-circuits before any LLM call.
+    for _ in range(2):
+        await session.execute(
+            text(
+                "INSERT INTO questions (definition_id, type, data) "
+                "VALUES (:d, 'MULTIPLE_CHOICE'::question_type, "
+                "'{\"difficulty\": \"easy\"}'::jsonb)"
+            ),
+            {"d": def_id},
+        )
     await session.commit()
 
     result = await gq_mod.generate_question(arq_ctx, def_id, job_id)
@@ -189,10 +197,12 @@ async def test_generate_question_definition_not_found(
 
 async def test_mcq_sanitize_strips_urls(session, arq_ctx, monkeypatch) -> None:
     """Persisted MCQ data must NOT contain raw URLs in stem/options."""
-    async def fake(prompt, schema):
-        return _canned_mcq_with_url()
+    async def fake(prompt, schema, **kwargs):
+        return FallbackResult(
+            output=_canned_mcq_with_url(), model_used="test", hops=0, elapsed_seconds=0.0
+        )
 
-    monkeypatch.setattr("worker.jobs.generate_question.generate_with_schema", fake)
+    monkeypatch.setattr("worker.jobs.generate_question.invoke_with_fallback", fake)
     monkeypatch.setattr("worker.jobs.generate_question.render", lambda *a, **k: "P")
 
     def_id, job_id = await _seed_definition_and_job(session)
@@ -214,11 +224,13 @@ async def test_mcq_sanitize_strips_urls(session, arq_ctx, monkeypatch) -> None:
 async def test_terminal_job_returns_duplicate(session, arq_ctx, monkeypatch) -> None:
     calls: list[str] = []
 
-    async def fake(prompt, schema):
+    async def fake(prompt, schema, **kwargs):
         calls.append("called")
-        return _canned_mcq()
+        return FallbackResult(
+            output=_canned_mcq(), model_used="test", hops=0, elapsed_seconds=0.0
+        )
 
-    monkeypatch.setattr("worker.jobs.generate_question.generate_with_schema", fake)
+    monkeypatch.setattr("worker.jobs.generate_question.invoke_with_fallback", fake)
     monkeypatch.setattr("worker.jobs.generate_question.render", lambda *a, **k: "P")
 
     def_id, job_id = await _seed_definition_and_job(session)

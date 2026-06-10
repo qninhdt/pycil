@@ -75,6 +75,25 @@ export function MultipleChoiceQuestion({
     );
   };
 
+  // Map each option to its post-submit rationale: the correct answer shows the
+  // explanation/feedback; each distractor shows its matching rationale (the
+  // backend emits distractor_rationale in option order, excluding the correct).
+  const rationaleByOption = (() => {
+    const map = new Map<string, string>();
+    const options = question.options ?? [];
+    const rationales = question.distractorRationale ?? [];
+    let d = 0;
+    for (const opt of options) {
+      if (opt === question.correctAnswer) {
+        if (question.feedback) map.set(opt, question.feedback);
+      } else {
+        const r = rationales[d++];
+        if (r) map.set(opt, r);
+      }
+    }
+    return map;
+  })();
+
   return (
     <div className={cn("space-y-6", className)}>
       <div className="text-center">
@@ -92,12 +111,19 @@ export function MultipleChoiceQuestion({
             className={cn(
               "w-full text-left p-4 rounded-lg border-2 transition-all duration-200",
               "focus:outline-none focus:ring-2 focus:ring-primary/20",
-              "disabled:cursor-not-allowed flex items-center",
+              "disabled:cursor-not-allowed flex flex-col",
               getOptionStyle(option)
             )}
           >
-            {getOptionIcon(option, index)}
-            <span className="flex-1">{option}</span>
+            <span className="flex items-center">
+              {getOptionIcon(option, index)}
+              <span className="flex-1">{option}</span>
+            </span>
+            {showResult && rationaleByOption.get(option) ? (
+              <span className="mt-2 ml-9 text-xs text-muted-foreground">
+                {rationaleByOption.get(option)}
+              </span>
+            ) : null}
           </button>
         ))}
       </div>

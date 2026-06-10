@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from shared.db import Subscription, User
-from sqlalchemy import tuple_, update
+from sqlalchemy import func, tuple_, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -90,6 +90,7 @@ async def upsert_subscription(
                     "status": stmt.excluded.status,
                     "last_event_at": stmt.excluded.last_event_at,
                     "last_event_id": stmt.excluded.last_event_id,
+                    "updated_at": func.now(),
                 },
                 where=tuple_(stmt.excluded.last_event_at, stmt.excluded.last_event_id)
                 > tuple_(Subscription.last_event_at, Subscription.last_event_id),

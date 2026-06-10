@@ -4,6 +4,133 @@ All notable releases. Format derived from Keep a Changelog; dates in ISO-8601.
 
 ---
 
+## [Unreleased] — 2026-05-30 — admin dashboard (RBAC, users, moderation, metrics, spend, flags, health, audit)
+
+`plans/260529-2356-admin-dashboard-implementation/` (8 phases, TDD throughout).
+Adds an admin-only `/admin` surface gated by a single `users.role` enum with an
+authoritative per-request DB read; the jose JWT carries a `role` claim purely so
+Next.js middleware can gate `/admin/*` at the edge.
+
+### Added
+
+- **RBAC foundation (Phase 1).** Migration `0019_user_role_and_ban`:
+  `user_role_enum` (`user`|`admin`), `users.role` (NOT NULL default `user`,
+  `server_default`), `users.banned_at`, `users.ban_reason`, and widens
+  `users.token_version` `SMALLINT→INTEGER`. `CurrentUser` gains `role`/`banned_at`;
+  `get_current_user` hard-locks banned accounts (403 `account_banned`).
+  `require_admin`/`AdminDep` dependency. `/auth/upsert-user` now returns `role` +
+  `token_version` so the Auth.js `jwt` callback mints correct edge claims on first
+  login (fixes the pre-existing hardcoded `token.tv=0` revoke-tokens bug). Admin
+  shell at `/admin` (server-side role re-check, `noindex`).
+- **User management + ban (Phase 2).** `/admin-api/users` search/list, detail
+  aggregate (stats + today-spend + recent jobs + mastery), ban/unban (hard
+  lockout), revoke-tokens. Self-ban, admin-on-admin, and last-admin guards. Every
+  write audited in one transaction.
+- **Persistent spend ledger (Phase 3).** Migration `0020_llm_spend_events`. Worker
+  writes one best-effort row per non-cached LLM call via a DEDICATED session (never
+  the job's — avoids `PendingRollbackError` poisoning generation), idempotent on
+  `job_id`. `generate_term` rows carry `user_id=NULL` (global cache). Costs are
+  flat-constant estimates, labeled "estimated".
+- **Metrics dashboard (Phase 4).** `/admin-api/metrics`: snapshot (DAU/WAU/signups/
+  answers/decks) + signup funnel + spend-by-day/model + top-spenders. Scalar cards
+  + plain tables (no chart lib). 30s snapshot cache.
+- **Reports pipeline (Phase 5).** Migration `0021_content_reports` (two typed FK
+  columns `node_id`/`comment_id` + CHECK exactly-one) plus `nodes.deleted_at` for a
+  new admin-capable reversible soft-delete. User `POST /reports`; admin queue +
+  resolve (dismiss / delete_content) with snapshot re-verification before delete.
+- **Feature-flag CRUD (Phase 6).** `/admin-api/flags` list/create/update/delete;
+  every write invalidates the 30s eval cache and audits.
+- **System health + audit viewer (Phase 7).** `/admin-api/health` (bounded,
+  never-throw DB/Redis/queue/heartbeat checks; `ZCARD` not `LLEN`); worker
+  heartbeat cron. The previously-dead `/admin/audit` handler is re-gated to
+  `AdminDep` + re-mounted at `/admin-api/audit` with filters + cursor pagination.
+- **Polish (Phase 8).** End-to-end admin-suite integration test + an
+  audit-coverage test enumerating every write action type. Admin write paths
+  rate-limited via the existing `enforce()` pattern. README admin-seed note with
+  migration-0019 rollback-ordering warning.
+
+### Notes
+
+- All human admin routes mount under `/admin-api/*` (forwarded by Caddy's catch-all
+  `/api/core/*`); the internal-secret routes stay under `/admin/*` (404'd publicly).
+- Supersedes drafted admin phases in `260526-2015-p6-operational-foundation`
+  (phases 3, 4) and `260526-2045-p12-compliance-trust` (phase 2).
+
+---
+
+## [Unreleased] — 2026-05-29 — raw-SQL→SQLModel conversion verified + adversarial audit
+
+`plans/260529-0615-full-project-audit-refactor/` (8 phases). Stabilized and
+verified the in-flight raw-SQL→SQLModel conversion (checkpoint `9f07149`), then
+ran a full adversarial bug hunt across `pycil-core`, `worker`, `shared-py`, and
+the Next.js web app. Every CONFIRMED bug proven by source-read + failing repro,
+fixed, then re-verified green.
+
+### Fixed — conversion regressions + production-breaking bugs
+
+- **`select` scalarization (P1/P2).** Several converted call sites imported
+  `select` from `sqlalchemy` but passed it to SQLModel's `session.exec()`, which
+  auto-scalarizes ONLY a `sqlmodel.select`. With `sqlalchemy.select(Model.col)`,
+  `.first()`/`.all()` return `Row`s, not the bare scalar. Empirically proven on
+  live PG. Broke: worker `lifecycle.is_terminal()` (idempotency gate permanently
+  False → re-runs paid LLM side effects on every arq retry), `generate_question`
+  cache-hit/sample reads, `social_service.claim_username` (false `username_taken`
+  409 when re-saving your own name), `reverse_card_service` distractor pool,
+  `me_extras` follow-by-username. Fix: import `select` from `sqlmodel` at each
+  scalar-consumed site. Multi-column sites were unaffected (Row attr access works).
+- **`ON CONFLICT (term_id)` on a dropped constraint (P1).** Migration
+  `0012_multi_sense_definitions` dropped `UNIQUE(term_id)` (→ `UNIQUE(term_id,
+  sense_index)`), but `generate_term` and `onboarding_service` still upserted on
+  `(term_id)` → `InvalidColumnReferenceError`, crashing term enrichment and new-
+  user onboarding on every new term. Fix: `ON CONFLICT (term_id, sense_index)`.
+- **`to_jsonb(:param::text)` bind bug (P1).** SQLAlchemy `text()` ignores a bind
+  param immediately followed by `::` → `PostgresSyntaxError`; translate + TTS
+  JSONB write-back crashed 100%. Fix: `to_jsonb(CAST(:param AS text))`.
+- **UUID JSONB serialize (P2).** Converted ORM `.values(result=...)` used the
+  default JSON serializer → `TypeError` on a UUID `question_id`. Fix: worker
+  engine `json_serializer=partial(json.dumps, default=str)` (matches old behavior).
+- **`upsert_subscription` dropped `updated_at = NOW()` (P3).** Conversion lost it
+  from the DO UPDATE set clause; restored.
+- **Job lock leak on commit failure (P2).** `job_service.enqueue_generate_term`
+  released `lock:generate_term` only on enqueue failure; a commit failure leaked
+  it for the full TTL. Fix: rollback + release on any post-acquire failure.
+
+### Fixed — web frontend
+
+- Removed the never-installed `next-pwa` wrapper (broke `tsc`/`next build`; the
+  app's real PWA is the hand-written `public/sw.js`). All 13 `no-explicit-any`
+  lint errors fixed with proper types. Dead study-mode links (`chat`/`test` →
+  404) removed (v1 scope). Legal pages unblocked from auth middleware. Sign-in
+  `searchParams` awaited (Next 15 Promise). Wired a `tsx --test` runner for the
+  previously-orphaned `quizlet-parser.test.ts` (9 tests).
+
+### Test harness
+
+- Aligned worker `conftest` SessionLocal to SQLModel `AsyncSession` (was plain
+  SQLAlchemy → no `.exec()`; the reason the conversion shipped unverified).
+  Updated stale worker tests to patch `invoke_with_fallback` (jobs no longer call
+  `generate_with_schema`). Added `test_translate_tts_pipeline.py` and core
+  regression tests for every CONFIRMED bug. Quarantined the pre-existing F7
+  fuzzy-grading test as `xfail` (predates the conversion; threshold re-tune is
+  out of behavior-preserving scope).
+
+### Verified
+
+- Core suite: 159 passed, 1 xfailed (F7), 9 skipped — 0 failures (was 12+ at
+  baseline). Worker suite: 41 passed, coverage 73.5% (gate 70%). Web: `tsc`,
+  `eslint` (0 errors), `next build` all green. Ruff clean on both Python packages.
+
+### Known / residual (escalated, not in behavior-preserving scope)
+
+- **Core test coverage 48.57% < CI gate 70%** — pre-existing: ~30 unwired P4–P12
+  deferred-feature scaffold services have zero tests. Not introduced this audit.
+- Unwired services with latent gaps if routed (`deck_search_service` missing
+  user scope; `classroom_service` missing deck-ownership check; `user_spend_service`
+  per-user cap non-functional; `admin_audit_service.record()` unwired). Pre-existing
+  npm-audit advisories (next/swiper/postcss) need breaking major bumps.
+
+---
+
 ## [Unreleased] — 2026-05-26 — comprehensive backend test suite
 
 `plans/260526-1746-comprehensive-backend-test-suite/` (8 phases). Pytest-driven regression net before `260525-1907-code-review-remediation` rewrites service files.

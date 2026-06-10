@@ -14,6 +14,29 @@ export class ApiError extends Error {
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_BASE ?? "/api/core";
 
+const USE_MOCK = process.env.NEXT_PUBLIC_USE_MOCK === "true";
+
+async function fetchJsonMock<T>(path: string, init: RequestInit): Promise<T> {
+  // Dynamic import keeps the mock layer out of the real-backend bundle.
+  const { handle } = await import("../mock/router");
+  const method = (init.method ?? "GET").toUpperCase();
+  let body: unknown = undefined;
+  if (typeof init.body === "string" && init.body.length > 0) {
+    try {
+      body = JSON.parse(init.body);
+    } catch {
+      body = init.body;
+    }
+  }
+  try {
+    return handle(method, path, body) as T;
+  } catch (err) {
+    const status = (err as { __status?: number }).__status ?? 500;
+    const message = (err as Error).message || "mock_error";
+    throw new ApiError(status, message, message);
+  }
+}
+
 let unauthorizedHandler: (() => void) | null = null;
 export function setUnauthorizedHandler(fn: (() => void) | null) {
   unauthorizedHandler = fn;
@@ -37,6 +60,8 @@ export async function fetchJson<T>(
   path: string,
   init: RequestInit = {},
 ): Promise<T> {
+  if (USE_MOCK) return fetchJsonMock<T>(path, init);
+
   const url = path.startsWith("http") ? path : `${BASE_URL}${path}`;
   const headers = new Headers(init.headers);
   if (init.body && !headers.has("content-type")) {

@@ -97,7 +97,7 @@ async def translate_definition(
                    SET translation = jsonb_set(
                          coalesce(translation, '{}'::jsonb),
                          ARRAY[:lang],
-                         to_jsonb(:val::text)
+                         to_jsonb(CAST(:val AS text))
                        )
                  WHERE id = :id
                 """
