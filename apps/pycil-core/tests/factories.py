@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -203,7 +203,7 @@ async def seed_user_term_stats(
     interval_seconds: int = 1800,
     last_review_offset_seconds: int = 3600,
 ) -> None:
-    last = datetime.now(tz=timezone.utc) - timedelta(seconds=last_review_offset_seconds)
+    last = datetime.now(tz=UTC) - timedelta(seconds=last_review_offset_seconds)
     nrd = last + timedelta(seconds=interval_seconds)
     await session.execute(
         text(

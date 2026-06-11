@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from alembic import op
 
-
 revision = "0014_social_collab"
 down_revision = "0013_user_definition_stats_and_overrides"
 branch_labels = None

@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from alembic import op
 
-
 revision = "0015_power_user_and_audit"
 down_revision = "0014_social_collab"
 branch_labels = None

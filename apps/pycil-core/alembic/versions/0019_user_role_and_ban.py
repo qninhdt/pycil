@@ -20,7 +20,6 @@ from __future__ import annotations
 
 from alembic import op
 
-
 revision = "0019_user_role_and_ban"
 down_revision = "0018_backup_rehearsals"
 branch_labels = None

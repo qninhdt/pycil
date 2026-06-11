@@ -7,7 +7,6 @@ import string
 from pycil_core.services import share_link_service
 from tests.factories import make_deck
 
-
 _TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 

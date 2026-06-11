@@ -12,7 +12,6 @@ from __future__ import annotations
 
 from alembic import op
 
-
 revision = "0016_compliance_email_infra"
 down_revision = "0015_power_user_and_audit"
 branch_labels = None

@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from alembic import op
 
-
 revision = "0018_backup_rehearsals"
 down_revision = "0017_push_goal_activity"
 branch_labels = None

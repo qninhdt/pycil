@@ -6,7 +6,7 @@ NRD, interval, mastery_level).
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import text
@@ -74,7 +74,7 @@ async def test_elo_writes_at_required_correct_firsts(
     assert row.mastery_score >= 1000  # gained from correct answer
     assert row.mastery_level >= 4
     assert row.interval_seconds >= 1800
-    assert row.next_review_date > datetime.now(tz=timezone.utc)
+    assert row.next_review_date > datetime.now(tz=UTC)
 
 
 async def test_wrong_answer_does_not_commit(

@@ -11,7 +11,6 @@ import asyncio
 
 from pycil_core.services._job_enqueue import acquire_lock_or_get_owner
 
-
 KEY = "lock:test:lua"
 
 

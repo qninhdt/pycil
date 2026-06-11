@@ -25,7 +25,7 @@ class NodeCreate(BaseModel):
     target_node_id: UUID | None = None
 
     @model_validator(mode="after")
-    def _shortcut_requires_target(self) -> "NodeCreate":
+    def _shortcut_requires_target(self) -> NodeCreate:
         if self.type == NodeType.SHORTCUT and self.target_node_id is None:
             raise ValueError("target_node_id is required for SHORTCUT")
         if self.type != NodeType.SHORTCUT and self.target_node_id is not None:

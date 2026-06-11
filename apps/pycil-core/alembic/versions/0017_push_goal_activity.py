@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from alembic import op
 
-
 revision = "0017_push_goal_activity"
 down_revision = "0016_compliance_email_infra"
 branch_labels = None

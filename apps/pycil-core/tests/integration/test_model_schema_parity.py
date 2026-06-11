@@ -19,9 +19,10 @@ or remove a field without a matching migration.
 from __future__ import annotations
 
 import shared.db  # noqa: F401  (registers all table models on SQLModel.metadata)
+from sqlmodel import SQLModel
+
 from alembic.autogenerate import compare_metadata
 from alembic.runtime.migration import MigrationContext
-from sqlmodel import SQLModel
 
 _STRUCTURAL = {"add_table", "remove_table", "add_column", "remove_column"}
 

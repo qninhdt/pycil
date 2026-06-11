@@ -4,7 +4,7 @@ Pinned: due > new > upcoming, with `definition_id ASC` deterministic tiebreak.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import text
 
@@ -35,7 +35,7 @@ async def test_due_terms_picked_before_new_and_upcoming(session, test_user) -> N
             session, deck_id=deck["id"], definition_id=d
         )
 
-    now = datetime.now(tz=timezone.utc)
+    now = datetime.now(tz=UTC)
 
     async def _seed(def_id: int, nrd: datetime) -> None:
         await session.execute(

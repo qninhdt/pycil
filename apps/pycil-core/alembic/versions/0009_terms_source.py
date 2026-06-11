@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from alembic import op
 
-
 revision = "0009_terms_source"
 down_revision = "0008_llm_response_retry_cache"
 branch_labels = None

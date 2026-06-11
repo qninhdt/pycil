@@ -14,7 +14,6 @@ from sqlalchemy import text
 
 from pycil_core.services import admin_user_query_service, user_service
 
-
 # ── upsert_user ─────────────────────────────────────────────────────────────
 
 
@@ -284,13 +283,13 @@ async def test_get_user_summary_unknown_none(session) -> None:
 
 
 async def test_recent_jobs(session, test_user) -> None:
-    for i in range(2):
+    for _i in range(2):
         await session.execute(
             text(
                 "INSERT INTO jobs (type, status, created_by_user_id) "
                 "VALUES (:t, 'completed', :u)"
             ),
-            {"t": f"generate_term", "u": test_user["id"]},
+            {"t": "generate_term", "u": test_user["id"]},
         )
     await session.commit()
     jobs = await admin_user_query_service.recent_jobs(

@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from alembic import op
 
-
 revision = "0013_user_definition_stats_and_overrides"
 down_revision = "0012_multi_sense_definitions"
 branch_labels = None

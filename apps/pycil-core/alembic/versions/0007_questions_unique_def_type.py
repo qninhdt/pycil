@@ -13,7 +13,6 @@ from __future__ import annotations
 
 from alembic import op
 
-
 revision = "0007_questions_unique_def_type"
 down_revision = "0006_subscription_event_ordering"
 branch_labels = None

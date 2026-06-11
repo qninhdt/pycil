@@ -9,7 +9,6 @@ Pinned:
 """
 from __future__ import annotations
 
-import pytest
 from sqlalchemy import text
 
 from pycil_core.schemas.grading import AsyncGradePending

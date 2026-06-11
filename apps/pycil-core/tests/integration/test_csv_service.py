@@ -24,7 +24,6 @@ from sqlalchemy import text
 from pycil_core.services import csv_service, term_batch_service
 from tests.factories import make_deck
 
-
 # ---------------------------------------------------------------------------
 # parse_csv (no DB)
 # ---------------------------------------------------------------------------
@@ -47,7 +46,7 @@ def test_malformed_utf8_raises() -> None:
 
 def test_bom_handled() -> None:
     # Excel exports UTF-8 with BOM.
-    raw = "﻿term,definition\nresilience,bouncing back\n".encode("utf-8")
+    raw = "﻿term,definition\nresilience,bouncing back\n".encode()
     rows, fields = csv_service.parse_csv(raw)
     assert fields == ["term", "definition"]
     assert len(rows) == 1

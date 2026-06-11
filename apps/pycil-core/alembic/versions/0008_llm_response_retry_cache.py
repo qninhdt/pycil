@@ -14,7 +14,6 @@ from __future__ import annotations
 
 from alembic import op
 
-
 revision = "0008_llm_response_retry_cache"
 down_revision = "0007_questions_unique_def_type"
 branch_labels = None

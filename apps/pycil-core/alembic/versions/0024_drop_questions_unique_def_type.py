@@ -22,7 +22,6 @@ from __future__ import annotations
 
 from alembic import op
 
-
 revision = "0024_drop_questions_unique_def_type"
 down_revision = "0023_responses_async_grading"
 branch_labels = None

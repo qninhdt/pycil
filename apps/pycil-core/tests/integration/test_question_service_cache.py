@@ -20,7 +20,6 @@ from tests.factories import (
     make_write_question,
 )
 
-
 _ANSWER_FIELDS = {
     "correct_index", "explanation", "distractor_rationale",
     "expected_answer", "alt_answers",

@@ -11,7 +11,6 @@ import pytest
 
 from pycil_core.learning.intervals import INTERVAL_LADDER_SECONDS, snap_to_ladder
 
-
 _FLOOR = INTERVAL_LADDER_SECONDS[0]   # 15 min
 _CEIL = INTERVAL_LADDER_SECONDS[-1]   # 2 months
 

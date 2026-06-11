@@ -10,10 +10,10 @@ from __future__ import annotations
 import os
 
 import pytest
-from alembic import command
-from alembic.config import Config
 from sqlalchemy import create_engine, text
 
+from alembic import command
+from alembic.config import Config
 
 pytestmark = pytest.mark.skipif(
     not os.getenv("DATABASE_URL_TEST"),

@@ -12,7 +12,6 @@ from __future__ import annotations
 
 from alembic import op
 
-
 revision = "0012_multi_sense_definitions"
 down_revision = "0011_feature_flags"
 branch_labels = None

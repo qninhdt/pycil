@@ -17,7 +17,6 @@ from sqlalchemy import text
 
 from pycil_core.services import email_service as svc
 
-
 # --- StubTransport ----------------------------------------------------------
 
 async def test_stub_transport_returns_stub_id():

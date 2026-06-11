@@ -12,7 +12,6 @@ from __future__ import annotations
 
 from alembic import op
 
-
 revision = "0020_llm_spend_events"
 down_revision = "0019_user_role_and_ban"
 branch_labels = None

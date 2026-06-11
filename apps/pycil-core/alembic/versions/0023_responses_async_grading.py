@@ -23,7 +23,6 @@ from __future__ import annotations
 
 from alembic import op
 
-
 revision = "0023_responses_async_grading"
 down_revision = "0022_question_bank_indexes"
 branch_labels = None

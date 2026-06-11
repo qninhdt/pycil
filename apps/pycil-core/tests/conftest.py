@@ -28,7 +28,6 @@ os.environ.setdefault("REDIS_URL", "redis://placeholder/0")
 import pytest
 import pytest_asyncio
 
-
 # Make sure the alembic dir is importable.
 _APP_ROOT = Path(__file__).resolve().parents[1]
 if str(_APP_ROOT) not in sys.path:
@@ -99,6 +98,7 @@ def _migrate_schema(postgresql_proc, _pg_dsn):
     that don't touch the DB never trigger the Postgres server start.
     """
     import psycopg
+
     from alembic import command
     from alembic.config import Config
 
@@ -384,7 +384,6 @@ async def admin_client(async_engine, admin_user, fakeredis_client) -> AsyncGener
     """
     import fakeredis
     import fakeredis.aioredis
-
     from httpx import ASGITransport, AsyncClient
     from sqlmodel.ext.asyncio.session import AsyncSession
 

@@ -20,7 +20,6 @@ from tests.factories import (
     make_write_question,
 )
 
-
 _LEAK_KEYS_MCQ = {"correct_index", "explanation", "distractor_rationale"}
 _LEAK_KEYS_WRITE = {"expected_answer", "alt_answers", "explanation"}
 

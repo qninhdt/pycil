@@ -12,7 +12,6 @@ from __future__ import annotations
 
 from alembic import op
 
-
 revision = "0006_subscription_event_ordering"
 down_revision = "0005_jobs_created_by_user_id"
 branch_labels = None

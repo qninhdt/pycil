@@ -17,7 +17,6 @@ from __future__ import annotations
 
 from alembic import op
 
-
 revision = "0004_v02_feature_fill"
 down_revision = "0003_phase_9_reconciliation"
 branch_labels = None

@@ -12,7 +12,6 @@ from fastapi import HTTPException
 
 from pycil_core.services.learning import session_state as ls
 
-
 SESSION_ID = "11111111-2222-3333-4444-555555555555"
 
 

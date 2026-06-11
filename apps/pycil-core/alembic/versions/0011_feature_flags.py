@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from alembic import op
 
-
 revision = "0011_feature_flags"
 down_revision = "0010_user_term_status"
 branch_labels = None
