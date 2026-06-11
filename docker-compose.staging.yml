@@ -18,6 +18,14 @@
 # per-PR E2E run, but are overridable from the shell — `staging-up.sh` exports
 # them "false" so `make staging` exercises the real LLM end-to-end.
 
+# Local MinIO S3 creds, identical for core + worker — defined once here.
+x-s3-env: &s3-env
+  S3_BUCKET: "${S3_BUCKET:-pycil-media}"
+  S3_ENDPOINT: "${S3_ENDPOINT:-http://minio:9000}"
+  S3_KEY_ID: "${S3_KEY_ID:-minioadmin}"
+  S3_APPLICATION_KEY: "${S3_APPLICATION_KEY:-minioadmin}"
+  S3_PUBLIC_URL_PREFIX: "${S3_PUBLIC_URL_PREFIX:-http://localhost:9000/pycil-media}"
+
 services:
   postgres:
     ports:
@@ -46,33 +54,16 @@ services:
       # the learn session never starts. CI runs core+web both on :3000 with its
       # own env, so this local-only addition does not affect CI.
       ALLOWED_ORIGINS: "http://localhost,https://localhost,http://localhost:3000,http://localhost:3100,http://localhost:3210"
-      # S3-compatible object store (avatars + TTS audio) points at the local
-      # MinIO container. Endpoint is the in-cluster name; the browser-facing GET
-      # host is S3_PUBLIC_URL_PREFIX. The app reads these once storage config is
-      # renamed off the legacy B2_* aliases.
-      S3_BUCKET: "${S3_BUCKET:-pycil-media}"
-      S3_ENDPOINT: "${S3_ENDPOINT:-http://minio:9000}"
-      S3_KEY_ID: "${S3_KEY_ID:-minioadmin}"
-      S3_APPLICATION_KEY: "${S3_APPLICATION_KEY:-minioadmin}"
-      S3_PUBLIC_URL_PREFIX: "${S3_PUBLIC_URL_PREFIX:-http://localhost:9000/pycil-media}"
+      # S3-compatible object store (avatars + TTS audio) → local MinIO. Endpoint
+      # is the in-cluster name; the browser-facing GET host is S3_PUBLIC_URL_PREFIX.
+      <<: *s3-env
 
   worker:
     environment:
       WORKER_LLM_STUB: "${WORKER_LLM_STUB:-true}"
-      S3_BUCKET: "${S3_BUCKET:-pycil-media}"
-      S3_ENDPOINT: "${S3_ENDPOINT:-http://minio:9000}"
-      S3_KEY_ID: "${S3_KEY_ID:-minioadmin}"
-      S3_APPLICATION_KEY: "${S3_APPLICATION_KEY:-minioadmin}"
-      S3_PUBLIC_URL_PREFIX: "${S3_PUBLIC_URL_PREFIX:-http://localhost:9000/pycil-media}"
-    # Base compose gives the worker no healthcheck, so `staging-up` has nothing
-    # to wait on and live specs can start before the worker consumes jobs —
-    # surfacing as a phantom "LLM timeout" that is really worker cold-start.
-    # python:3.12-slim has no redis-cli, so probe via the in-image redis client.
-    healthcheck:
-      test: ["CMD", "python", "-c", "import arq, redis, os; redis.from_url(os.environ['REDIS_URL']).ping()"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
+      <<: *s3-env
+    # Healthcheck now lives in base compose (so prod is health-gated too), so
+    # `staging-up` has something to wait on before live specs start.
 
   # Local OIDC IdP — stands in for Google. Prod uses Google (no Dex).
   # Mounts the static config; published to localhost:5556 so the host-run

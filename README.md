@@ -28,8 +28,9 @@ cp .env.example .env
 # Fill in: AUTH_SECRET (openssl rand -base64 32), GOOGLE_CLIENT_ID,
 # GOOGLE_CLIENT_SECRET, OPENROUTER_API_KEY.
 
-# Use the dev Caddyfile (Caddy internal CA, never burns Let's Encrypt rate limit).
-cp Caddyfile.local Caddyfile
+# Select the dev Caddyfile (Caddy internal CA, never burns Let's Encrypt rate
+# limit) via env — no destructive copy over the tracked prod Caddyfile.
+export CADDYFILE=./Caddyfile.local
 
 docker compose up --build
 ```

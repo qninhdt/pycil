@@ -1,5 +1,20 @@
 name: pycil
 
+# Shared fragments (merged with `<<:` below). DRYs the env + dependency blocks
+# duplicated across pycil-core and worker so a new shared knob is added once.
+x-backend-env: &backend-env
+  DATABASE_URL: ${DATABASE_URL_ASYNC}
+  REDIS_URL: ${REDIS_URL}
+  OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+  OPENROUTER_MODEL: ${OPENROUTER_MODEL}
+  OPENROUTER_BUDGET_DAILY_USD: ${OPENROUTER_BUDGET_DAILY_USD}
+
+x-depends-stores: &depends-stores
+  postgres:
+    condition: service_healthy
+  redis:
+    condition: service_healthy
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -35,23 +50,15 @@ services:
       dockerfile: apps/pycil-core/Dockerfile
     restart: unless-stopped
     environment:
-      DATABASE_URL: ${DATABASE_URL_ASYNC}
-      REDIS_URL: ${REDIS_URL}
+      <<: *backend-env
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
       SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME}
       AUTH_JWT_SECRET: ${AUTH_JWT_SECRET}
       AUTH_JWT_SECRET_PREVIOUS: ${AUTH_JWT_SECRET_PREVIOUS:-}
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
       JWT_MAX_AGE_SECONDS: ${JWT_MAX_AGE_SECONDS:-604800}
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
-      OPENROUTER_MODEL: ${OPENROUTER_MODEL}
       OPENROUTER_CHAT_MODEL: ${OPENROUTER_CHAT_MODEL:-}
-      OPENROUTER_BUDGET_DAILY_USD: ${OPENROUTER_BUDGET_DAILY_USD}
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+    depends_on: *depends-stores
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
       interval: 10s
@@ -65,17 +72,17 @@ services:
       dockerfile: apps/worker/Dockerfile
     restart: unless-stopped
     environment:
-      DATABASE_URL: ${DATABASE_URL_ASYNC}
-      REDIS_URL: ${REDIS_URL}
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
-      OPENROUTER_MODEL: ${OPENROUTER_MODEL}
+      <<: *backend-env
       OPENROUTER_MODEL_FALLBACKS: ${OPENROUTER_MODEL_FALLBACKS:-}
-      OPENROUTER_BUDGET_DAILY_USD: ${OPENROUTER_BUDGET_DAILY_USD}
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+    depends_on: *depends-stores
+    healthcheck:
+      # python:3.12-slim has no redis-cli, so probe via the in-image redis
+      # client. Lives in base so the prod worker is health-gated too (staging
+      # previously added this only locally).
+      test: ["CMD", "python", "-c", "import arq, redis, os; redis.from_url(os.environ['REDIS_URL']).ping()"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
 
   caddy:
     image: caddy:2-alpine
@@ -87,7 +94,11 @@ services:
       DOMAIN: ${DOMAIN}
       CADDY_ACME_EMAIL: ${CADDY_ACME_EMAIL}
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Caddyfile selected by env, NOT a destructive `cp`. Defaults to the
+      # tracked prod Caddyfile, so prod (base-only, no overlay) is always
+      # correct and the prod file is never overwritten on disk. Local dev sets
+      # CADDYFILE=./Caddyfile.local (see docker-compose.staging.yml / README).
+      - ${CADDYFILE:-./Caddyfile}:/etc/caddy/Caddyfile:ro
       - caddydata:/data
       - caddyconfig:/config
     depends_on:

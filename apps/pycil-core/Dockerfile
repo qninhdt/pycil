@@ -26,4 +26,9 @@ WORKDIR /app/apps/pycil-core
 
 EXPOSE 8000
 
+# Drop root: uvicorn binds 8000 (non-privileged), no writes outside the venv.
+RUN useradd --create-home --uid 10001 appuser \
+    && chown -R appuser:appuser /app
+USER appuser
+
 CMD ["uvicorn", "pycil_core.main:app", "--host", "0.0.0.0", "--port", "8000"]
