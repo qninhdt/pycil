@@ -41,12 +41,22 @@ def test_worker_settings_tunables() -> None:
     assert len(WorkerSettings.cron_jobs) == 1
 
 
-def test_redis_settings_parses_dsn() -> None:
+def test_redis_settings_parses_dsn(monkeypatch) -> None:
+    from worker.config import get_settings
     from worker.main import _redis_settings
 
-    settings = _redis_settings()
-    # from_dsn on redis://placeholder/0 (conftest env) yields a usable host.
-    assert settings.host == "placeholder"
+    # Pin REDIS_URL explicitly so the test is deterministic regardless of the
+    # ambient env (CI sets a real REDIS_URL that would otherwise win over the
+    # conftest placeholder via pydantic-settings).
+    monkeypatch.setenv("REDIS_URL", "redis://cache-host:6390/3")
+    get_settings.cache_clear()
+    try:
+        settings = _redis_settings()
+        assert settings.host == "cache-host"
+        assert settings.port == 6390
+        assert settings.database == 3
+    finally:
+        get_settings.cache_clear()
 
 
 @pytest.mark.asyncio

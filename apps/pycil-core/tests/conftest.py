@@ -20,7 +20,11 @@ from uuid import UUID, uuid4
 os.environ.setdefault("AUTH_JWT_SECRET", "test-fake-jwt-secret")
 os.environ.setdefault("INTERNAL_API_SECRET", "test-fake-internal")
 os.environ.setdefault("OPENROUTER_API_KEY", "test-fake")
-os.environ.setdefault("ALLOWED_ORIGINS", "http://test")
+# The ASGI test clients hardcode `origin: http://test`, so the allowlist MUST
+# match that exact value or OriginAllowlistMiddleware 403s every request. Force
+# it (not setdefault): CI sets ALLOWED_ORIGINS=http://localhost:3000 for the web
+# stack, which would otherwise win and block the in-process API tests.
+os.environ["ALLOWED_ORIGINS"] = "http://test"
 # Placeholders so config import succeeds; real values injected in fixtures.
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://placeholder/test")
 os.environ.setdefault("REDIS_URL", "redis://placeholder/0")
