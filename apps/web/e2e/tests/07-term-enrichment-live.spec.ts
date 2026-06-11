@@ -30,18 +30,14 @@ import {
 const LIVE_TERM = "serendipitous";
 const ENRICH_DEADLINE_MS = 120_000;
 const POLL_INTERVAL_MS = 2_000;
-const RUN_WORKER_SPECS = process.env["E2E_WORKER_SPECS"] === "true";
 
 let seeded: EmptyDeckSeed;
 
 test.beforeAll(() => {
-  if (!RUN_WORKER_SPECS) return;
   seeded = seedEmptyDeck();
 });
 
 test.describe("07 live term enrichment", () => {
-  test.skip(!RUN_WORKER_SPECS, "requires pycil worker; excluded from per-PR CI");
-
   // The whole flow (UI add + async worker enrichment) can take a while under
   // the live profile; give the test itself room beyond the default 60s.
   test.setTimeout(ENRICH_DEADLINE_MS + 60_000);

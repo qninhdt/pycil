@@ -26,25 +26,24 @@ import {
   type LiveLearnSeed,
 } from "../fixtures/db-seed";
 
-// Real generation under load (cold start + OpenRouter fallback chain, ~45s
-// budget) can run long in the FULL suite where the worker is contended; this
-// spec passes comfortably in isolation at 120s but races it under load. Give
-// the live profile headroom — the test still fails fast on a real defect via
-// the structural asserts, this only bounds the async-generation wait.
+// Two-tier e2e: this SAME spec runs in BOTH tiers, selected only by the
+// worker's WORKER_LLM_STUB env (transparent to the test):
+//   tier 1 (PR CI)   — WORKER_LLM_STUB=true  → canned MCQData, no API call
+//   tier 2 (nightly) — WORKER_LLM_STUB=false → real OpenRouter generation
+// Assertions are STRUCTURAL only (4 unique options, correct_index in range,
+// read-back option grades correct) so both tiers pass identically — never
+// assert exact LLM text. Deadline is generous for the real-LLM tier; the
+// stub tier completes near-instantly.
 const GEN_DEADLINE_MS = 240_000;
 const POLL_INTERVAL_MS = 2_000;
-const RUN_WORKER_SPECS = process.env["E2E_WORKER_SPECS"] === "true";
 
 let seeded: LiveLearnSeed;
 
 test.beforeAll(() => {
-  if (!RUN_WORKER_SPECS) return;
   seeded = seedLiveLearnDeck();
 });
 
 test.describe("08 live MCQ generation → ELO mutation", () => {
-  test.skip(!RUN_WORKER_SPECS, "requires pycil worker; excluded from per-PR CI");
-
   test.setTimeout(GEN_DEADLINE_MS + 90_000);
 
   test("a live-generated MCQ is answered and mutates ELO in the DB", async ({

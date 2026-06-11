@@ -240,6 +240,32 @@ jobs:
           cat "$RUNNER_TEMP/pycil-core.log"
           exit 1
 
+      - name: "Start worker (tier-1 e2e — LLM stubbed)"
+        working-directory: apps/worker
+        env:
+          DATABASE_URL: postgresql+asyncpg://pycil:pycil@localhost:5432/pycil
+          REDIS_URL: redis://localhost:6379/0
+          OPENROUTER_API_KEY: ci-fake
+          OPENROUTER_MODEL: openai/gpt-4o-mini
+          OPENROUTER_BUDGET_DAILY_USD: "20"
+          # Tier 1: canned LLM responses, zero API cost. The same e2e specs run
+          # in nightly tier 2 with WORKER_LLM_STUB=false against real OpenRouter.
+          WORKER_LLM_STUB: "true"
+        run: |
+          uv sync --extra dev
+          nohup uv run arq worker.main.WorkerSettings \
+            > "$RUNNER_TEMP/worker.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/worker.pid"
+          # Wait for the worker to consume from Redis (heartbeat key appears).
+          for i in {1..30}; do
+            if redis-cli -h localhost ping >/dev/null 2>&1 \
+               && [ -n "$(redis-cli -h localhost get worker:heartbeat 2>/dev/null)" ]; then
+              echo "worker up"; exit 0
+            fi
+            sleep 2
+          done
+          echo "worker heartbeat not seen after 60s"; cat "$RUNNER_TEMP/worker.log"; exit 1
+
       - name: Install psql client
         run: sudo apt-get update -y && sudo apt-get install -y postgresql-client
 
@@ -285,7 +311,7 @@ jobs:
           OIDC_CLIENT_SECRET: pycil-dex-secret-local-only
           OIDC_PROVIDER_ID: oidc
           OIDC_PROVIDER_NAME: Dex
-          E2E_WORKER_SPECS: "false"
+          # Tier 1: both generation specs (07/08) run against the stubbed worker.
           WORKER_LLM_STUB: "true"
           LLM_STUB_MODE: "true"
           CI: "true"

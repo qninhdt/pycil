@@ -108,6 +108,5 @@ exec env \
   POSTGRES_USER=pycil POSTGRES_DB=pycil PG_HOST="${HOST_BIND_IP:-localhost}" PG_PORT=5432 \
   POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
   E2E_WEB_PORT="$PORT" \
-  E2E_WORKER_SPECS="${E2E_WORKER_SPECS:-true}" \
   CI=true \
   pnpm exec playwright test --config=playwright.config.ts "${GREP_ARG[@]}"

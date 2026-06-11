@@ -108,3 +108,165 @@ jobs:
           DATABASE_URL: postgresql+asyncpg://placeholder/test
           REDIS_URL: redis://placeholder/0
         run: uv run pytest -m llm_live -q
+
+  e2e-tier2:
+    # Tier 2: the SAME Playwright e2e specs the PR gate runs (tier 1, stubbed),
+    # but against a REAL OpenRouter-backed worker (WORKER_LLM_STUB=false). The
+    # specs assert structure only, so identical code passes in both tiers.
+    # Gated behind the llm-live environment (required reviewer + low-budget
+    # scoped key); never runs on pull_request.
+    if: github.event_name == 'schedule' || inputs.run_llm_live
+    runs-on: ubuntu-latest
+    environment: llm-live
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: pycil
+          POSTGRES_PASSWORD: pycil
+          POSTGRES_DB: pycil
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start Dex OIDC
+        run: |
+          docker run -d --name pycil-dex \
+            -p 127.0.0.1:5556:5556 \
+            -v "${{ github.workspace }}/infra/dex/config.yaml:/etc/dex/config.yaml:ro" \
+            ghcr.io/dexidp/dex:v2.41.1 \
+            dex serve /etc/dex/config.yaml
+          for i in {1..30}; do
+            if curl -fsS http://localhost:5556/dex/.well-known/openid-configuration >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs pycil-dex
+          exit 1
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: Set up Python
+        run: uv python install 3.12
+      - name: Install core deps + run migrations
+        working-directory: apps/pycil-core
+        run: |
+          uv sync --extra dev
+          uv run alembic upgrade head
+        env:
+          DATABASE_URL: postgresql+asyncpg://pycil:pycil@localhost:5432/pycil
+      - name: Start pycil-core
+        working-directory: apps/pycil-core
+        env:
+          DATABASE_URL: postgresql+asyncpg://pycil:pycil@localhost:5432/pycil
+          REDIS_URL: redis://localhost:6379/0
+          ALLOWED_ORIGINS: http://localhost:3000
+          SESSION_COOKIE_NAME: __Secure-pycil-session
+          AUTH_JWT_SECRET: e2e-token-long-enough-for-hs256-min-32b
+          INTERNAL_API_SECRET: e2e-ci-fake-internal-secret
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_MODEL: openai/gpt-4o-mini
+          OPENROUTER_BUDGET_DAILY_USD: "5"
+          LLM_STUB_MODE: "false"
+        run: |
+          nohup uv run uvicorn pycil_core.main:app --host 127.0.0.1 --port 8000 \
+            > "$RUNNER_TEMP/pycil-core.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/pycil-core.pid"
+          for i in {1..60}; do
+            if curl -fsS http://localhost:8000/health >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          cat "$RUNNER_TEMP/pycil-core.log"
+          exit 1
+      - name: "Start worker (tier-2 e2e — real OpenRouter)"
+        working-directory: apps/worker
+        env:
+          DATABASE_URL: postgresql+asyncpg://pycil:pycil@localhost:5432/pycil
+          REDIS_URL: redis://localhost:6379/0
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_MODEL: openai/gpt-4o-mini
+          OPENROUTER_BUDGET_DAILY_USD: "5"
+          WORKER_LLM_STUB: "false"
+        run: |
+          uv sync --extra dev
+          nohup uv run arq worker.main.WorkerSettings \
+            > "$RUNNER_TEMP/worker.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/worker.pid"
+          for i in {1..30}; do
+            if redis-cli -h localhost ping >/dev/null 2>&1 \
+               && [ -n "$(redis-cli -h localhost get worker:heartbeat 2>/dev/null)" ]; then
+              echo "worker up"; exit 0
+            fi
+            sleep 2
+          done
+          echo "worker heartbeat not seen after 60s"; cat "$RUNNER_TEMP/worker.log"; exit 1
+      - name: Install psql client
+        run: sudo apt-get update -y && sudo apt-get install -y postgresql-client
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - name: Install dependencies
+        working-directory: apps/web
+        run: pnpm install --frozen-lockfile
+      - name: Install Playwright browsers
+        working-directory: apps/web
+        run: pnpm exec playwright install chromium --with-deps
+      - name: Run E2E tests (real LLM)
+        working-directory: apps/web
+        env:
+          AUTH_JWT_SECRET: e2e-token-long-enough-for-hs256-min-32b
+          INTERNAL_API_SECRET: e2e-ci-fake-internal-secret
+          AUTH_SECRET: e2e-ci-auth-secret-for-next-auth-test
+          SESSION_COOKIE_NAME: __Secure-pycil-session
+          POSTGRES_USER: pycil
+          POSTGRES_PASSWORD: pycil
+          POSTGRES_DB: pycil
+          PG_HOST: localhost
+          PG_PORT: "5432"
+          BASE_URL: http://localhost:3000
+          AUTH_URL: http://localhost:3000
+          E2E_PROXY: "true"
+          PYCIL_CORE_INTERNAL_URL: http://localhost:8000
+          NEXT_DEV_PROXY_TARGET: http://localhost:8000
+          OIDC_ISSUER_URL: http://localhost:5556/dex
+          OIDC_CLIENT_ID: pycil-web
+          OIDC_CLIENT_SECRET: pycil-dex-secret-local-only
+          OIDC_PROVIDER_ID: oidc
+          OIDC_PROVIDER_NAME: Dex
+          WORKER_LLM_STUB: "false"
+          LLM_STUB_MODE: "false"
+          CI: "true"
+        run: pnpm e2e
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-tier2
+          path: apps/web/playwright-report/
