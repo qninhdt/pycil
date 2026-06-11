@@ -29,17 +29,22 @@ Pycil is an AI-powered vocabulary learning app — a Quizlet/Anki successor wher
 - Docker Compose deploy on single VPS
 - Single-language UI (English)
 
-### Explicitly out of v1
-- `SHORTCUT` node type
+### Shipped beyond the original v1 cut (reconciled 2026-06-11, rehab)
+These were listed out-of-scope in the original plan but DO ship and are kept:
 - Public/cloned decks
-- TTS pipeline (browser SpeechSynthesis only)
+- TTS pipeline (server-rendered audio via worker + S3)
 - Translation pipeline
+- Sentry error reporting + OpenTelemetry tracing (opt-in, no-op when unconfigured;
+  see `codebase-summary.md` → Observability). Loki/Tempo/Grafana still deferred.
+
+### Explicitly out of v1 (genuinely not built / removed in rehab)
+- `SHORTCUT` node type
 - Topic/usage tags on definitions
 - i18n (next-intl)
 - Payments / premium tier
 - Mobile native app
-- Sentry / Loki / Tempo / Grafana observability
-- Backups (deferred to post-launch)
+- Loki / Tempo / Grafana log+metrics stack (tracing/Sentry DO ship; see above)
+- Backups: shipped as an opt-in restic compose profile, not a deferred item
 
 ## 3. Architecture
 

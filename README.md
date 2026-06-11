@@ -87,6 +87,6 @@ docker-compose.yml
 
 ## v1 scope
 
-Google sign-in · folders + decks · LLM-generated definitions/paraphrases/examples · MCQ questions · ELO learning sessions · 11 mastery levels.
+Google sign-in · folders + decks · LLM-generated definitions/paraphrases/examples · MCQ + Write + Fill-in-blank questions · ELO learning sessions · 11 mastery levels · public/cloned decks · TTS audio · definition translation · Sentry + OpenTelemetry tracing (opt-in) · opt-in restic backups.
 
-Out of scope (deferred): SHORTCUT nodes · public decks · TTS · translation · payments · mobile · Sentry/Grafana · backups (post-launch) · Write/Fill questions (v0.2).
+Removed in rehab (deliberate — not deferred): SHORTCUT nodes · definition topic/usage tags · i18n · payments/premium · mobile native · Loki/Tempo/Grafana log+metrics stack.
