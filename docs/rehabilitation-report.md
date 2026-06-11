@@ -126,6 +126,14 @@ Current results (this session, suites run individually):
   carry the same `auth` + `admin` 404 defense-in-depth blocks.
 - **Both Dockerfiles run non-root** (`appuser`, uid 10001).
 - **Worker healthcheck lives in base**, so prod is health-gated too.
+- **`HOST_BIND_IP` for multi-project coexistence** (added during live validation).
+  Every host-published port binds `${HOST_BIND_IP:-127.0.0.1}` — default is a
+  pure no-op. When you run other local projects that already hold the default
+  ports (Postgres 5432, Redis 6379, Dex 5556, …), set `HOST_BIND_IP=127.0.0.2`
+  (or any free loopback alias) in your untracked `.env` to run pycil's staging
+  stack alongside them — same port NUMBERS, no remapping. Dex does not expand
+  env in its config, so its issuer is templated from `OIDC_ISSUER_URL` at
+  container startup; set `OIDC_ISSUER_URL` to the same IP.
 
 ## 7. Workflows (day-to-day)
 
