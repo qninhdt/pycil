@@ -26,7 +26,12 @@ import {
   type LiveLearnSeed,
 } from "../fixtures/db-seed";
 
-const GEN_DEADLINE_MS = 120_000;
+// Real generation under load (cold start + OpenRouter fallback chain, ~45s
+// budget) can run long in the FULL suite where the worker is contended; this
+// spec passes comfortably in isolation at 120s but races it under load. Give
+// the live profile headroom — the test still fails fast on a real defect via
+// the structural asserts, this only bounds the async-generation wait.
+const GEN_DEADLINE_MS = 240_000;
 const POLL_INTERVAL_MS = 2_000;
 const RUN_WORKER_SPECS = process.env["E2E_WORKER_SPECS"] === "true";
 
