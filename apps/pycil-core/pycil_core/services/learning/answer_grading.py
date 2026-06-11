@@ -51,10 +51,10 @@ async def _persist_review(
             """
             INSERT INTO user_term_stats (
                 user_id, definition_id, mastery_score, last_review_date,
-                next_review_date, interval_seconds, mastery_level
+                next_review_date, interval_seconds, mastery_level, review_count
             )
             VALUES (
-                :uid, :did, :elo, NOW(), :nrd, :interval, :level
+                :uid, :did, :elo, NOW(), :nrd, :interval, :level, 1
             )
             ON CONFLICT (user_id, definition_id) DO UPDATE SET
                 mastery_score = EXCLUDED.mastery_score,
@@ -62,6 +62,7 @@ async def _persist_review(
                 next_review_date = EXCLUDED.next_review_date,
                 interval_seconds = EXCLUDED.interval_seconds,
                 mastery_level = EXCLUDED.mastery_level,
+                review_count = user_term_stats.review_count + 1,
                 updated_at = NOW()
             """
         ),

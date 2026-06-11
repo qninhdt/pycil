@@ -80,7 +80,7 @@ test.describe("08 live MCQ generation → ELO mutation", () => {
 
     // Round 1: the client auto-polls "pending" and renders the MCQ once ready.
     // Click the correct option (its text == correct).
-    const opt1 = page.getByRole("button", { name: correct, exact: true });
+    const opt1 = page.getByRole("button", { name: correct });
     await expect(opt1).toBeVisible({ timeout: GEN_DEADLINE_MS });
     await opt1.click();
     await expect(page.getByText("✓ Correct")).toBeVisible({ timeout: 20_000 });
@@ -88,7 +88,7 @@ test.describe("08 live MCQ generation → ELO mutation", () => {
 
     // Round 2: same term resurfaces (correct_firsts 1 → needs 2). A second
     // correct first-attempt commits ELO and completes the session.
-    const opt2 = page.getByRole("button", { name: correct, exact: true });
+    const opt2 = page.getByRole("button", { name: correct });
     await expect(opt2).toBeVisible({ timeout: 20_000 });
     await opt2.click();
     await expect(page.getByText("Session Complete")).toBeVisible({ timeout: 20_000 });
