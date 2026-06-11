@@ -48,6 +48,12 @@ services:
       ["uvicorn", "pycil_core.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     environment:
       LLM_STUB_MODE: "${LLM_STUB_MODE:-true}"
+      # Default on (background bank fill for a snappy demo). The worker-spec
+      # e2e run sets this false: its fire-and-forget prewarm jobs flood the arq
+      # queue and starve spec 08's on-demand generate_question (it tests live
+      # on-demand generation, not prewarm), so the seeded definition's question
+      # can wait minutes behind prewarm work before its job even fires.
+      QUESTION_BANK_PREWARM_ENABLED: "${QUESTION_BANK_PREWARM_ENABLED:-true}"
       # The CSRF middleware checks the browser Origin against this list. Local
       # E2E runs `next dev` on :3100 (3000 is often taken by another project),
       # so that origin must be allowed or every POST 403s with csrf_mismatch and
