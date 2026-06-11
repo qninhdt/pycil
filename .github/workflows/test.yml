@@ -256,15 +256,16 @@ jobs:
           nohup uv run arq worker.main.WorkerSettings \
             > "$RUNNER_TEMP/worker.log" 2>&1 &
           echo $! > "$RUNNER_TEMP/worker.pid"
-          # Wait for the worker to consume from Redis (heartbeat key appears).
+          # arq logs "redis_version=..." the moment it connects to Redis and is
+          # ready to consume. Grep the log (host-side, no redis-cli dependency —
+          # redis-cli only exists inside the service container).
           for i in {1..30}; do
-            if redis-cli -h localhost ping >/dev/null 2>&1 \
-               && [ -n "$(redis-cli -h localhost get worker:heartbeat 2>/dev/null)" ]; then
+            if grep -q "redis_version" "$RUNNER_TEMP/worker.log" 2>/dev/null; then
               echo "worker up"; exit 0
             fi
             sleep 2
           done
-          echo "worker heartbeat not seen after 60s"; cat "$RUNNER_TEMP/worker.log"; exit 1
+          echo "worker did not connect after 60s"; cat "$RUNNER_TEMP/worker.log"; exit 1
 
       - name: Install psql client
         run: sudo apt-get update -y && sudo apt-get install -y postgresql-client
