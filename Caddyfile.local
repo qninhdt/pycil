@@ -6,9 +6,12 @@
 localhost {
 	encode gzip zstd
 
-	# Block internal upsert endpoint from leaking through the public path.
-	# Must precede `handle_path /api/core/*`.
+	# Block internal endpoints from leaking through the public path.
+	# Defense-in-depth — INTERNAL_API_SECRET is the actual gate.
+	# Must precede `handle_path /api/core/*`. Kept byte-for-byte in sync with
+	# the prod Caddyfile so dev never silently runs a weaker config.
 	respond /api/core/auth/* 404
+	respond /api/core/admin/* 404
 
 	handle_path /api/core/* {
 		# Post-strip path covers term-enrichment + chat SSE (prefix `/api/core` already stripped).

@@ -48,9 +48,10 @@ pycil/
 │   └── shared-py/       # Cross-service Python package (pycil-shared)
 ├── docs/                # This folder — design + architecture docs
 ├── plans/               # Sprint plans (incl. v1 MVP plan)
-├── docker-compose.yml   # web + pycil-core + worker + postgres + redis + caddy
-├── Caddyfile            # Production reverse proxy
-└── Caddyfile.local      # Dev reverse proxy (uses Caddy internal CA)
+├── docker-compose.yml        # base: web + pycil-core + worker + postgres + redis + caddy (= prod, used alone)
+├── docker-compose.staging.yml # non-prod overlay: loopback ports, reload, stubs, Dex + MinIO (local dev / E2E)
+├── Caddyfile            # Production reverse proxy (default mount; CADDYFILE env overrides)
+└── Caddyfile.local      # Dev reverse proxy (Caddy internal CA; selected via CADDYFILE=./Caddyfile.local)
 ```
 
 Three runnable services + one shared Python package. Single Postgres, single Redis. All services on the internal docker network; only Caddy exposes 80/443.

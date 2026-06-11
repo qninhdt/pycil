@@ -20,4 +20,9 @@ RUN pip install --upgrade pip \
 
 WORKDIR /app/apps/worker
 
+# Drop root: arq needs no privileged ports or writes outside the venv.
+RUN useradd --create-home --uid 10001 appuser \
+    && chown -R appuser:appuser /app
+USER appuser
+
 CMD ["arq", "worker.main.WorkerSettings"]
