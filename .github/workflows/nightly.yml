@@ -1,0 +1,110 @@
+name: Nightly
+
+# Expensive / real-LLM work kept OFF the PR gate. Runs on a schedule and via
+# manual dispatch only — NEVER on pull_request/pull_request_target, so the real
+# OPENROUTER_API_KEY is never exposed to fork PRs.
+on:
+  schedule:
+    # 03:17 UTC daily (off the :00 stampede).
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      run_llm_live:
+        description: "Run the real-LLM llm_live contract suite (costs money)"
+        type: boolean
+        default: true
+
+# Least privilege for the whole workflow; jobs widen only if they must.
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    # Full backend suite (minus llm_live) on a real Postgres, nightly.
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [pycil-core, worker]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: pycil
+          POSTGRES_PASSWORD: pycil
+          POSTGRES_DB: pycil_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: Set up Python
+        run: uv python install 3.12
+      - name: Sync dev deps for ${{ matrix.app }}
+        working-directory: apps/${{ matrix.app }}
+        run: uv sync --extra dev
+      - name: Run integration suite with coverage
+        working-directory: apps/${{ matrix.app }}
+        env:
+          PYTEST_PG_HOST: localhost
+          PYTEST_PG_PORT: "5432"
+          PYTEST_PG_USER: pycil
+          PYTEST_PG_PASSWORD: pycil
+          DATABASE_URL: postgresql+asyncpg://pycil:pycil@localhost:5432/pycil_test
+          REDIS_URL: redis://localhost:6379/0
+          AUTH_JWT_SECRET: ci-fake-secret
+          INTERNAL_API_SECRET: ci-fake-internal
+          OPENROUTER_API_KEY: ci-fake
+          ALLOWED_ORIGINS: http://localhost:3000
+        run: |
+          pkg=$([ "${{ matrix.app }}" = "pycil-core" ] && echo pycil_core || echo worker)
+          uv run pytest -m "not llm_live" --cov="$pkg" \
+            --cov-report=xml --cov-report=term-missing -q
+      - name: Upload coverage XML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-coverage-${{ matrix.app }}
+          path: apps/${{ matrix.app }}/coverage.xml
+
+  llm-live:
+    # Real OpenRouter contract suite (Phase 10). Gated behind a GitHub
+    # Environment so a required reviewer + a low-budget scoped key apply. The
+    # key is masked by Actions; raw LLM responses are NEVER uploaded as
+    # artifacts. Skips on scheduled runs only if the dispatch box is unchecked.
+    if: github.event_name == 'schedule' || inputs.run_llm_live
+    runs-on: ubuntu-latest
+    environment: llm-live
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: Set up Python
+        run: uv python install 3.12
+      - name: Sync worker dev deps
+        working-directory: apps/worker
+        run: uv sync --extra dev
+      - name: Run llm_live contract suite (cost-bounded)
+        working-directory: apps/worker
+        env:
+          RUN_LLM_LIVE: "1"
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          # Cheapest viable model + a tight daily cap so a stuck loop can't burn
+          # the budget. The gated suite is 5 small calls.
+          OPENROUTER_MODEL: openai/gpt-4o-mini
+          OPENROUTER_BUDGET_DAILY_USD: "1"
+          DATABASE_URL: postgresql+asyncpg://placeholder/test
+          REDIS_URL: redis://placeholder/0
+        run: uv run pytest -m llm_live -q

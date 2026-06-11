@@ -7,7 +7,66 @@ on:
     branches: [main]
 
 jobs:
-  pytest:
+  lint:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [pycil-core, worker]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: Set up Python
+        run: uv python install 3.12
+      - name: Sync dev deps for ${{ matrix.app }}
+        working-directory: apps/${{ matrix.app }}
+        run: uv sync --extra dev
+      - name: Ruff
+        working-directory: apps/${{ matrix.app }}
+        run: uv run ruff check .
+
+  unit:
+    # Fast, no Postgres — fails before integration spins a DB container.
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [pycil-core, worker]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: Set up Python
+        run: uv python install 3.12
+      - name: Sync dev deps for ${{ matrix.app }}
+        working-directory: apps/${{ matrix.app }}
+        run: uv sync --extra dev
+      - name: Assert unit tests collected (no silent gap)
+        working-directory: apps/${{ matrix.app }}
+        run: |
+          n=$(uv run pytest --collect-only -m unit -q 2>/dev/null | tail -1)
+          echo "collected: $n"
+          uv run pytest --collect-only -m unit -q >/dev/null 2>&1 \
+            || { echo "no unit tests collected"; exit 1; }
+      - name: Run unit tests
+        working-directory: apps/${{ matrix.app }}
+        env:
+          AUTH_JWT_SECRET: ci-fake-secret
+          INTERNAL_API_SECRET: ci-fake-internal
+          OPENROUTER_API_KEY: ci-fake
+          ALLOWED_ORIGINS: http://localhost:3000
+        run: uv run pytest -m unit -q
+
+  integration:
+    # Full suite (minus opt-in llm_live) against a real Postgres service +
+    # fakeredis. Carries the coverage gate. PYTEST_PG_* MUST match the service
+    # container: the conftest reads those vars (defaults 55432/test/test) for
+    # the pytest-postgresql noproc connection — DATABASE_URL alone is not enough.
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -42,9 +101,20 @@ jobs:
         working-directory: apps/${{ matrix.app }}
         run: uv sync --extra dev
 
+      - name: Assert integration tests collected (no silent gap)
+        working-directory: apps/${{ matrix.app }}
+        run: |
+          uv run pytest --collect-only -m "not unit and not llm_live" -q >/dev/null 2>&1 \
+            || { echo "no integration tests collected"; exit 1; }
+
       - name: Run pytest with coverage
         working-directory: apps/${{ matrix.app }}
         env:
+          # Match the service container so the conftest noproc connection lands.
+          PYTEST_PG_HOST: localhost
+          PYTEST_PG_PORT: "5432"
+          PYTEST_PG_USER: pycil
+          PYTEST_PG_PASSWORD: pycil
           DATABASE_URL: postgresql+asyncpg://pycil:pycil@localhost:5432/pycil_test
           REDIS_URL: redis://localhost:6379/0
           AUTH_JWT_SECRET: ci-fake-secret
@@ -53,11 +123,11 @@ jobs:
           ALLOWED_ORIGINS: http://localhost:3000
         run: |
           if [ "${{ matrix.app }}" = "pycil-core" ]; then
-            uv run pytest --cov=pycil_core --cov-fail-under=70 \
-              --cov-report=xml -q --maxfail=5
+            uv run pytest -m "not unit and not llm_live" --cov=pycil_core \
+              --cov-fail-under=70 --cov-report=xml -q --maxfail=5
           else
-            uv run pytest --cov=worker --cov-fail-under=70 \
-              --cov-report=xml -q --maxfail=5
+            uv run pytest -m "not unit and not llm_live" --cov=worker \
+              --cov-fail-under=70 --cov-report=xml -q --maxfail=5
           fi
 
       - name: Upload coverage XML
@@ -66,6 +136,7 @@ jobs:
         with:
           name: coverage-${{ matrix.app }}
           path: apps/${{ matrix.app }}/coverage.xml
+
 
   caddy-validate:
     runs-on: ubuntu-latest
