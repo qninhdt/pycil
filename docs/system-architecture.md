@@ -14,7 +14,7 @@
 - Share links: `node_share_links` table; create/revoke/list endpoints.
 - Write/Fill questions: `WriteQuestion` + `FillInBlankQuestion` ABCs in shared-py; `answer_grading_service` tier ladder (exact → normalize → rapidfuzz → LLM).
 - SHORTCUT nodes via `nodes.target_node_id`; topic tags via `definitions.tags`; public decks via `nodes.visibility = 'PUBLIC'`; deep-clone via `clone_service`.
-- Translation + TTS: on-demand worker jobs cache results in `definitions.translation`/`definitions.tts_url` JSONB. TTS uploads MP3 to B2 with 7d signed URL.
+- Translation + TTS: on-demand worker jobs cache results in `definitions.translation`/`definitions.tts_url` JSONB. TTS uploads MP3 to S3-compatible storage (MinIO local, any S3 provider in prod) with a signed URL. (Kept in v1 — originally listed out-of-scope; reconciled in rehab.)
 - Chat-with-AI: `chat_sessions` + `chat_messages`; `GET /chat/sessions/{id}/stream` is SSE from pycil-core via httpx OpenRouter streaming.
 - Test mode: `test_runs` + `test_run_items`; `_to_client_payload` strips `expected_answer`/`alt_answers`/`correct_index` before sending to FE.
 - Mobile PWA: `next-pwa` wrap, NetworkOnly for `/api/core/*`, online-only.
