@@ -47,7 +47,7 @@ function psqlFile(content: string): void {
 }
 
 export function seedDatabase(): SeededData {
-  const email = process.env.E2E_TEST_EMAIL ?? "e2e-test@pycil.local";
+  const email = process.env.E2E_TEST_EMAIL ?? "e2e-test@example.com";
   const deckId = process.env.E2E_TEST_DECK_ID ?? randomUUID();
   const termValue = "ephemeral";
 
@@ -263,7 +263,7 @@ export function readQuestionForDefinition(
   return { id, type, correctOption: correctOption || null };
 }
 
-const CANONICAL_EMAIL = process.env.E2E_TEST_EMAIL ?? "e2e-test@pycil.local";
+const CANONICAL_EMAIL = process.env.E2E_TEST_EMAIL ?? "e2e-test@example.com";
 
 /** Resolve a term's id by its (unique) value; null if not yet inserted. */
 export function readTermIdByValue(value: string): number | null {

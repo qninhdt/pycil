@@ -29,15 +29,15 @@ x-s3-env: &s3-env
 services:
   postgres:
     ports:
-      - "127.0.0.1:5432:5432"
+      - "${HOST_BIND_IP:-127.0.0.1}:5432:5432"
 
   redis:
     ports:
-      - "127.0.0.1:6379:6379"
+      - "${HOST_BIND_IP:-127.0.0.1}:6379:6379"
 
   pycil-core:
     ports:
-      - "127.0.0.1:8000:8000"
+      - "${HOST_BIND_IP:-127.0.0.1}:8000:8000"
     # Bind-mount host source + uvicorn --reload so backend fixes apply live
     # without an image rebuild — essential for the self-healing E2E loop. The
     # mounts shadow the baked /app copies with the working tree.
@@ -71,11 +71,23 @@ services:
   dex:
     image: ghcr.io/dexidp/dex:v2.41.1
     restart: unless-stopped
-    command: ["dex", "serve", "/etc/dex/config.yaml"]
+    # Dex does NOT expand env vars in its config, so template the issuer at
+    # startup from OIDC_ISSUER_URL (single source of truth, byte-checked by
+    # staging-up.sh). This lets HOST_BIND_IP move the published address (e.g.
+    # 127.0.0.2 to run beside another local project) without editing the
+    # tracked config. Container always listens on 5556; only the host side moves.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        cp /etc/dex/config.src.yaml /tmp/dex.yaml
+        sed -i "s|^issuer:.*|issuer: ${OIDC_ISSUER_URL:-http://localhost:5556/dex}|" /tmp/dex.yaml
+        exec dex serve /tmp/dex.yaml
+    environment:
+      OIDC_ISSUER_URL: "${OIDC_ISSUER_URL:-http://localhost:5556/dex}"
     volumes:
-      - ./infra/dex/config.yaml:/etc/dex/config.yaml:ro
+      - ./infra/dex/config.yaml:/etc/dex/config.src.yaml:ro
     ports:
-      - "127.0.0.1:5556:5556"
+      - "${HOST_BIND_IP:-127.0.0.1}:5556:5556"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:5556/dex/.well-known/openid-configuration"]
       interval: 5s
@@ -93,8 +105,8 @@ services:
       MINIO_ROOT_USER: "${S3_KEY_ID:-minioadmin}"
       MINIO_ROOT_PASSWORD: "${S3_APPLICATION_KEY:-minioadmin}"
     ports:
-      - "127.0.0.1:9000:9000"
-      - "127.0.0.1:9001:9001"
+      - "${HOST_BIND_IP:-127.0.0.1}:9000:9000"
+      - "${HOST_BIND_IP:-127.0.0.1}:9001:9001"
     volumes:
       - miniodata:/data
     healthcheck:

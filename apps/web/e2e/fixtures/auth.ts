@@ -24,7 +24,7 @@ export interface TestUser {
 }
 
 export const DEFAULT_USER: TestUser = {
-  email: process.env.E2E_TEST_EMAIL ?? "e2e-test@pycil.local",
+  email: process.env.E2E_TEST_EMAIL ?? "e2e-test@example.com",
   password: process.env.E2E_TEST_PASSWORD ?? "password123",
 };
 

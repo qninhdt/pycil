@@ -43,7 +43,7 @@ enablePasswordDB: true
 staticPasswords:
   # Canonical E2E identity — this email threads through the staging seed and CI
   # E2E_TEST_USER_ID. password123 hashed with bcrypt (cost 10).
-  - email: e2e-test@pycil.local
+  - email: e2e-test@example.com
     hash: "$2b$10$mS3i0lsHz6uGKAJEBq3nN..E3IVl8.5SZiZVTz7lZWO2DryQlLQqq"
     username: admin
     userID: "00000000-0000-0000-0000-00000000dex1"

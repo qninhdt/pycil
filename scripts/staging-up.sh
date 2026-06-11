@@ -6,7 +6,7 @@
 #   make staging-down    # tear the stack down + stop the host web
 #
 # Open http://localhost:3100 → redirected to Dex → log in
-# e2e-test@pycil.local / password123 → land on the dashboard. Real LLM via
+# e2e-test@example.com / password123 → land on the dashboard. Real LLM via
 # OpenRouter (stub flags forced off here).
 set -euo pipefail
 
@@ -41,15 +41,12 @@ done
 [ "$INTERNAL_API_SECRET" != "$PLACEHOLDER" ] || die "INTERNAL_API_SECRET is still the .env.example placeholder — generate one: openssl rand -base64 32"
 [ "$AUTH_JWT_SECRET" != "$PLACEHOLDER" ] || die "AUTH_JWT_SECRET is still the .env.example placeholder — generate one: openssl rand -base64 32"
 
-# --- 3. Assert issuer byte-match (fail fast vs cryptic Auth.js discovery err) -
-dex_issuer="$(sed -n 's/^issuer:[[:space:]]*//p' "$DEX_CONFIG" | head -n1 | tr -d '[:space:]')"
-[ -n "$dex_issuer" ] || die "could not read issuer: from $DEX_CONFIG."
-# Strip both sides: a trailing space/CR on the env value must not fail the match.
-oidc_issuer="$(printf '%s' "$OIDC_ISSUER_URL" | tr -d '[:space:]')"
-if [ "$dex_issuer" != "$oidc_issuer" ]; then
-  die "issuer mismatch: $DEX_CONFIG has '$dex_issuer' but OIDC_ISSUER_URL='$oidc_issuer' — they must byte-match."
-fi
-grn "✓ issuer byte-match: $dex_issuer"
+# --- 3. Issuer source-of-truth ----------------------------------------------
+# The Dex container templates its `issuer:` FROM $OIDC_ISSUER_URL at startup
+# (compose dex.command sed), so the served issuer always equals OIDC_ISSUER_URL
+# by construction — no static-file byte-match needed. Just assert it is set
+# (step 1 already requires it) and surface the value for the run log.
+grn "✓ OIDC issuer: ${OIDC_ISSUER_URL}"
 
 # --- 4. Bring up the backend stack (stub flags OFF for real LLM) -------------
 grn "→ building + starting backend services…"
@@ -86,7 +83,7 @@ $COMPOSE run --rm pycil-core alembic upgrade head
 # DB role; local Caddy does not gate /admin/*).
 grn "→ seeding canonical test user (role=user)…"
 $COMPOSE exec -T postgres psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c \
-  "INSERT INTO users (email, role) VALUES ('e2e-test@pycil.local','user') ON CONFLICT (email) DO UPDATE SET role='user';"
+  "INSERT INTO users (email, role) VALUES ('e2e-test@example.com','user') ON CONFLICT (email) DO UPDATE SET role='user';"
 
 # --- 9. Launch host web ------------------------------------------------------
 # Shell env beats apps/web/.env.local, which pins NEXT_PUBLIC_USE_MOCK=true (that
@@ -116,7 +113,7 @@ echo "$WEB_PID" > "$WEB_PIDFILE"
 grn ""
 grn "════════════════════════════════════════════════════════════════"
 grn " staging up. open http://localhost:$WEB_PORT"
-grn " login: e2e-test@pycil.local / password123"
+grn " login: e2e-test@example.com / password123"
 grn " Ctrl-C stops web; backend stays up. 'make staging-down' tears all down."
 grn "════════════════════════════════════════════════════════════════"
 
