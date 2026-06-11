@@ -56,13 +56,21 @@ test.describe("07 live term enrichment", () => {
     // "E2E Starter Deck" heading (this is a differently-named live deck).
     await page.waitForURL(`**/decks/${seeded.deckId}`);
 
+    // The Add-Term control lives on the Terms tab (the Overview tab only shows
+    // an empty-state card). Switch to it first — matches the passing spec 02.
+    await deck.openTerms();
+
     // Open the Add-Term dialog, type the term, submit. The dialog mounts a
     // JobStreamWatcher that holds the dialog open until the job completes.
-    await page.getByRole("button", { name: /add term/i }).click();
-    const input = page.getByLabel("Term");
+    await page.getByRole("button", { name: /add term/i }).first().click();
+    // Scope to the open dialog: "Term" label + "Add term" submit both have
+    // page-level namesakes (search box, toolbar/trigger buttons) that trip
+    // Playwright strict mode otherwise.
+    const dialog = page.getByRole("dialog");
+    const input = dialog.getByLabel("Term");
     await expect(input).toBeVisible({ timeout: 15_000 });
     await input.fill(LIVE_TERM);
-    await page.getByRole("button", { name: /^add term$/i }).click();
+    await dialog.getByRole("button", { name: /^add term$/i }).click();
 
     // The term row must resolve in the DB (core inserted terms + deck_terms
     // synchronously on the POST; enrichment is the async part).
