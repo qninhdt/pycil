@@ -45,19 +45,30 @@ Visit https://localhost (accept the Caddy internal-CA warning) → sign in with 
 
 ## Production deploy
 
-GitHub Actions (`.github/workflows/deploy.yml`) handles build + SSH deploy on push to `main`. Required secrets:
+GitHub Actions (`.github/workflows/deploy.yml`) **builds + pushes** the
+`pycil-core` and `pycil-worker` images to ghcr on push to `main`. It does NOT
+SSH anywhere — deployment runs on the host via `scripts/deploy.sh`.
 
-- `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`
+The web frontend is **not** in this stack — it deploys to Vercel / Next.js
+hosting separately. The compose stack is API-only (core + worker + caddy +
+postgres + redis).
 
-Deploy order is **migration-then-swap**:
+On the VPS (repo checked out at `/opt/pycil`):
+
+```bash
+cd /opt/pycil && git pull
+IMAGE_TAG=<12-char-sha-from-CI> bash scripts/deploy.sh   # omit IMAGE_TAG → :latest
+```
+
+`scripts/deploy.sh` runs the **migration-then-swap**:
 
 1. `pg_dump` snapshot to `/var/backups/pycil/pre-deploy-<ts>.sql` (last 5 kept).
 2. `docker compose pull` new images.
 3. `alembic upgrade head` in a one-shot container against the new pycil-core image.
 4. On migration success only: `docker compose up -d`.
-5. Health-check loop on `web` and `pycil-core`.
+5. Health-check loop on `pycil-core` (HTTP) and `worker` (compose healthcheck).
 
-Rollback: `alembic downgrade -1` then `docker compose pull <previous-tag> && docker compose up -d`. If schema diverged irrecoverably, restore from the latest `pre-deploy-*.sql`.
+Rollback: `IMAGE_TAG=<previous-tag> bash scripts/deploy.sh` (re-runs migrate-then-swap), or `alembic downgrade -1` then re-deploy the prior tag. If schema diverged irrecoverably, restore from the latest `pre-deploy-*.sql`.
 
 ## Admin dashboard
 
