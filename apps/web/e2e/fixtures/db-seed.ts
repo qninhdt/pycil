@@ -46,6 +46,28 @@ function psqlFile(content: string): void {
   );
 }
 
+/**
+ * Clear stale generation locks for a definition so a fresh seed (incl. a
+ * Playwright retry) re-enqueues live generation cleanly. Without this the
+ * single-flight lock `lock:gen_question:{def}:{type}` (TTL 600s) survives the
+ * seed's question DELETE, so the next session is a non-owner and never fires
+ * the regen — the DB poll then waits on a row that was deleted. Best-effort:
+ * the worker stack is always Docker here; a miss must not fail the seed.
+ */
+function clearGenLocks(definitionId: number): void {
+  const container = process.env.REDIS_CONTAINER ?? "pycil-redis-1";
+  try {
+    execSync(
+      `docker exec ${container} sh -c ` +
+        `"redis-cli --scan --pattern 'lock:gen_question:${definitionId}:*' ` +
+        `| xargs -r redis-cli DEL"`,
+      { timeout: 15_000, encoding: "utf-8", stdio: "pipe" },
+    );
+  } catch {
+    // No worker/redis reachable, or nothing to delete — fine.
+  }
+}
+
 export function seedDatabase(): SeededData {
   const email = process.env.E2E_TEST_EMAIL ?? "e2e-test@example.com";
   const deckId = process.env.E2E_TEST_DECK_ID ?? randomUUID();
@@ -384,6 +406,10 @@ export function seedLiveLearnDeck(): LiveLearnSeed {
       next_review_date = NOW() - INTERVAL '1 day';
     DELETE FROM questions WHERE definition_id = ${definitionId};
   `);
+
+  // Clear the single-flight gen-lock so a fresh seed (incl. a Playwright
+  // retry) re-enqueues live generation instead of waiting on a stale lock.
+  clearGenLocks(definitionId);
 
   return { userId, deckId, termId, definitionId };
 }
