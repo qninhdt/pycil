@@ -361,13 +361,17 @@ silently omitted, so they aren't mistaken for finished work:
   `packages/shared-py` and the `api`/`worker`/`migrate` compose services (not the
   old `pycil-core` name). The Caddy-validate CI gate and the two root Caddyfiles
   were removed (Caddy was already dropped from `docker-compose.yml` in Phase 1).
-  **Still open:** the PR-gate `e2e` job (and nightly's `e2e-tier2`) are disabled
-  (`if: false`), not fixed — they drive `apps/web`'s next-auth/Dex OIDC login
-  flow, and `apps/api/pycil/auth/oauth.py` hardcodes Google's real endpoints
-  with no issuer-swap hook for Dex to stand in anymore. Re-enable once Phase 10
-  (frontend auth/Centrifugo) lands and the specs are rewritten against it.
-  `docker-compose.staging.yml` (`make staging`) is likewise untouched and still
-  wires the old `pycil-core`/`dex`/`minio` services — same Phase 10 dependency.
+  `docker-compose.staging.yml`, `scripts/staging-up.sh`, `scripts/mc-mkbucket.sh`,
+  and `infra/dex/` were removed outright rather than patched — they wired the old
+  `pycil-core`/Dex OIDC/MinIO local-dev stack, none of which has an equivalent in
+  the new backend (Google-only OAuth, no S3/media). `apps/web/e2e/` (Playwright
+  suite: 9 specs + fixtures/pages/`run-e2e.sh`) was removed for the same reason —
+  it drove that same Dex login flow and asserted ELO fields; `.github/workflows/
+  test.yml` has no `e2e` job anymore (there's nothing left to run). **Still
+  open:** re-introducing browser e2e coverage needs a new auth-testing strategy
+  (mock Google, or mint a JWT directly for the FE to seal) plus specs rewritten
+  from scratch against FSRS/mastery — blocked on Phase 10 (frontend auth/
+  Centrifugo) landing first.
 - **Frontend auth/realtime migration is partial** (Phase 10). Contract/type
   renames (Term→Word, Definition→Sense, ELO→FSRS terminology) are underway in
   `apps/web`, but `apps/web/package.json` still depends on `next-auth`/

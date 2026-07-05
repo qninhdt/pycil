@@ -50,13 +50,14 @@ migration done" as "frontend wired to the new backend."
   root `Makefile` now target `apps/api`/`apps/worker`/`packages/shared-py` and
   the `api`/`worker`/`migrate` compose services. Caddy-validate CI + the two
   root Caddyfiles were removed (Caddy already dropped from compose in Phase 1).
-- The PR-gate `e2e` job and nightly's `e2e-tier2` are disabled (`if: false`),
-  not fixed — they drive `apps/web`'s next-auth/Dex login flow, and the new
-  `apps/api/pycil/auth/oauth.py` hardcodes Google's real endpoints with no
-  issuer-swap hook left for Dex. Blocked on Phase 10 (frontend auth/Centrifugo)
-  landing and the specs being rewritten against it.
-- `docker-compose.staging.yml` (`make staging`) still wires the old
-  `pycil-core`/`dex`/`minio` services — same Phase 10 dependency as above.
+- ~~`apps/pycil-core`, `docker-compose.staging.yml`/Dex/MinIO, and
+  `apps/web/e2e`~~ — removed 2026-07-06 (superseded/unreferenced by the new
+  stack; see system-architecture.md § Known Gaps for what each depended on).
+- The PR-gate `e2e` job in `test.yml` is disabled (`if: false`), not
+  rebuilt — real e2e coverage needs a new auth-testing strategy (the new
+  `apps/api/pycil/auth/oauth.py` hardcodes Google's real endpoints, so there's
+  no local IdP swap-in anymore) plus a full spec rewrite against FSRS/mastery.
+  Blocked on Phase 10 (frontend auth/Centrifugo) landing first.
 - `apps/worker` has no test coverage (previous suite removed in the worker
   redesign, not yet replaced). CI lints it but runs no pytest job for it.
 - Backup coverage (`backup` compose service) covers only pycil's own

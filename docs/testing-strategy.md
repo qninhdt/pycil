@@ -1,9 +1,10 @@
 # Testing Strategy
 
 **Note:** this file originally described `apps/pycil-core` (the pre-migration
-backend, kept as a historical reference — see `docs/system-architecture.md`).
-That description is still accurate for `apps/pycil-core` itself. It does
-**not** describe `apps/api`/`apps/worker` (the current backend) — see
+backend). That app was fully superseded by `apps/api` and removed from disk
+(2026-07-06) — the "Historical" section below is kept purely as a record of
+its testing approach, not a description of anything currently runnable. It
+does **not** describe `apps/api`/`apps/worker` (the current backend) — see
 "Current backend (`apps/api`)" below for that.
 
 ## Current backend (`apps/api`)
@@ -12,8 +13,8 @@ Tests live in `apps/api/tests/`, organized by domain (`auth/`, `content/`,
 `hierarchy/`, `learning/`, `realtime/`, `integration/`) plus a top-level
 `test_boundary.py` asserting the two-DB structural boundary. There is no
 unit/integration pytest-marker split here (unlike `apps/pycil-core` below) —
-every test in this suite runs against a **real Postgres**
-(`pytest-postgresql`, per-test schema create/drop via
+every test in this suite runs against a **real Postgres** (a disposable
+instance pointed at via `TEST_DB_URL`, schema create/drop via
 `target_metadata.create_all`/`drop_all` in `conftest.py`) and **fakeredis**
 (autouse fixture). `LexiClient` is faked at the port boundary in tests that
 need it (e.g. `apps/api/tests/integration/test_session_flow.py`'s
@@ -25,8 +26,10 @@ Run: `cd apps/api && uv run pytest`.
 There is no coverage-gate config (`--cov-fail-under`) in `apps/api/pyproject.toml`
 today — the 70% gate described below is specific to `apps/pycil-core`.
 
-`packages/shared-py/tests/` covers the FSRS engine and the legacy question
-plugins; run with `cd packages/shared-py && uv run pytest`.
+`packages/shared-py/shared/fsrs/tests/` covers the FSRS engine; run with
+`cd packages/shared-py && uv run pytest`. The legacy question-plugin tests
+that used to live in `packages/shared-py/tests/` were removed alongside
+`apps/pycil-core`, their only consumer.
 
 `apps/worker` has no test suite yet — the previous LLM-pipeline tests were
 removed during the worker redesign and not replaced.
@@ -67,11 +70,17 @@ resulting DB/state change instead.
 
 Run: `make test-integration` (requires a reachable Postgres; see conftest env).
 
-### E2E (`apps/web/e2e/`, Playwright)
+### E2E (removed)
 
-Full user flows against real Dex + core + worker + migrations, LLM stubbed for
-cost. Validates sign-in, deck/term, learn loop, ELO mutation end to end.
-Covered in the e2e runner (`apps/web/scripts/run-e2e.sh`), not pytest.
+Was `apps/web/e2e/` (Playwright): full user flows against real Dex + core +
+worker + migrations, LLM stubbed for cost — sign-in, deck/term, learn loop,
+ELO mutation end to end via `apps/web/scripts/run-e2e.sh`. Removed 2026-07-06
+alongside `apps/pycil-core`: it drove that app's Dex/next-auth login and
+asserted ELO fields, both gone from the current stack. `apps/api/pycil/auth/
+oauth.py` hardcodes Google's real endpoints (no local IdP swap-in), so
+rebuilding e2e coverage needs a new auth-testing strategy, not just a
+find-and-replace on service names — tracked in `docs/project-roadmap.md`'s
+operational gaps, blocked on Phase 10 (frontend auth/Centrifugo) landing.
 
 ## Markers
 

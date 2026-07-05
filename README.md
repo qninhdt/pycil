@@ -115,16 +115,13 @@ cd packages/shared-py && uv run pytest
 
 ## Production deploy
 
-**`scripts/deploy.sh` and the root `Makefile` are stale** — both still
-reference a `pycil-core` container name/paths from the pre-migration stack
-and won't work against the current `docker-compose.yml` topology (`api`/
-`worker`/`migrate`) without an update. Until they're fixed, deploy manually:
-
 ```bash
-cd /opt/pycil && git pull
-docker compose pull
-docker compose up -d   # migrate runs first and gates api/worker via depends_on
+cd /opt/pycil && git pull && IMAGE_TAG=<sha12> bash scripts/deploy.sh
 ```
+
+Migration-then-swap: pulls new images, runs the `migrate` one-shot service
+against the new image, aborts before swapping if migration fails, then swaps
+containers and health-gates `api`/`worker`. See the script for details.
 
 Back up **both** databases before a deploy — pycil's Postgres (`backup`
 compose profile, restic-based) and lexi-ai's own database. Only the former is
@@ -137,15 +134,13 @@ apps/
   web/         Next.js 15 — frontend (auth/realtime migration partial, see docs)
   api/         FastAPI + SQLModel + Alembic — current backend
   worker/      arq — current worker (3 jobs)
-  pycil-core/  Pre-migration Python backend — kept as historical reference, not run
 packages/
-  shared-py/   Cross-service package: FSRS engine, realtime payloads, legacy modules
+  shared-py/   Cross-service package: FSRS engine, realtime channel/payload builders
 vendor/
   lexi-ai/     Editable path dep (gitignored) — dictionary/question/grading authority
 docs/          Architecture, codebase map, roadmap, changelog
 plans/         Migration + feature plans
 docker-compose.yml          Current stack: postgres, redis, centrifugo, migrate, api, worker, backup
-docker-compose.staging.yml  Stale — still wires an old Dex OIDC service
 ```
 
 ## Scope

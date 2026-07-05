@@ -7,8 +7,9 @@ Next.js 15 frontend (`apps/web`), shared Python package (`packages/shared-py`).
 
 This describes the codebase as it exists on `python-migration` today. The
 prior Go/ent/chi backend was never completed and is gone; the prior
-single-DB Python MVP (`apps/pycil-core`) is kept on disk as a historical
-reference, not part of the running stack.
+single-DB Python MVP (`apps/pycil-core`) was fully superseded by `apps/api`
+and has been removed (2026-07-06) — nothing in the running stack referenced
+it (see git history if you need to recover it).
 
 ## Repository Layout
 
@@ -17,18 +18,15 @@ pycil/
 ├── apps/
 │   ├── web/           # Next.js 15 (App Router) — frontend, partially migrated (see Known Gaps)
 │   ├── api/            # FastAPI + SQLModel + Alembic — current backend
-│   ├── worker/          # arq consumer — current worker (3 jobs)
-│   └── pycil-core/     # Pre-migration Python backend — kept as historical reference, not run
+│   └── worker/          # arq consumer — current worker (3 jobs)
 ├── packages/
-│   └── shared-py/      # Cross-service package (pycil-shared): FSRS engine, realtime payloads,
-│                        # plus legacy question-plugin/redis-lock/logging modules still used by pycil-core
+│   └── shared-py/      # Cross-service package (pycil-shared): FSRS engine, realtime channel/payload builders
 ├── vendor/
 │   └── lexi-ai/         # Editable path dep — dictionary/question/grading authority (own DB); gitignored
 ├── docs/                # This folder
 ├── plans/               # Migration + feature plans
 ├── docker-compose.yml         # Current stack: postgres, redis, centrifugo, migrate, api, worker, backup
-├── docker-compose.staging.yml # Stale — still wires an old `dex` OIDC service (see Known Gaps)
-└── scripts/deploy.sh          # Stale — references a `pycil-core` container name the current compose file doesn't have
+└── scripts/deploy.sh          # Migration-then-swap prod deploy against the current compose topology
 ```
 
 ## Service: `apps/api` (FastAPI)
@@ -150,25 +148,19 @@ packages/shared-py/
     │   ├── mastery.py             # mastery(S) — 0-100 display value
     │   ├── weights.py              # 17 hardcoded fsrs4anki v4.5 weights
     │   └── tests/test_fsrs_engine.py
-    ├── realtime/
-    │   ├── channels.py            # users:{uid}[:jobs:{id}|:grading:{id}] channel builders
-    │   └── payloads.py             # JobUpdate, GradingResult, Notification dataclasses
-    ├── db/
-    │   ├── models.py, enums.py    # Legacy SQLModel models — consumed by apps/pycil-core only
-    ├── questions/                  # Legacy question-type ABC + plugins (MCQ/write/fill-in-blank)
-    ├── logging_config.py            # Legacy JSON logging setup
-    └── redis_lock.py                 # Legacy Lua lock-or-get helper
+    └── realtime/
+        ├── channels.py            # users:{uid}[:jobs:{id}|:grading:{id}] channel builders
+        └── payloads.py             # JobUpdate, GradingResult, Notification dataclasses
 ```
 
-Only `shared.fsrs` and `shared.realtime` are imported by the current
+Both `shared.fsrs` and `shared.realtime` are imported by the current
 `apps/api`/`apps/worker` stack (`fsrs_wrapper.py`, `grading.py`,
 `session_queue.py`, `service.py`, `learning/router.py`, worker's
-`realtime.py`/`jobs/grade_answer.py`). `shared/db`, `shared/questions`,
-`shared/logging_config.py`, and `shared/redis_lock.py` are **not dead code**
-— they're still imported by the retained `apps/pycil-core` reference app
-(e.g. `pycil_core/services/question_service.py`,
-`pycil_core/observability/telemetry.py`). Don't delete them without also
-retiring `apps/pycil-core`.
+`realtime.py`/`jobs/grade_answer.py`). The legacy `shared/db`,
+`shared/questions`, `shared/logging_config.py`, and `shared/redis_lock.py`
+modules (SQLModel models, question-type ABC/plugins, JSON logging, Lua
+lock-or-get helper) were removed alongside `apps/pycil-core` (2026-07-06) —
+that reference app was their only consumer.
 
 ## Postgres Schema (`apps/api/alembic/versions/0001_baseline_baseline.py`)
 
@@ -203,9 +195,6 @@ for the full table-to-domain mapping and the two-DB boundary rationale.
 
 - `apps/worker` has zero tests currently.
 - `apps/api/pycil/worker_bridge/` is present but empty/unmounted.
-- CI (`.github/workflows/*.yml`), `scripts/deploy.sh`, and the root
-  `Makefile` all still target `apps/pycil-core` and/or a `dex` OIDC
-  container, not the current `apps/api`/`apps/worker` stack.
 - `apps/web` frontend auth/realtime integration is partial — see
   [project-roadmap.md](./project-roadmap.md).
 
