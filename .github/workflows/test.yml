@@ -116,17 +116,10 @@ jobs:
           name: coverage-api
           path: apps/api/coverage.xml
 
-  e2e:
-    # DISABLED. apps/web still runs next-auth + Dex OIDC + ELO-shaped specs
-    # (apps/web/e2e/tests/01-auth-flow, 06-sign-out, 08-mcq-live-elo,
-    # 10-learn-loop-elo-mutation). The new backend is bearer-JWT-only (no
-    # cookie) and apps/api/pycil/auth/oauth.py hardcodes Google's real
-    # authorize/token/userinfo URLs — Dex has no issuer-swap hook to stand in
-    # for Google anymore. Phase 10 (python-migration plan) explicitly left the
-    # frontend iron-session + Centrifugo-JS + FSRS-spec rework undone
-    # ("Partial (contract migration done; auth/Centrifugo browser-pending)").
-    # Re-enable once that work lands and the specs are rewritten against it.
-    if: false
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo "skipped — see job comment"
+# No e2e job: apps/web/e2e/ (Playwright) was removed 2026-07-06 along with
+# apps/pycil-core — it drove that app's next-auth/Dex OIDC login and asserted
+# ELO fields, neither of which exist in the current stack. The new
+# apps/api/pycil/auth/oauth.py hardcodes Google's real endpoints (no local IdP
+# swap-in), so rebuilding e2e coverage needs a new auth-testing strategy, not a
+# find-and-replace — tracked in docs/project-roadmap.md's operational gaps,
+# blocked on Phase 10 (frontend auth/Centrifugo) landing first.

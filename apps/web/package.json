@@ -8,8 +8,6 @@
     "start": "next start",
     "lint": "eslint",
     "test": "tsx --test \"src/**/*.test.ts\"",
-    "e2e": "playwright test --config=playwright.config.ts",
-    "e2e:debug": "playwright test --config=playwright.config.ts --debug",
     "pwa:render": "node scripts/render-pwa-icons.mjs"
   },
   "dependencies": {
@@ -45,7 +43,6 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
-    "@playwright/test": "^1.60.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

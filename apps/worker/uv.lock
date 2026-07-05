@@ -1105,17 +1105,11 @@ provides-extras = ["dev"]
 name = "pycil-shared"
 version = "0.1.0"
 source = { editable = "../../packages/shared-py" }
-dependencies = [
-    { name = "pydantic" },
-    { name = "sqlmodel" },
-]
 
 [package.metadata]
 requires-dist = [
-    { name = "pydantic", specifier = ">=2.9,<3.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3,<9.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8,<0.9" },
-    { name = "sqlmodel", specifier = ">=0.0.38,<0.1" },
 ]
 provides-extras = ["dev"]
 

@@ -36,7 +36,7 @@ function assertHasKeys(
   }
 }
 
-// Required field sets mirror apps/pycil-core/pycil_core/schemas/*.py and the FE
+// Required field sets mirror the pycil-api Pydantic schemas and the FE
 // types/domain/* read models. Keep in sync with the backend Read schemas.
 const NODE_READ_KEYS = [
   "id",

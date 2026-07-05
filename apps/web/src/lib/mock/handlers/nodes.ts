@@ -1,4 +1,4 @@
-// Mock handlers for /nodes* — mirrors apps/pycil-core routes/nodes.py.
+// Mock handlers for /nodes* — mirrors apps/api/pycil/hierarchy/router.py.
 
 import { getState, commit } from "../store";
 import { newUuid } from "../id";

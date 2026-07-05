@@ -1,12 +1,9 @@
 [project]
 name = "pycil-shared"
 version = "0.1.0"
-description = "Shared Python types: question ABC + MCQ subclass."
+description = "Shared Python logic: FSRS engine, Centrifugo channel/payload builders."
 requires-python = ">=3.12"
-dependencies = [
-    "pydantic>=2.9,<3.0",
-    "sqlmodel>=0.0.38,<0.1",
-]
+dependencies = []
 
 [project.optional-dependencies]
 dev = [
@@ -23,14 +20,11 @@ include = ["shared*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
-testpaths = ["tests", "shared/fsrs/tests"]
+testpaths = ["shared/fsrs/tests"]
 
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-# Legacy modules still consumed by apps/pycil-core (retained as reference, not
-# part of this migration) — not touched here to avoid destabilizing that app.
-extend-exclude = ["shared/questions", "shared/db", "shared/logging_config.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
