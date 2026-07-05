@@ -8,6 +8,12 @@ dependencies = [
     "sqlmodel>=0.0.38,<0.1",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3,<9.0",
+    "ruff>=0.8,<0.9",
+]
+
 [build-system]
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
@@ -17,4 +23,14 @@ include = ["shared*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
-testpaths = ["tests"]
+testpaths = ["tests", "shared/fsrs/tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+# Legacy modules still consumed by apps/pycil-core (retained as reference, not
+# part of this migration) — not touched here to avoid destabilizing that app.
+extend-exclude = ["shared/questions", "shared/db", "shared/logging_config.py"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

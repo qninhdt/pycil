@@ -1,0 +1,65 @@
+[project]
+name = "pycil-api"
+version = "0.1.0"
+description = "Pycil API — FastAPI + SQLModel + Alembic; FSRS learning, hierarchy, lexi-ai dictionary."
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115,<0.116",
+    "uvicorn[standard]>=0.32,<0.33",
+    "sqlmodel>=0.0.38,<0.1",
+    "sqlalchemy>=2.0,<2.1",
+    "alembic>=1.14,<1.15",
+    "asyncpg>=0.30,<0.31",
+    "redis>=5.2,<6.0",
+    "arq>=0.26,<0.27",
+    "pydantic>=2.9,<3.0",
+    "pydantic-settings>=2.6,<2.7",
+    "pyjwt>=2.10,<3.0",
+    "httpx>=0.28,<0.29",
+    "structlog>=24.4,<25.0",
+    "pycil-shared",
+    "lexi-ai",
+]
+
+[tool.uv.sources]
+pycil-shared = { path = "../../packages/shared-py", editable = true }
+# Vendored symlink → ~/projects/lexi-ai (see vendor/, gitignored). Relative path
+# resolves for both local uv and the Docker build context (/app/vendor/lexi-ai).
+lexi-ai = { path = "../../vendor/lexi-ai", editable = true }
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3,<9.0",
+    "pytest-asyncio>=0.24,<0.25",
+    "pytest-postgresql>=6.1,<7.0",
+    "fakeredis[lua]>=2.26,<3.0",
+    "freezegun>=1.5,<2.0",
+    "pytest-mock>=3.14,<4.0",
+    "pytest-cov>=6.0,<7.0",
+    "ruff>=0.8,<0.9",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["pycil*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's Depends()/Query()/Path() in argument defaults is the intended pattern.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path"]
