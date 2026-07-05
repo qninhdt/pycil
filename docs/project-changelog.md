@@ -4,6 +4,75 @@ All notable releases. Format derived from Keep a Changelog; dates in ISO-8601.
 
 ---
 
+## [Unreleased] — 2026-07-05 — Python greenfield migration (lexi-ai + FSRS + hierarchy)
+
+`plans/260705-0032-python-greenfield-migration/` (12 phases). Rebuilds the
+backend as a greenfield FastAPI + SQLModel + Alembic service, abandoning the
+mid-flight Go/ent/chi direction (`260612-2302-full-project-refactoring`,
+superseded). Internalizes `lexi-ai` as the dictionary/question/grading
+authority behind a `LexiClient` port, replaces ELO with FSRS-4.5, and
+introduces the folder/deck/REFERENCE hierarchy + Centrifugo realtime. The
+pre-migration Python backend is kept at `apps/pycil-core` as a historical
+reference, not deleted.
+
+### Added
+
+- **Two-database boundary.** Pycil's own Postgres (9 tables: `users`, `nodes`,
+  `folder_attributes`, `deck_attributes`, `user_nodes`, `deck_senses`,
+  `user_sense_stats`, `review_log`, `responses`) never stores dictionary
+  content; `lexi-ai` owns `words`/`senses`/`questions`/etc. in its own
+  database. No cross-DB foreign keys or joins — enforced structurally by
+  `apps/api/tests/test_boundary.py`.
+- **`LexiClient` port + `InProcessLexiClient` adapter**
+  (`apps/api/pycil/content/lexi_port.py`, `lexi_inprocess.py`) — the only
+  interface/construction site for reaching lexi-ai (search, generate,
+  get_senses, generate_questions, grade, get_question).
+- **FSRS-4.5 learning engine** (`packages/shared-py/shared/fsrs/`) — verbatim
+  port of the published fsrs4anki v4.5 weight table, binary grade only
+  (Good/Again). Replaces the ELO scheduler.
+- **Hierarchy + stats domain** (`apps/api/pycil/hierarchy/`) — adjacency-list
+  FOLDER/DECK/REFERENCE tree, recursive-CTE subtree resolution, folder/weakest/
+  CEFR-distribution stats, L1-only Redis cache with ancestor-chain busting.
+- **`require_node_access` IDOR gate** (`apps/api/pycil/hierarchy/access.py`) —
+  single choke point for owner-vs-public read/write checks on every node,
+  closing a previously systemic IDOR gap.
+- **Auth redesign** (`apps/api/pycil/auth/`) — Google OAuth 2.1 + PKCE,
+  backend-issued bearer JWT (HS256-pinned, required-claims-checked,
+  secret-rotation fallback that never rescues an already-expired token),
+  `token_version`-based revocation, no server-side session table, no cookies.
+- **Centrifugo realtime** (`apps/api/pycil/realtime/`,
+  `packages/shared-py/shared/realtime/`) — owner-scoped `users:{uid}:*`
+  channels, separately-secret-signed subscription tokens, best-effort publish
+  (durable `responses`/job-state rows back every event).
+- **Worker redesign** (`apps/worker/pycil_worker/`) — exactly 3 arq jobs
+  (`generate_word`, `generate_question`, `grade_answer`), single-writer to
+  lexi-ai's DB, idempotent grading via `responses.grade_status`.
+- **Migration gate** — a one-shot `migrate` compose service runs
+  `alembic upgrade head` before `api`/`worker` start
+  (`condition: service_completed_successfully`).
+- **`uv`-based Python tooling** across `apps/api`, `apps/worker`,
+  `packages/shared-py`, with `vendor/lexi-ai` as an editable path dependency.
+
+### Removed
+
+- Billing (Stripe), gamification (XP/streaks/badges/league), admin dashboard,
+  chat-with-AI (SSE), translation/TTS jobs, ELO scoring, SSE-based job/answer
+  streaming, Caddy reverse proxy, the Vercel/VPS split topology.
+- The retired Go/ent/chi scaffold (never completed; abandoned in favor of
+  this Python direction).
+
+### Notes
+
+- Frontend (`apps/web`) migration is **partial** — contract/type renames
+  (Term→Word, Definition→Sense, ELO→FSRS) are underway, but `next-auth`/
+  `@auth/core` are still present with no iron-session/Centrifugo-JS
+  integration wired to the new backend yet.
+- CI/CD, `scripts/deploy.sh`, and the root `Makefile` were not repointed at
+  the new stack in this migration and still reference the old
+  `apps/pycil-core` topology — tracked as an operational gap, not a phase.
+- Backup coverage remains single-DB (pycil's Postgres only); covering
+  lexi-ai's database too is deferred to a deployment-phase follow-up.
+
 ## [Unreleased] — 2026-05-30 — admin dashboard (RBAC, users, moderation, metrics, spend, flags, health, audit)
 
 `plans/260529-2356-admin-dashboard-implementation/` (8 phases, TDD throughout).

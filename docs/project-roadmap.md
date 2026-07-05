@@ -1,9 +1,78 @@
-# Pycil — 7-Day Sprint Roadmap
+# Pycil — Roadmap
+
+**Current status:** backend rebuilt as a Python greenfield migration
+(FastAPI + SQLModel + Alembic), replacing the mid-flight Go/ent/chi direction.
+See "Python Greenfield Migration" below for phase status.
+**See also:** `docs/project-overview-pdr.md`, `docs/codebase-summary.md`, `docs/system-architecture.md`, `docs/project-changelog.md`
+
+The original 7-day sprint plan and its v0.2/v0.3 follow-ups (further down this
+file) describe the pre-migration Python/Next.js MVP. They're kept for
+history; they do not describe the current backend.
+
+---
+
+## Python Greenfield Migration (current)
+
+**Plan:** `plans/260705-0032-python-greenfield-migration/plan.md`
+**Scope:** internalize `lexi-ai` as the dictionary/question/grading authority,
+implement FSRS-4.5 + the folder/deck/REFERENCE hierarchy, redesign auth
+(Google OAuth 2.1 + PKCE + bearer JWT), add Centrifugo realtime. Removes
+billing, gamification, admin dashboard, chat, translation/TTS, ELO, SSE.
+
+| Phase | Name | Status |
+|---|---|---|
+| 1 | Scaffold & Infrastructure | Complete |
+| 2 | Baseline Schema & Migration | Complete |
+| 3 | Auth Domain | Complete |
+| 4 | FSRS Engine | Complete |
+| 5 | Content & Lexi-AI | Complete |
+| 6 | Learning Domain | Complete |
+| 7 | Hierarchy & Stats | Complete |
+| 8 | Realtime Centrifugo | Complete |
+| 9 | Worker Redesign | Complete |
+| 10 | Frontend Auth & Rename | Partial |
+| 11 | Integration Wiring | Complete |
+| 12 | Tests & Docs | Complete |
+
+**Phase 10 detail:** contract/type renames (Term→Word, Definition→Sense,
+ELO→FSRS terminology) are underway in `apps/web`, but the diffs on the core
+type files (`types/learning.ts`, `types/domain/learning.ts`,
+`lib/adapters/be-question-to-fe.ts`) are shallow (a few lines each), and
+`apps/web/package.json` still depends on `next-auth`/`@auth/core` with no
+iron-session or Centrifugo-JS integration wired up yet. Don't treat "contract
+migration done" as "frontend wired to the new backend."
+
+**Operational gaps not tracked by any phase above** (found during the Phase
+12 docs pass; CI/deploy.sh/Makefile closed 2026-07-06, rest still open):
+
+- ~~CI still targets `apps/pycil-core` + a Dex OIDC container~~ — fixed:
+  `.github/workflows/{test,deploy,nightly}.yml`, `scripts/deploy.sh`, and the
+  root `Makefile` now target `apps/api`/`apps/worker`/`packages/shared-py` and
+  the `api`/`worker`/`migrate` compose services. Caddy-validate CI + the two
+  root Caddyfiles were removed (Caddy already dropped from compose in Phase 1).
+- The PR-gate `e2e` job and nightly's `e2e-tier2` are disabled (`if: false`),
+  not fixed — they drive `apps/web`'s next-auth/Dex login flow, and the new
+  `apps/api/pycil/auth/oauth.py` hardcodes Google's real endpoints with no
+  issuer-swap hook left for Dex. Blocked on Phase 10 (frontend auth/Centrifugo)
+  landing and the specs being rewritten against it.
+- `docker-compose.staging.yml` (`make staging`) still wires the old
+  `pycil-core`/`dex`/`minio` services — same Phase 10 dependency as above.
+- `apps/worker` has no test coverage (previous suite removed in the worker
+  redesign, not yet replaced). CI lints it but runs no pytest job for it.
+- Backup coverage (`backup` compose service) covers only pycil's own
+  Postgres, not lexi-ai's separate database.
+
+---
+
+## Historical: Pre-Migration Sprint Roadmap (superseded)
+
+The rest of this document is the original MVP sprint plan and its v0.2/v0.3
+follow-ups. It describes the pre-migration stack (Go-free but pre-lexi-ai,
+single Postgres, Auth.js, ELO, SSE) and is kept for history only.
 
 **Sprint window:** 2026-05-25 → 2026-05-31 (Day 1 → Day 7)
 **Target:** Public launch on Day 7
-**Status:** v1 phases 1-7 completed (live launch event still pending — see Phase 7).
-**See also:** `docs/project-overview-pdr.md`, `docs/codebase-summary.md`, `docs/system-architecture.md`, `docs/project-changelog.md`, `plans/idea.md`, `plans/260525-0124-pycil-mvp-implementation/plan.md`
+**Plan source:** `plans/idea.md`, `plans/260525-0124-pycil-mvp-implementation/plan.md`
 
 ---
 

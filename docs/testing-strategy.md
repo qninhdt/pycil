@@ -1,5 +1,40 @@
 # Testing Strategy
 
+**Note:** this file originally described `apps/pycil-core` (the pre-migration
+backend, kept as a historical reference — see `docs/system-architecture.md`).
+That description is still accurate for `apps/pycil-core` itself. It does
+**not** describe `apps/api`/`apps/worker` (the current backend) — see
+"Current backend (`apps/api`)" below for that.
+
+## Current backend (`apps/api`)
+
+Tests live in `apps/api/tests/`, organized by domain (`auth/`, `content/`,
+`hierarchy/`, `learning/`, `realtime/`, `integration/`) plus a top-level
+`test_boundary.py` asserting the two-DB structural boundary. There is no
+unit/integration pytest-marker split here (unlike `apps/pycil-core` below) —
+every test in this suite runs against a **real Postgres**
+(`pytest-postgresql`, per-test schema create/drop via
+`target_metadata.create_all`/`drop_all` in `conftest.py`) and **fakeredis**
+(autouse fixture). `LexiClient` is faked at the port boundary in tests that
+need it (e.g. `apps/api/tests/integration/test_session_flow.py`'s
+`IntegrationLexiClient`) — never the LLM itself, since the port is the
+intended seam.
+
+Run: `cd apps/api && uv run pytest`.
+
+There is no coverage-gate config (`--cov-fail-under`) in `apps/api/pyproject.toml`
+today — the 70% gate described below is specific to `apps/pycil-core`.
+
+`packages/shared-py/tests/` covers the FSRS engine and the legacy question
+plugins; run with `cd packages/shared-py && uv run pytest`.
+
+`apps/worker` has no test suite yet — the previous LLM-pipeline tests were
+removed during the worker redesign and not replaced.
+
+---
+
+## Historical: `apps/pycil-core` testing strategy
+
 Three test layers, each with a clear contract for what it proves and what it
 mocks. CI and `make` can target each layer independently via pytest markers.
 

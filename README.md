@@ -1,103 +1,160 @@
 # Pycil
 
-AI-powered vocabulary learning with ELO-driven spaced repetition.
+AI-powered vocabulary learning with FSRS-driven spaced repetition, built on
+an internalized dictionary/grading engine (`lexi-ai`) and a folder/deck/
+reference hierarchy.
 
-- **PDR:** [`docs/project-overview-pdr.md`](docs/project-overview-pdr.md)
+- **Architecture:** [`docs/system-architecture.md`](docs/system-architecture.md)
+- **Codebase map:** [`docs/codebase-summary.md`](docs/codebase-summary.md)
 - **Roadmap:** [`docs/project-roadmap.md`](docs/project-roadmap.md)
-- **Active plan:** [`plans/260525-0124-pycil-mvp-implementation/plan.md`](plans/260525-0124-pycil-mvp-implementation/plan.md)
+- **Active plan:** [`plans/260705-0032-python-greenfield-migration/plan.md`](plans/260705-0032-python-greenfield-migration/plan.md)
 
 ## Architecture
 
-Three services on a single VPS via docker-compose:
+```
+[Browser] ── apps/web (Next.js 15) ─┐
+                                     │  bearer JWT + REST
+                                     ▼
+                              apps/api (FastAPI, :8000)
+                                     │
+                     ┌───────────────┼────────────────┐
+                     ▼               ▼                ▼
+               Postgres         Redis 7          Centrifugo (realtime)
+             (pycil's own DB:                    (owner-scoped channels)
+              users/nodes/decks/
+              FSRS stats)
+                     ▲
+                     │ single writer
+              apps/worker (arq: generate_word, generate_question, grade_answer)
+                     │
+                     ▼
+              vendor/lexi-ai (in-process) ── its OWN database (words/senses/questions)
+```
 
-```
-[Browser]
-   └── Caddy (TLS) ─┬─> web         (Next.js 15 + Auth.js v5, port 3000)
-                    ├─> pycil-core  (FastAPI + SQLModel, port 8000)
-                    └─> worker      (Python arq + LangChain → OpenRouter)
-                          ├─ Postgres 16
-                          └─ Redis 7
-```
+Pycil never stores dictionary content — that's `lexi-ai`'s job, behind a
+`LexiClient` port. See
+[system-architecture.md](docs/system-architecture.md#two-database-boundary)
+for the full two-database boundary rationale and
+[Known Gaps](docs/system-architecture.md#known-gaps) for what isn't finished
+yet (frontend auth/realtime wiring, CI/CD, deploy tooling).
 
 ## Local development
 
-Prereqs: Docker 24+, docker-compose v2, a Google OAuth client, an OpenRouter API key.
+Prereqs: Docker 24+, docker-compose v2, `uv`, a Google OAuth client, an
+OpenRouter (or compatible) API key, and a checkout of `lexi-ai` at
+`~/projects/lexi-ai`.
+
+### 1. Vendor lexi-ai
+
+`apps/api` and `apps/worker` depend on `lexi-ai` as an editable path package
+at `vendor/lexi-ai` (gitignored — not committed). Symlink or copy your
+`lexi-ai` checkout in:
+
+```bash
+ln -s ~/projects/lexi-ai vendor/lexi-ai
+```
+
+Then copy its Cambridge dictionary SQLite source (~142MB, also gitignored)
+so lexi's `search()` doesn't return empty:
+
+```bash
+cp -r ~/projects/lexi-ai/data vendor/lexi-ai/data
+```
+
+### 2. Environment
 
 ```bash
 cp .env.example .env
-# Fill in: AUTH_SECRET (openssl rand -base64 32), GOOGLE_CLIENT_ID,
-# GOOGLE_CLIENT_SECRET, OPENROUTER_API_KEY.
+# Fill in at minimum: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
+# LEXI_LLM_API_KEY (OpenRouter key), AUTH_JWT_SECRET (openssl rand -base64 32),
+# CENTRIFUGO_API_KEY + CENTRIFUGO_TOKEN_HMAC_SECRET (openssl rand -hex 32).
+```
 
-# Select the dev Caddyfile (Caddy internal CA, never burns Let's Encrypt rate
-# limit) via env — no destructive copy over the tracked prod Caddyfile.
-export CADDYFILE=./Caddyfile.local
+`.env.example` still carries a leftover `# --- Auth.js v5 (web) ---` block
+from the pre-migration frontend design — those variables aren't consumed by
+`apps/api`/`apps/worker` today.
 
+### 3. Run the stack
+
+```bash
 docker compose up --build
 ```
 
-Run the initial migration (one-shot, against the running pycil-core image):
+The `migrate` service runs `alembic upgrade head` once and must succeed
+before `api`/`worker` start (compose `depends_on: service_completed_successfully`
+— no manual migration step needed). API on `http://localhost:8000`,
+Centrifugo on `http://localhost:8001`.
+
+### 4. Run the frontend separately
+
+`apps/web` is not part of `docker-compose.yml`. Run it with its own tooling
+(`pnpm dev` from `apps/web`) pointed at the API above. Note: its auth/realtime
+integration is not yet wired to this backend's bearer-JWT/Centrifugo design
+(see [Known Gaps](docs/system-architecture.md#known-gaps)) — sign-in through
+the web app will not work end-to-end until that lands.
+
+### Running the backend without Docker
 
 ```bash
-docker compose run --rm pycil-core alembic upgrade head
+cd apps/api && uv sync && uv run alembic upgrade head && uv run uvicorn pycil.main:app --reload
+cd apps/worker && uv sync && uv run arq pycil_worker.main.WorkerSettings
 ```
 
-Visit https://localhost (accept the Caddy internal-CA warning) → sign in with Google → land on `/dashboard`.
+Both need Postgres/Redis reachable per your `.env`, and `vendor/lexi-ai` in
+place as above (`uv sync` installs it as an editable dependency via
+`[tool.uv.sources]` in each `pyproject.toml`).
+
+## Tests
+
+```bash
+cd apps/api && uv run pytest        # real Postgres (pytest-postgresql) + fakeredis
+cd packages/shared-py && uv run pytest
+```
+
+`apps/worker` has no test suite yet (see Known Gaps).
 
 ## Production deploy
 
-GitHub Actions (`.github/workflows/deploy.yml`) **builds + pushes** the
-`pycil-core` and `pycil-worker` images to ghcr on push to `main`. It does NOT
-SSH anywhere — deployment runs on the host via `scripts/deploy.sh`.
-
-The web frontend is **not** in this stack — it deploys to Vercel / Next.js
-hosting separately. The compose stack is API-only (core + worker + caddy +
-postgres + redis).
-
-On the VPS (repo checked out at `/opt/pycil`):
+**`scripts/deploy.sh` and the root `Makefile` are stale** — both still
+reference a `pycil-core` container name/paths from the pre-migration stack
+and won't work against the current `docker-compose.yml` topology (`api`/
+`worker`/`migrate`) without an update. Until they're fixed, deploy manually:
 
 ```bash
 cd /opt/pycil && git pull
-IMAGE_TAG=<12-char-sha-from-CI> bash scripts/deploy.sh   # omit IMAGE_TAG → :latest
+docker compose pull
+docker compose up -d   # migrate runs first and gates api/worker via depends_on
 ```
 
-`scripts/deploy.sh` runs the **migration-then-swap**:
-
-1. `pg_dump` snapshot to `/var/backups/pycil/pre-deploy-<ts>.sql` (last 5 kept).
-2. `docker compose pull` new images.
-3. `alembic upgrade head` in a one-shot container against the new pycil-core image.
-4. On migration success only: `docker compose up -d`.
-5. Health-check loop on `pycil-core` (HTTP) and `worker` (compose healthcheck).
-
-Rollback: `IMAGE_TAG=<previous-tag> bash scripts/deploy.sh` (re-runs migrate-then-swap), or `alembic downgrade -1` then re-deploy the prior tag. If schema diverged irrecoverably, restore from the latest `pre-deploy-*.sql`.
-
-## Admin dashboard
-
-The `/admin` surface (users, reports, metrics, spend, flags, health, audit) is gated by `users.role`. There is no UI to grant admin — seed the first admin directly via SQL:
-
-```sql
-UPDATE users SET role = 'admin' WHERE email = 'you@example.com';
-```
-
-The backend re-reads `users.role` on every request (the JWT `role` claim is edge-convenience only), so a freshly promoted admin reaches `/admin` on their next login.
-
-**Rollback ordering for migration 0019 (`user_role_and_ban`):** `get_current_user` does `SELECT … role FROM users` on every authenticated request. If you `alembic downgrade -1` past 0019 while the new image is still live, the dropped `role` column 500s every authed request. **Swap the image back to a pre-0019 build BEFORE downgrading 0019** (or treat 0019's column-drop as a no-op). The same applies to 0020/0021 only in that they must be downgraded in reverse order (0021 → 0020 → 0019).
+Back up **both** databases before a deploy — pycil's Postgres (`backup`
+compose profile, restic-based) and lexi-ai's own database. Only the former is
+automated today; see [Known Gaps](docs/system-architecture.md#known-gaps).
 
 ## Repo layout
 
 ```
 apps/
-  web/         Next.js 15 + Auth.js v5
-  pycil-core/  FastAPI + SQLModel + Alembic
-  worker/      arq + LangChain (filled in phase 3)
-docs/          PDR + roadmap
-plans/         Implementation plans
-Caddyfile      Production reverse proxy
-Caddyfile.local Dev reverse proxy with internal CA
-docker-compose.yml
+  web/         Next.js 15 — frontend (auth/realtime migration partial, see docs)
+  api/         FastAPI + SQLModel + Alembic — current backend
+  worker/      arq — current worker (3 jobs)
+  pycil-core/  Pre-migration Python backend — kept as historical reference, not run
+packages/
+  shared-py/   Cross-service package: FSRS engine, realtime payloads, legacy modules
+vendor/
+  lexi-ai/     Editable path dep (gitignored) — dictionary/question/grading authority
+docs/          Architecture, codebase map, roadmap, changelog
+plans/         Migration + feature plans
+docker-compose.yml          Current stack: postgres, redis, centrifugo, migrate, api, worker, backup
+docker-compose.staging.yml  Stale — still wires an old Dex OIDC service
 ```
 
-## v1 scope
+## Scope
 
-Google sign-in · folders + decks · LLM-generated definitions/paraphrases/examples · MCQ + Write + Fill-in-blank questions · ELO learning sessions · 11 mastery levels · public/cloned decks · TTS audio · definition translation · Sentry + OpenTelemetry tracing (opt-in) · opt-in restic backups.
+Google sign-in (OAuth 2.1 + PKCE) · folder/deck/reference hierarchy · lazy
+LLM-generated dictionary entries via lexi-ai · 4 question formats
+(definition MCQ, contextual MCQ, cloze, use-in-sentence) mastery-gated per
+sense · FSRS-4.5 spaced repetition · Centrifugo realtime grading/job updates.
 
-Removed in rehab (deliberate — not deferred): SHORTCUT nodes · definition topic/usage tags · i18n · payments/premium · mobile native · Loki/Tempo/Grafana log+metrics stack.
+Removed in this migration (deliberate, not deferred): billing, gamification,
+admin dashboard, chat-with-AI, translation/TTS, ELO scoring, SSE-based
+streaming.
