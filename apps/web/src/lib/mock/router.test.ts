@@ -183,7 +183,7 @@ describe("mock router — learning session (round math matches backend)", () => 
     }) as SubmitAnswerResponse;
     assert.equal(a5.round_complete, true, "round 0 completes at the boundary");
     assert.ok(a5.term_reviewed, "answer carries term_reviewed");
-    assert.equal(typeof a5.term_reviewed!.elo_new, "number");
+    assert.equal(typeof a5.term_reviewed!.mastery, "number");
 
     const q7 = handle(
       "GET",

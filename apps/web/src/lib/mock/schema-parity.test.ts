@@ -75,13 +75,10 @@ const SUBMIT_ANSWER_KEYS = [
   "term_reviewed",
 ];
 const TERM_REVIEWED_KEYS = [
-  "definition_id",
-  "elo_old",
-  "elo_new",
-  "elo_delta",
+  "sense_id",
+  "mastery",
+  "stability",
   "next_review_date",
-  "interval_seconds",
-  "mastery_level",
 ];
 const CURRENT_USER_KEYS = ["id", "email", "name", "image"];
 

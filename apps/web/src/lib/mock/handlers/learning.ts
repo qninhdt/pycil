@@ -99,20 +99,17 @@ export function getSessionQuestion(
 }
 
 function buildTermReviewed(
-  definitionId: number,
+  senseId: number,
   correct: boolean,
 ): TermReviewedResult {
-  const eloOld = 1200;
-  const eloDelta = correct ? 18 : -12;
-  const intervalSeconds = correct ? 86_400 * 3 : 86_400;
+  // FSRS: correct grows stability, wrong resets it low. Mastery = 100*S/(S+30).
+  const stability = correct ? 90 : 3;
+  const intervalSeconds = stability * 86_400;
   return {
-    definition_id: definitionId,
-    elo_old: eloOld,
-    elo_new: eloOld + eloDelta,
-    elo_delta: eloDelta,
+    sense_id: senseId,
+    mastery: Math.round((100 * stability) / (stability + 30)),
+    stability,
     next_review_date: new Date(Date.now() + intervalSeconds * 1000).toISOString(),
-    interval_seconds: intervalSeconds,
-    mastery_level: correct ? 4 : 2,
   };
 }
 

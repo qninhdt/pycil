@@ -1,9 +1,8 @@
 export interface Question {
   id: string;
-  // Numeric definition id behind this question — lets the study UI reach the
-  // per-definition TTS/translate endpoints. Optional: the post-answer
+  // Opaque lexi sense id behind this question. Optional: the post-answer
   // reconstruction path does not carry it.
-  definitionId?: number;
+  senseId?: number;
   type: string;
   term: string;
   definition: string;

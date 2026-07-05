@@ -38,13 +38,10 @@ export interface SubmitAnswerRequest {
 }
 
 export interface TermReviewedResult {
-  definition_id: number;
-  elo_old: number;
-  elo_new: number;
-  elo_delta: number;
+  sense_id: number;
+  mastery: number;
+  stability: number;
   next_review_date: ISODateString;
-  interval_seconds: number;
-  mastery_level: number;
 }
 
 export interface SubmitAnswerResponse {

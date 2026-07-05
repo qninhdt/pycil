@@ -5,7 +5,7 @@ export function beQuestionToFe(payload: SessionQuestionPayload): FeQuestion {
   const data = payload.data as MCQDataPublic;
   return {
     id: payload.id,
-    definitionId: payload.definition_id,
+    senseId: payload.definition_id,
     type: "multiple-choice",
     term: data.stem,
     definition: "",

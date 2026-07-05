@@ -62,11 +62,10 @@ export function LearningSessionComponent({
 
   const showResult = !!session.current;
 
-  // definition_id rides the ready-phase QuestionRead (the post-answer reveal
-  // payload omits it). Drives the TTS + translation buttons, which key off the
-  // numeric definition id.
+  // sense_id rides the ready-phase QuestionRead (the post-answer reveal
+  // payload omits it). Drives the TTS + translation buttons.
   const definitionId =
-    currentQuestion?.definitionId ??
+    currentQuestion?.senseId ??
     session.question?.question?.definition_id ??
     null;
 
