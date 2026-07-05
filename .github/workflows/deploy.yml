@@ -9,18 +9,7 @@ env:
   IMAGE_PREFIX: ${{ github.repository }}
 
 jobs:
-  caddy-validate:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Validate Caddyfile
-        run: |
-          docker run --rm -e DOMAIN=example.com -e CADDY_ACME_EMAIL=admin@example.com \
-            -v "${{ github.workspace }}:/etc/caddy" caddy:2 \
-            caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
-
   build:
-    needs: caddy-validate
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -42,15 +31,16 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build & push pycil-core
+      - name: Build & push api
         uses: docker/build-push-action@v5
         with:
-          # Repo-root context: the Dockerfile COPYs packages/shared-py, which
-          # only resolves from root (matches docker-compose.yml build config).
+          # Repo-root context: the Dockerfile COPYs packages/shared-py and
+          # vendor/lexi-ai, which only resolve from root (matches
+          # docker-compose.yml build config).
           context: .
-          file: apps/pycil-core/Dockerfile
+          file: apps/api/Dockerfile
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-core:${{ steps.meta.outputs.image_tag }}
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-api:${{ steps.meta.outputs.image_tag }}
 
       - name: Build & push worker
         uses: docker/build-push-action@v5

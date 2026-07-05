@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Host-side production deploy: migration-then-swap via docker compose.
 #
-# CI (deploy.yml) only builds + pushes core/worker images to ghcr. Deployment
+# CI (deploy.yml) only builds + pushes api/worker images to ghcr. Deployment
 # happens HERE, on the VPS — no SSH from CI. Run after pulling the latest repo:
 #
 #   cd /opt/pycil && git pull && IMAGE_TAG=<sha12> bash scripts/deploy.sh
 #
 # IMAGE_TAG defaults to "latest"; pass the 12-char commit SHA CI printed to pin
 # an exact build. The web frontend is NOT deployed here — it ships to Vercel /
-# Next.js hosting separately; this stack is API-only (core + worker + caddy).
+# Next.js hosting separately; this stack is API-only (api + worker + centrifugo).
 set -euo pipefail
 
 cd "$(dirname "$0")/.."   # repo root (expected: /opt/pycil)
@@ -27,9 +27,9 @@ die() { red "deploy: $*"; exit 1; }
 # Source .env so $POSTGRES_USER / $POSTGRES_DB are available to pg_dump.
 set -a; . "./$ENV_FILE"; set +a
 
-export CORE_IMAGE="${REGISTRY}/${IMAGE_PREFIX}-core:${IMAGE_TAG}"
+export API_IMAGE="${REGISTRY}/${IMAGE_PREFIX}-api:${IMAGE_TAG}"
 export WORKER_IMAGE="${REGISTRY}/${IMAGE_PREFIX}-worker:${IMAGE_TAG}"
-grn "→ deploying core=${CORE_IMAGE} worker=${WORKER_IMAGE}"
+grn "→ deploying api=${API_IMAGE} worker=${WORKER_IMAGE}"
 
 # --- 1. Pre-deploy DB snapshot (keep last 5) ---------------------------------
 mkdir -p "$BACKUP_DIR"
@@ -44,30 +44,34 @@ grn "→ docker compose pull…"
 docker compose pull
 
 # --- 3. Migration-then-swap: migrate in the NEW image BEFORE swapping --------
-grn "→ alembic upgrade head (new image)…"
-if ! docker compose run --rm pycil-core alembic upgrade head; then
+# `migrate` is the one-shot compose service (command: alembic upgrade head,
+# built from the same API_IMAGE) — running it here mirrors what api/worker's
+# own `depends_on: migrate: service_completed_successfully` gate does on `up`,
+# but lets us abort the deploy BEFORE swapping if migration fails.
+grn "→ alembic upgrade head (new image, via the migrate service)…"
+if ! docker compose run --rm migrate; then
   die "migration failed; aborting deploy. old containers untouched."
 fi
 
 grn "→ docker compose up -d…"
 docker compose up -d
 
-# --- 4. Health gate: core HTTP, then worker compose healthcheck --------------
-grn "→ waiting for pycil-core health…"
+# --- 4. Health gate: api HTTP, then worker compose healthcheck ---------------
+grn "→ waiting for api health…"
 healthy=0
 for _ in $(seq 1 30); do
-  if docker compose exec -T pycil-core \
+  if docker compose exec -T api \
        python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()" \
        >/dev/null 2>&1; then
     healthy=1; break
   fi
   sleep 2
 done
-[ "$healthy" -eq 1 ] || die "pycil-core failed health check after 60s"
-grn "✓ pycil-core healthy"
+[ "$healthy" -eq 1 ] || die "api failed health check after 60s"
+grn "✓ api healthy"
 
-# Worker shares the schema + runs translate/TTS jobs: a migration that breaks it
-# must fail the deploy, not silently crash-loop.
+# Worker shares the schema + runs generation/grading jobs: a migration that
+# breaks it must fail the deploy, not silently crash-loop.
 grn "→ waiting for worker health…"
 worker_ok=0
 for _ in $(seq 1 30); do
@@ -84,3 +88,4 @@ done
 grn "✓ worker healthy"
 
 grn "✓ deploy complete (tag ${IMAGE_TAG})"
+

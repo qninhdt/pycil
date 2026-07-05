@@ -1,19 +1,30 @@
 name: pycil
 
 # Shared fragments (merged with `<<:` below). DRYs the env + dependency blocks
-# duplicated across pycil-core and worker so a new shared knob is added once.
+# duplicated across api and worker so a new shared knob is added once.
 x-backend-env: &backend-env
-  DATABASE_URL: ${DATABASE_URL_ASYNC}
+  DB_URL: ${DATABASE_URL_ASYNC}
   REDIS_URL: ${REDIS_URL}
-  OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
-  OPENROUTER_MODEL: ${OPENROUTER_MODEL}
-  OPENROUTER_BUDGET_DAILY_USD: ${OPENROUTER_BUDGET_DAILY_USD}
+
+x-lexi-env: &lexi-env
+  LEXI_DB_URL: ${LEXI_DB_URL}
+  LEXI_LLM_BASE_URL: ${LEXI_LLM_BASE_URL}
+  LEXI_LLM_API_KEY: ${LEXI_LLM_API_KEY}
+  LEXI_LLM_MODEL: ${LEXI_LLM_MODEL}
+  LEXI_CAMBRIDGE_DB_PATH: ${LEXI_CAMBRIDGE_DB_PATH:-/data/cambridge}
+
+x-lexi-cambridge-mount: &lexi-cambridge-mount
+  # Read-only Cambridge SQLite source (~142MB, gitignored). Copied/mounted from
+  # the lexi-ai project dir. Without it lexi search() returns empty.
+  - ${LEXI_CAMBRIDGE_HOST_PATH:-./vendor/lexi-ai/data}:/data/cambridge:ro
 
 x-depends-stores: &depends-stores
   postgres:
     condition: service_healthy
   redis:
     condition: service_healthy
+  migrate:
+    condition: service_completed_successfully
 
 services:
   postgres:
@@ -43,21 +54,61 @@ services:
       timeout: 3s
       retries: 10
 
-  pycil-core:
-    image: ${CORE_IMAGE:-pycil-core:latest}
+  centrifugo:
+    image: centrifugo/centrifugo:v5
+    restart: unless-stopped
+    command: ["centrifugo"]
+    environment:
+      CENTRIFUGO_ADMIN: "false"
+      CENTRIFUGO_TOKEN_HMAC_SECRET_KEY: ${CENTRIFUGO_TOKEN_HMAC_SECRET}
+      CENTRIFUGO_API_KEY: ${CENTRIFUGO_API_KEY}
+      CENTRIFUGO_ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+      CENTRIFUGO_HEALTH: "true"
+    ports:
+      - "8001:8000"
+    healthcheck:
+      test: ["CMD", "sh", "-c", "wget -qO- http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  # One-shot migration gate: a healthy Postgres is NOT a migrated Postgres.
+  # api + worker depend_on this completing successfully before they start.
+  migrate:
+    image: ${API_IMAGE:-pycil-api:latest}
     build:
       context: .
-      dockerfile: apps/pycil-core/Dockerfile
-    restart: unless-stopped
+      dockerfile: apps/api/Dockerfile
     environment:
       <<: *backend-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Idempotent — `upgrade head` is a no-op when already at head.
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+
+  api:
+    image: ${API_IMAGE:-pycil-api:latest}
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    environment:
+      <<: [*backend-env, *lexi-env]
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
-      SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME}
-      AUTH_JWT_SECRET: ${AUTH_JWT_SECRET}
-      AUTH_JWT_SECRET_PREVIOUS: ${AUTH_JWT_SECRET_PREVIOUS:-}
-      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
+      JWT_SECRET: ${AUTH_JWT_SECRET}
+      JWT_SECRET_PREVIOUS: ${AUTH_JWT_SECRET_PREVIOUS:-}
       JWT_MAX_AGE_SECONDS: ${JWT_MAX_AGE_SECONDS:-604800}
-      OPENROUTER_CHAT_MODEL: ${OPENROUTER_CHAT_MODEL:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      INTERNAL_SECRET: ${INTERNAL_API_SECRET}
+      CENTRIFUGO_URL: ${CENTRIFUGO_URL:-http://centrifugo:8000}
+      CENTRIFUGO_API_KEY: ${CENTRIFUGO_API_KEY}
+      CENTRIFUGO_TOKEN_HMAC_SECRET: ${CENTRIFUGO_TOKEN_HMAC_SECRET}
+    volumes: *lexi-cambridge-mount
+    ports:
+      - "8000:8000"
     depends_on: *depends-stores
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
@@ -72,37 +123,18 @@ services:
       dockerfile: apps/worker/Dockerfile
     restart: unless-stopped
     environment:
-      <<: *backend-env
-      OPENROUTER_MODEL_FALLBACKS: ${OPENROUTER_MODEL_FALLBACKS:-}
+      <<: [*backend-env, *lexi-env]
+      INTERNAL_SECRET: ${INTERNAL_API_SECRET}
+      PYCIL_API_INTERNAL_URL: ${PYCIL_API_INTERNAL_URL:-http://api:8000}
+    volumes: *lexi-cambridge-mount
     depends_on: *depends-stores
     healthcheck:
       # python:3.12-slim has no redis-cli, so probe via the in-image redis
-      # client. Lives in base so the prod worker is health-gated too (staging
-      # previously added this only locally).
+      # client. Lives in base so the prod worker is health-gated too.
       test: ["CMD", "python", "-c", "import arq, redis, os; redis.from_url(os.environ['REDIS_URL']).ping()"]
       interval: 10s
       timeout: 5s
       retries: 6
-
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    environment:
-      DOMAIN: ${DOMAIN}
-      CADDY_ACME_EMAIL: ${CADDY_ACME_EMAIL}
-    volumes:
-      # Caddyfile selected by env, NOT a destructive `cp`. Defaults to the
-      # tracked prod Caddyfile, so prod (base-only, no overlay) is always
-      # correct and the prod file is never overwritten on disk. Local dev sets
-      # CADDYFILE=./Caddyfile.local (see docker-compose.staging.yml / README).
-      - ${CADDYFILE:-./Caddyfile}:/etc/caddy/Caddyfile:ro
-      - caddydata:/data
-      - caddyconfig:/config
-    depends_on:
-      - pycil-core
 
   backup:
     image: pycil-backup:latest
@@ -128,5 +160,3 @@ secrets:
 volumes:
   pgdata:
   redisdata:
-  caddydata:
-  caddyconfig:
