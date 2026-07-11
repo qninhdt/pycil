@@ -12,8 +12,7 @@ reference hierarchy.
 ## Architecture
 
 ```
-[Browser] ── apps/web (Next.js 15) ─┐
-                                     │  bearer JWT + REST
+[API clients] ── bearer JWT + REST ─┐
                                      ▼
                               apps/api (FastAPI, :8000)
                                      │
@@ -36,7 +35,10 @@ Pycil never stores dictionary content — that's `lexi-ai`'s job, behind a
 [system-architecture.md](docs/system-architecture.md#two-database-boundary)
 for the full two-database boundary rationale and
 [Known Gaps](docs/system-architecture.md#known-gaps) for what isn't finished
-yet (frontend auth/realtime wiring, CI/CD, deploy tooling).
+yet (CI/CD, deploy tooling).
+
+This repository is backend-only (API + worker + shared Python). There is no
+frontend in this repo; any client consumes the API over REST + bearer JWT.
 
 ## Local development
 
@@ -70,10 +72,6 @@ cp .env.example .env
 # CENTRIFUGO_API_KEY + CENTRIFUGO_TOKEN_HMAC_SECRET (openssl rand -hex 32).
 ```
 
-`.env.example` still carries a leftover `# --- Auth.js v5 (web) ---` block
-from the pre-migration frontend design — those variables aren't consumed by
-`apps/api`/`apps/worker` today.
-
 ### 3. Run the stack
 
 ```bash
@@ -84,14 +82,6 @@ The `migrate` service runs `alembic upgrade head` once and must succeed
 before `api`/`worker` start (compose `depends_on: service_completed_successfully`
 — no manual migration step needed). API on `http://localhost:8000`,
 Centrifugo on `http://localhost:8001`.
-
-### 4. Run the frontend separately
-
-`apps/web` is not part of `docker-compose.yml`. Run it with its own tooling
-(`pnpm dev` from `apps/web`) pointed at the API above. Note: its auth/realtime
-integration is not yet wired to this backend's bearer-JWT/Centrifugo design
-(see [Known Gaps](docs/system-architecture.md#known-gaps)) — sign-in through
-the web app will not work end-to-end until that lands.
 
 ### Running the backend without Docker
 
@@ -131,7 +121,6 @@ automated today; see [Known Gaps](docs/system-architecture.md#known-gaps).
 
 ```
 apps/
-  web/         Next.js 15 — frontend (auth/realtime migration partial, see docs)
   api/         FastAPI + SQLModel + Alembic — current backend
   worker/      arq — current worker (3 jobs)
 packages/

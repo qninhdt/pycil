@@ -2,14 +2,14 @@
 
 **Stack:** FastAPI + SQLModel + Alembic (Python 3.12), `uv` package management.
 **Status:** Python greenfield migration (`plans/260705-0032-python-greenfield-migration/`)
-— phases 1-9, 11, 12 complete; phase 10 (frontend) partial. See
+— backend phases complete. See
 [project-roadmap.md](./project-roadmap.md) for exact phase status and known gaps.
 
-This replaces the prior Go/ent/chi direction and the original single-DB
-Python/Next.js MVP described in `docs/project-changelog.md`'s pre-migration
-entries. Billing, gamification, admin dashboard, ELO, SSE, chat, and
-translation/TTS were all removed in this migration — this doc describes only
-what exists on disk today.
+This is a backend-only repository (API + worker + shared Python). It replaces
+the prior Go/ent/chi direction and the original single-DB Python MVP described
+in `docs/project-changelog.md`'s pre-migration entries. Billing, gamification,
+admin dashboard, ELO, SSE, chat, translation/TTS, and the frontend were all
+removed — this doc describes only what exists on disk today.
 
 ## Overview
 
@@ -42,12 +42,9 @@ services (docker-compose.yml):
   backup       — profile-gated (`--profile backup`), restic-based pg_dump backup
 ```
 
-There is **no Caddy service and no web/frontend service** in `docker-compose.yml`
-— the frontend (`apps/web`) is not part of this compose stack (see
-[README.md](../README.md) for how it's run). `docker-compose.staging.yml` still
-wires an old `dex` OIDC service left over from the pre-migration Auth.js setup;
-it is not part of the current auth design (see "Known Gaps" below) and should
-not be used as a reference for the current architecture.
+This is a backend-only stack — there is **no Caddy service and no web/frontend
+service** in `docker-compose.yml`. Any client consumes the API over REST +
+bearer JWT.
 
 lexi-ai itself is vendored as an editable path dependency at `vendor/lexi-ai`
 (gitignored symlink to `~/projects/lexi-ai`, or a copied source tree in
@@ -141,9 +138,9 @@ table — fully stateless.
   `POST /auth/refresh` (re-reads the DB user, reissues), `POST /auth/logout`
   (bumps `token_version`, revoking every previously issued token).
 
-The frontend is expected to seal the returned JWT into its own session
-mechanism (iron-session) — see "Known Gaps" for the current state of that
-frontend work.
+Any API client is expected to seal the returned JWT into its own session
+mechanism (e.g. iron-session). No frontend lives in this repo; clients consume
+the API over REST + bearer JWT.
 
 ### Content (`pycil/content/`)
 
@@ -228,7 +225,7 @@ sense in the same session is stable, never re-rolled.
    session still grade and persist a `responses` row, but don't move
    stability/mastery again.
 5. `responses` always gets a row — this is the recoverable verdict
-   persist-back: if the realtime push is missed, the frontend can refetch.
+   persist-back: if the realtime push is missed, the client can refetch.
 
 **Idempotent async verdicts** (`service.py::apply_verdict`, used by the
 worker's `grade_answer` job for LLM-judged `use_in_sentence` answers that
@@ -346,10 +343,10 @@ The Cambridge SQLite source (~142MB) is not committed — copy it from
 `~/projects/lexi-ai/data` before first `docker compose up` or `search()` will
 return empty results.
 
-`.env.example` currently also carries an older `# --- Auth.js v5 (web) ---`
-block (`AUTH_SECRET`, `OIDC_*`, Dex-provider docs) inherited from the
-pre-migration frontend design. Those variables are not consumed by the current
-`apps/api`/`apps/worker` stack — see "Known Gaps."
+`.env.example` was scrubbed to backend-only variables when the frontend
+(`apps/web`) was removed from this repo — the older `# --- Auth.js v5 (web) ---`
+block (`AUTH_SECRET`, `OIDC_*`, Dex-provider docs) is gone. Everything left is
+consumed by `apps/api`/`apps/worker` or `docker-compose.yml`.
 
 ## Known Gaps
 
@@ -364,20 +361,16 @@ silently omitted, so they aren't mistaken for finished work:
   `docker-compose.staging.yml`, `scripts/staging-up.sh`, `scripts/mc-mkbucket.sh`,
   and `infra/dex/` were removed outright rather than patched — they wired the old
   `pycil-core`/Dex OIDC/MinIO local-dev stack, none of which has an equivalent in
-  the new backend (Google-only OAuth, no S3/media). `apps/web/e2e/` (Playwright
-  suite: 9 specs + fixtures/pages/`run-e2e.sh`) was removed for the same reason —
-  it drove that same Dex login flow and asserted ELO fields; `.github/workflows/
-  test.yml` has no `e2e` job anymore (there's nothing left to run). **Still
-  open:** re-introducing browser e2e coverage needs a new auth-testing strategy
-  (mock Google, or mint a JWT directly for the FE to seal) plus specs rewritten
-  from scratch against FSRS/mastery — blocked on Phase 10 (frontend auth/
-  Centrifugo) landing first.
-- **Frontend auth/realtime migration is partial** (Phase 10). Contract/type
-  renames (Term→Word, Definition→Sense, ELO→FSRS terminology) are underway in
-  `apps/web`, but `apps/web/package.json` still depends on `next-auth`/
-  `@auth/core`, and there's no iron-session or Centrifugo-JS integration wired
-  to the new bearer-JWT/Centrifugo backend yet. Treat the frontend as not
-  wired to this backend's auth/realtime design until that lands.
+  the new backend (Google-only OAuth, no S3/media). The frontend (`apps/web`) and
+  its Playwright e2e suite were removed with it — `.github/workflows/test.yml` has
+  no `e2e` job (there's nothing left to run). **Still open:** re-introducing
+  browser e2e coverage would need a new auth-testing strategy (mock Google, or
+  mint a JWT directly) plus specs written against FSRS/mastery — and a client to
+  drive, which no longer lives in this repo.
+- **This repo is backend-only.** The Next.js frontend (`apps/web`) has been
+  removed; any client consumes `apps/api` over REST + bearer JWT and subscribes
+  to Centrifugo directly. There is no in-repo UI, auth-cookie sealing, or
+  Centrifugo-JS integration to maintain here.
 - **`apps/worker` currently has zero tests** — the previous LLM-pipeline test
   suite was removed as part of the worker redesign and not yet replaced. CI
   ruff-lints it but runs no pytest job for it (nothing to collect).

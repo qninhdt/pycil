@@ -7,7 +7,8 @@ See "Python Greenfield Migration" below for phase status.
 
 The original 7-day sprint plan and its v0.2/v0.3 follow-ups (further down this
 file) describe the pre-migration Python/Next.js MVP. They're kept for
-history; they do not describe the current backend.
+history; they do not describe the current backend. This repo is now
+backend-only — no frontend ships here.
 
 ---
 
@@ -30,17 +31,14 @@ billing, gamification, admin dashboard, chat, translation/TTS, ELO, SSE.
 | 7 | Hierarchy & Stats | Complete |
 | 8 | Realtime Centrifugo | Complete |
 | 9 | Worker Redesign | Complete |
-| 10 | Frontend Auth & Rename | Partial |
+| 10 | Frontend Auth & Rename | Removed |
 | 11 | Integration Wiring | Complete |
 | 12 | Tests & Docs | Complete |
 
-**Phase 10 detail:** contract/type renames (Term→Word, Definition→Sense,
-ELO→FSRS terminology) are underway in `apps/web`, but the diffs on the core
-type files (`types/learning.ts`, `types/domain/learning.ts`,
-`lib/adapters/be-question-to-fe.ts`) are shallow (a few lines each), and
-`apps/web/package.json` still depends on `next-auth`/`@auth/core` with no
-iron-session or Centrifugo-JS integration wired up yet. Don't treat "contract
-migration done" as "frontend wired to the new backend."
+**Phase 10 detail:** the frontend (`apps/web`, Next.js 15) was removed from
+this repo. Pycil is now backend-only — the API is consumed by external
+clients over REST + bearer JWT. Any frontend lives and ships in a separate
+repository.
 
 **Operational gaps not tracked by any phase above** (found during the Phase
 12 docs pass; CI/deploy.sh/Makefile closed 2026-07-06, rest still open):
@@ -53,11 +51,10 @@ migration done" as "frontend wired to the new backend."
 - ~~`apps/pycil-core`, `docker-compose.staging.yml`/Dex/MinIO, and
   `apps/web/e2e`~~ — removed 2026-07-06 (superseded/unreferenced by the new
   stack; see system-architecture.md § Known Gaps for what each depended on).
-- The PR-gate `e2e` job in `test.yml` is disabled (`if: false`), not
-  rebuilt — real e2e coverage needs a new auth-testing strategy (the new
-  `apps/api/pycil/auth/oauth.py` hardcodes Google's real endpoints, so there's
-  no local IdP swap-in anymore) plus a full spec rewrite against FSRS/mastery.
-  Blocked on Phase 10 (frontend auth/Centrifugo) landing first.
+- There is no browser e2e coverage. The old Playwright suite drove the
+  now-removed frontend; rebuilding API-level e2e/contract coverage needs a new
+  auth-testing strategy (the new `apps/api/pycil/auth/oauth.py` hardcodes
+  Google's real endpoints, so there's no local IdP swap-in anymore).
 - `apps/worker` has no test coverage (previous suite removed in the worker
   redesign, not yet replaced). CI lints it but runs no pytest job for it.
 - Backup coverage (`backup` compose service) covers only pycil's own

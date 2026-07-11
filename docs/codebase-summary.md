@@ -1,7 +1,8 @@
 # Pycil — Codebase Summary
 
 **Stack:** FastAPI + SQLModel + Alembic backend (`apps/api`, `apps/worker`),
-Next.js 15 frontend (`apps/web`), shared Python package (`packages/shared-py`).
+shared Python package (`packages/shared-py`). Backend-only repo — no frontend;
+clients consume the API over REST + bearer JWT.
 **Migration:** `plans/260705-0032-python-greenfield-migration/plan.md` — see
 [project-roadmap.md](./project-roadmap.md) for phase status.
 
@@ -16,7 +17,6 @@ it (see git history if you need to recover it).
 ```
 pycil/
 ├── apps/
-│   ├── web/           # Next.js 15 (App Router) — frontend, partially migrated (see Known Gaps)
 │   ├── api/            # FastAPI + SQLModel + Alembic — current backend
 │   └── worker/          # arq consumer — current worker (3 jobs)
 ├── packages/
@@ -195,8 +195,6 @@ for the full table-to-domain mapping and the two-DB boundary rationale.
 
 - `apps/worker` has zero tests currently.
 - `apps/api/pycil/worker_bridge/` is present but empty/unmounted.
-- `apps/web` frontend auth/realtime integration is partial — see
-  [project-roadmap.md](./project-roadmap.md).
 
 ## See Also
 
