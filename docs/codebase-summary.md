@@ -18,7 +18,7 @@ it (see git history if you need to recover it).
 pycil/
 ├── apps/
 │   ├── api/            # FastAPI + SQLModel + Alembic — current backend
-│   └── worker/          # arq consumer — current worker (3 jobs)
+│   └── worker/          # arq consumer — current worker (4 jobs)
 ├── packages/
 │   └── shared-py/      # Cross-service package (pycil-shared): FSRS engine, realtime channel/payload builders
 ├── vendor/
@@ -26,6 +26,7 @@ pycil/
 ├── docs/                # This folder
 ├── plans/               # Migration + feature plans
 ├── docker-compose.yml         # Current stack: postgres, redis, centrifugo, migrate, api, worker, backup
+├── centrifugo-config.json     # Enables native user-limited channel ACL in the users namespace
 └── scripts/deploy.sh          # Migration-then-swap prod deploy against the current compose topology
 ```
 
@@ -51,26 +52,28 @@ apps/api/
 │   │   ├── models.py                 # DeckSense (no FK on sense_id — cross-DB boundary)
 │   │   ├── schemas.py
 │   ├── hierarchy/
-│   │   ├── router.py                # /nodes CRUD+move, /folders/{id}/stats|weakest|cefr
-│   │   ├── service.py                 # create/move/soft_delete_node, REFERENCE-target validation
-│   │   ├── access.py                  # require_node_access — the single IDOR gate
-│   │   ├── subtree.py                 # Recursive CTE: resolve_deck_ids / resolve_sense_ids
+│   │   ├── router.py                # hierarchy routes, folder stats/items/history, global stats
+│   │   ├── service.py               # Locked tree mutations, reference/publication validation, generation bumps
+│   │   ├── access.py                # Owner-only writes; direct/inherited public read gate
+│   │   ├── subtree.py               # Same-owner recursive CTE + live reference visibility filtering
 │   │   ├── stats.py                   # folder_stats, weakest_senses, cefr_distribution
-│   │   ├── cache.py                   # L1 Redis cache of resolved sense-id sets, ancestor-chain busted
+│   │   ├── cache.py                 # DB-generation, viewer-scoped Redis cache + reverse-reference invalidation
 │   │   ├── models.py                  # Node, FolderAttributes, DeckAttributes, UserNode
 │   │   ├── schemas.py
 │   ├── learning/
-│   │   ├── router.py                 # POST /sessions, POST /answers
+│   │   ├── router.py                 # POST /sessions, POST /answers, GET /responses/{id}
 │   │   ├── router_question.py        # choose_format — mastery-gated, hash-seeded weighted pick
 │   │   ├── service.py                 # answer() / apply_verdict() — FSRS update + persist-back
+│   │   ├── session_store.py           # Redis session issue/cursor state and answer binding
+│   │   ├── question_delivery.py       # canonical question lookup and payload sanitisation
 │   │   ├── session_queue.py           # build_queue — retrievability-ranked, new/due interleave
 │   │   ├── grading.py                 # fsrs_grade / grade_status_for (Score → FSRS grade)
 │   │   ├── fsrs_wrapper.py            # Thin wrapper over shared.fsrs (no new math)
-│   │   ├── models.py                  # UserSenseStats, ReviewLog, Response
+│   │   ├── models.py                  # stats/logs, durable session attempts, leased pending responses
 │   │   ├── schemas.py
 │   ├── realtime/
-│   │   ├── router.py                 # GET /realtime/token
-│   │   ├── client.py                  # sign_subscription_token, publish (best-effort)
+│   │   ├── router.py                 # Centrifugo connection-token endpoint
+│   │   ├── client.py                  # connection JWT signing, publish (best-effort)
 │   ├── worker_bridge/
 │   │   └── __init__.py               # Empty — present but unmounted, not part of the live path
 │   ├── common/
@@ -81,11 +84,19 @@ apps/api/
 │   │   ├── models.py                   # target_metadata — aggregates every domain's SQLModel metadata
 │   │   ├── base.py, session.py, redis.py
 ├── alembic/
-│   └── versions/0001_baseline_baseline.py   # Single baseline migration (clean-slate greenfield schema)
+│   └── versions/
+│       ├── 0001_baseline_baseline.py         # Clean-slate greenfield schema
+│       ├── 0002_hierarchy_integrity.py       # Hierarchy integrity preflight + cache generation schema
+│       ├── 0003_learning_grading_expand.py   # Durable attempts and pending-grade lease fields
+│       ├── 0004_review_history_index.py      # Bounded history access path
+│       └── 0005_learning_grading_validate.py # Pending-grade data validation constraint
+│       ├── 0006_learning_grading_expiry_status.py # Terminal expiry state for raw-answer retention
+│       └── 0007_response_mastery_snapshots.py  # Poll/realtime mastery parity
 ├── tests/
-│   ├── conftest.py                    # Real Postgres (pytest-postgresql) + fakeredis fixtures
+│   ├── conftest.py                    # `TEST_DB_URL` or disposable Testcontainers PostgreSQL + fakeredis fixtures
 │   ├── test_boundary.py               # Two-DB boundary structural assertions
 │   ├── auth/, content/, hierarchy/, learning/, realtime/   # Per-domain unit tests
+│   ├── contracts/                     # Strict xfails for accepted hardening gaps, removed by owning phases
 │   └── integration/test_session_flow.py   # Full session→answer→FSRS→persist-back flow
 ├── pyproject.toml                     # uv-managed; path deps on pycil-shared + lexi-ai
 └── Dockerfile                          # Build context = repo root (needs vendor/lexi-ai + shared-py)
@@ -96,9 +107,11 @@ apps/api/
 `POST /auth/logout`), content (`POST /words`, `POST /decks/{node_id}/senses`,
 `DELETE /decks/{node_id}/senses/{sense_id}`, `GET /decks/{node_id}/items`),
 hierarchy (`POST /nodes`, `PATCH /nodes/{node_id}/move`,
-`DELETE /nodes/{node_id}`, `GET /folders/{node_id}/stats`,
-`GET /folders/{node_id}/weakest`, `GET /folders/{node_id}/cefr`), learning
-(`POST /sessions`, `POST /answers`), realtime (`GET /realtime/token`).
+`PATCH /nodes/{node_id}/visibility`, `DELETE /nodes/{node_id}`, `GET /folders/{node_id}/stats`,
+`GET /folders/{node_id}/weakest`, `GET /folders/{node_id}/cefr`,
+`GET /folders/{node_id}/items`, `GET /folders/{node_id}/history`, `GET /me/stats`),
+learning (`POST /sessions`, `POST /answers`, `GET /responses/{response_id}`),
+realtime (`GET /realtime/token`).
 
 **Wire format**: request/response schemas use Pydantic `Field(alias=...,
 serialization_alias=...)` throughout to expose camelCase JSON
@@ -115,26 +128,37 @@ API-side job-status surface, not currently load-bearing.
 ```
 apps/worker/
 ├── pycil_worker/
-│   ├── main.py               # WorkerSettings — 3 functions, max_tries=2, on_startup/on_shutdown
+│   ├── main.py               # WorkerSettings — 4 functions plus reconciliation cron, max_tries=2
 │   ├── config.py              # Pydantic Settings (redis_url, db_url passthrough from pycil.config)
 │   ├── realtime.py             # publish_job / publish_grading — reuses api's realtime.client.publish
 │   └── jobs/
 │       ├── generate_word.py     # search → (fallback) generate; single writer to lexi's DB
 │       ├── generate_question.py # delegates to client.generate_questions
-│       └── grade_answer.py      # resolves pending async verdicts; idempotent on grade_status
+│       ├── grade_answer.py      # resolves pending async verdicts; idempotent on grade_status
+│       └── reconcile_pending_grades.py # bounded sweep for unleased pending grades; purges stale raw answers
+├── tests/
+│   └── test_worker_registration.py # asserts reconciliation job + cron registration
 ├── pyproject.toml              # Path dep on apps/api (reuses pycil.* for LexiClient/service/models)
 └── Dockerfile                   # Build context = repo root; installs shared-py, lexi-ai, api, then worker
 ```
 
-`apps/worker` currently has **no test directory** — the prior LLM-pipeline
-test suite (jobs/llm/llm_live/unit subpackages) was removed as part of the
-worker redesign and has not been replaced.
+`apps/worker/tests/test_worker_registration.py` protects the registration of
+the durable-grade reconciler and its cron schedule. It is intentionally a
+narrow smoke test, not job-behaviour coverage.
 
-`generate_question.py` has a fallback branch: if the injected `LexiClient`
-port has no `get(word_id)` method, it reaches into `ctx["lexicon"]` directly
-(bypassing the port) to fetch the entry. `InProcessLexiClient` doesn't define
-`get`, so this fallback is the path actually taken today — worth knowing if
-touching this file, since it's a live port-bypass, not dead code.
+### Test Baseline
+
+API tests use `TEST_DB_URL` when supplied (as in CI); otherwise `conftest.py`
+starts a disposable `postgres:16-alpine` container through Testcontainers.
+Redis remains a fakeredis boundary fake. The Phase 1 hardening baseline
+(2026-07-16) recorded 64 API tests passing and 19 expected strict xfails.
+Phase 2 turns the eight hierarchy/cache cases into passing regression tests;
+later phases implement their session, grading, and statistics contracts.
+Shared FSRS tests recorded 13 passing. See the
+[baseline report](../plans/260716-1321-system-design-alignment-hardening/reports/current-test-baseline.md).
+
+Question generation and session delivery resolve lexical content through the
+`LexiClient` port; workers do not use a direct `ctx["lexicon"]` fallback.
 
 ## Package: `packages/shared-py` (pycil-shared)
 
@@ -149,7 +173,7 @@ packages/shared-py/
     │   ├── weights.py              # 17 hardcoded fsrs4anki v4.5 weights
     │   └── tests/test_fsrs_engine.py
     └── realtime/
-        ├── channels.py            # users:{uid}[:jobs:{id}|:grading:{id}] channel builders
+        ├── channels.py            # users:{uid}:...#{uid} channel builders
         └── payloads.py             # JobUpdate, GradingResult, Notification dataclasses
 ```
 
@@ -162,12 +186,18 @@ modules (SQLModel models, question-type ABC/plugins, JSON logging, Lua
 lock-or-get helper) were removed alongside `apps/pycil-core` (2026-07-06) —
 that reference app was their only consumer.
 
-## Postgres Schema (`apps/api/alembic/versions/0001_baseline_baseline.py`)
+## Postgres Schema (`apps/api/alembic/versions/`)
 
-Single baseline migration, greenfield (no data-migration step — clean
-slate per the migration plan's validation log). 9 tables, all owned by
-pycil; see [system-architecture.md](./system-architecture.md#two-database-boundary)
-for the full table-to-domain mapping and the two-DB boundary rationale.
+The greenfield `0001` baseline is followed by additive migrations `0002`–`0007`.
+`0002` preflights legacy cycles, cross-owner/non-folder edges, invalid
+memberships, and invalid reference targets before adding
+`nodes.structural_generation`, the reference-target shape constraint, and a
+target lookup index. `0003` adds durable first-attempt and pending-grade
+state; `0004` adds the review-history access path; `0005` validates pending
+rows; `0006` adds the terminal expired state used by retention; `0007` persists
+response mastery snapshots so polling and realtime expose the same verdict. See
+[system-architecture.md](./system-architecture.md#two-database-boundary) for
+the table-to-domain mapping and two-DB boundary rationale.
 
 ## Where Things Live (Quick Reference)
 
@@ -178,22 +208,24 @@ for the full table-to-domain mapping and the two-DB boundary rationale.
 | Only Lexicon(...) construction site | `apps/api/pycil/content/lexi_inprocess.py` |
 | FSRS math | `packages/shared-py/shared/fsrs/engine.py`, `recall.py`, `mastery.py`, `weights.py` |
 | FSRS domain wrapper | `apps/api/pycil/learning/fsrs_wrapper.py` |
+| Session delivery and binding | `apps/api/pycil/learning/session_store.py`, `question_delivery.py` |
 | Session queue | `apps/api/pycil/learning/session_queue.py` |
 | Question format routing | `apps/api/pycil/learning/router_question.py` |
 | Answer flow + verdict persist-back | `apps/api/pycil/learning/service.py` |
 | IDOR gate | `apps/api/pycil/hierarchy/access.py` |
 | Subtree resolution (recursive CTE) | `apps/api/pycil/hierarchy/subtree.py` |
+| Generation-safe subtree cache | `apps/api/pycil/hierarchy/cache.py` |
 | Folder/deck stats | `apps/api/pycil/hierarchy/stats.py` |
 | Google OAuth2.1+PKCE | `apps/api/pycil/auth/oauth.py` |
 | JWT sign/verify | `apps/api/pycil/auth/tokens.py` |
 | Centrifugo channel builders | `packages/shared-py/shared/realtime/channels.py` |
-| Centrifugo publish (best-effort) | `apps/api/pycil/realtime/client.py` |
+| Centrifugo connection JWT + publish | `apps/api/pycil/realtime/client.py` |
 | Worker jobs | `apps/worker/pycil_worker/jobs/` |
 | Migration gate | `docker-compose.yml`'s `migrate` service |
 
 ## Known Gaps (see also system-architecture.md § Known Gaps)
 
-- `apps/worker` has zero tests currently.
+- Worker coverage is currently limited to the reconciliation registration test.
 - `apps/api/pycil/worker_bridge/` is present but empty/unmounted.
 
 ## See Also

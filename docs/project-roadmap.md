@@ -40,6 +40,26 @@ this repo. Pycil is now backend-only — the API is consumed by external
 clients over REST + bearer JWT. Any frontend lives and ships in a separate
 repository.
 
+## System Design Alignment and Hardening (active)
+
+**Plan:** [System Design Alignment and Hardening](../plans/260716-1321-system-design-alignment-hardening/plan.md)
+
+| Phase | Name | Status | Outcome |
+|---|---|---|---|
+| 1 | Canonicalize Contracts and Baseline | Complete | Current Python/FSRS/two-DB design contracts recorded; local API tests provision disposable PostgreSQL with Testcontainers, CI retains `TEST_DB_URL`, and 19 known gaps are strict xfails for later phases. |
+| 2 | Hierarchy and cache integrity | Complete | Additive `0002` migration preflights invalid legacy hierarchy data; service rules enforce tree/reference/membership invariants, inherited public-folder reads, live-reference revocation, and DB-generation cache invalidation. |
+| 3 | Canonical session delivery | Complete | Redis session queue/cursor and issued-question binding deliver canonical, answer-sanitised questions; first attempts are recorded durably. |
+| 4 | Grading persistence and concurrency | In progress | Pending `use_in_sentence` responses use fenced leases, polling, and worker reconciliation; remaining implementation review is still open. |
+| 5 | Statistics contract and scale | In progress | Folder items/history and global stats routes exist; daily history carries mastery forward, but phase validation and performance measurement remain open. |
+| 6 | Deployment integration and realtime ACL | Complete | Additive migrations `0002`–`0007`, Centrifugo native user-limited channel ACL, runtime/config validation, versioned grading jobs with legacy drain, and worker behavior coverage are present. |
+
+The Phase 1 baseline recorded 13 shared-package tests passing and 64 API tests
+passing with 19 expected strict xfails. Phase 2 resolves the eight
+hierarchy/cache contract cases; later hardening work promotes the canonical
+session, grading, and statistics contracts into implementation while the active
+phases above retain their stated validation work. See the
+[baseline report](../plans/260716-1321-system-design-alignment-hardening/reports/current-test-baseline.md).
+
 **Operational gaps not tracked by any phase above** (found during the Phase
 12 docs pass; CI/deploy.sh/Makefile closed 2026-07-06, rest still open):
 
@@ -55,8 +75,11 @@ repository.
   now-removed frontend; rebuilding API-level e2e/contract coverage needs a new
   auth-testing strategy (the new `apps/api/pycil/auth/oauth.py` hardcodes
   Google's real endpoints, so there's no local IdP swap-in anymore).
-- `apps/worker` has no test coverage (previous suite removed in the worker
-  redesign, not yet replaced). CI lints it but runs no pytest job for it.
+- Worker coverage currently includes a registration test for pending-grade
+  reconciliation; job-level behaviour coverage is still limited.
+- 2k/100k statistics and live Centrifugo ACL checks are opt-in Docker-backed
+  tests; they are excluded from the default suite to keep it hermetic.
+  recorded yet.
 - Backup coverage (`backup` compose service) covers only pycil's own
   Postgres, not lexi-ai's separate database.
 

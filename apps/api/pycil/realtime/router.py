@@ -1,8 +1,8 @@
-"""Realtime routes: mint a Centrifugo subscription token for the caller.
+"""Realtime routes: mint authenticated Centrifugo connection tokens.
 
-The token's subject is the authenticated user's id; Centrifugo's namespace config
-grants subscribe only to ``users:{sub}:*``, so a caller can never subscribe to
-another user's channels.
+Subscriptions use Centrifugo v5's user-limited channel boundary (``#user_id``)
+instead of a subscription JWT: v5 treats a valid channel JWT as an independent
+capability, so it does not bind that JWT's subject to the connection user.
 """
 
 from typing import Annotated

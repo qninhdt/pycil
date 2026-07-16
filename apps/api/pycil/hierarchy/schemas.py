@@ -15,6 +15,9 @@ class NodeCreate(BaseModel):
     target_node_id: UUID | None = Field(default=None, alias="targetNodeId")
     description: str | None = None
     visibility: Visibility = Visibility.PRIVATE
+    confirm_subtree_publication: bool = Field(
+        default=False, alias="confirmSubtreePublication"
+    )
 
     model_config = {"populate_by_name": True}
 
@@ -37,6 +40,15 @@ class NodeMove(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class NodeVisibilityUpdate(BaseModel):
+    visibility: Visibility
+    confirm_subtree_publication: bool = Field(
+        default=False, alias="confirmSubtreePublication"
+    )
+
+    model_config = {"populate_by_name": True}
+
+
 class FolderStatsRead(BaseModel):
     total: int
     learned: int
@@ -47,3 +59,16 @@ class FolderStatsRead(BaseModel):
 class WeakSenseRead(BaseModel):
     sense_id: int = Field(serialization_alias="senseId")
     mastery: int
+
+
+class FolderItemRead(BaseModel):
+    sense_id: int = Field(serialization_alias="senseId")
+    definition: str
+    tier: str
+    cefr_level: str | None = Field(default=None, serialization_alias="cefrLevel")
+
+
+class HistoryBucketRead(BaseModel):
+    bucket: str
+    reviewed: int
+    avg_mastery: float = Field(serialization_alias="avgMastery")

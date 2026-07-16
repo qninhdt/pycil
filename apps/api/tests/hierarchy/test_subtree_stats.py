@@ -133,6 +133,20 @@ async def test_weakest_senses_orders_by_mastery_asc(session):
     assert [w.sense_id for w in weak] == [2, 3]  # lowest mastery first
 
 
+async def test_weakest_senses_excludes_unlearned_rows(session):
+    owner = await _user(session)
+    deck = await service.create_node(session, owner.id, node_type=NodeType.DECK, name="d")
+    await _add_senses(session, deck.id, [1, 2])
+    session.add(USS(user_id=owner.id, sense_id=1, mastery=0, review_count=0))
+    session.add(USS(user_id=owner.id, sense_id=2, mastery=20, review_count=1))
+    await session.commit()
+
+    weak = await stats.weakest_senses(
+        session, owner.id, await subtree.resolve_sense_ids(session, deck.id)
+    )
+    assert [item.sense_id for item in weak] == [2]
+
+
 async def test_cefr_distribution_via_client_not_join(session):
     client = FakeLexiClient({1: "A1", 2: "A1", 3: "B2", 4: None})
     dist = await stats.cefr_distribution(client, [1, 2, 3, 4])

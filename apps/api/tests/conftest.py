@@ -1,23 +1,31 @@
-"""Shared test fixtures: async DB session + app with overridden deps.
-
-Uses TEST_DB_URL (a disposable Postgres) if set, else the configured db_url.
-Creates all pycil tables from SQLModel metadata per session.
-"""
+"""Shared async test fixtures with disposable PostgreSQL and fake Redis."""
 
 import os
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Iterator
 
+import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from testcontainers.postgres import PostgresContainer
 
 from pycil.db.models import target_metadata
 from pycil.db.session import get_session
 from pycil.main import create_app
 
-TEST_DB_URL = os.environ.get(
-    "TEST_DB_URL", "postgresql+asyncpg://pycil:test@127.0.0.1:55432/pycil"
-)
+_POSTGRES_IMAGE = "postgres:16-alpine"
+
+
+@pytest.fixture(scope="session")
+def test_db_url() -> Iterator[str]:
+    """Use the CI database when supplied, otherwise provision one with Docker."""
+    configured_url = os.environ.get("TEST_DB_URL")
+    if configured_url:
+        yield configured_url
+        return
+
+    with PostgresContainer(_POSTGRES_IMAGE, driver="asyncpg") as postgres:
+        yield postgres.get_connection_url()
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -34,8 +42,8 @@ async def fake_redis(monkeypatch):
 
 
 @pytest_asyncio.fixture
-async def engine():
-    eng = create_async_engine(TEST_DB_URL, poolclass=None)
+async def engine(test_db_url: str):
+    eng = create_async_engine(test_db_url, poolclass=None)
     async with eng.begin() as conn:
         await conn.exec_driver_sql('CREATE EXTENSION IF NOT EXISTS "pgcrypto"')
         await conn.run_sync(target_metadata.drop_all)

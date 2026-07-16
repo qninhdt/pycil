@@ -1,0 +1,9 @@
+{
+  "namespaces": [
+    {
+      "name": "users",
+      "allow_subscribe_for_client": false,
+      "allow_user_limited_channels": true
+    }
+  ]
+}

@@ -7,7 +7,7 @@ reference hierarchy.
 - **Architecture:** [`docs/system-architecture.md`](docs/system-architecture.md)
 - **Codebase map:** [`docs/codebase-summary.md`](docs/codebase-summary.md)
 - **Roadmap:** [`docs/project-roadmap.md`](docs/project-roadmap.md)
-- **Active plan:** [`plans/260705-0032-python-greenfield-migration/plan.md`](plans/260705-0032-python-greenfield-migration/plan.md)
+- **Active plan:** [`plans/260716-1321-system-design-alignment-hardening/plan.md`](plans/260716-1321-system-design-alignment-hardening/plan.md)
 
 ## Architecture
 
@@ -24,7 +24,8 @@ reference hierarchy.
               FSRS stats)
                      ▲
                      │ single writer
-              apps/worker (arq: generate_word, generate_question, grade_answer)
+              apps/worker (arq: generate_word, generate_question, grade_answer_v1,
+              reconcile_pending_grades)
                      │
                      ▼
               vendor/lexi-ai (in-process) ── its OWN database (words/senses/questions)
@@ -97,11 +98,12 @@ place as above (`uv sync` installs it as an editable dependency via
 ## Tests
 
 ```bash
-cd apps/api && uv run pytest        # real Postgres (pytest-postgresql) + fakeredis
+cd apps/api && uv run pytest        # disposable Postgres (Testcontainers) + fakeredis
 cd packages/shared-py && uv run pytest
 ```
 
-`apps/worker` has no test suite yet (see Known Gaps).
+The worker has a small registration test. API and shared-package tests remain
+the primary behavioural coverage.
 
 ## Production deploy
 
@@ -122,7 +124,7 @@ automated today; see [Known Gaps](docs/system-architecture.md#known-gaps).
 ```
 apps/
   api/         FastAPI + SQLModel + Alembic — current backend
-  worker/      arq — current worker (3 jobs)
+  worker/      arq — current worker (4 jobs, including durable-grade reconciliation)
 packages/
   shared-py/   Cross-service package: FSRS engine, realtime channel/payload builders
 vendor/
@@ -138,6 +140,12 @@ Google sign-in (OAuth 2.1 + PKCE) · folder/deck/reference hierarchy · lazy
 LLM-generated dictionary entries via lexi-ai · 4 question formats
 (definition MCQ, contextual MCQ, cloze, use-in-sentence) mastery-gated per
 sense · FSRS-4.5 spaced repetition · Centrifugo realtime grading/job updates.
+
+Learning sessions issue one canonical question at a time from a Redis-backed
+queue. First attempts are claimed durably in Postgres; `use_in_sentence`
+answers return a pending response and are reconciled if enqueueing or a worker
+lease is lost. Clients can poll `GET /responses/{id}`; realtime channels end in
+the owner's Centrifugo-enforced `#userId` boundary.
 
 Removed in this migration (deliberate, not deferred): billing, gamification,
 admin dashboard, chat-with-AI, translation/TTS, ELO scoring, SSE-based

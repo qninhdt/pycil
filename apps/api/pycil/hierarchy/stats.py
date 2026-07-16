@@ -9,7 +9,7 @@ from collections import Counter
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import bindparam, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pycil.content.lexi_port import LexiClient
@@ -46,13 +46,16 @@ async def folder_stats(
     stmt = text(
         """
         SELECT
-            COUNT(uss.sense_id) AS learned,
-            COALESCE(SUM(CASE WHEN uss.mastery >= :thresh THEN 1 ELSE 0 END), 0) AS mastered,
-            COALESCE(AVG(uss.mastery), 0) AS avg_mastery
+            COUNT(*) FILTER (WHERE uss.review_count > 0) AS learned,
+            COALESCE(SUM(CASE
+                WHEN uss.review_count > 0 AND uss.mastery >= :thresh THEN 1
+                ELSE 0
+            END), 0) AS mastered,
+            COALESCE(AVG(uss.mastery) FILTER (WHERE uss.review_count > 0), 0) AS avg_mastery
         FROM user_sense_stats uss
-        WHERE uss.user_id = :user_id AND uss.sense_id IN :sense_ids
+        WHERE uss.user_id = :user_id AND uss.sense_id = ANY(CAST(:sense_ids AS bigint[]))
         """
-    ).bindparams(bindparam("sense_ids", expanding=True))
+    )
     row = (
         await session.execute(
             stmt, {"user_id": str(user_id), "thresh": mastered_threshold, "sense_ids": sense_ids}
@@ -75,11 +78,14 @@ async def weakest_senses(
     stmt = text(
         """
         SELECT sense_id, mastery FROM user_sense_stats
-        WHERE user_id = :user_id AND sense_id IN :sense_ids
+        WHERE user_id = :user_id
+          AND sense_id = ANY(CAST(:sense_ids AS bigint[]))
+          AND review_count > 0
+          AND (buried_until IS NULL OR buried_until <= NOW())
         ORDER BY mastery ASC, sense_id ASC
         LIMIT :limit
         """
-    ).bindparams(bindparam("sense_ids", expanding=True))
+    )
     rows = await session.execute(
         stmt, {"user_id": str(user_id), "sense_ids": sense_ids, "limit": limit}
     )

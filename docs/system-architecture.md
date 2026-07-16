@@ -38,7 +38,7 @@ services (docker-compose.yml):
   migrate      — one-shot `alembic upgrade head`; api/worker depend_on this
                  completing successfully before they start
   api          — FastAPI, port 8000
-  worker       — arq, 3 jobs, shares the api package + lexi-ai
+  worker       — arq, four jobs plus pending-grade reconciliation cron; shares api package + lexi-ai
   backup       — profile-gated (`--profile backup`), restic-based pg_dump backup
 ```
 
@@ -158,23 +158,33 @@ Deck membership + word generation trigger. Never stores dictionary content.
 
 Adjacency-list tree (`nodes.parent_node_id`) of FOLDER / DECK / REFERENCE nodes.
 
-- **REFERENCE nodes** point at a DECK via `target_node_id` — validated at
-  creation (`hierarchy/service.py::_validate_reference_target`): the target
-  must exist, not be soft-deleted, and be `NodeType.DECK` (never another
-  FOLDER or REFERENCE), which keeps the tree cycle-free.
+- **Tree and reference invariants.** Only FOLDER nodes accept children;
+  locked service mutations reject self/descendant moves and cross-owner
+  nesting. REFERENCE nodes point only at a live DECK that the actor owns or
+  that is PUBLIC. The `0002_hierarchy_integrity` migration preflights these
+  cross-row rules in existing data and adds the database-enforceable reference
+  target-shape constraint.
+- **Visibility.** Publishing a FOLDER requires explicit confirmation and grants
+  inherited read visibility through same-owner descendants without rewriting
+  their stored visibility. Writes remain owner-only. A reference always checks
+  its target's current visibility and live ancestry, so a private or deleted
+  target immediately contributes no content.
 - **Subtree resolution** (`hierarchy/subtree.py`): a recursive CTE walks
-  `parent_node_id` from a root down through descendants; DECK nodes
-  contribute their id directly, REFERENCE leaves contribute their target
-  deck's id. `resolve_sense_ids` then does a `DISTINCT sense_id` read over
-  `deck_senses` for that deck-id set — entirely inside pycil's DB.
+  same-owner `parent_node_id` edges from a root down through descendants; DECK
+  nodes contribute their id directly and REFERENCE leaves contribute only
+  currently readable target decks. `resolve_sense_ids` then does a `DISTINCT
+  sense_id` read over that deck-id set — entirely inside pycil's DB.
 - **Stats** (`hierarchy/stats.py`) overlay that sense-id set against
   `user_sense_stats`: `folder_stats` (total/learned/mastered/avg_mastery, via
-  raw SQL with an expanding bind parameter), `weakest_senses` (bottom-N by
+  PostgreSQL `ANY` array binds), `weakest_senses` (bottom-N by
   mastery), and `cefr_distribution` (buckets by CEFR level, resolved via the
   LexiClient port, never a cross-DB join).
-- **L1 cache only**: structural edits (create/move/soft-delete) bust the
-  ancestor chain's cached sense-id sets. No L2 cache — uncached reads are
-  well under 50ms at this scale.
+- **Generation-safe L1 cache only.** `nodes.structural_generation` is bumped
+  in the same transaction as membership, tree, visibility, and deletion edits
+  for direct ancestors and reverse-reference consumers. Redis keys include the
+  committed generation (and viewer where target visibility varies), so stale
+  values are unreachable even if best-effort cleanup fails or a cache miss
+  races a structural edit. No L2 cache.
 - **IDOR gate** (`hierarchy/access.py`): every hierarchy/content/learning
   route that touches a node calls `require_node_access(session, node_id, user,
   write=...)`. `write=True` is owner-only (403 if not). `write=False` is
@@ -183,7 +193,7 @@ Adjacency-list tree (`nodes.parent_node_id`) of FOLDER / DECK / REFERENCE nodes.
   single choke point closing what was previously a systemic IDOR gap.
 
 Routes: `POST /nodes` (201), `PATCH /nodes/{node_id}/move`,
-`DELETE /nodes/{node_id}` (204), `GET /folders/{node_id}/stats`,
+`PATCH /nodes/{node_id}/visibility`, `DELETE /nodes/{node_id}` (204), `GET /folders/{node_id}/stats`,
 `GET /folders/{node_id}/weakest`, `GET /folders/{node_id}/cefr`.
 
 ### Learning (`pycil/learning/`)
@@ -207,6 +217,12 @@ toward `use_in_sentence`. The weighted pick is a deterministic SHA-256 hash of
 `(sense_id, session_id)` — not `random` — so re-fetching "next" for the same
 sense in the same session is stable, never re-rolled.
 
+**Canonical session delivery** (`session_store.py`, `question_delivery.py`):
+`POST /sessions` persists an ephemeral Redis queue and cursor. Next-question
+delivery resolves the canonical question through `LexiClient`, omits answer
+material from the client payload, and records the issued question/sense binding.
+`POST /answers` validates that binding before accepting an answer.
+
 **Answer flow** (`service.py::answer`, called from `POST /answers`):
 
 1. The client sends only `question_id` + raw answer — **never** a question
@@ -219,25 +235,39 @@ sense in the same session is stable, never re-rolled.
    `GRADE_AGAIN=1`) — pycil does no grading logic of its own.
 3. A per-`(user_id, sense_id)` row lock serializes concurrent updates to the
    same sense.
-4. Only the **first attempt per sense per session** (tracked via a
-   `seen_senses` set, persisted in Redis per session in the router) mutates
-   FSRS state and appends a `review_log` row. Repeat attempts in the same
-   session still grade and persist a `responses` row, but don't move
-   stability/mastery again.
+4. Only the **first attempt per sense per session** (claimed by the durable
+   `session_sense_attempts` uniqueness constraint) mutates FSRS state and
+   appends a `review_log` row. Repeat attempts in the same session still grade
+   and persist a `responses` row, but don't move stability/mastery again.
 5. `responses` always gets a row — this is the recoverable verdict
    persist-back: if the realtime push is missed, the client can refetch.
 
-**Idempotent async verdicts** (`service.py::apply_verdict`, used by the
-worker's `grade_answer` job for LLM-judged `use_in_sentence` answers that
-can't grade synchronously): guarded on `response.grade_status`. If already
-graded, it's a no-op — an arq retry never re-grades or double-bills the LLM.
+**Durable async verdicts** (`service.py::apply_verdict`, used by the worker's
+`grade_answer_v1` job for LLM-judged `use_in_sentence` answers): the pending
+response retains raw input only until grading completes. A fenced, expiring
+lease prevents two workers from applying one verdict; already terminal rows
+are no-ops. `reconcile_pending_grades` scans bounded, unleased rows for lost
+enqueues or expired leases and requeues them; after 24 hours it records a
+terminal `expired` response and clears the raw input.
+Clients receive a `responseId` immediately and can poll `GET /responses/{id}`.
 
 FSRS math lives in `packages/shared-py/shared/fsrs/` (see below);
 `learning/fsrs_wrapper.py` is a thin domain-shaped wrapper (`elapsed_days`,
 `first_review`, `next_state`) — no new math there.
 
 Routes: `POST /sessions` (builds + caches the queue in Redis under
-`session:{id}`, 8h TTL), `POST /answers`.
+`session:{id}`, 8h TTL), `GET /sessions/{id}/next`, `POST /answers`,
+`GET /responses/{id}`.
+
+### Folder analytics
+
+Folder reads resolve the owner's live hierarchy definition set. `GET
+/folders/{id}/items` paginates lexical views, `GET /folders/{id}/history`
+returns stable daily buckets with review counts and a carry-forward average
+mastery series, and `GET /me/stats` returns the caller's global learning
+totals. History validates a bounded date window and uses the `0004` review-log
+index. Its large-set bind path uses PostgreSQL `ANY` arrays. The opt-in
+2k/100k benchmark is recorded in the hardening plan reports.
 
 ### Realtime (`pycil/realtime/` + worker's `pycil_worker/realtime.py`)
 
@@ -245,19 +275,17 @@ Centrifugo v5 for push updates (grading verdicts, job status). Channels are
 strictly owner-scoped (`shared/realtime/channels.py`):
 
 ```
-users:{uid}                          — general per-user channel
-users:{uid}:jobs:{job_id}             — word-generation job status
-users:{uid}:grading:{response_id}     — answer grading verdict
+users:{uid}#{uid}                          — general per-user channel
+users:{uid}:jobs:{job_id}#{uid}             — word-generation job status
+users:{uid}:grading:{response_id}#{uid}     — answer grading verdict
 ```
 
-`job_id`/`response_id` are enumerable, so the security boundary is the
-`users:{uid}` prefix — Centrifugo's own namespace config grants a connection
-token subscribe rights only on `users:{sub}:*` for its signed `sub`, enforced
-server-side (not just by channel-name convention). The subscription token
-(`GET /realtime/token` → `realtime/client.py::sign_subscription_token`) is
-signed with `CENTRIFUGO_TOKEN_HMAC_SECRET` — a **separate** secret from the
-API's own `JWT_SECRET`; a token signed for Centrifugo cannot be replayed as an
-API bearer token or vice versa.
+`job_id`/`response_id` are enumerable. `centrifugo-config.json` enables
+Centrifugo's native user-limited channels for the `users` namespace. The
+terminal `#{uid}` is checked by Centrifugo against the authenticated connection
+subject, so user A cannot subscribe to user B's channel even with an otherwise
+valid token. The connection token (`GET /realtime/token`) is signed with
+`CENTRIFUGO_TOKEN_HMAC_SECRET` — separate from the API's `JWT_SECRET`.
 
 Publishing (`realtime/client.py::publish`) is **best-effort**: an
 `httpx.HTTPError` is swallowed, never failing the caller. This is safe because
@@ -267,14 +295,15 @@ missed push is recoverable on next fetch, not a lost write.
 
 ### Worker (`apps/worker/pycil_worker/`)
 
-arq worker, exactly 3 jobs registered in `WorkerSettings.functions`
+arq worker, four jobs registered in `WorkerSettings.functions`
 (`main.py`), `max_tries=2`:
 
 | Job | Purpose |
 |---|---|
 | `generate_word` | Lazy dictionary generation: search lexi-ai, or generate from the raw query string if search misses. Publishes job status over Centrifugo. Writes only to lexi-ai's DB — pycil stores nothing from this job except the deck-membership row a later `add_sense` call creates. |
 | `generate_question` | Delegates to `client.generate_questions(entry, formats, n)`. |
-| `grade_answer` | Resolves a pending async (LLM-judged) verdict via `service.apply_verdict`; idempotent — returns `{"status": "duplicate"}` if already graded; publishes the grading result on success. |
+| `grade_answer_v1` | Resolves a pending async (LLM-judged) verdict via `service.apply_verdict`; idempotent — returns `{"status": "duplicate"}` if already graded; publishes the grading result on success. The worker also retains legacy `grade_answer` while its backlog drains. |
+| `reconcile_pending_grades` | Cron sweep every ten minutes for durable pending responses whose enqueue was lost or lease expired; stale raw answers are purged. |
 
 `on_startup` builds the shared `InProcessLexiClient`, runs `lexicon.init()`
 once, and opens the DB engine/session factory; `on_shutdown` disposes the
@@ -287,6 +316,9 @@ and models — so grading/FSRS logic is not duplicated.
 referenced anywhere else in the codebase. Treat it as a placeholder, not part
 of the live worker-invocation path (jobs are enqueued directly via the arq
 Redis pool in `content/service.py::request_word`, not through this package).
+
+`apps/worker/tests/test_worker_registration.py` asserts that the reconciler
+and its cron registration remain part of the worker settings.
 
 ## FSRS-4.5 Engine (`packages/shared-py/shared/fsrs/`)
 
@@ -353,6 +385,15 @@ consumed by `apps/api`/`apps/worker` or `docker-compose.yml`.
 These are real, unresolved gaps as of this migration — noted here rather than
 silently omitted, so they aren't mistaken for finished work:
 
+- **Hardening work is in progress.** Phase 1 established a reproducible API
+  test baseline: local runs provision disposable PostgreSQL through
+  Testcontainers, while CI supplies `TEST_DB_URL`. Phase 2 closes the eight
+  hierarchy/cache contract cases. Later phases introduced canonical session
+  delivery, durable grading, and analytics routes; Phase 5 and Phase 6 remain
+  in progress and are not completion guarantees. See the
+  [hardening plan](../plans/260716-1321-system-design-alignment-hardening/plan.md)
+  and its [baseline report](../plans/260716-1321-system-design-alignment-hardening/reports/current-test-baseline.md).
+
 - **CI/CD repointed at the new stack.** `.github/workflows/{test,deploy,nightly}.yml`,
   `scripts/deploy.sh`, and the root `Makefile` now target `apps/api`/`apps/worker`/
   `packages/shared-py` and the `api`/`worker`/`migrate` compose services (not the
@@ -371,9 +412,14 @@ silently omitted, so they aren't mistaken for finished work:
   removed; any client consumes `apps/api` over REST + bearer JWT and subscribes
   to Centrifugo directly. There is no in-repo UI, auth-cookie sealing, or
   Centrifugo-JS integration to maintain here.
-- **`apps/worker` currently has zero tests** — the previous LLM-pipeline test
-  suite was removed as part of the worker redesign and not yet replaced. CI
-  ruff-lints it but runs no pytest job for it (nothing to collect).
+- **Worker behaviour coverage remains sparse.** The registration test covers
+  the pending-grade reconciler and cron, but job-level integration coverage is
+  still needed.
+- **Live Centrifugo ACL check is opt-in.**
+  `RUN_CENTRIFUGO_LIVE=1 uv run pytest tests/realtime/test_live_centrifugo_acl.py`
+  starts a temporary v5 broker and proves a user A connection is denied user
+  B's native `#userB` channel. It is excluded from the default hermetic suite
+  because it needs Docker.
 - **`apps/pycil-core`** (the pre-migration Python/FastAPI/SQLModel backend) is
   intentionally kept on disk as a historical reference per the migration
   plan, not deleted. It is not part of the running stack and CI no longer

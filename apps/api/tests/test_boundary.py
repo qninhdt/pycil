@@ -30,6 +30,7 @@ def test_pycil_tables_are_the_expected_set():
     expected = {
         "users", "nodes", "folder_attributes", "deck_attributes", "user_nodes",
         "deck_senses", "user_sense_stats", "review_log", "responses",
+        "session_sense_attempts",
     }
     assert pycil_tables == expected
 

@@ -11,10 +11,10 @@ from datetime import datetime
 from uuid import UUID
 
 from shared.fsrs import recall
-from sqlalchemy import select
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pycil.content.models import DeckSense
+from pycil.hierarchy.subtree import resolve_sense_ids
 from pycil.learning.fsrs_wrapper import elapsed_days
 from pycil.learning.models import UserSenseStats
 
@@ -40,28 +40,37 @@ async def build_queue(
     review_per_batch: int = _DEFAULT_REVIEW,
     limit: int = 20,
 ) -> list[QueueItem]:
-    """Build the study queue for a deck. Review cards ranked by R asc, new mixed in."""
-    sense_ids = [
-        row[0]
-        for row in await session.execute(
-            select(DeckSense.sense_id).where(DeckSense.node_id == node_id)
-        )
-    ]
+    """Build a queue from the canonical accessible folder/deck/reference scope."""
+    sense_ids = await resolve_sense_ids(session, node_id, viewer_id=user_id)
     if not sense_ids:
         return []
 
+    # A PostgreSQL array is a single bind even for a large subtree. Avoid an
+    # expanding IN list here because this queue is fed by the same canonical
+    # folder/reference set as stats and history.
     stats_rows = await session.execute(
-        select(UserSenseStats).where(
-            UserSenseStats.user_id == user_id,
-            UserSenseStats.sense_id.in_(sense_ids),
-        )
+        text(
+            """
+            SELECT sense_id, stability, difficulty, mastery, interval_days,
+                   last_review_date, next_review_date, review_count, lapse_count,
+                   status, buried_until, created_at, updated_at, user_id
+            FROM user_sense_stats
+            WHERE user_id = :user_id AND sense_id = ANY(CAST(:sense_ids AS bigint[]))
+            """
+        ),
+        {"user_id": str(user_id), "sense_ids": sense_ids},
     )
-    stats = {s.sense_id: s for s in stats_rows.scalars()}
+    stats = {
+        int(row.sense_id): UserSenseStats.model_validate(row._mapping)
+        for row in stats_rows
+    }
 
     reviews: list[QueueItem] = []
     news: list[QueueItem] = []
     for sid in sense_ids:
         st = stats.get(sid)
+        if st is not None and st.buried_until is not None and st.buried_until > now:
+            continue
         if st is None or st.review_count == 0:
             news.append(QueueItem(sense_id=sid, mastery=0, is_new=True, recall=1.0))
         else:

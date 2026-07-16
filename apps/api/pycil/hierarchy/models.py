@@ -10,7 +10,7 @@ from datetime import datetime
 from enum import Enum
 from uuid import UUID
 
-from sqlalchemy import DateTime, text
+from sqlalchemy import CheckConstraint, DateTime, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Column, Field, SQLModel
 
@@ -30,6 +30,13 @@ class Visibility(str, Enum):
 
 class Node(SQLModel, table=True):
     __tablename__ = "nodes"
+    __table_args__ = (
+        CheckConstraint(
+            "(type = 'REFERENCE' AND target_node_id IS NOT NULL) "
+            "OR (type <> 'REFERENCE' AND target_node_id IS NULL)",
+            name="ck_nodes_reference_target_shape",
+        ),
+    )
 
     id: UUID | None = Field(
         default=None,
@@ -41,6 +48,9 @@ class Node(SQLModel, table=True):
     parent_node_id: UUID | None = Field(default=None, foreign_key="nodes.id", index=True)
     # Set only on REFERENCE nodes — points at the node being referenced.
     target_node_id: UUID | None = Field(default=None, foreign_key="nodes.id")
+    # Incremented in the same transaction as every structural mutation. Redis
+    # keys include this value, so a stale fill can never mask newer structure.
+    structural_generation: int = Field(default=0, nullable=False)
     name: str
     description: str | None = None
     visibility: Visibility = Field(default=Visibility.PRIVATE)

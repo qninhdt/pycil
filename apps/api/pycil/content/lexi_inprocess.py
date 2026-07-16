@@ -42,6 +42,20 @@ class InProcessLexiClient:
     async def generate(self, source: SearchResult | str) -> Entry:
         return await self._lexicon.generate(source)
 
+    async def get_entry(self, word_id: int) -> Entry | None:
+        try:
+            return await self._lexicon.get_entry(word_id)
+        except ValueError:
+            return None
+
+    async def word_id_for_sense(self, sense_id: int) -> int | None:
+        try:
+            # This repository lookup is intentionally contained in the adapter:
+            # callers only use the stable LexiClient port.
+            return await self._lexicon._repo.word_id_for_sense(sense_id)
+        except Exception:  # unknown/removed opaque lexi sense
+            return None
+
     async def get_senses(self, sense_ids: list[int]) -> list[SenseView]:
         return await self._lexicon.get_senses(sense_ids)
 
@@ -56,3 +70,12 @@ class InProcessLexiClient:
 
     async def get_question(self, question_id: int) -> Question | None:
         return await self._lexicon.questions.get(question_id)
+
+    async def get_question_for_sense(
+        self, sense_id: int, question_format: str
+    ) -> Question | None:
+        word_id = await self.word_id_for_sense(sense_id)
+        if word_id is None:
+            return None
+        questions = await self._lexicon.questions.list(word_id, question_format)
+        return next((q for q in questions if q.sense_id == sense_id), None)

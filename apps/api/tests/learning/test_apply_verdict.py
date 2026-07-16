@@ -1,6 +1,6 @@
 """apply_verdict: idempotent async-grade resolution (no LLM double-bill on retry)."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from lexi_ai.read_models import Question, Score
@@ -42,7 +42,7 @@ async def _seed_pending(session, user_id, sense_id=42, question_id=1, answer="my
         sense_id=sense_id,
         question_id=str(question_id),
         grade_status=GradeStatus.pending,
-        grade_feedback=answer,  # WRITE answer parked here until async grade
+        raw_answer=answer,
     )
     session.add(resp)
     await session.commit()
@@ -69,6 +69,8 @@ async def test_apply_verdict_resolves_pending(session):
 
     await session.refresh(resp)
     assert resp.grade_status == GradeStatus.graded
+    assert resp.mastery_before == 0
+    assert resp.mastery_after is not None and resp.mastery_after > 0
     logs = (await session.execute(select(ReviewLog))).scalars().all()
     assert len(logs) == 1
 
@@ -90,3 +92,49 @@ async def test_apply_verdict_retry_is_noop(session):
 
     logs = (await session.execute(select(ReviewLog))).scalars().all()
     assert len(logs) == 1  # only one FSRS update applied
+
+
+async def test_apply_verdict_skips_another_workers_active_lease(session):
+    user = await _user(session)
+    response = await _seed_pending(session, user.id)
+    response.grading_lease_owner = "other-worker"
+    response.grading_lease_expires_at = datetime.now(UTC) + timedelta(minutes=1)
+    await session.commit()
+    client = CountingLexiClient(_q(), correct=True)
+
+    assert await service.apply_verdict(session, client, response.id, datetime.now(UTC)) is None
+    assert client.grade_calls == 0
+
+
+async def test_apply_verdict_times_out_before_its_five_minute_lease(session):
+    """A stuck provider cannot outlive the lease and invite a second bill."""
+    user = await _user(session)
+    response = await _seed_pending(session, user.id)
+
+    class SlowLexiClient(CountingLexiClient):
+        async def grade(self, question, answer):
+            raise TimeoutError
+
+    with pytest.raises(TimeoutError):
+        await service.apply_verdict(
+            session, SlowLexiClient(_q()), response.id, datetime.now(UTC)
+        )
+
+
+async def test_pending_response_reuses_idempotency_key_after_lost_enqueue(session):
+    user = await _user(session)
+    kwargs = {
+        "user_id": user.id,
+        "session_id": "session-1",
+        "sense_id": 42,
+        "question_id": 1,
+        "raw_answer": "my sentence",
+        "idempotency_key": "session-1:1",
+    }
+
+    first = await service.create_pending_response(session, **kwargs)
+    retry = await service.create_pending_response(session, **kwargs)
+
+    assert retry.id == first.id
+    responses = (await session.execute(select(Response))).scalars().all()
+    assert len(responses) == 1

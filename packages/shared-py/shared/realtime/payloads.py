@@ -24,6 +24,8 @@ class GradingResult:
     is_correct: bool
     grade_score: float
     grade_feedback: str | None = None
+    mastery_before: int | None = None
+    mastery_after: int | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)

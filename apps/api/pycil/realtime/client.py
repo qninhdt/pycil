@@ -1,8 +1,8 @@
-"""Centrifugo client: publish via HTTP API + sign per-user subscription tokens.
+"""Centrifugo client: publish via HTTP API + sign connection tokens.
 
-A subscription token authorizes ONLY the caller's ``users:{uid}`` namespace, so
-even though job/grading ids are enumerable, a user can never subscribe to another
-user's stream. Publishing uses the Centrifugo HTTP API with the api key.
+Channel access is enforced by Centrifugo's user-limited ``#user_id`` boundary,
+which is checked against this connection token's subject. Publishing uses the
+HTTP API with the API key.
 """
 
 import time
@@ -18,16 +18,10 @@ _TOKEN_TTL = 3600
 
 
 def sign_subscription_token(user_id: UUID | str) -> str:
-    """Sign a Centrifugo connection token whose ``sub`` is the user id.
-
-    Centrifugo's namespace config grants subscribe only to ``users:{sub}:*``, so
-    the signed subject is the security boundary — the client cannot widen it.
-    """
+    """Sign a Centrifugo connection token whose ``sub`` is the user id."""
     now = int(time.time())
     claims = {"sub": str(user_id), "iat": now, "exp": now + _TOKEN_TTL}
     return jwt.encode(claims, settings.centrifugo_token_hmac_secret, algorithm=_ALGO)
-
-
 async def publish(channel: str, data: dict) -> None:
     """Publish a payload to a Centrifugo channel via its HTTP API.
 

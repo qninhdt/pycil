@@ -37,6 +37,13 @@ async def grade_answer(ctx: dict, owner_uid: str, response_id: str) -> dict:
             is_correct=outcome.is_correct,
             grade_score=outcome.grade_score,
             grade_feedback=outcome.grade_feedback,
+            mastery_before=outcome.mastery_before,
+            mastery_after=outcome.mastery_after,
         ),
     )
     return {"status": "graded", "is_correct": outcome.is_correct}
+
+
+async def grade_answer_v1(ctx: dict, owner_uid: str, response_id: str) -> dict:
+    """Versioned producer target; retain ``grade_answer`` while old jobs drain."""
+    return await grade_answer(ctx, owner_uid, response_id)
