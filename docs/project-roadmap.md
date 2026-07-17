@@ -18,7 +18,9 @@ backend-only — no frontend ships here.
 **Scope:** internalize `lexi-ai` as the dictionary/question/grading authority,
 implement FSRS-4.5 + the folder/deck/REFERENCE hierarchy, redesign auth
 (Google OAuth 2.1 + PKCE + bearer JWT), add Centrifugo realtime. Removes
-billing, gamification, admin dashboard, chat, translation/TTS, ELO, SSE.
+billing, gamification, admin dashboard, translation/TTS, ELO, and general SSE.
+The approved Assistant Agent MVP reintroduces only bounded, owner-scoped
+chat/SSE with durable human approval for sensitive actions.
 
 | Phase | Name | Status |
 |---|---|---|
@@ -34,6 +36,26 @@ billing, gamification, admin dashboard, chat, translation/TTS, ELO, SSE.
 | 10 | Frontend Auth & Rename | Removed |
 | 11 | Integration Wiring | Complete |
 | 12 | Tests & Docs | Complete |
+
+## Assistant Agent MVP (active)
+
+**Plan:** `plans/260716-1729-assistant-agent-system/plan.md`
+
+| Phase | Name | Status |
+|---|---|---|
+| 1 | Provider, dependencies, and privacy configuration | Complete |
+| 2 | Owner-bound persistence, facades, and migration | Complete |
+| 3 | Bounded LangChain graph and tools | Complete |
+| 4 | Owner-scoped SSE run recovery | Complete |
+| 5 | Durable HITL, audit, expiry, and deletion | Complete |
+| 6 | Security and integration tests | Complete |
+
+**Rollout:** the API and worker implementation is present, with no feature
+flag. It activates only when `ASSISTANT_API_KEY` and `ASSISTANT_BASE_URL` are
+configured for a dedicated OpenAI-compatible provider (not OpenRouter).
+Sensitive mutations ship with the MVP behind durable per-action human approval;
+verification is complete: API 122 passed / 2 skipped; worker 3 passed. The
+provider protocol smoke test runs against a local OpenAI-compatible server.
 
 **Phase 10 detail:** the frontend (`apps/web`, Next.js 15) was removed from
 this repo. Pycil is now backend-only — the API is consumed by external

@@ -8,12 +8,28 @@
 This is a backend-only repository (API + worker + shared Python). It replaces
 the prior Go/ent/chi direction and the original single-DB Python MVP described
 in `docs/project-changelog.md`'s pre-migration entries. Billing, gamification,
-admin dashboard, ELO, SSE, chat, translation/TTS, and the frontend were all
-removed — this doc describes only what exists on disk today.
+admin dashboard, ELO, general SSE, translation/TTS, and the frontend were
+removed. The approved exception is a bounded owner-scoped assistant with
+recoverable SSE and durable HITL; this doc describes what exists on disk today.
 
 ## Overview
 
 Pycil is a vocabulary learning app built around three ideas:
+
+### Assistant privacy and provider boundary
+
+Assistant conversations and LangGraph checkpoints are private to the owning
+account and expire after 30 inactive days. A user can delete a thread, which
+removes its conversation/run/action records and checkpoint state; minimized
+action-audit records retain only argument digests, decisions, actor IDs, and
+correlation IDs for 90 days. A daily worker sweep applies both retention
+windows. User message content and bounded tool inputs needed to answer it are
+sent to the configured OpenAI-compatible provider. The provider endpoint,
+model, and credential are dedicated assistant settings; they are never taken
+from `LEXI_LLM_API_KEY`. Raw provider responses, credentials, and internal
+errors are not stored in SSE/audit payloads. The assistant is unavailable until
+both `ASSISTANT_API_KEY` and `ASSISTANT_BASE_URL` are configured; it does not
+use OpenRouter-specific configuration.
 
 1. **Two-database boundary.** Pycil never stores dictionary content (words,
    senses, questions). That's the internalized `lexi-ai` library's job, backed
@@ -32,13 +48,15 @@ Pycil is a vocabulary learning app built around three ideas:
 
 ```
 services (docker-compose.yml):
-  postgres     — pycil's own DB (9 tables, see "Two-Database Boundary")
+  postgres     — pycil's own DB (14 application tables plus LangGraph
+                 checkpoint tables; see "Two-Database Boundary")
   redis        — session/job/queue state (arq broker + ephemeral session data)
   centrifugo   — realtime pub/sub (v5, HTTP API on :8000, exposed on :8001)
   migrate      — one-shot `alembic upgrade head`; api/worker depend_on this
                  completing successfully before they start
   api          — FastAPI, port 8000
-  worker       — arq, four jobs plus pending-grade reconciliation cron; shares api package + lexi-ai
+  worker       — arq generation/grading jobs plus grade, action-expiry, and
+                 retention reconciliation crons; shares api package + lexi-ai
   backup       — profile-gated (`--profile backup`), restic-based pg_dump backup
 ```
 
@@ -53,8 +71,9 @@ and `apps/worker`.
 
 ## Two-Database Boundary
 
-Pycil's Postgres owns exactly 9 tables (`apps/api/pycil/db/models.py` aggregates
-every domain's SQLModel metadata for Alembic):
+Pycil's Postgres owns 14 application tables (`apps/api/pycil/db/models.py`
+aggregates every domain's SQLModel metadata for Alembic), plus migration-owned
+LangGraph checkpoint tables:
 
 | Table | Domain | Purpose |
 |---|---|---|
@@ -67,8 +86,16 @@ every domain's SQLModel metadata for Alembic):
 | `user_sense_stats` | learning | FSRS memory state per (user, sense) |
 | `review_log` | learning | Append-only first-attempt review history |
 | `responses` | learning | Every graded answer (verdict persist-back) |
+| `assistant_threads` | assistant | Owner-bound conversation metadata and retention deadline |
+| `assistant_runs` | assistant | Idempotent message/run lifecycle |
+| `assistant_run_events` | assistant | Sanitized, sequenced events for SSE recovery/history |
+| `assistant_actions` | assistant | Pending or resolved sensitive-action approvals |
+| `assistant_action_audit` | assistant | Minimized decision audit trail |
 
-None of these hold dictionary content. lexi-ai owns `words`, `senses`,
+None of these hold dictionary content. Assistant records are Pycil-owned user
+state; `checkpoint_migrations`, `checkpoints`, `checkpoint_blobs`, and
+`checkpoint_writes` are also created by migration `0008_assistant_agent` for
+LangGraph's checkpointer. lexi-ai owns `words`, `senses`,
 `word_aliases`, `entry_links`, `questions`, `examples`, `collocations` in its
 **own** database (`LEXI_DB_URL`) — a structural test
 (`apps/api/tests/test_boundary.py`) asserts pycil's metadata never gains any of
@@ -293,9 +320,30 @@ every event that gets published also has a durable source of truth already
 committed (`responses` row for grading, job state for word generation) — a
 missed push is recoverable on next fetch, not a lost write.
 
+### Assistant (`apps/api/pycil/assistant/`)
+
+The owner-scoped `/assistant` API creates/list/deletes threads, accepts one
+idempotent client message per `client_message_id`, returns SSE for a run, and
+offers event recovery through both `Last-Event-ID` and persisted-run reads.
+Events are committed before they are sent, so reconnecting clients can replay
+sanitized sequence-numbered events rather than depending on a live connection.
+
+The graph uses `ChatOpenAI` against a configured OpenAI-compatible base URL,
+LangGraph checkpoints keyed as `assistant:{owner_id}:{thread_id}`, and only its
+bounded hierarchy/content/stats tool set. Redis leases enforce one active run
+per owner/thread as well as per-user/global concurrency, per-minute requests,
+and an optional monthly spend reservation.
+
+`move_node`, `publish_node`, `delete_node`, and `remove_sense_from_deck` pause
+for durable human approval. Approval is bound to one action, its canonical
+argument digest, checkpoint version, and resource generation; the action is
+revalidated before resume. Pending approvals expire after 15 minutes by
+default. Thread deletion removes private run/action/event data and checkpoints,
+but unlinks the minimized audit record so its 90-day retention remains intact.
+
 ### Worker (`apps/worker/pycil_worker/`)
 
-arq worker, four jobs registered in `WorkerSettings.functions`
+arq worker, seven registered functions in `WorkerSettings.functions`
 (`main.py`), `max_tries=2`:
 
 | Job | Purpose |
@@ -304,6 +352,8 @@ arq worker, four jobs registered in `WorkerSettings.functions`
 | `generate_question` | Delegates to `client.generate_questions(entry, formats, n)`. |
 | `grade_answer_v1` | Resolves a pending async (LLM-judged) verdict via `service.apply_verdict`; idempotent — returns `{"status": "duplicate"}` if already graded; publishes the grading result on success. The worker also retains legacy `grade_answer` while its backlog drains. |
 | `reconcile_pending_grades` | Cron sweep every ten minutes for durable pending responses whose enqueue was lost or lease expired; stale raw answers are purged. |
+| `reconcile_expired_assistant_actions` | Cron sweep every ten minutes. Expires pending assistant approvals under a row lock so it cannot race a confirmation. |
+| `reconcile_assistant_retention` | Daily 03:15 UTC sweep. Deletes expired assistant threads, their private records, and checkpointer state; removes action-audit rows only after the audit-retention deadline. |
 
 `on_startup` builds the shared `InProcessLexiClient`, runs `lexicon.init()`
 once, and opens the DB engine/session factory; `on_shutdown` disposes the
@@ -317,8 +367,9 @@ referenced anywhere else in the codebase. Treat it as a placeholder, not part
 of the live worker-invocation path (jobs are enqueued directly via the arq
 Redis pool in `content/service.py::request_word`, not through this package).
 
-`apps/worker/tests/test_worker_registration.py` asserts that the reconciler
-and its cron registration remain part of the worker settings.
+`apps/worker/tests/test_worker_registration.py` asserts that the grade and
+assistant reconcilers and their cron registrations remain part of the worker
+settings.
 
 ## FSRS-4.5 Engine (`packages/shared-py/shared/fsrs/`)
 

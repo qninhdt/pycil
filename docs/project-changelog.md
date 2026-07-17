@@ -4,6 +4,32 @@ All notable releases. Format derived from Keep a Changelog; dates in ISO-8601.
 
 ---
 
+## [Unreleased] — 2026-07-18 — Owner-scoped Assistant Agent MVP
+
+Introduces the bounded `/assistant` API for hierarchy, content, and folder-stat
+help. The feature is configuration-gated until a dedicated OpenAI-compatible
+provider key and base URL are supplied; it is not OpenRouter-specific.
+Verification is complete: API 122 passed / 2 skipped, worker 3 passed, and the
+provider protocol smoke test uses a local OpenAI-compatible server.
+
+### Added
+
+- Owner-bound assistant threads, idempotent runs, persisted sanitized events,
+  LangGraph checkpoints, pending actions, and minimized action-audit records
+  through migration `0008_assistant_agent`.
+- Recoverable SSE: sequence IDs and `Last-Event-ID` replay, persisted run/event
+  recovery, heartbeats, and a per-owner/thread Redis lease with concurrency,
+  request-rate, tool-call, output-token, deadline, and optional spend limits.
+- Durable human-in-the-loop approval for move, publish, delete, and
+  sense-removal operations. Approval is action-, argument-, checkpoint-, and
+  resource-generation-bound; stale, replayed, or expired proposals cannot run.
+- Privacy lifecycle: owner-only access, 30-day inactive thread/checkpoint
+  retention, user thread deletion, 15-minute default pending-action expiry,
+  and 90-day minimized audit retention. Worker crons reconcile expiry and
+  retention.
+
+---
+
 ## [Unreleased] — 2026-07-05 — Python greenfield migration (lexi-ai + FSRS + hierarchy)
 
 `plans/260705-0032-python-greenfield-migration/` (12 phases). Rebuilds the

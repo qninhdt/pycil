@@ -44,7 +44,7 @@ frontend in this repo; any client consumes the API over REST + bearer JWT.
 ## Local development
 
 Prereqs: Docker 24+, docker-compose v2, `uv`, a Google OAuth client, an
-OpenRouter (or compatible) API key, and a checkout of `lexi-ai` at
+OpenAI-compatible API key and base URL, and a checkout of `lexi-ai` at
 `~/projects/lexi-ai`.
 
 ### 1. Vendor lexi-ai
@@ -69,7 +69,7 @@ cp -r ~/projects/lexi-ai/data vendor/lexi-ai/data
 ```bash
 cp .env.example .env
 # Fill in at minimum: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
-# LEXI_LLM_API_KEY (OpenRouter key), AUTH_JWT_SECRET (openssl rand -base64 32),
+# LEXI_LLM_API_KEY (provider key), LEXI_LLM_BASE_URL, AUTH_JWT_SECRET (openssl rand -base64 32),
 # CENTRIFUGO_API_KEY + CENTRIFUGO_TOKEN_HMAC_SECRET (openssl rand -hex 32).
 ```
 
@@ -147,6 +147,14 @@ answers return a pending response and are reconciled if enqueueing or a worker
 lease is lost. Clients can poll `GET /responses/{id}`; realtime channels end in
 the owner's Centrifugo-enforced `#userId` boundary.
 
+The API also provides an owner-scoped conversational assistant under
+`/assistant`. It uses a bounded LangChain tool set for hierarchy/content/stats,
+recoverable SSE runs, and durable human approval for move, publication, delete,
+and sense-removal actions. It is enabled only when its separate
+OpenAI-compatible credential and base URL are configured; it is not an
+OpenRouter integration. Threads/checkpoints expire after 30 inactive days,
+while minimized action-audit records are retained for 90 days.
+
 Removed in this migration (deliberate, not deferred): billing, gamification,
-admin dashboard, chat-with-AI, translation/TTS, ELO scoring, SSE-based
-streaming.
+admin dashboard, translation/TTS, ELO scoring, and general-purpose SSE
+streaming. The bounded assistant is the approved exception for chat/SSE.
