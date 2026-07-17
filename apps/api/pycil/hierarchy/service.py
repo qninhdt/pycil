@@ -56,7 +56,9 @@ async def create_node(
     return node
 
 
-async def move_node(session: AsyncSession, node: Node, new_parent_id: UUID | None) -> Node:
+async def move_node(
+    session: AsyncSession, node: Node, new_parent_id: UUID | None, *, commit: bool = True
+) -> Node:
     await _lock_nodes(session, [node.id, node.parent_node_id, new_parent_id])
     current = await session.get(Node, node.id, with_for_update=True)
     if current is None or current.deleted_at is not None:
@@ -70,13 +72,16 @@ async def move_node(session: AsyncSession, node: Node, new_parent_id: UUID | Non
     affected = await _descendant_ids(session, current.id)
     affected.update([old_parent, new_parent_id])
     prior = await cache.bump_generations(session, affected)
-    await session.commit()
-    await session.refresh(current)
-    await _delete_prior_defsets(prior)
+    if commit:
+        await session.commit()
+        await session.refresh(current)
+        await _delete_prior_defsets(prior)
+    else:
+        await session.flush()
     return current
 
 
-async def soft_delete_node(session: AsyncSession, node: Node) -> None:
+async def soft_delete_node(session: AsyncSession, node: Node, *, commit: bool = True) -> None:
     await _lock_nodes(session, [node.id, node.parent_node_id])
     current = await session.get(Node, node.id, with_for_update=True)
     if current is None or current.deleted_at is not None:
@@ -85,8 +90,11 @@ async def soft_delete_node(session: AsyncSession, node: Node) -> None:
     affected = await _descendant_ids(session, current.id)
     affected.add(current.parent_node_id)
     prior = await cache.bump_generations(session, affected)
-    await session.commit()
-    await _delete_prior_defsets(prior)
+    if commit:
+        await session.commit()
+        await _delete_prior_defsets(prior)
+    else:
+        await session.flush()
 
 
 async def set_visibility(
@@ -95,6 +103,7 @@ async def set_visibility(
     visibility: Visibility,
     *,
     confirm_subtree_publication: bool = False,
+    commit: bool = True,
 ) -> Node:
     """Change direct visibility and invalidate all dependent live-reference sets."""
     await _lock_nodes(session, [node.id, node.parent_node_id])
@@ -108,9 +117,12 @@ async def set_visibility(
     affected = await _descendant_ids(session, current.id)
     affected.add(current.parent_node_id)
     prior = await cache.bump_generations(session, affected)
-    await session.commit()
-    await session.refresh(current)
-    await _delete_prior_defsets(prior)
+    if commit:
+        await session.commit()
+        await session.refresh(current)
+        await _delete_prior_defsets(prior)
+    else:
+        await session.flush()
     return current
 
 
@@ -119,9 +131,7 @@ async def _validate_parent(
 ) -> None:
     if parent_node_id is None:
         return
-    parent = await session.scalar(
-        select(Node).where(Node.id == parent_node_id).with_for_update()
-    )
+    parent = await session.scalar(select(Node).where(Node.id == parent_node_id).with_for_update())
     if parent is None or parent.deleted_at is not None:
         raise NotFoundError("parent_node_not_found")
     if parent.author_id != author_id or parent.type != NodeType.FOLDER:
@@ -133,9 +143,7 @@ async def _validate_reference_target(
 ) -> None:
     if target_node_id is None:
         raise ConflictError("reference_requires_target")
-    target = await session.scalar(
-        select(Node).where(Node.id == target_node_id).with_for_update()
-    )
+    target = await session.scalar(select(Node).where(Node.id == target_node_id).with_for_update())
     if target is None or target.deleted_at is not None:
         raise NotFoundError("reference_target_not_found")
     if target.type != NodeType.DECK:

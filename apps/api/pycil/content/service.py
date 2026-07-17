@@ -54,9 +54,7 @@ async def add_sense(session: AsyncSession, node_id: UUID, sense_id: int) -> Deck
     """Append a sense to a deck (idempotent on the UNIQUE(node_id, sense_id))."""
     await _require_live_deck(session, node_id)
     existing = await session.execute(
-        select(DeckSense).where(
-            DeckSense.node_id == node_id, DeckSense.sense_id == sense_id
-        )
+        select(DeckSense).where(DeckSense.node_id == node_id, DeckSense.sense_id == sense_id)
     )
     row = existing.scalars().first()
     if row is not None:
@@ -71,16 +69,19 @@ async def add_sense(session: AsyncSession, node_id: UUID, sense_id: int) -> Deck
     return row
 
 
-async def remove_sense(session: AsyncSession, node_id: UUID, sense_id: int) -> None:
+async def remove_sense(
+    session: AsyncSession, node_id: UUID, sense_id: int, *, commit: bool = True
+) -> None:
     await _require_live_deck(session, node_id)
     await session.execute(
-        delete(DeckSense).where(
-            DeckSense.node_id == node_id, DeckSense.sense_id == sense_id
-        )
+        delete(DeckSense).where(DeckSense.node_id == node_id, DeckSense.sense_id == sense_id)
     )
     prior = await cache.bump_generations(session, [node_id])
-    await session.commit()
-    await _delete_prior_defsets(prior)
+    if commit:
+        await session.commit()
+        await _delete_prior_defsets(prior)
+    else:
+        await session.flush()
 
 
 async def list_sense_ids(session: AsyncSession, node_id: UUID) -> list[int]:
@@ -101,9 +102,7 @@ async def resolve_senses(client: LexiClient, sense_ids: list[int]) -> list:
 
 async def _next_position(session: AsyncSession, node_id: UUID) -> int:
     result = await session.execute(
-        select(func.coalesce(func.max(DeckSense.position), -1)).where(
-            DeckSense.node_id == node_id
-        )
+        select(func.coalesce(func.max(DeckSense.position), -1)).where(DeckSense.node_id == node_id)
     )
     return int(result.scalar_one()) + 1
 

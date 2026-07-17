@@ -59,6 +59,7 @@ async def current_user(
         image=user.image,
         role=user.role,
         banned_at=user.banned_at,
+        token_version=user.token_version,
     )
 
 

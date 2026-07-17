@@ -15,6 +15,7 @@ class CurrentUser(BaseModel):
     image: str | None = None
     role: UserRole = UserRole.user
     banned_at: datetime | None = None
+    token_version: int = 0
 
 
 class TokenResponse(BaseModel):

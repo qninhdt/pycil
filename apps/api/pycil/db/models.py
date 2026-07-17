@@ -3,6 +3,13 @@
 Import this module (not individual domain models) in ``alembic/env.py``.
 """
 
+from pycil.assistant.models import (  # noqa: F401
+    AssistantAction,
+    AssistantActionAudit,
+    AssistantRun,
+    AssistantRunEvent,
+    AssistantThread,
+)
 from pycil.auth.models import User  # noqa: F401
 from pycil.content.models import DeckSense  # noqa: F401
 from pycil.db.base import SQLModel

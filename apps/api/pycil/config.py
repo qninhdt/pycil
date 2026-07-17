@@ -38,10 +38,36 @@ class Settings(BaseSettings):
 
     # --- lexi-ai (separate DB + LLM + Cambridge source) ----------------------
     lexi_db_url: str = "sqlite+aiosqlite:///./lexi.db"
-    lexi_llm_base_url: str = "https://openrouter.ai/api/v1"
+    # Any endpoint implementing OpenAI chat-completions is supported.
+    lexi_llm_base_url: str = ""
     lexi_llm_api_key: str = ""
-    lexi_llm_model: str = "openai/gpt-4o-mini"
+    lexi_llm_model: str = "gpt-4o-mini"
     lexi_cambridge_db_path: str = "/data/cambridge"
+
+    # --- assistant (isolated OpenAI-compatible provider + durable state) ----
+    assistant_api_key: str = ""
+    assistant_model: str = "gpt-4o-mini"
+    assistant_base_url: str = ""
+    assistant_checkpoint_db_url: str = ""
+    assistant_timeout_seconds: int = 45
+    assistant_run_deadline_seconds: int = 120
+    assistant_max_output_tokens: int = 800
+    assistant_max_tool_calls: int = 12
+    assistant_max_message_chars: int = 8000
+    assistant_per_user_concurrency: int = 2
+    assistant_global_concurrency: int = 50
+    assistant_action_ttl_seconds: int = 900
+    assistant_retention_days: int = 30
+    assistant_audit_retention_days: int = 90
+    assistant_monthly_budget_usd: float = 0.0
+    assistant_estimated_cost_per_1k_tokens_usd: float = 0.01
+    assistant_requests_per_minute: int = 30
+
+    @property
+    def assistant_psycopg_url(self) -> str:
+        """Dedicated psycopg URL; never pass SQLAlchemy's asyncpg DSN to LangGraph."""
+        configured = self.assistant_checkpoint_db_url or self.db_url
+        return configured.replace("postgresql+asyncpg://", "postgresql://", 1)
 
     @property
     def cors_origins(self) -> list[str]:

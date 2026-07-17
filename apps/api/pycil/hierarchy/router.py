@@ -30,6 +30,7 @@ from pycil.hierarchy.schemas import (
     NodeVisibilityUpdate,
     WeakSenseRead,
 )
+from pycil.hierarchy.viewer_stats import get_folder_stats_for_viewer
 from pycil.learning.history import MasteryObservation, daily_history
 from pycil.learning.models import UserSenseStats
 
@@ -131,10 +132,7 @@ async def folder_stats(
     session: AsyncSession = Depends(get_session),
 ) -> FolderStatsRead:
     await require_node_access(session, node_id, user, write=False)
-    sense_ids = await _defset(session, node_id, user.id)
-    s = await stats.folder_stats(
-        session, user.id, sense_ids
-    )
+    s = await get_folder_stats_for_viewer(session, node_id, user.id)
     return FolderStatsRead(
         total=s.total, learned=s.learned, mastered=s.mastered, avg_mastery=s.avg_mastery
     )
@@ -269,15 +267,12 @@ async def global_stats(
         await session.execute(
             select(
                 func.count(),
-                func.coalesce(
-                    func.sum(case((UserSenseStats.review_count > 0, 1), else_=0)), 0
-                ),
+                func.coalesce(func.sum(case((UserSenseStats.review_count > 0, 1), else_=0)), 0),
                 func.coalesce(
                     func.sum(
                         case(
                             (
-                                (UserSenseStats.review_count > 0)
-                                & (UserSenseStats.mastery >= 80),
+                                (UserSenseStats.review_count > 0) & (UserSenseStats.mastery >= 80),
                                 1,
                             ),
                             else_=0,
@@ -286,9 +281,7 @@ async def global_stats(
                     0,
                 ),
                 func.coalesce(
-                    func.avg(UserSenseStats.mastery).filter(
-                        UserSenseStats.review_count > 0
-                    ),
+                    func.avg(UserSenseStats.mastery).filter(UserSenseStats.review_count > 0),
                     0.0,
                 ),
             ).where(UserSenseStats.user_id == user.id)
