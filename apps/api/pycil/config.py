@@ -44,7 +44,9 @@ class Settings(BaseSettings):
     lexi_service_url: str = "http://lexi-service:8443"
     lexi_service_token: str = ""
     lexi_reference_dataset_fingerprint: str = ""
-    lexi_service_timeout_seconds: float = 15
+    # Lexi's first reference-index search can be CPU-heavy; allow the internal
+    # service enough time under a real batch without widening generation timeout.
+    lexi_service_timeout_seconds: float = 60
     lexi_generation_timeout_seconds: float = 120
 
     # --- assistant (isolated OpenAI-compatible provider + durable state) ----
