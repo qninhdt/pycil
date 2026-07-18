@@ -2,6 +2,7 @@
 
 import asyncio
 from typing import Any
+from uuid import uuid4
 
 import httpx
 
@@ -50,6 +51,7 @@ class LexiHttpClient:
         submission = await self._request(
             "POST",
             "/v1/generations",
+            headers={"Idempotency-Key": f"pycil-{uuid4().hex}"},
             json={
                 "target": target,
                 "reference_dataset_fingerprint": self._reference_dataset_fingerprint,

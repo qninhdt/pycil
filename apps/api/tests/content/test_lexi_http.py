@@ -100,3 +100,24 @@ async def test_question_projection_and_grading_use_only_service_contract():
 
     assert score.correct is True
     assert score.score == 1.0
+
+
+async def test_generation_submissions_include_a_service_idempotency_key():
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/generations":
+            assert request.headers["idempotency-key"].startswith("pycil-")
+            return httpx.Response(200, json={"job_id": "job-1", "status": "queued"})
+        assert request.url.path == "/v1/jobs/job-1"
+        return httpx.Response(200, json={"status": "failed"})
+
+    client = LexiHttpClient(
+        "http://lexi-service:8443",
+        "internal-token",
+        "dataset",
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        with pytest.raises(Exception, match="lexi_generation_failed"):
+            await client.generate("example")
+    finally:
+        await client.close()
