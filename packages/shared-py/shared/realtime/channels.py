@@ -10,10 +10,6 @@ from uuid import UUID
 _USER_NS = "users"
 
 
-def user_notifications(user_id: UUID | str) -> str:
-    return f"{_USER_NS}:{user_id}#{user_id}"
-
-
 def user_jobs(user_id: UUID | str, job_id: str) -> str:
     return f"{_USER_NS}:{user_id}:jobs:{job_id}#{user_id}"
 

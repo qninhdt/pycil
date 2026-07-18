@@ -116,6 +116,95 @@ jobs:
           name: coverage-api
           path: apps/api/coverage.xml
 
+  test-worker:
+    # Execute worker behaviour tests separately; lint alone cannot catch an
+    # unregistered job or an API-package import failure in the worker image.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: Set up Python
+        run: uv python install 3.12
+      - name: Sync dev deps
+        working-directory: apps/worker
+        run: uv sync --extra dev
+      - name: Assert tests collected
+        working-directory: apps/worker
+        run: uv run pytest --collect-only -q >/dev/null
+      - name: Run worker tests
+        working-directory: apps/worker
+        run: uv run pytest -q
+
+  migration-head:
+    # A metadata create_all test does not prove Alembic's actual upgrade path.
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: pycil
+          POSTGRES_PASSWORD: pycil
+          POSTGRES_DB: pycil_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: Set up Python
+        run: uv python install 3.12
+      - name: Sync runtime deps
+        working-directory: apps/api
+        run: uv sync
+      - name: Upgrade a fresh PostgreSQL database to head
+        working-directory: apps/api
+        env:
+          DB_URL: postgresql+asyncpg://pycil:pycil@localhost:5432/pycil_test
+        run: |
+          uv run alembic upgrade head
+          test "$(uv run alembic current | tail -n 1)" = "0011_word_generation_idempotency (head)"
+
+  build-images:
+    # Ensure both runtime images build from a clean checkout, without requiring
+    # a local Lexi source tree or Cambridge dataset.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build API image
+        run: docker build -f apps/api/Dockerfile -t pycil-api:ci .
+      - name: Build worker image
+        run: docker build -f apps/worker/Dockerfile -t pycil-worker:ci .
+      - name: Validate Compose interpolation
+        env:
+          POSTGRES_USER: pycil
+          POSTGRES_PASSWORD: pycil
+          POSTGRES_DB: pycil
+          DATABASE_URL_ASYNC: postgresql+asyncpg://pycil:pycil@postgres:5432/pycil
+          REDIS_URL: redis://redis:6379/0
+          LEXI_SERVICE_INTERNAL_SERVICE_TOKEN: test-token
+          LEXI_REFERENCE_DATASET_SHA256: test-fingerprint
+          AUTH_JWT_SECRET: test-jwt-secret
+          INTERNAL_API_SECRET: test-internal-secret
+          CENTRIFUGO_API_KEY: test-centrifugo-api-key
+          CENTRIFUGO_TOKEN_HMAC_SECRET: test-centrifugo-token-secret
+          ALLOWED_ORIGINS: https://app.example.test
+        run: docker compose config -q
+      - name: Validate TLS/WSS ingress configuration
+        run: |
+          docker run --rm \
+            -e DOMAIN=app.example.test \
+            -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
 # No e2e job: this repo is backend-only (API + worker + shared Python). The
 # frontend lives in a separate repository, so browser e2e coverage (if any)
 # belongs there, not here.

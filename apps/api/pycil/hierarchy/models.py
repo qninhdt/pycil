@@ -1,4 +1,4 @@
-"""Hierarchy ORM models: nodes (adjacency list) + attributes + user pins.
+"""Hierarchy ORM models: nodes and their type-specific attributes.
 
 A single ``nodes`` table models FOLDER, DECK, and REFERENCE via ``type``.
 ``parent_node_id`` is the adjacency-list edge; ``target_node_id`` is set only on
@@ -54,9 +54,6 @@ class Node(SQLModel, table=True):
     name: str
     description: str | None = None
     visibility: Visibility = Field(default=Visibility.PRIVATE)
-    sense_count: int = Field(default=0)
-    like_count: int = Field(default=0)
-    fork_count: int = Field(default=0)
     created_at: datetime | None = Field(
         default=None, sa_type=TZDateTime, sa_column_kwargs={"server_default": text("NOW()")}
     )
@@ -66,13 +63,6 @@ class Node(SQLModel, table=True):
     deleted_at: datetime | None = Field(default=None, sa_type=TZDateTime)
 
 
-class FolderAttributes(SQLModel, table=True):
-    __tablename__ = "folder_attributes"
-
-    node_id: UUID = Field(foreign_key="nodes.id", primary_key=True)
-    subfolder_count: int = Field(default=0)
-
-
 class DeckAttributes(SQLModel, table=True):
     __tablename__ = "deck_attributes"
 
@@ -80,19 +70,4 @@ class DeckAttributes(SQLModel, table=True):
     settings: dict = Field(
         default_factory=dict,
         sa_column=Column(JSONB, nullable=False, server_default=text("'{}'::jsonb")),
-    )
-
-
-class UserNode(SQLModel, table=True):
-    __tablename__ = "user_nodes"
-
-    user_id: UUID = Field(foreign_key="users.id", primary_key=True)
-    node_id: UUID = Field(foreign_key="nodes.id", primary_key=True)
-    is_starred: bool = Field(default=False)
-    is_pinned: bool = Field(default=False)
-    created_at: datetime | None = Field(
-        default=None, sa_type=TZDateTime, sa_column_kwargs={"server_default": text("NOW()")}
-    )
-    updated_at: datetime | None = Field(
-        default=None, sa_type=TZDateTime, sa_column_kwargs={"server_default": text("NOW()")}
     )

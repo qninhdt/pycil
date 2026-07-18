@@ -9,9 +9,9 @@ from pycil.main import create_app
 @pytest.mark.parametrize(
     "path",
     [
-        "/folders/{node_id}/items",
-        "/folders/{node_id}/history",
-        "/me/stats",
+        "/v1/folders/{node_id}/items",
+        "/v1/folders/{node_id}/history",
+        "/v1/me/stats",
     ],
 )
 def test_openapi_exposes_approved_statistics_surfaces(path):
@@ -19,7 +19,7 @@ def test_openapi_exposes_approved_statistics_surfaces(path):
 
 
 def test_stats_endpoint_has_no_caller_controlled_mastery_threshold():
-    operation = create_app().openapi()["paths"]["/folders/{node_id}/stats"]["get"]
+    operation = create_app().openapi()["paths"]["/v1/folders/{node_id}/stats"]["get"]
     query_parameters = {
         item["name"] for item in operation.get("parameters", []) if item["in"] == "query"
     }

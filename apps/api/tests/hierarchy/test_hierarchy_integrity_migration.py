@@ -9,14 +9,15 @@ import asyncpg
 from testcontainers.postgres import PostgresContainer
 
 
-def test_upgrade_from_baseline_adds_generation_and_reference_guards():
+def test_upgrade_from_baseline_adds_integrity_guards_then_removes_legacy_schema():
     with PostgresContainer("postgres:16-alpine", driver="asyncpg") as postgres:
         db_url = postgres.get_connection_url()
         env = os.environ | {"DB_URL": db_url}
         _alembic(env, "0001_baseline")
-        _alembic(env, "head")
+        _alembic(env, "0008_assistant_agent")
         asyncio.run(_old_shape_write_still_succeeds(db_url))
         asyncio.run(_old_response_write_still_succeeds(db_url))
+        _alembic(env, "head")
         rollback = _run_alembic(env, "0001_baseline", direction="downgrade")
 
         (
@@ -26,6 +27,7 @@ def test_upgrade_from_baseline_adds_generation_and_reference_guards():
             grading_schema,
             history_index,
             grading_check,
+            legacy_schema_removed,
         ) = asyncio.run(_inspect(db_url))
 
     assert generation
@@ -34,10 +36,11 @@ def test_upgrade_from_baseline_adds_generation_and_reference_guards():
     assert grading_schema
     assert history_index
     assert grading_check
-    # All post-baseline revisions are additive.  Refusing a schema downgrade is
-    # deliberate: an application rollback must keep the expanded live schema.
+    assert legacy_schema_removed
+    # Canonicalization is forward-only: a rollback must not restore removed
+    # product features and their persisted data model.
     assert rollback.returncode != 0
-    assert "additive" in rollback.stderr
+    assert "forward-only" in rollback.stderr
 
 
 def test_upgrade_reports_invalid_legacy_membership():
@@ -142,7 +145,7 @@ async def _old_response_write_still_succeeds(db_url: str) -> None:
     assert dict(row) == {"grade_status": "graded", "grade_feedback": "legacy writer"}
 
 
-async def _inspect(db_url: str) -> tuple[bool, bool, bool, bool, bool, bool]:
+async def _inspect(db_url: str) -> tuple[bool, bool, bool, bool, bool, bool, bool]:
     connection = await asyncpg.connect(db_url.replace("postgresql+asyncpg://", "postgresql://"))
     try:
         generation = await connection.fetchval(
@@ -183,6 +186,22 @@ async def _inspect(db_url: str) -> tuple[bool, bool, bool, bool, bool, bool]:
             "SELECT EXISTS (SELECT 1 FROM pg_constraint "
             "WHERE conname = 'ck_responses_pending_has_raw_answer')"
         )
+        legacy_schema_removed = await connection.fetchval(
+            """
+            SELECT NOT EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE (table_name = 'users' AND column_name IN ('role', 'banned_at', 'ban_reason'))
+                   OR (
+                       table_name = 'nodes'
+                       AND column_name IN ('sense_count', 'like_count', 'fork_count')
+                   )
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM information_schema.tables
+                WHERE table_name IN ('folder_attributes', 'user_nodes')
+            )
+            """
+        )
         return (
             generation,
             target_index,
@@ -190,6 +209,7 @@ async def _inspect(db_url: str) -> tuple[bool, bool, bool, bool, bool, bool]:
             grading_schema,
             history_index,
             grading_check,
+            legacy_schema_removed,
         )
     finally:
         await connection.close()

@@ -3,20 +3,15 @@ name: pycil
 # Shared fragments (merged with `<<:` below). DRYs the env + dependency blocks
 # duplicated across api and worker so a new shared knob is added once.
 x-backend-env: &backend-env
+  ENVIRONMENT: ${ENVIRONMENT:-development}
+  DOMAIN: ${DOMAIN}
   DB_URL: ${DATABASE_URL_ASYNC}
   REDIS_URL: ${REDIS_URL}
 
 x-lexi-env: &lexi-env
-  LEXI_DB_URL: ${LEXI_DB_URL}
-  LEXI_LLM_BASE_URL: ${LEXI_LLM_BASE_URL}
-  LEXI_LLM_API_KEY: ${LEXI_LLM_API_KEY}
-  LEXI_LLM_MODEL: ${LEXI_LLM_MODEL}
-  LEXI_CAMBRIDGE_DB_PATH: ${LEXI_CAMBRIDGE_DB_PATH:-/data/cambridge}
-
-x-lexi-cambridge-mount: &lexi-cambridge-mount
-  # Read-only Cambridge SQLite source (~142MB, gitignored). Copied/mounted from
-  # the lexi-ai project dir. Without it lexi search() returns empty.
-  - ${LEXI_CAMBRIDGE_HOST_PATH:-./vendor/lexi-ai/data}:/data/cambridge:ro
+  LEXI_SERVICE_URL: ${LEXI_SERVICE_URL:-http://lexi-service:8443}
+  LEXI_SERVICE_TOKEN: ${LEXI_SERVICE_INTERNAL_SERVICE_TOKEN:?LEXI_SERVICE_INTERNAL_SERVICE_TOKEN is required}
+  LEXI_REFERENCE_DATASET_FINGERPRINT: ${LEXI_REFERENCE_DATASET_SHA256:?LEXI_REFERENCE_DATASET_SHA256 is required}
 
 x-assistant-env: &assistant-env
   ASSISTANT_API_KEY: ${ASSISTANT_API_KEY:-}
@@ -85,8 +80,6 @@ services:
       CENTRIFUGO_API_KEY: ${CENTRIFUGO_API_KEY}
       CENTRIFUGO_ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
       CENTRIFUGO_HEALTH: "true"
-    ports:
-      - "8001:8000"
     volumes:
       - ./centrifugo-config.json:/centrifugo/config.json:ro
     healthcheck:
@@ -94,6 +87,24 @@ services:
       interval: 10s
       timeout: 5s
       retries: 6
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+      centrifugo:
+        condition: service_healthy
 
   # One-shot migration gate: a healthy Postgres is NOT a migrated Postgres.
   # api + worker depend_on this completing successfully before they start.
@@ -125,14 +136,17 @@ services:
       JWT_MAX_AGE_SECONDS: ${JWT_MAX_AGE_SECONDS:-604800}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      OAUTH_REDIRECT_URIS: ${OAUTH_REDIRECT_URIS:-}
       INTERNAL_SECRET: ${INTERNAL_API_SECRET}
       CENTRIFUGO_URL: ${CENTRIFUGO_URL:-http://centrifugo:8000}
       CENTRIFUGO_API_KEY: ${CENTRIFUGO_API_KEY}
       CENTRIFUGO_TOKEN_HMAC_SECRET: ${CENTRIFUGO_TOKEN_HMAC_SECRET}
-    volumes: *lexi-cambridge-mount
+    # Debug-only direct access is loopback-bound. Public API/WSS traffic goes
+    # through Caddy on 80/443; production never exposes the application port.
     ports:
-      - "8000:8000"
+      - "${API_HOST_PORT:-127.0.0.1:8000}:8000"
     depends_on: *depends-stores
+    networks: [default, pycil-backend]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
       interval: 10s
@@ -149,8 +163,8 @@ services:
       <<: [*backend-env, *lexi-env]
       INTERNAL_SECRET: ${INTERNAL_API_SECRET}
       PYCIL_API_INTERNAL_URL: ${PYCIL_API_INTERNAL_URL:-http://api:8000}
-    volumes: *lexi-cambridge-mount
     depends_on: *depends-stores
+    networks: [default, pycil-backend]
     healthcheck:
       # python:3.12-slim has no redis-cli, so probe via the in-image redis
       # client. Lives in base so the prod worker is health-gated too.
@@ -183,3 +197,9 @@ secrets:
 volumes:
   pgdata:
   redisdata:
+  caddy_data:
+  caddy_config:
+
+networks:
+  pycil-backend:
+    external: true

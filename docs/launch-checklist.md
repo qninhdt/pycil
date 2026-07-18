@@ -1,50 +1,39 @@
-# Launch Checklist
+# Backend deployment checklist
 
-Pre-flight + go/no-go gates for the v1 public launch.
+This repository ships the Pycil API and worker only. A future Next.js BFF is a
+separate deployment; do not use this checklist as a frontend launch checklist.
 
-## T-1 day (Day 6 evening)
+## Prerequisites
 
-- [ ] `docker compose up -d` on prod with latest image; `alembic upgrade head` clean
-- [] Cold-start smoke (private window, fresh Google account):
-  - landing → sign-in → dashboard with sample deck visible
-  - add term `ubiquitous` → SSE finishes < 30s
-  - start session on Starter Words → answer 5 correct + 2 wrong
-  - psql: `SELECT mastery_score, mastery_level FROM user_term_stats LIMIT 5` shows non-default rows
-- [ ] One manual `pg_dump` to `/var/backups/pycil/pre-launch.sql`
-- [ ] OpenRouter dashboard: < 5% of $20 daily budget consumed during smoke
-- [ ] Caddy access logs: only `200`s during smoke run
-- [ ] Capture 4 screenshots (landing, dashboard, deck detail, learn) at 1280×800
-- [ ] Record 15s GIF: add term → enrichment → study; compress with ffmpeg < 2 MB
+- [ ] `lexi-ai` is running separately, has completed its Cambridge reference
+  bootstrap, and exposes the internal `lexi-service` alias on `pycil-backend`.
+- [ ] Both PostgreSQL databases have a tested backup; Pycil does not own
+  Lexi's dictionary database.
+- [ ] Production `.env` has non-placeholder values for JWT, internal,
+  Centrifugo, Google OAuth, and Lexi service secrets; `DOMAIN`,
+  `ALLOWED_ORIGINS`, and `OAUTH_REDIRECT_URIS` are exact production values.
+- [ ] `ENVIRONMENT=production`; the API's fail-closed production validation
+  succeeds before any traffic is admitted.
 
-## Go / no-go gates
+## Deploy and smoke test
 
-| Gate | Pass criteria |
-|------|---------------|
-| Auth | Fresh Google account reaches `/dashboard` with sample seed |
-| Generation | Term enrichment SSE completes ≤ 30s, definition is sensible |
-| Learning | First-attempt-correct twice → ELO + interval update visible in DB |
-| Budget | Daily LLM spend < 50% of cap during smoke |
-| Logs | No 5xx in last 1h |
+- [ ] From the Pycil checkout, run `IMAGE_TAG=<sha12> bash scripts/deploy.sh`.
+- [ ] Confirm `GET https://<domain>/health/live` and `/health/ready` return
+  success. Readiness covers Pycil Postgres, Redis, worker heartbeat, Lexi, and
+  Centrifugo.
+- [ ] Run Google OAuth through the Next.js BFF callback; verify its stored
+  bearer token can call `GET /v1/me` and cannot be read by browser JavaScript.
+- [ ] Submit `POST /v1/word-generations` with an `Idempotency-Key`; poll its
+  returned `/v1/jobs/{id}` until terminal state and verify duplicate submission
+  returns the same job.
+- [ ] Start a session, answer a deterministic question, and verify exactly one
+  FSRS response/review update. For `use_in_sentence`, verify the pending
+  response resolves through poll or the owner-scoped Centrifugo channel.
+- [ ] Confirm anonymous reads work only for public nodes and a private node
+  returns `404` to another user.
 
-If any gate fails → fix → re-run smoke → recheck. Do not launch on red.
+## Go / no-go
 
-## Launch day (Day 7)
-
-- [ ] Submit Show HN at peak traffic (~9am PT weekday). Title + body in `launch-copy/show-hn.md`
-- [ ] Optional: Product Hunt listing using same screenshots + GIF
-- [ ] Open monitoring tabs:
-  1. Show HN comments
-  2. `ssh vps 'docker compose logs -f --tail=200'`
-  3. OpenRouter usage dashboard
-  4. `psql -c 'SELECT count(*) FROM users'` polled hourly
-
-## Triage protocol (during 4-hour window)
-
-- **P0** — sign-in broken, 5xx, payment-relevant → drop everything, target deploy < 30 min
-- **P1** — UI broken, slow, confusing → note, fix evening
-- **P2+** — feature requests, nice-to-have → record in `plans/post-launch-feedback.md`
-
-## Wrap (evening)
-
-- [] Commit `docs/launch-retro.md` with: sign-ups, LLM spend, top 3 P0/P1, top 3 feature requests, 1-paragraph reflection
-- [ ] Run `/ck:journal` for the sprint
+Do not admit frontend traffic if migration, readiness, Lexi fingerprint,
+OAuth callback allow-list, durable job recovery, or owner-channel isolation
+fails. Investigate, deploy a forward fix, then rerun the affected smoke test.

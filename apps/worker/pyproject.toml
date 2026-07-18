@@ -15,13 +15,11 @@ dependencies = [
     "sqlmodel>=0.0.38,<0.1",
     "pycil-shared",
     "pycil-api",
-    "lexi-ai",
 ]
 
 [tool.uv.sources]
 pycil-shared = { path = "../../packages/shared-py", editable = true }
 pycil-api = { path = "../api", editable = true }
-lexi-ai = { path = "../../vendor/lexi-ai", editable = true }
 
 [project.optional-dependencies]
 dev = [

@@ -5,9 +5,9 @@ This module only translates a lexi ``Score`` into (a) the FSRS binary grade and
 (b) pycil's ``GradeResponse`` fields. No thresholds, no inline scoring.
 """
 
-from lexi_ai import Score
 from shared.fsrs import GRADE_AGAIN, GRADE_GOOD
 
+from pycil.content.lexi_types import Score
 from pycil.learning.models import GradeStatus
 
 

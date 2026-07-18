@@ -15,7 +15,7 @@ from pycil.auth.models import User
 from pycil.config import settings
 
 _ALGO = "HS256"
-_REQUIRED_CLAIMS = ["sub", "role", "tv", "exp", "iat"]
+_REQUIRED_CLAIMS = ["sub", "tv", "exp", "iat"]
 _CLOCK_SKEW_SECONDS = 30
 
 
@@ -25,7 +25,6 @@ def sign_access(user: User) -> tuple[str, int]:
     ttl = settings.jwt_max_age_seconds
     claims = {
         "sub": str(user.id),
-        "role": user.role.value,
         "tv": user.token_version,
         "iat": now,
         "exp": now + ttl,

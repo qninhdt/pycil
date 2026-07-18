@@ -1,11 +1,8 @@
 """Auth request/response DTOs."""
 
-from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel
-
-from pycil.auth.models import UserRole
 
 
 class CurrentUser(BaseModel):
@@ -13,8 +10,6 @@ class CurrentUser(BaseModel):
     email: str
     name: str | None = None
     image: str | None = None
-    role: UserRole = UserRole.user
-    banned_at: datetime | None = None
     token_version: int = 0
 
 
@@ -26,3 +21,8 @@ class TokenResponse(BaseModel):
 
 class LoginStart(BaseModel):
     authorize_url: str
+
+
+class CapabilitiesRead(BaseModel):
+    assistant: bool
+    realtime: bool = True

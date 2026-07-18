@@ -8,6 +8,15 @@ class WordRequest(BaseModel):
     query: str = Field(min_length=1, max_length=200)
 
 
+class WordSearchRead(BaseModel):
+    display: str
+    entry_type: str | None = Field(default=None, serialization_alias="entryType")
+    score: float = 0.0
+    lexi_word_id: int | None = Field(default=None, serialization_alias="wordId")
+    cambridge_id: int | None = Field(default=None, serialization_alias="cambridgeId")
+    gloss: str | None = None
+
+
 class SenseAddRequest(BaseModel):
     sense_id: int = Field(alias="senseId")
 

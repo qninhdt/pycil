@@ -87,5 +87,5 @@ async def revalidate_actor(session: AsyncSession, user_id: UUID, token_version: 
     from pycil.common.errors import ForbiddenError
 
     user = await session.get(User, user_id)
-    if user is None or user.banned_at is not None or user.token_version != token_version:
+    if user is None or user.token_version != token_version:
         raise ForbiddenError("assistant_actor_revoked", code="assistant_actor_revoked")

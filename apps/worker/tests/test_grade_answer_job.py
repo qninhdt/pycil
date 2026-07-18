@@ -37,7 +37,7 @@ async def test_grade_answer_publishes_terminal_verdict(monkeypatch, worker_conte
     result = await grade_answer.grade_answer(worker_context, "owner", str(outcome.response_id))
 
     assert result == {"status": "graded", "is_correct": True}
-    assert published[0][1].to_dict()["mastery_after"] == 20
+    assert published[0][1].to_dict()["masteryAfter"] == 20
 
 
 async def test_grade_answer_retry_does_not_republish(monkeypatch, worker_context):

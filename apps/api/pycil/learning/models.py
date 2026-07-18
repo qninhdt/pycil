@@ -2,7 +2,7 @@
 
 All ``sense_id``/``question_id`` are opaque bigints into lexi-ai's DB (no FK).
 FSRS memory state (stability/difficulty) lives on ``user_sense_stats``; ``mastery``
-is the discrete 0-100 saturation of stability. No ELO, no mastery_level.
+is the discrete 0-100 saturation of stability.
 """
 
 from datetime import datetime

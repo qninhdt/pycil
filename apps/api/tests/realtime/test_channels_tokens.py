@@ -13,7 +13,6 @@ from pycil.realtime import client
 
 def test_every_private_channel_embeds_owner_uid():
     uid = uuid.uuid4()
-    assert channels.user_notifications(uid) == f"users:{uid}#{uid}"
     assert channels.user_jobs(uid, "job1") == f"users:{uid}:jobs:job1#{uid}"
     assert channels.user_grading(uid, "resp1") == f"users:{uid}:grading:resp1#{uid}"
 
@@ -69,11 +68,11 @@ def test_centrifugo_config_denies_open_user_namespace_subscriptions():
 
 def test_payload_serialization():
     job = JobUpdate(job_id="j1", status="done", detail="ok")
-    assert job.to_dict() == {"job_id": "j1", "status": "done", "detail": "ok"}
+    assert job.to_dict() == {"jobId": "j1", "status": "done", "detail": "ok"}
     grade = GradingResult(
         response_id="r1", sense_id=42, is_correct=True, grade_score=1.0,
         mastery_before=10, mastery_after=20,
     )
     d = grade.to_dict()
-    assert d["sense_id"] == 42 and d["is_correct"] is True
-    assert d["mastery_before"] == 10 and d["mastery_after"] == 20
+    assert d["senseId"] == 42 and d["isCorrect"] is True
+    assert d["masteryBefore"] == 10 and d["masteryAfter"] == 20

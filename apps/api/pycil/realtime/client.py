@@ -17,6 +17,16 @@ _ALGO = "HS256"
 _TOKEN_TTL = 3600
 
 
+async def readiness() -> bool:
+    """Check the mandatory Centrifugo process without publishing an event."""
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            response = await client.get(f"{settings.centrifugo_url}/health")
+            return response.status_code == 200
+    except httpx.HTTPError:
+        return False
+
+
 def sign_subscription_token(user_id: UUID | str) -> str:
     """Sign a Centrifugo connection token whose ``sub`` is the user id."""
     now = int(time.time())

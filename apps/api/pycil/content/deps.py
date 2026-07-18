@@ -1,18 +1,27 @@
-"""Content dependencies: the shared LexiClient instance.
+"""Content dependencies: the shared authenticated Lexi HTTP client."""
 
-A single Lexicon (bound to lexi-ai's DB) is built once per process and reused.
-``lexicon.init()`` is run at startup (Phase 11); tests override this dependency
-with a fake LexiClient.
-"""
-
-from pycil.content.lexi_inprocess import InProcessLexiClient, build_lexicon
+from pycil.config import settings
+from pycil.content.lexi_http import LexiHttpClient
 from pycil.content.lexi_port import LexiClient
 
-_client: InProcessLexiClient | None = None
+_client: LexiHttpClient | None = None
 
 
 def get_lexi_client() -> LexiClient:
     global _client
     if _client is None:
-        _client = InProcessLexiClient(build_lexicon())
+        _client = LexiHttpClient(
+            settings.lexi_service_url,
+            settings.lexi_service_token,
+            settings.lexi_reference_dataset_fingerprint,
+            timeout_seconds=settings.lexi_service_timeout_seconds,
+            generation_timeout_seconds=settings.lexi_generation_timeout_seconds,
+        )
     return _client
+
+
+async def close_lexi_client() -> None:
+    global _client
+    if _client is not None:
+        await _client.close()
+        _client = None

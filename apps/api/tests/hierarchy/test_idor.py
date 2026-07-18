@@ -40,7 +40,7 @@ async def two_user_client(engine):
 
 
 def _cu(u: User) -> CurrentUser:
-    return CurrentUser(id=u.id, email=u.email, role=u.role)
+    return CurrentUser(id=u.id, email=u.email)
 
 
 async def test_non_owner_cannot_read_private_node(two_user_client):
@@ -56,7 +56,7 @@ async def test_non_owner_cannot_read_private_node(two_user_client):
 
     # Attacker tries to read the owner's PRIVATE folder stats.
     holder["user"] = _cu(attacker)
-    resp = await client.get(f"/folders/{deck.id}/stats")
+    resp = await client.get(f"/v1/folders/{deck.id}/stats")
     # Private node existence not leaked → 404.
     assert resp.status_code == 404
 
@@ -73,7 +73,7 @@ async def test_non_owner_cannot_write_node(two_user_client):
         deck = await service.create_node(s, owner.id, node_type=NodeType.DECK, name="d")
 
     holder["user"] = _cu(attacker)
-    resp = await client.delete(f"/nodes/{deck.id}")
+    resp = await client.delete(f"/v1/nodes/{deck.id}")
     assert resp.status_code == 403
 
 
@@ -92,11 +92,37 @@ async def test_public_node_readable_not_writable_by_non_owner(two_user_client):
 
     holder["user"] = _cu(other)
     # Public node: readable by non-owner.
-    read = await client.get(f"/folders/{deck.id}/stats")
+    read = await client.get(f"/v1/folders/{deck.id}/stats")
     assert read.status_code == 200
     # But NOT writable by non-owner.
-    write = await client.delete(f"/nodes/{deck.id}")
+    write = await client.delete(f"/v1/nodes/{deck.id}")
     assert write.status_code == 403
+
+
+async def test_anonymous_can_read_public_node_but_not_private_node(two_user_client):
+    client, factory, _ = two_user_client
+    async with factory() as s:
+        owner = User(email="anonymous-owner@x.co")
+        s.add(owner)
+        await s.commit()
+        await s.refresh(owner)
+        public = await service.create_node(
+            s,
+            owner.id,
+            node_type=NodeType.DECK,
+            name="public direct link",
+            visibility=Visibility.PUBLIC,
+        )
+        private = await service.create_node(
+            s, owner.id, node_type=NodeType.DECK, name="private direct link"
+        )
+
+    public_response = await client.get(f"/v1/nodes/{public.id}")
+    private_response = await client.get(f"/v1/nodes/{private.id}")
+
+    assert public_response.status_code == 200
+    assert public_response.json()["id"] == str(public.id)
+    assert private_response.status_code == 404
 
 
 async def test_owner_can_read_and_write(two_user_client):
@@ -109,5 +135,5 @@ async def test_owner_can_read_and_write(two_user_client):
         deck = await service.create_node(s, owner.id, node_type=NodeType.DECK, name="mine")
 
     holder["user"] = _cu(owner)
-    assert (await client.get(f"/folders/{deck.id}/stats")).status_code == 200
-    assert (await client.delete(f"/nodes/{deck.id}")).status_code == 204
+    assert (await client.get(f"/v1/folders/{deck.id}/stats")).status_code == 200
+    assert (await client.delete(f"/v1/nodes/{deck.id}")).status_code == 204

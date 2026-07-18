@@ -1,8 +1,8 @@
-"""Boundary tests: pycil↔lexi-ai separation holds.
+"""Boundary tests: Pycil↔Lexi service separation holds.
 
 Asserts the two-DB boundary is enforced structurally, not just by convention:
-pycil's DB has no dictionary tables, no code constructs a Lexicon outside the
-adapter, and the grade path writes only pycil learning tables.
+pycil's DB has no dictionary tables, no code imports Lexi implementation
+models, and the grade path writes only Pycil learning tables.
 """
 
 import pytest
@@ -28,29 +28,27 @@ def test_pycil_metadata_has_no_dictionary_tables():
 def test_pycil_tables_are_the_expected_set():
     pycil_tables = {t.name for t in target_metadata.tables.values()}
     expected = {
-        "users", "nodes", "folder_attributes", "deck_attributes", "user_nodes",
+        "users", "nodes", "deck_attributes",
         "deck_senses", "user_sense_stats", "review_log", "responses",
         "session_sense_attempts",
+        "word_generations",
         "assistant_threads", "assistant_runs", "assistant_run_events",
         "assistant_actions", "assistant_action_audit",
     }
     assert pycil_tables == expected
 
 
-def test_no_lexicon_construction_outside_adapter():
-    """grep-equivalent: Lexicon(...) appears only in lexi_inprocess.py."""
+def test_runtime_has_no_lexi_implementation_imports():
+    """Pycil's runtime must depend on Lexi's HTTP contract only."""
     import pathlib
 
     root = pathlib.Path(__file__).resolve().parents[2] / "pycil"
     hits = []
     for path in root.rglob("*.py"):
-        if path.name == "lexi_inprocess.py":
-            continue
         text = path.read_text()
-        # Lexicon( construction call (not import, not type annotation).
-        if "Lexicon(" in text and "from lexi_ai" in text and "build_lexicon" not in text:
+        if "lexi_ai" in text or "Lexicon(" in text:
             hits.append(str(path.relative_to(root.parent)))
-    assert not hits, f"Lexicon( constructed outside the adapter: {hits}"
+    assert not hits, f"Lexi implementation leaked into Pycil runtime: {hits}"
 
 
 @pytest.mark.asyncio

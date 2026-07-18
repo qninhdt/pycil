@@ -18,7 +18,7 @@ from pycil.hierarchy.models import Node, NodeType, Visibility
 async def require_node_access(
     session: AsyncSession,
     node_id: UUID,
-    user: CurrentUser,
+    user: CurrentUser | None,
     *,
     write: bool = False,
 ) -> Node:
@@ -32,21 +32,21 @@ async def require_node_access(
     if node is None or node.deleted_at is not None:
         raise NotFoundError("node_not_found")
 
-    is_owner = node.author_id == user.id
+    is_owner = user is not None and node.author_id == user.id
     if write:
         if not is_owner:
             raise ForbiddenError("not_node_owner", code="forbidden")
-    elif not await can_read_node(session, node, user.id):
+    elif not await can_read_node(session, node, user.id if user is not None else None):
         # Don't leak private-node existence to non-owners.
         raise NotFoundError("node_not_found")
     return node
 
 
-async def can_read_node(session: AsyncSession, node: Node, user_id: UUID) -> bool:
+async def can_read_node(session: AsyncSession, node: Node, user_id: UUID | None) -> bool:
     """Whether a node is directly or inherited-public readable by ``user_id``."""
     if node.deleted_at is not None or not await _has_live_ancestry(session, node):
         return False
-    if node.author_id == user_id or node.visibility == Visibility.PUBLIC:
+    if (user_id is not None and node.author_id == user_id) or node.visibility == Visibility.PUBLIC:
         return True
 
     # A public FOLDER grants inherited read access only through same-owner edges.

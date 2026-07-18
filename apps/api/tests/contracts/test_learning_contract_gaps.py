@@ -5,7 +5,6 @@ from datetime import UTC, datetime, timedelta
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from lexi_ai.read_models import Question, Score
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -13,6 +12,7 @@ from pycil.auth.deps import current_user
 from pycil.auth.models import User
 from pycil.auth.schemas import CurrentUser
 from pycil.content.deps import get_lexi_client
+from pycil.content.lexi_types import Question, Score
 from pycil.content.models import DeckSense
 from pycil.db.session import get_session
 from pycil.hierarchy import service as hierarchy_service
@@ -35,7 +35,7 @@ class _QuestionClient:
             sense_id=self.sense_id,
             format="definition_mcq",
             answer_kind="choice",
-            payload={"prompt": "?", "options": ["a", "b"], "answer": 0},
+            payload={"stem": "?", "options": ["a", "b"], "correct_index": 0},
         )
 
     async def get_question_for_sense(self, sense_id: int, question_format: str):
@@ -45,7 +45,7 @@ class _QuestionClient:
             sense_id=sense_id,
             format=question_format,
             answer_kind="choice",
-            payload={"prompt": "?", "options": ["a", "b"], "answer": 0},
+            payload={"stem": "?", "options": ["a", "b"], "correct_index": 0},
         )
 
     async def grade(self, question, answer):
@@ -76,7 +76,7 @@ async def learning_client(engine):
             yield session
 
     async def override_user() -> CurrentUser:
-        return CurrentUser(id=owner.id, email=owner.email, role=owner.role)
+        return CurrentUser(id=owner.id, email=owner.email)
 
     app = create_app()
     app.dependency_overrides[get_session] = override_session
@@ -90,12 +90,12 @@ async def learning_client(engine):
 
 async def test_started_session_serves_a_retry_safe_queue_item(learning_client):
     client, _, _, deck = learning_client
-    started = await client.post("/sessions", json={"nodeId": str(deck.id)})
+    started = await client.post("/v1/sessions", json={"nodeId": str(deck.id)})
     assert started.status_code == 200
     session_id = started.json()["sessionId"]
 
-    first = await client.get(f"/sessions/{session_id}/next")
-    second = await client.get(f"/sessions/{session_id}/next")
+    first = await client.get(f"/v1/sessions/{session_id}/next")
+    second = await client.get(f"/v1/sessions/{session_id}/next")
 
     assert first.status_code == 200
     assert first.json()["state"] == "ready"
@@ -113,9 +113,9 @@ async def test_api_rejects_out_of_queue_answer_without_state_write(
 
     monkeypatch.setattr(realtime_client, "publish", no_publish)
     client, factory, owner, deck = learning_client
-    started = await client.post("/sessions", json={"nodeId": str(deck.id)})
+    started = await client.post("/v1/sessions", json={"nodeId": str(deck.id)})
     response = await client.post(
-        "/answers",
+        "/v1/answers",
         json={
             "sessionId": started.json()["sessionId"],
             "questionId": 77,
@@ -170,7 +170,7 @@ async def test_pending_response_has_dedicated_raw_answer_field():
 
 
 async def test_answer_contract_exposes_response_id_and_grade_status():
-    operation = create_app().openapi()["paths"]["/answers"]["post"]
+    operation = create_app().openapi()["paths"]["/v1/answers"]["post"]
     schema_ref = operation["responses"]["200"]["content"]["application/json"]["schema"]["$ref"]
     schema_name = schema_ref.rsplit("/", 1)[-1]
     properties = create_app().openapi()["components"]["schemas"][schema_name]["properties"]

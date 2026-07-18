@@ -22,16 +22,14 @@ async def generate_question(
 
     await realtime.publish_job(owner_uid, job_id, "running")
 
-    entry = await client.get_entry(word_id)
-    if entry is None:
+    if sense_id is None:
         return {
-            "status": "missing_entry",
+            "status": "missing_sense",
             "questions": [],
             "session_id": session_id,
-            "sense_id": sense_id,
+            "sense_id": None,
         }
-
-    questions = await client.generate_questions(entry, formats, n)
+    questions = await client.generate_questions(word_id, sense_id, formats, n)
     payloads = [
         {"id": q.id, "sense_id": q.sense_id, "format": q.format}
         for q in questions

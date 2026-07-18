@@ -31,6 +31,9 @@ def _pkce_pair() -> tuple[str, str]:
 
 async def build_authorize_url(redirect_uri: str) -> str:
     """Create a state + PKCE challenge, persist verifier in Redis, return the URL."""
+    allowed = settings.allowed_oauth_redirect_uris
+    if allowed and redirect_uri not in allowed:
+        raise ValueError("redirect_uri_not_allowed")
     state = secrets.token_urlsafe(24)
     verifier, challenge = _pkce_pair()
     redis = get_redis()

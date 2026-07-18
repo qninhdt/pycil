@@ -15,10 +15,9 @@ from pycil.content.models import DeckSense  # noqa: F401
 from pycil.db.base import SQLModel
 from pycil.hierarchy.models import (  # noqa: F401
     DeckAttributes,
-    FolderAttributes,
     Node,
-    UserNode,
 )
+from pycil.jobs.models import WordGeneration  # noqa: F401
 from pycil.learning.models import (  # noqa: F401
     Response,
     ReviewLog,

@@ -3,14 +3,14 @@
 **Status:** Historical — describes the original 7-day sprint MVP (Auth.js,
 single Postgres, ELO, MCQ/Write/Fill). **Superseded** by the Python greenfield
 migration (`plans/260705-0032-python-greenfield-migration/plan.md`): the
-backend now runs FastAPI + SQLModel + Alembic with an internalized lexi-ai
-dictionary/grading engine, FSRS-4.5 (not ELO), a folder/deck/REFERENCE
+backend now runs FastAPI + SQLModel + Alembic with separately deployed
+`lexi-ai` dictionary/grading service, FSRS-4.5 (not ELO), a folder/deck/REFERENCE
 hierarchy, and Google OAuth 2.1 + PKCE + bearer JWT (not Auth.js). Billing,
 gamification, admin dashboard, chat, translation/TTS, and SSE — all described
 below as shipped — were removed in that migration.
 
 **For current architecture and requirements, see
-[system-architecture.md](./system-architecture.md),
+[current-system-architecture.md](./current-system-architecture.md),
 [codebase-summary.md](./codebase-summary.md), and
 [project-roadmap.md](./project-roadmap.md).** The rest of this file is kept
 for historical context only.

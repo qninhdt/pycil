@@ -4,18 +4,17 @@ Plain dataclasses serialized to dict for the Centrifugo publish body. Keep these
 in sync on both sides so the frontend sees one stable event shape per channel.
 """
 
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 
 
 @dataclass
 class JobUpdate:
     job_id: str
-    status: str  # queued | running | done | error
+    status: str  # queued | running | succeeded | failed
     detail: str | None = None
 
     def to_dict(self) -> dict:
-        return asdict(self)
-
+        return {"jobId": self.job_id, "status": self.status, "detail": self.detail}
 
 @dataclass
 class GradingResult:
@@ -28,13 +27,12 @@ class GradingResult:
     mastery_after: int | None = None
 
     def to_dict(self) -> dict:
-        return asdict(self)
-
-
-@dataclass
-class Notification:
-    kind: str
-    message: str
-
-    def to_dict(self) -> dict:
-        return asdict(self)
+        return {
+            "responseId": self.response_id,
+            "senseId": self.sense_id,
+            "isCorrect": self.is_correct,
+            "gradeScore": self.grade_score,
+            "gradeFeedback": self.grade_feedback,
+            "masteryBefore": self.mastery_before,
+            "masteryAfter": self.mastery_after,
+        }

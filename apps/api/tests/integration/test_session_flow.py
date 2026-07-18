@@ -7,10 +7,10 @@ LexiClient is faked at the port boundary (not the LLM); Postgres is real.
 from datetime import UTC, datetime
 
 import pytest
-from lexi_ai.read_models import Question, Score
 from sqlalchemy import select
 
 from pycil.auth.models import User
+from pycil.content.lexi_types import Question, Score
 from pycil.content.models import DeckSense
 from pycil.hierarchy import service as hierarchy_service
 from pycil.hierarchy.models import NodeType

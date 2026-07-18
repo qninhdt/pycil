@@ -1,8 +1,8 @@
 name: Nightly
 
 # Expensive / real-LLM work kept OFF the PR gate. Runs on a schedule and via
-# manual dispatch only — NEVER on pull_request/pull_request_target, so the real
-# LEXI_LLM_API_KEY is never exposed to fork PRs.
+# manual dispatch only — NEVER on pull_request/pull_request_target, so no
+# deployment credential is exposed to fork PRs.
 on:
   schedule:
     # 03:17 UTC daily (off the :00 stampede).
@@ -55,12 +55,3 @@ jobs:
         with:
           name: nightly-coverage-api
           path: apps/api/coverage.xml
-
-  # DISABLED: llm-live (real-OpenRouter contract suite) and e2e-tier2 (real-LLM
-  # Playwright run) both targeted apps/worker/tests/llm_live/, which the
-  # python-migration plan's Phase 9 deleted outright — the new worker has no
-  # standalone LLM client (generation/grading delegate to lexi-ai through the
-  # LexiClient port). e2e-tier2 also inherits the e2e job's Dex/ELO/cookie-auth
-  # mismatch documented in test.yml. Re-add real-LLM contract coverage against
-  # lexi-ai directly (not the old worker/llm/ package) if that's still wanted,
-  # and revisit e2e-tier2 alongside test.yml's e2e once Phase 10 finishes.

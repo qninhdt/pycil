@@ -1,0 +1,54 @@
+"""Production startup configuration and OAuth redirect allowlist tests."""
+
+import pytest
+
+from pycil.auth import oauth
+from pycil.config import Settings, validate_production_settings
+
+
+def _production_settings(**overrides) -> Settings:
+    values = {
+        "environment": "production",
+        "domain": "api.example.com",
+        "db_url": "postgresql+asyncpg://pycil:strong@postgres/pycil",
+        "jwt_secret": "a" * 40,
+        "internal_secret": "b" * 40,
+        "centrifugo_api_key": "c" * 40,
+        "centrifugo_token_hmac_secret": "d" * 40,
+        "lexi_service_token": "e" * 40,
+        "lexi_reference_dataset_fingerprint": "f" * 64,
+        "google_client_id": "client-id.apps.googleusercontent.com",
+        "google_client_secret": "google-secret",
+        "allowed_origins": "https://app.example.com",
+        "oauth_redirect_uris": "https://app.example.com/api/auth/callback",
+    }
+    values.update(overrides)
+    return Settings(**values)
+
+
+def test_production_configuration_accepts_exact_values():
+    validate_production_settings(_production_settings())
+
+
+@pytest.mark.parametrize(
+    "overrides, expected",
+    [
+        ({"jwt_secret": "changeme"}, "JWT_SECRET"),
+        ({"allowed_origins": "*"}, "ALLOWED_ORIGINS"),
+        ({"oauth_redirect_uris": ""}, "OAUTH_REDIRECT_URIS"),
+        ({"domain": "localhost"}, "DOMAIN"),
+    ],
+)
+def test_production_configuration_rejects_unsafe_values(overrides, expected):
+    with pytest.raises(RuntimeError, match=expected):
+        validate_production_settings(_production_settings(**overrides))
+
+
+async def test_oauth_login_rejects_redirect_outside_configured_allowlist(monkeypatch):
+    monkeypatch.setattr(
+        oauth.settings,
+        "oauth_redirect_uris",
+        "https://app.example.com/api/auth/callback",
+    )
+    with pytest.raises(ValueError, match="redirect_uri_not_allowed"):
+        await oauth.build_authorize_url("https://attacker.example/callback")

@@ -1,9 +1,11 @@
 # Pycil — Roadmap
 
 **Current status:** backend rebuilt as a Python greenfield migration
-(FastAPI + SQLModel + Alembic), replacing the mid-flight Go/ent/chi direction.
-See "Python Greenfield Migration" below for phase status.
-**See also:** `docs/project-overview-pdr.md`, `docs/codebase-summary.md`, `docs/system-architecture.md`, `docs/project-changelog.md`
+(FastAPI + SQLModel + Alembic), with `lexi-ai` deployed as a separate internal
+HTTP dictionary/grading service. The current source of truth is
+[`current-system-architecture.md`](./current-system-architecture.md),
+[`codebase-summary.md`](./codebase-summary.md), and the
+[`frontend-integration-guide.md`](./frontend-integration-guide.md).
 
 The original 7-day sprint plan and its v0.2/v0.3 follow-ups (further down this
 file) describe the pre-migration Python/Next.js MVP. They're kept for
@@ -15,7 +17,8 @@ backend-only — no frontend ships here.
 ## Python Greenfield Migration (current)
 
 **Plan:** `plans/260705-0032-python-greenfield-migration/plan.md`
-**Scope:** internalize `lexi-ai` as the dictionary/question/grading authority,
+**Scope:** use separately deployed `lexi-ai` as the dictionary/question/grading
+authority over authenticated internal HTTP,
 implement FSRS-4.5 + the folder/deck/REFERENCE hierarchy, redesign auth
 (Google OAuth 2.1 + PKCE + bearer JWT), add Centrifugo realtime. Removes
 billing, gamification, admin dashboard, translation/TTS, ELO, and general SSE.
@@ -33,7 +36,7 @@ chat/SSE with durable human approval for sensitive actions.
 | 7 | Hierarchy & Stats | Complete |
 | 8 | Realtime Centrifugo | Complete |
 | 9 | Worker Redesign | Complete |
-| 10 | Frontend Auth & Rename | Removed |
+| 10 | Frontend Auth & Rename | Deferred — external Next.js BFF |
 | 11 | Integration Wiring | Complete |
 | 12 | Tests & Docs | Complete |
 
@@ -71,8 +74,8 @@ repository.
 | 1 | Canonicalize Contracts and Baseline | Complete | Current Python/FSRS/two-DB design contracts recorded; local API tests provision disposable PostgreSQL with Testcontainers, CI retains `TEST_DB_URL`, and 19 known gaps are strict xfails for later phases. |
 | 2 | Hierarchy and cache integrity | Complete | Additive `0002` migration preflights invalid legacy hierarchy data; service rules enforce tree/reference/membership invariants, inherited public-folder reads, live-reference revocation, and DB-generation cache invalidation. |
 | 3 | Canonical session delivery | Complete | Redis session queue/cursor and issued-question binding deliver canonical, answer-sanitised questions; first attempts are recorded durably. |
-| 4 | Grading persistence and concurrency | In progress | Pending `use_in_sentence` responses use fenced leases, polling, and worker reconciliation; remaining implementation review is still open. |
-| 5 | Statistics contract and scale | In progress | Folder items/history and global stats routes exist; daily history carries mastery forward, but phase validation and performance measurement remain open. |
+| 4 | Grading persistence and concurrency | Complete | Pending `use_in_sentence` responses use fenced leases, polling, and worker reconciliation. |
+| 5 | Statistics contract and scale | Complete | Folder items/history and global stats routes use the canonical learned-sense relation. |
 | 6 | Deployment integration and realtime ACL | Complete | Additive migrations `0002`–`0007`, Centrifugo native user-limited channel ACL, runtime/config validation, versioned grading jobs with legacy drain, and worker behavior coverage are present. |
 
 The Phase 1 baseline recorded 13 shared-package tests passing and 64 API tests
@@ -85,25 +88,22 @@ phases above retain their stated validation work. See the
 **Operational gaps not tracked by any phase above** (found during the Phase
 12 docs pass; CI/deploy.sh/Makefile closed 2026-07-06, rest still open):
 
-- ~~CI still targets `apps/pycil-core` + a Dex OIDC container~~ — fixed:
-  `.github/workflows/{test,deploy,nightly}.yml`, `scripts/deploy.sh`, and the
-  root `Makefile` now target `apps/api`/`apps/worker`/`packages/shared-py` and
-  the `api`/`worker`/`migrate` compose services. Caddy-validate CI + the two
-  root Caddyfiles were removed (Caddy already dropped from compose in Phase 1).
+- CI targets `apps/api`, `apps/worker`, and `packages/shared-py`; it also
+  validates the Compose render, migration head, API/worker image builds, and
+  Caddy configuration.
 - ~~`apps/pycil-core`, `docker-compose.staging.yml`/Dex/MinIO, and
   `apps/web/e2e`~~ — removed 2026-07-06 (superseded/unreferenced by the new
   stack; see system-architecture.md § Known Gaps for what each depended on).
-- There is no browser e2e coverage. The old Playwright suite drove the
-  now-removed frontend; rebuilding API-level e2e/contract coverage needs a new
-  auth-testing strategy (the new `apps/api/pycil/auth/oauth.py` hardcodes
-  Google's real endpoints, so there's no local IdP swap-in anymore).
-- Worker coverage currently includes a registration test for pending-grade
-  reconciliation; job-level behaviour coverage is still limited.
+- There is no browser e2e coverage because this repository has no frontend.
+  The future Next.js BFF must add its own OAuth, sealed-session, and browser
+  journey coverage.
+- The remaining deployment gate is a real two-Compose smoke test with a
+  published Cambridge artifact; it cannot be hermetic because it validates
+  the runtime artifact download and shared Docker network.
 - 2k/100k statistics and live Centrifugo ACL checks are opt-in Docker-backed
   tests; they are excluded from the default suite to keep it hermetic.
   recorded yet.
-- Backup coverage (`backup` compose service) covers only pycil's own
-  Postgres, not lexi-ai's separate database.
+- Backups must cover Pycil's own Postgres and Lexi's separate Postgres.
 
 ---
 

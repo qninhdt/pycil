@@ -1,10 +1,8 @@
-"""Auth dependencies: bearer-only current_user + require_admin.
+"""Auth dependencies: bearer-only current_user.
 
 The API reads the JWT from the ``Authorization: Bearer`` header ONLY — never a
-cookie — so CSRF is out of scope by design. ``role``, ``token_version`` and
-``banned_at`` are re-read from the DB on every request; the JWT claims are
-edge-convenience only. A ``token_version`` mismatch or a non-null ``banned_at``
-rejects the request.
+cookie — so CSRF is out of scope by design. ``token_version`` is re-read from
+the DB on every request; a mismatch rejects the request.
 """
 
 from typing import Annotated
@@ -17,9 +15,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from pycil.auth import tokens
-from pycil.auth.models import User, UserRole
+from pycil.auth.models import User
 from pycil.auth.schemas import CurrentUser
-from pycil.common.errors import ForbiddenError, UnauthorizedError
+from pycil.common.errors import UnauthorizedError
 from pycil.db.session import get_session
 
 _bearer = HTTPBearer(auto_error=False)
@@ -49,26 +47,27 @@ async def current_user(
     # Re-read authoritative state — JWT claims are edge-convenience only.
     if user is None or user.token_version != claim_tv:
         raise UnauthorizedError("token_revoked")
-    if user.banned_at is not None:
-        raise ForbiddenError("account_banned", code="account_banned")
-
     return CurrentUser(
         id=user.id,
         email=user.email,
         name=user.name,
         image=user.image,
-        role=user.role,
-        banned_at=user.banned_at,
         token_version=user.token_version,
     )
 
 
-async def require_admin(
-    user: Annotated[CurrentUser, Depends(current_user)],
-) -> CurrentUser:
-    if user.role != UserRole.admin:
-        raise ForbiddenError("admin_required", code="admin_required")
-    return user
+async def optional_current_user(
+    creds: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)] = None,
+    session: AsyncSession = Depends(get_session),
+) -> CurrentUser | None:
+    """Return an authenticated identity when supplied, otherwise stay anonymous.
+
+    Invalid supplied credentials are never silently downgraded to anonymous.
+    This is used only by explicitly public read routes.
+    """
+    if creds is None or not creds.credentials:
+        return None
+    return await current_user(creds=creds, session=session)
 
 
 async def get_user_by_email(session: AsyncSession, email: str) -> User | None:

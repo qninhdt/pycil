@@ -10,16 +10,11 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Build context = repo root (see docker-compose.yml). lexi-ai is an editable
-# path dep; its source must be copied into the context too (interim until it
-# publishes to an index). The compose build mounts it under /app/vendor/lexi-ai.
 COPY packages/shared-py /app/packages/shared-py
-COPY vendor/lexi-ai /app/vendor/lexi-ai
 COPY apps/api /app/apps/api
 
 RUN pip install --upgrade pip \
     && pip install -e /app/packages/shared-py \
-    && pip install -e /app/vendor/lexi-ai \
     && pip install -e /app/apps/api
 
 WORKDIR /app/apps/api

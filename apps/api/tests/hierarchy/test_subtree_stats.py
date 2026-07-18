@@ -18,7 +18,7 @@ class FakeLexiClient:
         self._cefr = cefr_by_id
 
     async def get_senses(self, sense_ids):
-        from lexi_ai.read_models import SenseView
+        from pycil.content.lexi_types import SenseView
 
         return [
             SenseView(

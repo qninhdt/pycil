@@ -22,7 +22,7 @@ async def _user(session, email: str) -> User:
 
 
 def _current_user(user: User) -> CurrentUser:
-    return CurrentUser(id=user.id, email=user.email, role=user.role)
+    return CurrentUser(id=user.id, email=user.email)
 
 
 async def test_public_folder_requires_explicit_publication_confirmation(session):

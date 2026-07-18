@@ -6,6 +6,7 @@ a blank env var can never open the gate.
 """
 
 import hmac
+from uuid import uuid4
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,6 +18,33 @@ from pycil.config import settings
 INTERNAL_PREFIX = "/internal"
 
 
+def _request_id(request: Request) -> str:
+    request_id = getattr(request.state, "request_id", None)
+    if request_id is None:
+        request_id = request.headers.get("X-Request-ID") or uuid4().hex
+        request.state.request_id = request_id
+    return request_id
+
+
+def _middleware_error(request: Request, status_code: int, code: str, message: str) -> JSONResponse:
+    response = JSONResponse(
+        status_code=status_code,
+        content={
+            "error": {
+                "code": code,
+                "message": message,
+                "details": {},
+                "requestId": _request_id(request),
+            }
+        },
+    )
+    response.headers["X-Request-ID"] = _request_id(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
+
+
 class BodySizeLimitMiddleware(BaseHTTPMiddleware):
     def __init__(self, app, max_bytes: int):
         super().__init__(app)
@@ -25,10 +53,7 @@ class BodySizeLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         cl = request.headers.get("content-length")
         if cl is not None and cl.isdigit() and int(cl) > self.max_bytes:
-            return JSONResponse(
-                status_code=413,
-                content={"error": {"code": "payload_too_large", "message": "Body too large"}},
-            )
+            return _middleware_error(request, 413, "payload_too_large", "Body too large")
         return await call_next(request)
 
 
@@ -41,6 +66,16 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
+class RequestIdMiddleware(BaseHTTPMiddleware):
+    """Attach an opaque correlation id to every response and error envelope."""
+
+    async def dispatch(self, request: Request, call_next):
+        request.state.request_id = request.headers.get("X-Request-ID") or uuid4().hex
+        response: Response = await call_next(request)
+        response.headers["X-Request-ID"] = request.state.request_id
+        return response
+
+
 class InternalSecretMiddleware(BaseHTTPMiddleware):
     """Constant-time guard on /internal/* routes; empty/missing secret rejected."""
 
@@ -49,14 +84,12 @@ class InternalSecretMiddleware(BaseHTTPMiddleware):
             presented = request.headers.get("X-Internal-Secret", "")
             expected = settings.internal_secret
             if not presented or not expected or not hmac.compare_digest(presented, expected):
-                return JSONResponse(
-                    status_code=401,
-                    content={"error": {"code": "unauthorized", "message": "Bad internal secret"}},
-                )
+                return _middleware_error(request, 401, "unauthorized", "Bad internal secret")
         return await call_next(request)
 
 
 def install_middleware(app: FastAPI) -> None:
+    app.add_middleware(RequestIdMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(InternalSecretMiddleware)
     app.add_middleware(BodySizeLimitMiddleware, max_bytes=settings.max_body_bytes)

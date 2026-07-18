@@ -11,15 +11,13 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # Build context = repo root (see docker-compose.yml). The worker reuses the API
-# package (LexiClient + learning service) and the lexi-ai path dep.
+# package for the Lexi HTTP client and learning service.
 COPY packages/shared-py /app/packages/shared-py
-COPY vendor/lexi-ai /app/vendor/lexi-ai
 COPY apps/api /app/apps/api
 COPY apps/worker /app/apps/worker
 
 RUN pip install --upgrade pip \
     && pip install -e /app/packages/shared-py \
-    && pip install -e /app/vendor/lexi-ai \
     && pip install -e /app/apps/api \
     && pip install -e /app/apps/worker
 

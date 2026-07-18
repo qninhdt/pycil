@@ -34,9 +34,7 @@ jobs:
       - name: Build & push api
         uses: docker/build-push-action@v5
         with:
-          # Repo-root context: the Dockerfile COPYs packages/shared-py and
-          # vendor/lexi-ai, which only resolve from root (matches
-          # docker-compose.yml build config).
+          # Repo-root context lets the image install the shared package.
           context: .
           file: apps/api/Dockerfile
           push: true

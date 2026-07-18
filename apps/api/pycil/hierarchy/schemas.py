@@ -1,5 +1,6 @@
 """Hierarchy DTOs — node CRUD + folder stats."""
 
+from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -26,11 +27,12 @@ class NodeRead(BaseModel):
     id: UUID
     type: NodeType
     name: str
+    description: str | None = None
     parent_node_id: UUID | None = Field(default=None, serialization_alias="parentNodeId")
     target_node_id: UUID | None = Field(default=None, serialization_alias="targetNodeId")
     visibility: Visibility
-    sense_count: int = Field(serialization_alias="senseCount")
-
+    created_at: datetime | None = Field(default=None, serialization_alias="createdAt")
+    updated_at: datetime | None = Field(default=None, serialization_alias="updatedAt")
     model_config = {"from_attributes": True}
 
 
@@ -38,6 +40,27 @@ class NodeMove(BaseModel):
     parent_node_id: UUID | None = Field(default=None, alias="parentNodeId")
 
     model_config = {"populate_by_name": True}
+
+
+class NodeUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=10_000)
+
+
+class NodePageRead(BaseModel):
+    items: list[NodeRead]
+    next_cursor: str | None = Field(default=None, serialization_alias="nextCursor")
+
+
+class DeckSettingsUpdate(BaseModel):
+    new_per_batch: int = Field(alias="newPerBatch", ge=1, le=100)
+    review_per_batch: int = Field(alias="reviewPerBatch", ge=1, le=100)
+
+    model_config = {"populate_by_name": True}
+
+
+class DeckSettingsRead(DeckSettingsUpdate):
+    pass
 
 
 class NodeVisibilityUpdate(BaseModel):

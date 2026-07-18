@@ -11,11 +11,11 @@ from pycil.assistant import content_facade, hierarchy_facade
 from pycil.assistant.context import AssistantContext
 from pycil.assistant.models import ActionStatus, AssistantAction, AssistantActionAudit
 from pycil.assistant.persistence import revalidate_actor
-from pycil.content import service as content_service
 from pycil.content.deps import get_lexi_client
 from pycil.db.redis import get_arq_pool
 from pycil.db.session import async_session_factory
 from pycil.hierarchy.viewer_stats import get_folder_stats_for_viewer
+from pycil.jobs import service as jobs_service
 
 MAX_RESULTS = 50
 
@@ -189,8 +189,12 @@ async def list_deck_items(
 async def request_word_generation(query: str, runtime: ToolRuntime[AssistantContext]) -> str:
     """Queue vocabulary generation for the caller."""
     await _mutate(runtime)
-    await content_service.request_word(await get_arq_pool(), runtime.context.user_id, query[:200])
-    return "generation_requested"
+    async with async_session_factory() as session:
+        record = await jobs_service.create_generation(session, runtime.context.user_id, query[:200])
+    await (await get_arq_pool()).enqueue_job(
+        "generate_word", str(runtime.context.user_id), query[:200], str(record.id)
+    )
+    return f"generation_requested:{record.id}"
 
 
 @tool

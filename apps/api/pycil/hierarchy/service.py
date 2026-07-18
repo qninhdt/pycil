@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from pycil.common.errors import ConflictError, NotFoundError
 from pycil.hierarchy import cache
-from pycil.hierarchy.models import DeckAttributes, FolderAttributes, Node, NodeType, Visibility
+from pycil.hierarchy.models import DeckAttributes, Node, NodeType, Visibility
 
 
 async def create_node(
@@ -44,9 +44,7 @@ async def create_node(
     )
     session.add(node)
     await session.flush()
-    if node_type == NodeType.FOLDER:
-        session.add(FolderAttributes(node_id=node.id))
-    elif node_type == NodeType.DECK:
+    if node_type == NodeType.DECK:
         session.add(DeckAttributes(node_id=node.id))
 
     prior = await cache.bump_generations(session, [node.id, parent_node_id])
@@ -123,6 +121,26 @@ async def set_visibility(
         await _delete_prior_defsets(prior)
     else:
         await session.flush()
+    return current
+
+
+async def update_node(
+    session: AsyncSession,
+    node: Node,
+    *,
+    name: str | None,
+    description: str | None,
+) -> Node:
+    """Persist editable node metadata without changing tree/cache structure."""
+    current = await session.get(Node, node.id, with_for_update=True)
+    if current is None or current.deleted_at is not None:
+        raise NotFoundError("node_not_found")
+    if name is not None:
+        current.name = name
+    if description is not None:
+        current.description = description
+    await session.commit()
+    await session.refresh(current)
     return current
 
 

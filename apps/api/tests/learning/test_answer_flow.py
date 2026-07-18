@@ -3,11 +3,11 @@
 from datetime import UTC, datetime
 
 import pytest
-from lexi_ai.read_models import Question, Score
 from sqlalchemy import select
 
 from pycil.auth.models import User
 from pycil.common.errors import NotFoundError
+from pycil.content.lexi_types import Question, Score
 from pycil.learning import service
 from pycil.learning.models import ReviewLog, UserSenseStats
 

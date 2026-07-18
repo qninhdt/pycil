@@ -29,8 +29,19 @@ die() { red "deploy: $*"; exit 1; }
 # Source .env so $POSTGRES_USER / $POSTGRES_DB are available to pg_dump.
 set -a; . "./$ENV_FILE"; set +a
 
+# Pycil reaches the separately deployed Lexi service only through this shared,
+# non-routable network.  Creating it here makes a fresh VPS deterministic while
+# preserving the network when either compose project is redeployed.
+if ! docker network inspect pycil-backend >/dev/null 2>&1; then
+  grn "→ creating internal pycil↔lexi network…"
+  docker network create --internal pycil-backend >/dev/null
+fi
+
 export API_IMAGE="${REGISTRY}/${IMAGE_PREFIX}-api:${IMAGE_TAG}"
 export WORKER_IMAGE="${REGISTRY}/${IMAGE_PREFIX}-worker:${IMAGE_TAG}"
+# A VPS deploy is always production even when an operator copied a development
+# template and forgot this knob. The API then validates all production guards.
+export ENVIRONMENT=production
 grn "→ deploying api=${API_IMAGE} worker=${WORKER_IMAGE}"
 
 # --- 1. Pre-deploy DB snapshot (keep last 5) ---------------------------------
@@ -48,6 +59,9 @@ docker compose pull
 grn "→ validating Centrifugo ACL configuration…"
 docker compose run --rm centrifugo centrifugo checkconfig -c /centrifugo/config.json \
   >/dev/null || die "Centrifugo ACL configuration is invalid"
+grn "→ validating Caddy TLS/WSS ingress configuration…"
+docker compose run --rm --no-deps caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile \
+  >/dev/null || die "Caddy ingress configuration is invalid"
 
 # --- 3. Migration-then-swap: migrate in the NEW image BEFORE swapping --------
 # `migrate` is the one-shot compose service (command: alembic upgrade head,
@@ -88,13 +102,13 @@ done
 [ "$worker_ok" -eq 1 ] || { docker compose logs --tail=50 worker || true; die "worker failed health check after 60s"; }
 grn "✓ worker healthy"
 
-grn "→ starting API…"
-docker compose up -d api
+grn "→ starting API and TLS/WSS ingress…"
+docker compose up -d api caddy
 grn "→ waiting for api health…"
 healthy=0
 for _ in $(seq 1 30); do
   if docker compose exec -T api \
-       python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()" \
+       python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready').read()" \
        >/dev/null 2>&1; then
     healthy=1; break
   fi

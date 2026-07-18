@@ -29,7 +29,7 @@ from pycil.learning.schemas import (
     GradeResponse,
     NextQuestionExhausted,
     NextQuestionPending,
-    NextQuestionReady,
+    ReadyQuestion,
     SessionRead,
     SessionStart,
 )
@@ -113,7 +113,7 @@ async def start_session(
 
 @router.get(
     "/sessions/{session_id}/next",
-    response_model=NextQuestionReady | NextQuestionPending | NextQuestionExhausted,
+    response_model=ReadyQuestion | NextQuestionPending | NextQuestionExhausted,
 )
 async def next_question(
     session_id: str,
@@ -129,7 +129,7 @@ async def next_question(
     if node.structural_generation != state.scope_generation:
         raise ConflictError("session_scope_changed")
     if state.issue and state.issue["state"] == "ready":
-        return NextQuestionReady(**state.issue)
+        return state.issue
     if state.issue and state.issue["state"] == "answering":
         return NextQuestionPending(
             sense_id=state.issue["sense_id"],
@@ -161,7 +161,7 @@ async def next_question(
         if state is None:
             raise NotFoundError("session_not_found")
         if state.issue and state.issue["state"] == "ready":
-            return NextQuestionReady(**state.issue)
+            return state.issue
         if not reserved:
             if state.issue:
                 return NextQuestionPending(
@@ -215,7 +215,7 @@ async def next_question(
     issue = {"state": "ready", **question_delivery.ready_payload(question, recommended_type)}
     if not await session_store.replace_issue(redis, session_id, issue):
         raise NotFoundError("session_not_found")
-    return NextQuestionReady(**issue)
+    return issue
 
 
 @router.post("/answers", response_model=GradeResponse)

@@ -13,7 +13,7 @@ from pycil.auth import oauth, tokens
 from pycil.auth.deps import current_user, get_user_by_email
 from pycil.auth.models import User
 from pycil.auth.schemas import CurrentUser, LoginStart, TokenResponse
-from pycil.common.errors import UnauthorizedError
+from pycil.common.errors import AppError, UnauthorizedError
 from pycil.db.session import get_session
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -21,7 +21,10 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.get("/login", response_model=LoginStart)
 async def login(redirect_uri: Annotated[str, Query()]) -> LoginStart:
-    url = await oauth.build_authorize_url(redirect_uri)
+    try:
+        url = await oauth.build_authorize_url(redirect_uri)
+    except ValueError as exc:
+        raise AppError("invalid_redirect_uri", code="invalid_redirect_uri") from exc
     return LoginStart(authorize_url=url)
 
 

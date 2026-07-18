@@ -30,14 +30,12 @@ def test_assistant_provider_uses_only_dedicated_openai_compatible_settings(monke
             assistant_model="dedicated-model",
             assistant_timeout_seconds=12,
             assistant_max_output_tokens=345,
-            lexi_llm_api_key="lexi-secret-that-must-never-be-used",
         ),
     )
 
     assert graph.build_graph(checkpointer=object()) is sentinel
     assert captured["api_key"] == "assistant-secret"
     assert captured["base_url"] == "https://provider.example/v1"
-    assert "lexi-secret" not in repr(captured)
 
 
 def test_assistant_provider_fails_closed_without_dedicated_credential(monkeypatch):

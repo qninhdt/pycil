@@ -22,7 +22,7 @@ class FakeLexiClient:
 
     async def get_senses(self, sense_ids):
         self.get_senses_calls.append(sense_ids)
-        from lexi_ai.read_models import SenseView
+        from pycil.content.lexi_types import SenseView
 
         return [
             SenseView(
@@ -45,7 +45,7 @@ async def _seed_user(session, email="owner@x.co") -> User:
 
 
 def _cu(user: User) -> CurrentUser:
-    return CurrentUser(id=user.id, email=user.email, role=user.role)
+    return CurrentUser(id=user.id, email=user.email)
 
 
 async def test_create_and_add_sense(session):
@@ -130,18 +130,3 @@ async def test_resolve_senses_empty_shortcircuits(session):
     client = FakeLexiClient()
     assert await service.resolve_senses(client, []) == []
     assert client.get_senses_calls == []  # no client call on empty input
-
-
-async def test_request_word_enqueues(session):
-    owner = await _seed_user(session)
-
-    class FakePool:
-        def __init__(self):
-            self.jobs = []
-
-        async def enqueue_job(self, name, *args):
-            self.jobs.append((name, args))
-
-    pool = FakePool()
-    await service.request_word(pool, owner.id, "serendipity")
-    assert pool.jobs == [("generate_word", (str(owner.id), "serendipity"))]

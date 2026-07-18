@@ -94,7 +94,7 @@ async def apply_verdict(
     """Resolve a PENDING async (WRITE) grade — idempotent across arq retries.
 
     The ``responses.grade_status`` column is the terminal marker: a row already
-    ``graded`` returns None (a retried/double-fired job no-ops, never re-billing
+    ``graded`` returns None (a retried/double-fired job no-ops, never repeats provider work
     the LLM). Re-fetches the authoritative question by id, grades via lexi, then
     applies the FSRS update under the per-(user,sense) lock and persists the
     verdict onto the SAME response row.

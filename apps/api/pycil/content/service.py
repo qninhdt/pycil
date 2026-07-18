@@ -1,8 +1,7 @@
-"""Content service: deck membership + trigger word generation.
+"""Content service: deck membership only.
 
-pycil records only ``deck_senses`` membership (opaque sense_id). Word generation
-is async — enqueued to the worker, which is the single writer to lexi-ai's DB.
-Sense content for display is resolved through the LexiClient port, never stored.
+pycil records only ``deck_senses`` membership (opaque sense_id). Sense content
+for display is resolved through the LexiClient port, never stored.
 """
 
 from uuid import UUID
@@ -15,11 +14,6 @@ from pycil.content.models import DeckSense
 from pycil.hierarchy import cache
 from pycil.hierarchy import service as hierarchy_service
 from pycil.hierarchy.models import Node, NodeType
-
-
-async def request_word(arq_pool, user_id: UUID, query: str) -> None:
-    """Enqueue lazy generation. The worker is the single writer to lexi's DB."""
-    await arq_pool.enqueue_job("generate_word", str(user_id), query)
 
 
 async def create_deck(

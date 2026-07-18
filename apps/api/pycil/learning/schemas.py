@@ -1,5 +1,6 @@
 """Learning DTOs — session/question/answer. Sense-based, opaque ids."""
 
+from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -23,17 +24,55 @@ class NextQuestion(BaseModel):
     question_id: int = Field(serialization_alias="questionId")
     sense_id: int = Field(serialization_alias="senseId")
     recommended_type: str = Field(serialization_alias="recommendedType")
-    payload: dict
+
+
+class McqPresentation(BaseModel):
+    stem: str
+    options: list[str]
+
+
+class ClozePresentation(BaseModel):
+    stem_with_blank: str = Field(serialization_alias="stemWithBlank")
+
+
+class UseInSentencePresentation(BaseModel):
+    prompt: str
+
+
+class NextQuestionReadyBase(NextQuestion):
+    state: Literal["ready"] = "ready"
+
+
+class DefinitionMcqReady(NextQuestionReadyBase):
+    format: Literal["definition_mcq"] = "definition_mcq"
+    payload: McqPresentation
+
+
+class ContextualMcqReady(NextQuestionReadyBase):
+    format: Literal["contextual_mcq"] = "contextual_mcq"
+    payload: McqPresentation
+
+
+class ClozeReady(NextQuestionReadyBase):
+    format: Literal["cloze"] = "cloze"
+    payload: ClozePresentation
+
+
+class UseInSentenceReady(NextQuestionReadyBase):
+    format: Literal["use_in_sentence"] = "use_in_sentence"
+    payload: UseInSentencePresentation
+
+
+ReadyQuestion = Annotated[
+    DefinitionMcqReady | ContextualMcqReady | ClozeReady | UseInSentenceReady,
+    Field(discriminator="format"),
+]
 
 
 class NextQuestionPending(BaseModel):
     state: str = "pending"
     sense_id: int = Field(serialization_alias="senseId")
     recommended_type: str = Field(serialization_alias="recommendedType")
-
-
-class NextQuestionReady(NextQuestion):
-    state: str = "ready"
 
 
 class NextQuestionExhausted(BaseModel):

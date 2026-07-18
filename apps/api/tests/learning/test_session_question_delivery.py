@@ -4,15 +4,15 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
-from lexi_ai.read_models import Question
 
 from pycil.auth.models import User
+from pycil.content.lexi_types import Question
 from pycil.content.models import DeckSense
 from pycil.hierarchy import service as hierarchy_service
 from pycil.hierarchy.models import NodeType
 from pycil.learning import session_store
 from pycil.learning.models import UserSenseStats
-from pycil.learning.question_delivery import find_question, ready_payload, sanitize_payload
+from pycil.learning.question_delivery import find_question, ready_payload
 from pycil.learning.session_queue import build_queue
 
 
@@ -25,19 +25,6 @@ class _LookupClient:
         return self.question
 
 
-def test_sanitizer_removes_answer_keys_at_every_nesting_level():
-    payload = {
-        "prompt": "What?",
-        "answer": 1,
-        "nested": {"correct_answer": "x", "visible": True},
-        "items": [{"answer_key": "nope", "correctAnswer": 1, "label": "A"}],
-    }
-    assert sanitize_payload(payload) == {
-        "prompt": "What?",
-        "items": [{"label": "A"}],
-    }
-
-
 @pytest.mark.asyncio
 async def test_ready_question_is_selected_by_sense_and_sanitized():
     question = Question(
@@ -46,7 +33,7 @@ async def test_ready_question_is_selected_by_sense_and_sanitized():
         sense_id=41,
         format="definition_mcq",
         answer_kind="choice",
-        payload={"prompt": "?", "options": ["a", "b"], "answer": 0},
+        payload={"stem": "?", "options": ["a", "b"], "correct_index": 0},
     )
     selected = await find_question(_LookupClient(question), 41, "definition_mcq")
     assert selected is question
@@ -54,8 +41,45 @@ async def test_ready_question_is_selected_by_sense_and_sanitized():
         "question_id": 7,
         "sense_id": 41,
         "recommended_type": "definition_mcq",
-        "payload": {"prompt": "?", "options": ["a", "b"]},
+        "format": "definition_mcq",
+        "payload": {"stem": "?", "options": ["a", "b"]},
     }
+
+
+@pytest.mark.parametrize(
+    ("question_format", "payload", "expected"),
+    [
+        (
+            "contextual_mcq",
+            {"stem": "context", "options": ["a", "b"], "correct_index": 1},
+            {"stem": "context", "options": ["a", "b"]},
+        ),
+        (
+            "cloze",
+            {"stem_with_blank": "A ___ B", "answer_norm": "word", "accepted_forms": ["words"]},
+            {"stem_with_blank": "A ___ B"},
+        ),
+        (
+            "use_in_sentence",
+            {"prompt": "Write one", "target_norm": "word", "rubric": "hidden"},
+            {"prompt": "Write one"},
+        ),
+    ],
+)
+def test_ready_payload_is_format_specific_and_never_serializes_answer_material(
+    question_format, payload, expected
+):
+    question = Question(
+        id=7,
+        word_id=3,
+        sense_id=41,
+        format=question_format,
+        answer_kind="choice",
+        payload=payload,
+    )
+    delivered = ready_payload(question, question_format)
+    assert delivered["format"] == question_format
+    assert delivered["payload"] == expected
 
 
 @pytest.mark.asyncio

@@ -1,52 +1,8 @@
-"""Question lookup and API-safe delivery helpers.
+"""Question lookup and typed, API-safe delivery helpers."""
 
-Question content stays authoritative in lexi-ai.  This module has one narrow
-boundary: it accepts only a question selected server-side and strips every
-answer-bearing field before a payload crosses the API boundary.
-"""
-
-from typing import Any
-
-from lexi_ai.read_models import Question
-
+from pycil.common.errors import ServiceUnavailableError
 from pycil.content.lexi_port import LexiClient
-
-_SAFE_PAYLOAD_KEYS = {
-    "audio",
-    "audiourl",
-    "blank",
-    "choices",
-    "context",
-    "hint",
-    "image",
-    "imageurl",
-    "instructions",
-    "items",
-    "label",
-    "options",
-    "prompt",
-    "question",
-    "sentence",
-    "text",
-}
-
-
-def _is_safe_key(key: str) -> bool:
-    normalized = "".join(character for character in key.lower() if character.isalnum())
-    return normalized in _SAFE_PAYLOAD_KEYS
-
-
-def sanitize_payload(value: Any) -> Any:
-    """Remove answer material recursively, including nested generator metadata."""
-    if isinstance(value, dict):
-        return {
-            key: sanitize_payload(item)
-            for key, item in value.items()
-            if _is_safe_key(key)
-        }
-    if isinstance(value, list):
-        return [sanitize_payload(item) for item in value]
-    return value
+from pycil.content.lexi_types import Question
 
 
 async def find_question(
@@ -65,11 +21,30 @@ async def find_question(
 
 
 def ready_payload(question: Question, recommended_type: str) -> dict:
+    """Create one format-specific, answer-free frontend presentation.
+
+    Lexi already sends a presentation projection over HTTP. The explicit
+    allowlist below remains a second boundary: fake/misconfigured providers can
+    never leak correct indices, rubric text, accepted forms, or arbitrary JSON.
+    """
     if question.id is None or question.sense_id is None:
         raise ValueError("question_requires_id_and_sense")
+    payload = question.payload
+    try:
+        if question.format in {"definition_mcq", "contextual_mcq"}:
+            presentation = {"stem": payload["stem"], "options": payload["options"]}
+        elif question.format == "cloze":
+            presentation = {"stem_with_blank": payload["stem_with_blank"]}
+        elif question.format == "use_in_sentence":
+            presentation = {"prompt": payload["prompt"]}
+        else:
+            raise KeyError("format")
+    except (KeyError, TypeError) as exc:
+        raise ServiceUnavailableError("lexi_question_presentation_invalid") from exc
     return {
         "question_id": question.id,
         "sense_id": question.sense_id,
         "recommended_type": recommended_type,
-        "payload": sanitize_payload(question.payload),
+        "format": question.format,
+        "payload": presentation,
     }
