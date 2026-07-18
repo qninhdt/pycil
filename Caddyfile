@@ -4,12 +4,18 @@
 	encode zstd gzip
 
 	@api path /v1/* /health /health/* /openapi.json /docs* /redoc*
-	reverse_proxy @api api:8000
+	handle @api {
+		reverse_proxy api:8000
+	}
 
 	# Centrifugo's browser transports stay on the same TLS origin, so clients
 	# use wss://<DOMAIN>/connection/websocket without exposing port 8001.
 	@centrifugo path /connection/websocket* /connection/sockjs/*
-	reverse_proxy @centrifugo centrifugo:8000
+	handle @centrifugo {
+		reverse_proxy centrifugo:8000
+	}
 
-	respond "not found" 404
+	handle {
+		respond "not found" 404
+	}
 }

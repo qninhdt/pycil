@@ -88,7 +88,7 @@ async def mark_running(session: AsyncSession, job_id: UUID) -> WordGeneration | 
     record = await session.scalar(
         select(WordGeneration).where(WordGeneration.id == job_id).with_for_update()
     )
-    if record is None or record.status is not JobStatus.QUEUED:
+    if record is None or record.status != JobStatus.QUEUED:
         return None
     record.status = JobStatus.RUNNING
     record.attempt += 1
@@ -103,7 +103,7 @@ async def mark_succeeded(
     record = await session.scalar(
         select(WordGeneration).where(WordGeneration.id == job_id).with_for_update()
     )
-    if record is None or record.status is not JobStatus.RUNNING:
+    if record is None or record.status != JobStatus.RUNNING:
         return None
     record.status = JobStatus.SUCCEEDED
     record.result = result
@@ -119,7 +119,7 @@ async def mark_failed(
     record = await session.scalar(
         select(WordGeneration).where(WordGeneration.id == job_id).with_for_update()
     )
-    if record is None or record.status is not JobStatus.RUNNING:
+    if record is None or record.status != JobStatus.RUNNING:
         return None
     record.status = JobStatus.FAILED
     record.error_code = error_code

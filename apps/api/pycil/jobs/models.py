@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import Enum
 from uuid import UUID
 
-from sqlalchemy import DateTime, Index, text
+from sqlalchemy import DateTime, Index, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Column, Field, SQLModel
 
@@ -29,7 +29,12 @@ class WordGeneration(SQLModel, table=True):
     query: str
     normalized_query: str = Field(index=True)
     idempotency_key: str | None = Field(default=None, max_length=128)
-    status: JobStatus = Field(default=JobStatus.QUEUED)
+    # Keep the ORM aligned with migration 0010, which deliberately stores the
+    # lifecycle as text rather than creating a PostgreSQL enum type.
+    status: JobStatus = Field(
+        default=JobStatus.QUEUED,
+        sa_column=Column(Text, nullable=False, server_default=text("'queued'")),
+    )
     result: dict | None = Field(default=None, sa_column=Column(JSONB, nullable=True))
     error_code: str | None = None
     attempt: int = Field(default=0)
