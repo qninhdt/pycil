@@ -6,6 +6,10 @@ Startup builds the authenticated Lexi HTTP client. Lexi owns all dictionary
 storage and generation; Pycil's worker only orchestrates its own jobs.
 """
 
+# Register the referenced users table in SQLModel metadata.  The worker writes
+# WordGeneration records directly, while the API normally imports this model
+# through its auth router during application startup.
+import pycil.auth.models  # noqa: F401
 from arq.connections import RedisSettings
 from arq.cron import cron
 from pycil.config import settings
