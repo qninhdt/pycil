@@ -5,20 +5,33 @@ name: pycil
 x-backend-env: &backend-env
   ENVIRONMENT: ${ENVIRONMENT:-development}
   DOMAIN: ${DOMAIN}
-  DB_URL: ${DATABASE_URL_ASYNC}
-  REDIS_URL: ${REDIS_URL:-redis://:redis-dev-only@redis:6379/0}
+  # Host tools use loopback ports; containers must use Docker DNS instead.
+  # Dedicated overrides keep external database/Redis deployments supported.
+  DB_URL: ${PYCIL_DOCKER_DB_URL:-postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}}
+  REDIS_URL: ${PYCIL_DOCKER_REDIS_URL:-redis://:${REDIS_PASSWORD:-redis-dev-only}@redis:6379/0}
 
 x-lexi-env: &lexi-env
-  LEXI_SERVICE_URL: ${LEXI_SERVICE_URL:-http://lexi-service:8443}
-  LEXI_SERVICE_TOKEN: ${LEXI_SERVICE_INTERNAL_SERVICE_TOKEN:?LEXI_SERVICE_INTERNAL_SERVICE_TOKEN is required}
-  LEXI_REFERENCE_DATASET_FINGERPRINT: ${LEXI_REFERENCE_DATASET_SHA256:?LEXI_REFERENCE_DATASET_SHA256 is required}
-  LEXI_SERVICE_TIMEOUT_SECONDS: ${LEXI_SERVICE_TIMEOUT_SECONDS:-60}
-  LEXI_GENERATION_TIMEOUT_SECONDS: ${LEXI_GENERATION_TIMEOUT_SECONDS:-120}
+  # Lexi is a library with its own schema in this PostgreSQL database. Runtime
+  # processes never create or migrate these tables.
+  LEXI_DB_URL: ${PYCIL_DOCKER_LEXI_DB_URL:-postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}}
+  LEXI_DB_SCHEMA: ${LEXI_DB_SCHEMA:-lexi}
+  LEXI_CAMBRIDGE_DB_PATH: /reference/cambridge.db
+  LEXI_DOMAIN_MIGRATION_HEAD: ${LEXI_DOMAIN_MIGRATION_HEAD:-20260722_01}
+
+x-lexi-provider-env: &lexi-provider-env
+  # Providers are a worker-only capability. The API gets only the reader facade.
+  LEXI_LLM_BASE_URL: ${LEXI_LLM_BASE_URL:-https://api.openai.com/v1}
+  LEXI_LLM_API_KEY: ${LEXI_LLM_API_KEY:-}
+  LEXI_LLM_MODEL: ${LEXI_LLM_MODEL:-gpt-4o-mini}
+  LEXI_LLM_TEMPERATURE: ${LEXI_LLM_TEMPERATURE:-0.1}
+  LEXI_LLM_STRUCTURED_METHOD: ${LEXI_LLM_STRUCTURED_METHOD:-}
+  LEXI_LLM_REASONING_EFFORT: ${LEXI_LLM_REASONING_EFFORT:-}
 
 x-assistant-env: &assistant-env
   ASSISTANT_API_KEY: ${ASSISTANT_API_KEY:-}
   ASSISTANT_MODEL: ${ASSISTANT_MODEL:-gpt-4o-mini}
   ASSISTANT_BASE_URL: ${ASSISTANT_BASE_URL:-}
+  ASSISTANT_REASONING_EFFORT: ${ASSISTANT_REASONING_EFFORT:-}
   ASSISTANT_CHECKPOINT_DB_URL: ${ASSISTANT_CHECKPOINT_DB_URL:-}
   ASSISTANT_TIMEOUT_SECONDS: ${ASSISTANT_TIMEOUT_SECONDS:-45}
   ASSISTANT_RUN_DEADLINE_SECONDS: ${ASSISTANT_RUN_DEADLINE_SECONDS:-120}
@@ -50,6 +63,8 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -64,6 +79,8 @@ services:
     command: ["sh", "-c", "redis-server --appendonly yes --requirepass \"$${REDIS_PASSWORD:-redis-dev-only}\""]
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-redis-dev-only}
+    ports:
+      - "6379:6379"
     volumes:
       - redisdata:/data
     healthcheck:
@@ -73,16 +90,20 @@ services:
       retries: 10
 
   centrifugo:
-    image: centrifugo/centrifugo:v5
+    image: centrifugo/centrifugo:v6.8.3
     restart: unless-stopped
-    # The mounted config is mandatory: it enables Centrifugo's native
-    # user-limited `#userId` ACL for the `users` namespace.
+    # The mounted config is mandatory: it enables SSE, Redis recovery, and the
+    # application-owned subscribe proxy for opaque async resources.
     command: ["centrifugo", "-c", "/centrifugo/config.json"]
     environment:
       CENTRIFUGO_ADMIN: "false"
-      CENTRIFUGO_TOKEN_HMAC_SECRET_KEY: ${CENTRIFUGO_TOKEN_HMAC_SECRET}
-      CENTRIFUGO_API_KEY: ${CENTRIFUGO_API_KEY}
-      CENTRIFUGO_ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+      # Keep local defaults in lockstep with the API settings. Production is
+      # still rejected unless these placeholders are replaced.
+      CENTRIFUGO_CLIENT_TOKEN_HMAC_SECRET_KEY: ${CENTRIFUGO_TOKEN_HMAC_SECRET:-changeme-centrifugo-token-secret}
+      CENTRIFUGO_HTTP_API_KEY: ${CENTRIFUGO_API_KEY:-changeme-centrifugo-api-key}
+      CENTRIFUGO_CLIENT_ALLOWED_ORIGINS: ${CENTRIFUGO_ALLOWED_ORIGINS:-http://localhost https://localhost http://localhost:3000}
+      CENTRIFUGO_ENGINE_REDIS_PASSWORD: ${REDIS_PASSWORD:-redis-dev-only}
+      CENTRIFUGO_PROXY_STATIC_HTTP_HEADERS: '{"X-Centrifugo-Subscribe-Proxy-Secret":"${CENTRIFUGO_SUBSCRIBE_PROXY_SECRET:-changeme-centrifugo-subscribe-proxy-secret}"}'
       CENTRIFUGO_HEALTH: "true"
     volumes:
       - ./centrifugo-config.json:/centrifugo/config.json:ro
@@ -98,7 +119,9 @@ services:
     environment:
       DOMAIN: ${DOMAIN:-localhost}
     ports:
-      - "80:80"
+      # HTTP only redirects to HTTPS. Let local stacks avoid a host-port clash
+      # without changing the public TLS/SSE endpoint on 443.
+      - "${CADDY_HTTP_PORT:-80}:80"
       - "443:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
@@ -118,12 +141,13 @@ services:
       context: .
       dockerfile: apps/api/Dockerfile
     environment:
-      <<: *backend-env
+      <<: [*backend-env, *lexi-env]
     depends_on:
       postgres:
         condition: service_healthy
-    # Idempotent — `upgrade head` is a no-op when already at head.
-    command: ["alembic", "upgrade", "head"]
+    # The domain schema must exist before Pycil tables and embedded workloads.
+    # Both commands are idempotent for the pre-release fresh-schema deployment.
+    command: ["sh", "-c", "LEXI_ALEMBIC=$$(python -c 'import lexi_ai.migrations, pathlib; print(pathlib.Path(lexi_ai.migrations.__file__).parent / \"alembic.ini\")') && alembic -c \"$$LEXI_ALEMBIC\" upgrade head && test \"$$(alembic -c \"$$LEXI_ALEMBIC\" current | awk 'NR == 1 {print $$1}')\" = \"$$LEXI_DOMAIN_MIGRATION_HEAD\" && alembic upgrade head"]
     restart: "no"
 
   api:
@@ -147,19 +171,21 @@ services:
       DEV_IDENTITY_EMAIL: ${DEV_IDENTITY_EMAIL:-dev@pycil.local}
       INTERNAL_SECRET: ${INTERNAL_API_SECRET}
       CENTRIFUGO_URL: ${CENTRIFUGO_URL:-http://centrifugo:8000}
-      CENTRIFUGO_API_KEY: ${CENTRIFUGO_API_KEY}
-      CENTRIFUGO_TOKEN_HMAC_SECRET: ${CENTRIFUGO_TOKEN_HMAC_SECRET}
-      CENTRIFUGO_PUBLIC_WEBSOCKET_URL: ${CENTRIFUGO_PUBLIC_WEBSOCKET_URL:-wss://${DOMAIN}/connection/websocket}
+      CENTRIFUGO_API_KEY: ${CENTRIFUGO_API_KEY:-changeme-centrifugo-api-key}
+      CENTRIFUGO_TOKEN_HMAC_SECRET: ${CENTRIFUGO_TOKEN_HMAC_SECRET:-changeme-centrifugo-token-secret}
+      CENTRIFUGO_PUBLIC_SSE_URL: ${CENTRIFUGO_PUBLIC_SSE_URL:-https://localhost/connection/sse}
+      CENTRIFUGO_SUBSCRIBE_PROXY_SECRET: ${CENTRIFUGO_SUBSCRIBE_PROXY_SECRET:-changeme-centrifugo-subscribe-proxy-secret}
       WORD_GENERATION_REQUESTS_PER_HOUR: ${WORD_GENERATION_REQUESTS_PER_HOUR:-5}
       WORD_GENERATION_MAX_INFLIGHT_PER_USER: ${WORD_GENERATION_MAX_INFLIGHT_PER_USER:-10}
       WORD_GENERATION_MAX_INFLIGHT_GLOBAL: ${WORD_GENERATION_MAX_INFLIGHT_GLOBAL:-500}
       WORD_GENERATION_DAILY_LIMIT: ${WORD_GENERATION_DAILY_LIMIT:-1000}
-    # Debug-only direct access is loopback-bound. Public API/WSS traffic goes
+    # Debug-only direct access is loopback-bound. Public API/SSE traffic goes
     # through Caddy on 80/443; production never exposes the application port.
     ports:
       - "${API_HOST_PORT:-127.0.0.1:8000}:8000"
     depends_on: *depends-stores
-    networks: [default, pycil-backend]
+    volumes:
+      - ${LEXI_REFERENCE_DATASET_PATH:?LEXI_REFERENCE_DATASET_PATH is required}:/reference/cambridge.db:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
       interval: 10s
@@ -173,11 +199,12 @@ services:
       dockerfile: apps/worker/Dockerfile
     restart: unless-stopped
     environment:
-      <<: [*backend-env, *lexi-env]
+      <<: [*backend-env, *lexi-env, *lexi-provider-env]
       INTERNAL_SECRET: ${INTERNAL_API_SECRET}
       PYCIL_API_INTERNAL_URL: ${PYCIL_API_INTERNAL_URL:-http://api:8000}
     depends_on: *depends-stores
-    networks: [default, pycil-backend]
+    volumes:
+      - ${LEXI_REFERENCE_DATASET_PATH:?LEXI_REFERENCE_DATASET_PATH is required}:/reference/cambridge.db:ro
     healthcheck:
       # python:3.12-slim has no redis-cli, so probe via the in-image redis
       # client. Lives in base so the prod worker is health-gated too.
@@ -212,7 +239,3 @@ volumes:
   redisdata:
   caddy_data:
   caddy_config:
-
-networks:
-  pycil-backend:
-    external: true

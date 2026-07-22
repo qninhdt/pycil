@@ -21,6 +21,10 @@ def build_graph(checkpointer):
     """Build the agent only with a configured dedicated assistant credential."""
     if not settings.assistant_api_key or not settings.assistant_base_url:
         raise RuntimeError("assistant_provider_not_configured")
+    extra_body = {}
+    if getattr(settings, "assistant_reasoning_effort", None):
+        extra_body["reasoning_effort"] = settings.assistant_reasoning_effort
+
     model = ChatOpenAI(
         model=settings.assistant_model,
         api_key=settings.assistant_api_key,
@@ -29,6 +33,7 @@ def build_graph(checkpointer):
         max_completion_tokens=settings.assistant_max_output_tokens,
         streaming=True,
         max_retries=0,
+        extra_body=extra_body if extra_body else None,
     )
     return create_agent(
         model=model,

@@ -1,7 +1,10 @@
 # The sole public ingress. Caddy provisions HTTPS automatically for a real
 # DOMAIN and uses its local CA for localhost development.
 {$DOMAIN:localhost} {
-	encode zstd gzip
+	# SSE must not be compressed or buffered: each Centrifugo publication needs
+	# to reach the browser immediately for recovery to converge.
+	@non_sse not path /connection/sse* /emulation*
+	encode @non_sse zstd gzip
 
 	@api path /v1/* /health /health/* /openapi.json /docs* /redoc*
 	handle @api {
@@ -12,11 +15,17 @@
 		reverse_proxy api:8000
 	}
 
-	# Centrifugo's browser transports stay on the same TLS origin, so clients
-	# use wss://<DOMAIN>/connection/websocket without exposing port 8001.
-	@centrifugo path /connection/websocket* /connection/sockjs/*
+	# Centrifugo exposes only SSE plus its HTTP command emulation endpoint. The
+	# subscribe proxy remains container-internal at /internal/realtime/subscribe.
+	@centrifugo path /connection/sse* /emulation*
 	handle @centrifugo {
-		reverse_proxy centrifugo:8000
+		header {
+			Cache-Control "no-cache"
+			X-Accel-Buffering "no"
+		}
+		reverse_proxy centrifugo:8000 {
+			flush_interval -1
+		}
 	}
 
 	handle {

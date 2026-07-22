@@ -1,5 +1,20 @@
-# Pycil — backend test runner targets
-.PHONY: test test-api test-worker test-shared test-cov
+# Pycil — development and test targets
+.PHONY: api-dev worker-dev web-dev docker-up docker-down test test-api test-worker test-shared test-cov
+
+api-dev:
+	cd apps/api && uv run alembic upgrade head && uv run uvicorn pycil.main:app --reload
+
+worker-dev:
+	cd apps/worker && uv run arq pycil_worker.main.WorkerSettings
+
+web-dev:
+	pnpm web:dev
+
+docker-up:
+	docker compose up --build
+
+docker-down:
+	docker compose down
 
 test: test-api test-shared test-worker
 

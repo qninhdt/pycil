@@ -29,11 +29,11 @@ from pycil.content.router import router as content_router
 from pycil.db.redis import get_redis
 from pycil.db.session import engine
 from pycil.hierarchy.router import router as hierarchy_router
-from pycil.jobs.router import router as jobs_router
 from pycil.learning.router import router as learning_router
 from pycil.observability import metrics
 from pycil.realtime.client import readiness as centrifugo_readiness
 from pycil.realtime.router import router as realtime_router
+from pycil.realtime.router import subscribe_proxy_router
 
 _WORKER_HEARTBEAT_KEY = "worker:heartbeat"
 
@@ -41,7 +41,8 @@ _WORKER_HEARTBEAT_KEY = "worker:heartbeat"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     validate_production_settings(settings)
-    # Lexi owns its own lifecycle; Pycil only retains a reusable HTTP client.
+    # Create the embedded reader once per API process, after production config
+    # validation but before accepting requests.
     get_lexi_client()
     if settings.assistant_api_key and settings.assistant_base_url:
         pool, checkpointer = await open_checkpointer()
@@ -69,9 +70,9 @@ def create_app() -> FastAPI:
     app.include_router(assistant_router, prefix="/v1")
     app.include_router(content_router, prefix="/v1")
     app.include_router(hierarchy_router, prefix="/v1")
-    app.include_router(jobs_router, prefix="/v1")
     app.include_router(learning_router, prefix="/v1")
     app.include_router(realtime_router, prefix="/v1")
+    app.include_router(subscribe_proxy_router)
 
     @app.get("/v1/me", response_model=CurrentUser)
     async def me(user: CurrentUser = Depends(current_user)) -> CurrentUser:
@@ -104,8 +105,6 @@ def create_app() -> FastAPI:
                 raise RuntimeError("worker_heartbeat_missing")
         except Exception as exc:  # noqa: BLE001 - readiness must collapse dependency details
             raise ServiceUnavailableError("core_dependency_unavailable") from exc
-        if not await get_lexi_client().readiness():
-            raise ServiceUnavailableError("lexi_service_unavailable")
         if not await centrifugo_readiness():
             raise ServiceUnavailableError("centrifugo_unavailable")
         return {"status": "ready"}

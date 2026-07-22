@@ -29,13 +29,12 @@ die() { red "deploy: $*"; exit 1; }
 # Source .env so $POSTGRES_USER / $POSTGRES_DB are available to pg_dump.
 set -a; . "./$ENV_FILE"; set +a
 
-# Pycil reaches the separately deployed Lexi service only through this shared,
-# non-routable network.  Creating it here makes a fresh VPS deterministic while
-# preserving the network when either compose project is redeployed.
-if ! docker network inspect pycil-backend >/dev/null 2>&1; then
-  grn "→ creating internal pycil↔lexi network…"
-  docker network create --internal pycil-backend >/dev/null
-fi
+: "${LEXI_REFERENCE_DATASET_PATH:?LEXI_REFERENCE_DATASET_PATH is required}"
+: "${LEXI_REFERENCE_DATASET_SHA256:?LEXI_REFERENCE_DATASET_SHA256 is required}"
+[ -f "$LEXI_REFERENCE_DATASET_PATH" ] || die "Lexi reference artifact not found: $LEXI_REFERENCE_DATASET_PATH"
+reference_sha="$(sha256sum "$LEXI_REFERENCE_DATASET_PATH" | cut -d ' ' -f 1)"
+[ "$reference_sha" = "$LEXI_REFERENCE_DATASET_SHA256" ] \
+  || die "Lexi reference artifact SHA-256 does not match LEXI_REFERENCE_DATASET_SHA256"
 
 export API_IMAGE="${REGISTRY}/${IMAGE_PREFIX}-api:${IMAGE_TAG}"
 export WORKER_IMAGE="${REGISTRY}/${IMAGE_PREFIX}-worker:${IMAGE_TAG}"
@@ -59,33 +58,29 @@ docker compose pull
 grn "→ validating Centrifugo ACL configuration…"
 docker compose run --rm centrifugo centrifugo checkconfig -c /centrifugo/config.json \
   >/dev/null || die "Centrifugo ACL configuration is invalid"
-grn "→ validating Caddy TLS/WSS ingress configuration…"
+grn "→ validating Caddy TLS/SSE ingress configuration…"
 docker compose run --rm --no-deps caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile \
   >/dev/null || die "Caddy ingress configuration is invalid"
 
 # --- 3. Migration-then-swap: migrate in the NEW image BEFORE swapping --------
-# `migrate` is the one-shot compose service (command: alembic upgrade head,
-# built from the same API_IMAGE) — running it here mirrors what api/worker's
-# own `depends_on: migrate: service_completed_successfully` gate does on `up`,
-# but lets us abort the deploy BEFORE swapping if migration fails.
-grn "→ alembic upgrade head (new image, via the migrate service)…"
+# `migrate` applies Lexi's isolated schema first, then Pycil's public schema.
+# Running it here mirrors api/worker's compose gate while letting us abort before
+# workloads are swapped. The fresh-schema baseline has no copy-and-stamp path.
+grn "→ Lexi domain then Pycil alembic upgrades (new image)…"
 if ! docker compose run --rm migrate; then
   die "migration failed; aborting deploy. old containers untouched."
 fi
 
 # --- 4. Drain old jobs, then start compatible worker before API --------------
 # Pending jobs are written by the API but consumed by the worker, so starting
-# the worker first prevents an API/worker schema-version window after expand
-# migrations. Rollback is an old image on the expanded schema or a forward fix;
-# never run a destructive Alembic downgrade after new writes.
-# Stop taking legacy work and give an in-flight arq task time to finish. The
-# new worker keeps the prior job name registered while its versioned successor
-# drains, so no queued job is stranded during this handoff.
+# the worker first prevents an API/worker schema-version window. This pre-release
+# deployment starts from a fresh schema; after the first embedded write use a
+# forward fix or verified database restore, never a destructive downgrade.
 grn "→ draining previous worker (up to ${WORKER_DRAIN_SECONDS}s)…"
 docker compose stop -t "$WORKER_DRAIN_SECONDS" worker || true
 grn "→ arq backlog before worker start…"
 docker compose exec -T redis redis-cli LLEN arq:queue || true
-grn "→ starting compatible worker before API…"
+grn "→ starting embedded worker before API…"
 docker compose up -d centrifugo worker
 grn "→ waiting for worker health…"
 worker_ok=0
@@ -102,7 +97,7 @@ done
 [ "$worker_ok" -eq 1 ] || { docker compose logs --tail=50 worker || true; die "worker failed health check after 60s"; }
 grn "✓ worker healthy"
 
-grn "→ starting API and TLS/WSS ingress…"
+grn "→ starting API and TLS/SSE ingress…"
 docker compose up -d api caddy
 grn "→ waiting for api health…"
 healthy=0

@@ -107,3 +107,31 @@ To secure the LLM worker against prompt injection and prompt leak attacks, we pr
   Instruct the LLM in its system prompts that any instructions inside `<untrusted-NONCE>...</untrusted-NONCE>` must be treated purely as data, and that the block only terminates at the matching cryptographic nonce.
 * **Safety-Preserving Truncation:**
   If the input must be trimmed or truncated to fit token limits, parse the wrapper to truncate the inner text first and then re-apply the exact same matching nonce closing tag to preserve the safety boundary.
+
+---
+
+## 7. Lexi generation strategies
+
+Implemented now:
+
+- `structured_output` is the default internal strategy.
+- `function_calling` uses exactly one forced Lexi function, `emit`, for a full
+  entry result. End users cannot choose a strategy, function, or arguments;
+  only authenticated internal service callers can submit the strategy.
+- Pycil forwards the selected server configuration and Lexi persists it with the
+  durable generation job, so retries use the original strategy.
+- Deploy with `LEXI_GENERATION_STRATEGY=structured_output` (default) or
+  `LEXI_GENERATION_STRATEGY=function_calling`; this variable is internal to the
+  Pycil API/worker containers.
+
+## Deferred: multi-function Lexi orchestration
+
+| Task | Future functions | Order |
+|---|---|---|
+| Entry with multiple senses | `begin_entry`, `add_sense`, `add_example`, `finalize_entry` | begin → repeat sense/example → validate → finalize |
+| Free-text grading | `evaluate_answer`, `classify_errors`, `generate_feedback`, `finalize_grade` | evaluate → if incorrect: classify → feedback → finalize |
+| Question creation | `create_question`, `validate_question`, `persist_question` | create → validate → persist |
+
+Each future call needs a job-derived idempotency key plus a monotonic call index.
+Lexi, not Pycil, must validate/persist every intermediate artifact and own the
+state machine/fencing. No multi-function runtime path is enabled today.

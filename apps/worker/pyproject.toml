@@ -15,6 +15,7 @@ dependencies = [
     "sqlmodel>=0.0.38,<0.1",
     "pycil-shared",
     "pycil-api",
+    "lexi-ai @ git+https://github.com/qninhdt/lexi-ai.git@3bbd70e96679f8baa179424228d7f32b9342732d",
 ]
 
 [tool.uv.sources]

@@ -1,9 +1,31 @@
 {
-  "namespaces": [
-    {
-      "name": "users",
-      "allow_subscribe_for_client": false,
-      "allow_user_limited_channels": true
+  "sse": {
+    "enabled": true
+  },
+  "emulation": {
+    "enabled": true
+  },
+  "engine": {
+    "type": "redis",
+    "redis": {
+      "address": "redis:6379"
     }
-  ]
+  },
+  "channel": {
+    "proxy": {
+      "subscribe": {
+        "endpoint": "http://api:8000/internal/realtime/subscribe"
+      }
+    },
+    "namespaces": [
+      {
+        "name": "async",
+        "subscribe_proxy_enabled": true,
+        "history_size": 1,
+        "history_ttl": "5m",
+        "force_recovery": true,
+        "force_positioning": true
+      }
+    ]
+  }
 }

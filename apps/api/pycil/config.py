@@ -1,7 +1,7 @@
 """Runtime configuration (pydantic-settings).
 
-Env-driven with dev defaults. Pycil owns its Postgres database; dictionary
-content is reached only through the separately deployed Lexi service.
+Env-driven with dev defaults. Pycil owns the application schema and embeds the
+Lexi domain library in the same PostgreSQL cluster under its own schema.
 """
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -9,7 +9,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(".env", "../../.env"),
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -41,7 +41,8 @@ class Settings(BaseSettings):
     centrifugo_url: str = "http://centrifugo:8000"
     centrifugo_api_key: str = "changeme-centrifugo-api-key"
     centrifugo_token_hmac_secret: str = "changeme-centrifugo-token-secret"
-    centrifugo_public_websocket_url: str = "ws://localhost/connection/websocket"
+    centrifugo_public_sse_url: str = "https://localhost/connection/sse"
+    centrifugo_subscribe_proxy_secret: str = "changeme-centrifugo-subscribe-proxy-secret"
 
     # --- generation safety ---------------------------------------------------
     word_generation_requests_per_hour: int = 5
@@ -49,19 +50,16 @@ class Settings(BaseSettings):
     word_generation_max_inflight_global: int = 500
     word_generation_daily_limit: int = 1_000
 
-    # --- Lexi service (internal network only) --------------------------------
-    lexi_service_url: str = "http://lexi-service:8443"
-    lexi_service_token: str = ""
+    # --- Embedded Lexi identity ----------------------------------------------
+    # The fingerprint namespaces content work keys across immutable reference
+    # dataset releases; it is not a service credential.
     lexi_reference_dataset_fingerprint: str = ""
-    # Lexi's first reference-index search can be CPU-heavy; allow the internal
-    # service enough time under a real batch without widening generation timeout.
-    lexi_service_timeout_seconds: float = 60
-    lexi_generation_timeout_seconds: float = 120
 
     # --- assistant (isolated OpenAI-compatible provider + durable state) ----
     assistant_api_key: str = ""
     assistant_model: str = "gpt-4o-mini"
     assistant_base_url: str = ""
+    assistant_reasoning_effort: str = ""
     assistant_checkpoint_db_url: str = ""
     assistant_timeout_seconds: int = 45
     assistant_run_deadline_seconds: int = 120
@@ -107,7 +105,7 @@ def validate_production_settings(config: Settings) -> None:
         "INTERNAL_SECRET": config.internal_secret,
         "CENTRIFUGO_API_KEY": config.centrifugo_api_key,
         "CENTRIFUGO_TOKEN_HMAC_SECRET": config.centrifugo_token_hmac_secret,
-        "LEXI_SERVICE_TOKEN": config.lexi_service_token,
+        "CENTRIFUGO_SUBSCRIBE_PROXY_SECRET": config.centrifugo_subscribe_proxy_secret,
         "LEXI_REFERENCE_DATASET_FINGERPRINT": config.lexi_reference_dataset_fingerprint,
         "GOOGLE_CLIENT_ID": config.google_client_id,
         "GOOGLE_CLIENT_SECRET": config.google_client_secret,
@@ -120,8 +118,8 @@ def validate_production_settings(config: Settings) -> None:
         unsafe.append("OAUTH_REDIRECT_URIS")
     if not config.domain or config.domain == "localhost":
         unsafe.append("DOMAIN")
-    if not config.centrifugo_public_websocket_url.startswith("wss://"):
-        unsafe.append("CENTRIFUGO_PUBLIC_WEBSOCKET_URL")
+    if not config.centrifugo_public_sse_url.startswith("https://"):
+        unsafe.append("CENTRIFUGO_PUBLIC_SSE_URL")
     if unsafe:
         raise RuntimeError(f"unsafe production configuration: {', '.join(sorted(unsafe))}")
 

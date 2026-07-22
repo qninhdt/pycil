@@ -108,11 +108,10 @@ async def test_idempotent_submission_does_not_charge_quota_twice(session, monkey
     assert charges == 1
 
 
-async def test_generation_endpoint_enqueues_and_job_endpoint_hides_other_owner(
+async def test_generation_endpoint_returns_task_receipt_and_enqueues_once(
     client, session, monkeypatch
 ):
     owner = await _user(session, "endpoint-owner@x.co")
-    stranger = await _user(session, "endpoint-stranger@x.co")
 
     class FakePool:
         calls: list[tuple[str, str, str, str]] = []
@@ -136,9 +135,8 @@ async def test_generation_endpoint_enqueues_and_job_endpoint_hides_other_owner(
         },
     )
     assert response.status_code == 202
-    job_id = response.json()["jobId"]
-    assert response.json()["status"] == "queued"
-    assert pool.calls == [("generate_word", str(owner.id), "example", job_id)]
+    task_id = response.json()["taskId"]
+    assert pool.calls == [("generate_word_task", task_id, "example")]
 
     duplicate = await client.post(
         "/v1/word-generations",
@@ -149,21 +147,8 @@ async def test_generation_endpoint_enqueues_and_job_endpoint_hides_other_owner(
         },
     )
     assert duplicate.status_code == 202
-    assert duplicate.json()["jobId"] == job_id
+    assert duplicate.json()["taskId"] == task_id
     assert len(pool.calls) == 1
-
-    response = await client.get(
-        f"/v1/jobs/{job_id}", headers={"Authorization": f"Bearer {owner_token}"}
-    )
-    assert response.status_code == 200
-    assert response.json()["query"] == "example"
-
-    stranger_token, _ = tokens.sign_access(stranger)
-    response = await client.get(
-        f"/v1/jobs/{job_id}", headers={"Authorization": f"Bearer {stranger_token}"}
-    )
-    assert response.status_code == 404
-    assert response.json()["error"]["code"] == "not_found"
 
 
 async def test_word_search_exposes_only_stable_lexi_projection():
@@ -189,4 +174,6 @@ async def test_word_search_exposes_only_stable_lexi_projection():
         "wordId": 17,
         "cambridgeId": 12,
         "gloss": "an instance",
+        "pos": None,
+        "senses": [],
     }

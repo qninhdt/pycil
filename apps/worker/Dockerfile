@@ -7,11 +7,11 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential libpq-dev \
+    && apt-get install -y --no-install-recommends build-essential git libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Build context = repo root (see docker-compose.yml). The worker reuses the API
-# package for the Lexi HTTP client and learning service.
+# package for learning services and embeds the Lexi domain library.
 COPY packages/shared-py /app/packages/shared-py
 COPY apps/api /app/apps/api
 COPY apps/worker /app/apps/worker

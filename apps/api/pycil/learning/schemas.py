@@ -73,6 +73,8 @@ class NextQuestionPending(BaseModel):
     state: str = "pending"
     sense_id: int = Field(serialization_alias="senseId")
     recommended_type: str = Field(serialization_alias="recommendedType")
+    task_id: UUID = Field(serialization_alias="taskId")
+    delivery_id: UUID = Field(serialization_alias="deliveryId")
 
 
 class NextQuestionExhausted(BaseModel):
@@ -95,8 +97,30 @@ class GradeResponse(BaseModel):
     response_id: UUID = Field(serialization_alias="responseId")
     grade_status: str = Field(serialization_alias="gradeStatus")
     sense_id: int = Field(serialization_alias="senseId")
+    task_id: UUID | None = Field(default=None, serialization_alias="taskId")
     is_correct: bool | None = Field(default=None, serialization_alias="isCorrect")
     grade_score: float | None = Field(default=None, serialization_alias="gradeScore")
     grade_feedback: str | None = Field(default=None, serialization_alias="gradeFeedback")
     mastery_before: int | None = Field(default=None, serialization_alias="masteryBefore")
     mastery_after: int | None = Field(default=None, serialization_alias="masteryAfter")
+
+
+class FSRSForecastDay(BaseModel):
+    date: str
+    due_count: int = Field(serialization_alias="dueCount")
+
+
+class RecentSessionInfo(BaseModel):
+    node_id: UUID = Field(serialization_alias="nodeId")
+    deck_title: str = Field(serialization_alias="deckTitle")
+    remaining_count: int = Field(serialization_alias="remainingCount")
+
+
+class DashboardStatsRead(BaseModel):
+    total_learned_words: int = Field(serialization_alias="totalLearnedWords")
+    due_today_count: int = Field(serialization_alias="dueTodayCount")
+    mastery_percentage: float = Field(serialization_alias="masteryPercentage")
+    fsrs_forecast: list[FSRSForecastDay] = Field(serialization_alias="fsrsForecast")
+    recent_session: RecentSessionInfo | None = Field(
+        default=None, serialization_alias="recentSession"
+    )

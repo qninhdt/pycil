@@ -1,4 +1,4 @@
-"""Pycil-owned DTOs for the Lexi service boundary.
+"""Pycil-owned DTOs for the embedded Lexi library boundary.
 
 These are deliberately small projections.  Pycil neither imports Lexi ORM/read
 models nor relies on Lexi's local database implementation.

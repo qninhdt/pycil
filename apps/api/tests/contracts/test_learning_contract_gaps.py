@@ -169,10 +169,10 @@ async def test_pending_response_has_dedicated_raw_answer_field():
     assert "raw_answer" in Response.model_fields
 
 
-async def test_answer_contract_exposes_response_id_and_grade_status():
+async def test_answer_contract_exposes_response_id_grade_status_and_pending_task():
     operation = create_app().openapi()["paths"]["/v1/answers"]["post"]
     schema_ref = operation["responses"]["200"]["content"]["application/json"]["schema"]["$ref"]
     schema_name = schema_ref.rsplit("/", 1)[-1]
     properties = create_app().openapi()["components"]["schemas"][schema_name]["properties"]
 
-    assert {"responseId", "gradeStatus"} <= properties.keys()
+    assert {"responseId", "gradeStatus", "taskId"} <= properties.keys()

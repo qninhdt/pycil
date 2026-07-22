@@ -16,13 +16,13 @@ def _production_settings(**overrides) -> Settings:
         "internal_secret": "b" * 40,
         "centrifugo_api_key": "c" * 40,
         "centrifugo_token_hmac_secret": "d" * 40,
-        "lexi_service_token": "e" * 40,
-        "lexi_reference_dataset_fingerprint": "f" * 64,
+        "centrifugo_subscribe_proxy_secret": "s" * 40,
+        "lexi_reference_dataset_fingerprint": "e" * 64,
         "google_client_id": "client-id.apps.googleusercontent.com",
         "google_client_secret": "google-secret",
         "allowed_origins": "https://app.example.com",
         "oauth_redirect_uris": "https://app.example.com/api/auth/callback",
-        "centrifugo_public_websocket_url": "wss://api.example.com/connection/websocket",
+        "centrifugo_public_sse_url": "https://api.example.com/connection/sse",
     }
     values.update(overrides)
     return Settings(**values)

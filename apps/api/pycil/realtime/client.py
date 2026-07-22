@@ -1,9 +1,4 @@
-"""Centrifugo client: publish via HTTP API + sign connection tokens.
-
-Channel access is enforced by Centrifugo's user-limited ``#user_id`` boundary,
-which is checked against this connection token's subject. Publishing uses the
-HTTP API with the API key.
-"""
+"""Centrifugo client: sign SSE connection tokens and perform control calls."""
 
 import time
 from uuid import UUID
@@ -27,16 +22,23 @@ async def readiness() -> bool:
         return False
 
 
-def sign_subscription_token(user_id: UUID | str) -> str:
-    """Sign a Centrifugo connection token whose ``sub`` is the user id."""
-    return mint_connection_token(user_id)[0]
+def sign_subscription_token(user_id: UUID | str, token_version: int = 0) -> str:
+    """Sign an SSE connection token bound to the current auth token version."""
+    return mint_connection_token(user_id, token_version)[0]
 
 
-def mint_connection_token(user_id: UUID | str) -> tuple[str, int]:
+def mint_connection_token(user_id: UUID | str, token_version: int) -> tuple[str, int]:
     """Return a connection token together with its exact Unix expiry timestamp."""
     now = int(time.time())
     expires_at = now + _TOKEN_TTL
-    claims = {"sub": str(user_id), "iat": now, "exp": expires_at}
+    claims = {
+        "sub": str(user_id),
+        "iat": now,
+        "exp": expires_at,
+        # The subscribe proxy revalidates this against Postgres before every
+        # subscription, so a revoked access token cannot add new resources.
+        "meta": {"tokenVersion": token_version, "expiresAt": expires_at},
+    }
     return jwt.encode(claims, settings.centrifugo_token_hmac_secret, algorithm=_ALGO), expires_at
 
 
@@ -62,18 +64,19 @@ async def disconnect_user(user_id: UUID | str) -> bool:
 
 
 async def publish(channel: str, data: dict) -> None:
-    """Publish a payload to a Centrifugo channel via its HTTP API.
+    """Compatibility publisher for legacy producers pending task-registry cutover.
 
-    Best-effort: a publish failure never breaks the request that triggered it —
-    the verdict is already persisted to ``responses`` and recoverable on refetch.
+    Durable async state uses the worker outbox, which requires an HTTP API ACK.
+    This remains only so older producers do not fail during the staged migration;
+    the SSE-only broker configuration exposes no subscribable legacy namespace.
     """
-    url = f"{settings.centrifugo_url}/api/publish"
-    headers = {"X-API-Key": settings.centrifugo_api_key}
-    body = {"channel": channel, "data": data}
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.post(url, json=body, headers=headers)
-            resp.raise_for_status()
+        async with httpx.AsyncClient(timeout=5.0) as http_client:
+            response = await http_client.post(
+                f"{settings.centrifugo_url}/api/publish",
+                headers={"X-API-Key": settings.centrifugo_api_key},
+                json={"channel": channel, "data": data},
+            )
+            response.raise_for_status()
     except httpx.HTTPError:
-        # Missed push is recoverable (responses table); do not fail the caller.
         return

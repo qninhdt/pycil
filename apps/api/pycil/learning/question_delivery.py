@@ -1,12 +1,12 @@
 """Question lookup and typed, API-safe delivery helpers."""
 
 from pycil.common.errors import ServiceUnavailableError
-from pycil.content.lexi_port import LexiClient
+from pycil.content.lexi_port import LexiReader
 from pycil.content.lexi_types import Question
 
 
 async def find_question(
-    client: LexiClient, sense_id: int, recommended_type: str
+    client: LexiReader, sense_id: int, recommended_type: str
 ) -> Question | None:
     """Look up an existing question through the optional Phase-3 port seam.
 

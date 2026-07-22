@@ -159,8 +159,12 @@ class InternalSecretMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next):
         if request.url.path.startswith(INTERNAL_PREFIX):
-            presented = request.headers.get("X-Internal-Secret", "")
-            expected = settings.internal_secret
+            if request.url.path == "/internal/realtime/subscribe":
+                presented = request.headers.get("X-Centrifugo-Subscribe-Proxy-Secret", "")
+                expected = settings.centrifugo_subscribe_proxy_secret
+            else:
+                presented = request.headers.get("X-Internal-Secret", "")
+                expected = settings.internal_secret
             if not presented or not expected or not hmac.compare_digest(presented, expected):
                 return _middleware_error(request, 401, "unauthorized", "Bad internal secret")
         return await call_next(request)

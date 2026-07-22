@@ -13,6 +13,7 @@ from pycil.hierarchy.models import NodeType
 from pycil.learning import session_store
 from pycil.learning.models import UserSenseStats
 from pycil.learning.question_delivery import find_question, ready_payload
+from pycil.learning.schemas import NextQuestionPending
 from pycil.learning.session_queue import build_queue
 
 
@@ -80,6 +81,23 @@ def test_ready_payload_is_format_specific_and_never_serializes_answer_material(
     delivered = ready_payload(question, question_format)
     assert delivered["format"] == question_format
     assert delivered["payload"] == expected
+
+
+def test_pending_question_receipt_exposes_task_and_private_delivery_ids():
+    task_id, delivery_id = uuid4(), uuid4()
+    pending = NextQuestionPending(
+        sense_id=41,
+        recommended_type="definition_mcq",
+        task_id=task_id,
+        delivery_id=delivery_id,
+    )
+    assert pending.model_dump(mode="json", by_alias=True) == {
+        "state": "pending",
+        "senseId": 41,
+        "recommendedType": "definition_mcq",
+        "taskId": str(task_id),
+        "deliveryId": str(delivery_id),
+    }
 
 
 @pytest.mark.asyncio

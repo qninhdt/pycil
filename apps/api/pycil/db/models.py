@@ -23,5 +23,13 @@ from pycil.learning.models import (  # noqa: F401
     ReviewLog,
     UserSenseStats,
 )
+from pycil.tasks.models import (  # noqa: F401
+    AsyncCommandReceipt,
+    AsyncTask,
+    AsyncTaskDelivery,
+    AsyncTaskEvent,
+    AsyncTaskInterest,
+    AsyncTaskOutbox,
+)
 
 target_metadata = SQLModel.metadata

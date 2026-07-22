@@ -1,7 +1,7 @@
 """Content service: deck membership only.
 
 pycil records only ``deck_senses`` membership (opaque sense_id). Sense content
-for display is resolved through the LexiClient port, never stored.
+for display is resolved through the LexiReader port, never stored.
 """
 
 from uuid import UUID
@@ -9,7 +9,7 @@ from uuid import UUID
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pycil.content.lexi_port import LexiClient
+from pycil.content.lexi_port import LexiReader
 from pycil.content.models import DeckSense
 from pycil.hierarchy import cache
 from pycil.hierarchy import service as hierarchy_service
@@ -87,7 +87,7 @@ async def list_sense_ids(session: AsyncSession, node_id: UUID) -> list[int]:
     return [row[0] for row in result]
 
 
-async def resolve_senses(client: LexiClient, sense_ids: list[int]) -> list:
+async def resolve_senses(client: LexiReader, sense_ids: list[int]) -> list:
     """Resolve sense content for display through the port (never from pycil DB)."""
     if not sense_ids:
         return []

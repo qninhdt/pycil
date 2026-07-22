@@ -111,7 +111,7 @@ class Response(SQLModel, table=True):
     grade_status: GradeStatus = Field(default=GradeStatus.graded)
     grade_score: float | None = None
     grade_feedback: str | None = None
-    # Persist FSRS snapshots so polling and realtime expose the same terminal verdict.
+    # Persist FSRS snapshots for the task-delivery projection and audit trail.
     mastery_before: int | None = None
     mastery_after: int | None = None
     grading_lease_owner: str | None = Field(default=None, max_length=64)

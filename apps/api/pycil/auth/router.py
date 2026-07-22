@@ -38,11 +38,15 @@ async def callback(
 ) -> TokenResponse:
     try:
         userinfo = await oauth.exchange_code(code, state)
-    except ValueError as exc:
-        raise UnauthorizedError("invalid_oauth_state") from exc
+    except Exception as exc:
+        import logging
+        logging.error("OAuth exchange_code failed: %s", exc, exc_info=True)
+        raise UnauthorizedError(f"oauth_exchange_failed: {exc}") from exc
 
     email = userinfo.get("email")
     if not email or userinfo.get("email_verified") is not True:
+        import logging
+        logging.error("OAuth email not verified or missing: %s", userinfo)
         raise UnauthorizedError("oauth_email_not_verified")
 
     # Upsert user in the same transaction, then issue the JWT.

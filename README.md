@@ -1,8 +1,7 @@
 # Pycil
 
-AI-powered vocabulary learning with FSRS-driven spaced repetition, backed by
-the separately deployed public dictionary/grading service `lexi-ai`, plus a
-folder/deck/reference hierarchy.
+AI-powered vocabulary learning with FSRS-driven spaced repetition and the
+GitHub-pinned `lexi-ai` domain library, plus a folder/deck/reference hierarchy.
 
 - **Architecture:** [`docs/current-system-architecture.md`](docs/current-system-architecture.md)
 - **Codebase map:** [`docs/codebase-summary.md`](docs/codebase-summary.md)
@@ -20,32 +19,27 @@ folder/deck/reference hierarchy.
                      ┌───────────────┼────────────────┐
                      ▼               ▼                ▼
                Postgres         Redis 7          Centrifugo (realtime)
-             (pycil's own DB:                    (owner-scoped channels)
-              users/nodes/decks/
-              FSRS stats)
+              (public + `lexi` schemas)           (owner-scoped channels)
                      ▲
                      │ single writer
               apps/worker (arq: generate_word, generate_question, grade_answer_v1,
               reconcile_pending_grades)
                      │
                      ▼
-              lexi-service (internal HTTP) ── its OWN Postgres (words/senses/questions)
+               embedded `lexi-ai` (words/senses/questions in `lexi` schema)
 ```
 
-Pycil never stores dictionary content — that's `lexi-ai`'s job, behind a
-`LexiClient` HTTP port. See
-[system-architecture.md](docs/system-architecture.md#two-database-boundary)
-for the full two-database boundary rationale and
-[Known Gaps](docs/system-architecture.md#known-gaps) for what isn't finished
-yet (CI/CD, deploy tooling).
+Pycil does not duplicate dictionary content in its application schema. The
+embedded `lexi-ai` library owns the isolated `lexi` schema; API and worker use
+independent pools.
 
 This repository is backend-only (API + worker + shared Python). There is no
 frontend in this repo; any client consumes the API over REST + bearer JWT.
 
 ## Local development
 
-Prereqs: Docker 24+, docker-compose v2, `uv`, a Google OAuth client, and a
-separately deployed checkout of public [`lexi-ai`](../lexi-ai).
+Prereqs: Docker 24+, docker-compose v2, `uv`, a Google OAuth client, and network
+access to the pinned public `lexi-ai` Git revision during dependency installation.
 
 ### 1. Environment
 
@@ -54,8 +48,8 @@ cp .env.example .env
 # Fill in at minimum: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
 # AUTH_JWT_SECRET (openssl rand -base64 32),
 # CENTRIFUGO_API_KEY + CENTRIFUGO_TOKEN_HMAC_SECRET (openssl rand -hex 32).
-# Also set the shared LEXI_SERVICE_INTERNAL_SERVICE_TOKEN and the verified
-# LEXI_REFERENCE_DATASET_SHA256 used by the Lexi deployment.
+# Set LEXI_REFERENCE_DATASET_PATH to the immutable reference artifact and
+# LEXI_REFERENCE_DATASET_FINGERPRINT to its approved identity.
 ```
 
 ### 2. Run the stack
@@ -66,7 +60,7 @@ docker compose up --build
 
 The `migrate` service runs `alembic upgrade head` once and must succeed
 before `api`/`worker` start (compose `depends_on: service_completed_successfully`
-— no manual migration step needed). Caddy is the public API/WSS ingress on
+— no manual migration step needed). Caddy is the public API/SSE ingress on
 `https://localhost` (Caddy's local certificate); the API debug bind remains
 `http://127.0.0.1:8000`. Centrifugo has no public host port.
 
@@ -81,12 +75,8 @@ cd apps/api && uv sync && uv run alembic upgrade head && uv run uvicorn pycil.ma
 cd apps/worker && uv sync && uv run arq pycil_worker.main.WorkerSettings
 ```
 
-Both need Postgres/Redis and an available `lexi-service` reachable on the
-shared Docker network. Create it once before starting either compose project:
-
-```bash
-docker network create --internal pycil-backend
-```
+Both need Postgres/Redis plus the read-only reference artifact configured by
+`LEXI_REFERENCE_DATASET_PATH`.
 
 ## Tests
 
@@ -104,13 +94,15 @@ and shared-package tests cover the remaining domain behaviour.
 cd /opt/pycil && git pull && IMAGE_TAG=<sha12> bash scripts/deploy.sh
 ```
 
-Migration-then-swap: pulls new images, runs the `migrate` one-shot service
-against the new image, aborts before swapping if migration fails, then swaps
-containers and health-gates `api`/`worker`. API readiness includes Postgres,
-Redis, a live worker heartbeat, Lexi, and Centrifugo. See the script for details.
+Migration-then-swap: pulls new images, runs Lexi's domain migration before
+Pycil's migration in the `migrate` one-shot service, aborts before swapping if
+either fails, then swaps containers and health-gates `api`/`worker`. API
+readiness includes Postgres, Redis, a live worker heartbeat, and Centrifugo.
+Run `bash scripts/rehearse-fresh-schema.sh` against an empty Compose project
+before an external deploy.
 
-Back up **both** Postgres databases before a deploy: Pycil's database (`backup`
-compose profile) and Lexi's service database.
+Back up the shared Postgres database before a deploy; it contains Pycil's
+`public` schema and Lexi's isolated `lexi` schema.
 
 ## Repo layout
 
@@ -134,9 +126,9 @@ sense · FSRS-4.5 spaced repetition · Centrifugo realtime grading/job updates.
 
 Learning sessions issue one canonical question at a time from a Redis-backed
 queue. First attempts are claimed durably in Postgres; `use_in_sentence`
-answers return a pending response and are reconciled if enqueueing or a worker
-lease is lost. Clients can poll `GET /responses/{id}`; realtime channels end in
-the owner's Centrifugo-enforced `#userId` boundary.
+answers return a pending task receipt and are reconciled if enqueueing or a
+worker lease is lost. Clients receive owner-authorized task snapshots through
+Centrifugo SSE only.
 
 The API also provides an owner-scoped conversational assistant under
 `/assistant`. It uses a bounded LangChain tool set for hierarchy/content/stats,

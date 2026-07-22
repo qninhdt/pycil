@@ -1,27 +1,39 @@
-"""Content dependencies: the shared authenticated Lexi HTTP client."""
+"""Process-local embedded Lexi reader dependency."""
 
-from pycil.config import settings
-from pycil.content.lexi_http import LexiHttpClient
-from pycil.content.lexi_port import LexiClient
+from pycil.content.lexi_library import create_embedded_lexicon_reader
+from pycil.content.lexi_port import LexiReader
 
-_client: LexiHttpClient | None = None
+_lexicon: object | None = None
+_client: LexiReader | None = None
 
 
-def get_lexi_client() -> LexiClient:
-    global _client
+def create_embedded_lexi_reader() -> tuple[object, LexiReader]:
+    """Build an independent provider-free Lexi reader for this API process."""
+    return create_embedded_lexicon_reader()
+
+
+async def close_embedded_lexicon(lexicon: object) -> None:
+    """Release the pool owned by an embedded Lexicon instance."""
+    engine = getattr(lexicon, "_engine", None)
+    if engine is not None:
+        await engine.dispose()
+
+
+def get_lexi_client() -> LexiReader:
+    """Return the API process's embedded reader.
+
+    The historical name is retained only because it is the current FastAPI
+    dependency callable; it no longer creates or calls an HTTP client.
+    """
+    global _lexicon, _client
     if _client is None:
-        _client = LexiHttpClient(
-            settings.lexi_service_url,
-            settings.lexi_service_token,
-            settings.lexi_reference_dataset_fingerprint,
-            timeout_seconds=settings.lexi_service_timeout_seconds,
-            generation_timeout_seconds=settings.lexi_generation_timeout_seconds,
-        )
+        _lexicon, _client = create_embedded_lexi_reader()
     return _client
 
 
 async def close_lexi_client() -> None:
-    global _client
-    if _client is not None:
-        await _client.close()
-        _client = None
+    global _lexicon, _client
+    if _lexicon is not None:
+        await close_embedded_lexicon(_lexicon)
+    _lexicon = None
+    _client = None

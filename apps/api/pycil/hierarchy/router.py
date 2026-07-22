@@ -2,7 +2,7 @@
 
 require_node_access is a hard dependency on every route — owner-only write,
 owner-or-public read — closing the systemic IDOR gap. Stats stay inside pycil's
-DB; CEFR distribution resolves content through the LexiClient port.
+DB; CEFR distribution resolves content through the LexiReader port.
 """
 
 from datetime import UTC, date, datetime, timedelta
@@ -17,7 +17,7 @@ from pycil.auth.deps import current_user, optional_current_user
 from pycil.auth.schemas import CurrentUser
 from pycil.common.errors import ConflictError
 from pycil.content.deps import get_lexi_client
-from pycil.content.lexi_port import LexiClient
+from pycil.content.lexi_port import LexiReader
 from pycil.db.session import get_session
 from pycil.hierarchy import cache, service, stats, subtree
 from pycil.hierarchy.access import require_node_access
@@ -242,7 +242,7 @@ async def folder_cefr(
     node_id: UUID,
     user: Annotated[CurrentUser | None, Depends(optional_current_user)],
     session: AsyncSession = Depends(get_session),
-    client: LexiClient = Depends(get_lexi_client),
+    client: LexiReader = Depends(get_lexi_client),
 ) -> dict[str, int]:
     await require_node_access(session, node_id, user, write=False)
     sense_ids = await _defset(session, node_id, user.id if user is not None else None)
@@ -254,7 +254,7 @@ async def folder_items(
     node_id: UUID,
     user: Annotated[CurrentUser | None, Depends(optional_current_user)],
     session: AsyncSession = Depends(get_session),
-    client: LexiClient = Depends(get_lexi_client),
+    client: LexiReader = Depends(get_lexi_client),
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=50, ge=1, le=200),
 ) -> list[FolderItemRead]:

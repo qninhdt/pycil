@@ -9,12 +9,16 @@ from pycil.content.lexi_types import Entry, SearchResult, SenseView
 from pycil_worker.jobs import generate_word
 
 
-def _context(client):
+def _context(reader, worker_engine):
     @asynccontextmanager
     async def session_factory():
         yield object()
 
-    return {"session_factory": session_factory, "lexi_client": client}
+    return {
+        "session_factory": session_factory,
+        "lexi_reader": reader,
+        "lexi_engine": worker_engine,
+    }
 
 
 async def test_generate_word_persists_terminal_result_and_publishes(monkeypatch):
@@ -22,11 +26,12 @@ async def test_generate_word_persists_terminal_result_and_publishes(monkeypatch)
     calls: list[tuple[str, object]] = []
     events: list[tuple] = []
 
-    class Client:
+    class Reader:
         async def search(self, query):
             assert query == "serendipity"
             return [SearchResult(display="serendipity", entry_type="word")]
 
+    class WorkerEngine:
         async def generate(self, source, *, idempotency_key=None):
             assert source.display == "serendipity"
             assert idempotency_key == f"pycil-generation-{job_id}"
@@ -63,7 +68,7 @@ async def test_generate_word_persists_terminal_result_and_publishes(monkeypatch)
     monkeypatch.setattr(generate_word.realtime, "publish_job", publish)
 
     result = await generate_word.generate_word(
-        _context(Client()) | {"worker_id": "worker-a", "redis": object()},
+        _context(Reader(), WorkerEngine()) | {"worker_id": "worker-a", "redis": object()},
         "owner",
         "serendipity",
         str(job_id),
@@ -88,15 +93,54 @@ async def test_generate_word_ignores_retried_job(monkeypatch):
     from pycil.jobs import service as jobs_service
 
     monkeypatch.setattr(jobs_service, "claim_generation", claim_generation)
-    result = await generate_word.generate_word(_context(object()), "owner", "term", str(job_id))
+    result = await generate_word.generate_word(
+        _context(object(), object()), "owner", "term", str(job_id)
+    )
     assert result == {"status": "duplicate"}
+
+
+async def test_generate_word_task_publishes_sse_snapshot_result(monkeypatch):
+    task_id = uuid4()
+
+    class Reader:
+        async def search(self, _query):
+            return []
+
+    class WorkerEngine:
+        async def generate(self, source, *, idempotency_key=None):
+            assert source == "term"
+            assert idempotency_key == f"pycil-task-{task_id}"
+            return Entry(
+                9, "term", "term", "ready", "word", [SenseView("d", "core", None, None, 44)]
+            )
+
+    task = SimpleNamespace(id=task_id, lease_token="lease-token", lease_fence=1)
+    transitions = []
+
+    async def claim_task(_session, seen_task_id, _worker_id):
+        assert seen_task_id == task_id
+        return task
+
+    async def transition_task(_session, seen_task_id, **kwargs):
+        transitions.append((seen_task_id, kwargs))
+        return object()
+
+    monkeypatch.setattr(generate_word.task_service, "claim_task", claim_task)
+    monkeypatch.setattr(generate_word.task_service, "transition_task", transition_task)
+
+    result = await generate_word.generate_word_task(
+        _context(Reader(), WorkerEngine()), str(task_id), "term"
+    )
+
+    assert result == {"status": "succeeded", "wordId": 9, "senseIds": [44]}
+    assert transitions[0][1]["result"] == {"wordId": 9, "senseIds": [44]}
 
 
 async def test_generate_word_schedules_retry_instead_of_arq_redelivery(monkeypatch):
     job_id = uuid4()
     events = []
 
-    class Client:
+    class Reader:
         async def search(self, _query):
             raise RuntimeError("lexi unavailable")
 
@@ -115,6 +159,31 @@ async def test_generate_word_schedules_retry_instead_of_arq_redelivery(monkeypat
     monkeypatch.setattr(jobs_service, "claim_generation", claim_generation)
     monkeypatch.setattr(jobs_service, "fail_generation", fail_generation)
     monkeypatch.setattr(generate_word.realtime, "publish_job", publish)
-    result = await generate_word.generate_word(_context(Client()), "owner", "term", str(job_id))
+    result = await generate_word.generate_word(
+        _context(Reader(), object()), "owner", "term", str(job_id)
+    )
     assert result == {"status": "retry_scheduled"}
     assert events[-1][0] == ("owner", str(job_id), "queued")
+
+
+async def test_generate_word_returns_stale_when_failure_lease_was_reclaimed(monkeypatch):
+    job_id = uuid4()
+
+    class Reader:
+        async def search(self, _query):
+            raise RuntimeError("lexi unavailable")
+
+    async def claim_generation(_session, _seen_job_id, _worker_id, **_kwargs):
+        return SimpleNamespace(lease_token="lease-token", lease_fence=1)
+
+    async def fail_generation(*_args):
+        return None
+
+    from pycil.jobs import service as jobs_service
+
+    monkeypatch.setattr(jobs_service, "claim_generation", claim_generation)
+    monkeypatch.setattr(jobs_service, "fail_generation", fail_generation)
+    result = await generate_word.generate_word(
+        _context(Reader(), object()), "owner", "term", str(job_id)
+    )
+    assert result == {"status": "stale"}

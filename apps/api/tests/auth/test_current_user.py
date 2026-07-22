@@ -9,6 +9,12 @@ from pycil.auth.refresh_sessions import issue
 pytestmark = pytest.mark.asyncio
 
 
+@pytest.fixture(autouse=True)
+def default_access_token_ttl(monkeypatch):
+    """Keep auth-contract tests independent from local developer configuration."""
+    monkeypatch.setattr(tokens.settings, "jwt_max_age_seconds", 900)
+
+
 async def _seed(session, **kw) -> User:
     user = User(email=kw.pop("email", "u@x.co"), **kw)
     session.add(user)

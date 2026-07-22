@@ -1,7 +1,7 @@
 """Stage-2 stats: overlay a Stage-1 sense-id set against user_sense_stats.
 
 All queries stay inside pycil's DB. CEFR distribution resolves sense content via
-the LexiClient (never a cross-DB JOIN). Stats join against a VALUES set rather
+the LexiReader (never a cross-DB JOIN). Stats join against a VALUES set rather
 than ``= ANY(bigarray)`` for index-friendly plans (design §10).
 """
 
@@ -12,7 +12,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pycil.content.lexi_port import LexiClient
+from pycil.content.lexi_port import LexiReader
 
 _MASTERED_DEFAULT = 80
 
@@ -92,7 +92,7 @@ async def weakest_senses(
     return [WeakSense(sense_id=r.sense_id, mastery=r.mastery) for r in rows]
 
 
-async def cefr_distribution(client: LexiClient, sense_ids: list[int]) -> dict[str, int]:
+async def cefr_distribution(client: LexiReader, sense_ids: list[int]) -> dict[str, int]:
     """Bucket a sense-id set by CEFR level via the port (NOT a cross-DB JOIN)."""
     if not sense_ids:
         return {}

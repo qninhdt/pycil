@@ -40,7 +40,7 @@ pass unchanged (api 106p, worker 3p, shared 13p). No schema drift detected;
 
 New lexi-ai capabilities available but not yet adopted:
 - `generate_fenced()` — DB-fenced generation for single-writer durability.
-- `lexi_service` package — gRPC/REST service boundary (future split option).
+- Embedded `lexi_ai` domain library — isolated schema migration and in-process capability facades.
 - Alembic migrations in lexi-ai for schema evolution.
 
 ---

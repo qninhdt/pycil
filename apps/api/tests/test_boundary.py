@@ -32,6 +32,8 @@ def test_pycil_tables_are_the_expected_set():
         "deck_senses", "user_sense_stats", "review_log", "responses",
         "session_sense_attempts",
         "word_generations",
+        "async_tasks", "async_task_interests", "async_task_deliveries", "async_task_events",
+        "async_task_outbox", "async_command_receipts",
         "assistant_threads", "assistant_runs", "assistant_run_events",
         "assistant_actions", "assistant_action_audit",
     }
@@ -39,16 +41,29 @@ def test_pycil_tables_are_the_expected_set():
 
 
 def test_runtime_has_no_lexi_implementation_imports():
-    """Pycil's runtime must depend on Lexi's HTTP contract only."""
+    """Only the library adapter may import the in-process Lexi implementation."""
+    import ast
     import pathlib
 
-    root = pathlib.Path(__file__).resolve().parents[2] / "pycil"
+    root = pathlib.Path(__file__).resolve().parents[1] / "pycil"
+    allowed_importers = {pathlib.Path("content/lexi_library.py")}
     hits = []
     for path in root.rglob("*.py"):
-        text = path.read_text()
-        if "lexi_ai" in text or "Lexicon(" in text:
-            hits.append(str(path.relative_to(root.parent)))
-    assert not hits, f"Lexi implementation leaked into Pycil runtime: {hits}"
+        tree = ast.parse(path.read_text(), filename=str(path))
+        imports_lexi_ai = any(
+            isinstance(node, ast.Import)
+            and any(
+                alias.name == "lexi_ai" or alias.name.startswith("lexi_ai.")
+                for alias in node.names
+            )
+            or isinstance(node, ast.ImportFrom)
+            and node.module is not None
+            and (node.module == "lexi_ai" or node.module.startswith("lexi_ai."))
+            for node in ast.walk(tree)
+        )
+        if imports_lexi_ai and path.relative_to(root) not in allowed_importers:
+            hits.append(str(path.relative_to(root)))
+    assert not hits, f"Lexi implementation imports outside library adapter: {hits}"
 
 
 @pytest.mark.asyncio

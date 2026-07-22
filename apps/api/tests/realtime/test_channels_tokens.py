@@ -10,39 +10,40 @@ import pytest
 from shared.realtime import channels
 from shared.realtime.payloads import GradingResult, JobUpdate
 
-from pycil.config import settings
+from pycil.config import Settings, settings
 from pycil.realtime import client
 from pycil.realtime.router import realtime_token
 
 
-def test_every_private_channel_embeds_owner_uid():
+def test_durable_channel_uses_only_an_opaque_task_id():
     uid = uuid.uuid4()
-    assert channels.user_jobs(uid, "job1") == f"users:{uid}:jobs:job1#{uid}"
-    assert channels.user_grading(uid, "resp1") == f"users:{uid}:grading:resp1#{uid}"
+    assert channels.async_task(uid) == f"async:{uid}"
 
 
-def test_channels_for_two_users_do_not_collide():
+def test_default_public_sse_url_uses_caddy_ingress(monkeypatch):
+    monkeypatch.delenv("CENTRIFUGO_PUBLIC_SSE_URL", raising=False)
+    assert Settings(_env_file=None).centrifugo_public_sse_url == "https://localhost/connection/sse"
+
+
+def test_channels_for_two_tasks_do_not_collide():
     a, b = uuid.uuid4(), uuid.uuid4()
-    # Same enumerable job id, different owners → distinct, owner-prefixed channels.
-    assert channels.user_jobs(a, "1") != channels.user_jobs(b, "1")
-    assert channels.user_jobs(a, "1").startswith(f"users:{a}:")
-    assert channels.user_jobs(b, "1").startswith(f"users:{b}:")
-    assert channels.user_jobs(a, "1").endswith(f"#{a}")
+    assert channels.async_task(a) != channels.async_task(b)
 
 
-def test_subscription_token_subject_is_the_user():
+def test_connection_token_has_user_and_auth_version_metadata():
     uid = uuid.uuid4()
-    token = client.sign_subscription_token(uid)
+    token = client.sign_subscription_token(uid, token_version=7)
     claims = jwt.decode(
         token, settings.centrifugo_token_hmac_secret, algorithms=["HS256"]
     )
     assert claims["sub"] == str(uid)
     assert "exp" in claims and "iat" in claims
+    assert claims["meta"]["tokenVersion"] == 7
 
 
 def test_token_signed_with_centrifugo_secret_not_api_jwt_secret():
     uid = uuid.uuid4()
-    token = client.sign_subscription_token(uid)
+    token = client.sign_subscription_token(uid, token_version=1)
     # Must NOT verify against the API's JWT secret — different key domain.
     import pytest
 
@@ -50,24 +51,22 @@ def test_token_signed_with_centrifugo_secret_not_api_jwt_secret():
         jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
 
 
-def test_user_a_channel_is_limited_to_user_a():
-    """The native # boundary carries the identity Centrifugo checks at subscribe."""
-    a, b = uuid.uuid4(), uuid.uuid4()
-    a_token = client.sign_subscription_token(a)
-    a_sub = jwt.decode(
-        a_token, settings.centrifugo_token_hmac_secret, algorithms=["HS256"]
-    )["sub"]
-    b_channel = channels.user_jobs(b, "1")
-    # A's channel boundary cannot be forged by changing the readable prefix.
-    assert not b_channel.startswith(f"users:{a_sub}")
-    assert b_channel.endswith(f"#{b}")
-
-
-def test_centrifugo_config_denies_open_user_namespace_subscriptions():
+def test_centrifugo_config_enables_sse_proxy_and_recovery_only():
     config = Path(__file__).parents[4] / "centrifugo-config.json"
-    assert '"name": "users"' in config.read_text()
-    assert '"allow_subscribe_for_client": false' in config.read_text()
-    assert '"allow_user_limited_channels": true' in config.read_text()
+    value = config.read_text()
+    assert '"name": "async"' in value
+    assert '"subscribe_proxy_enabled": true' in value
+    assert '"history_size": 1' in value
+    assert '"force_recovery": true' in value
+    assert '"sse"' in value and '"emulation"' in value
+
+
+def test_caddy_exposes_sse_emulation_but_not_websocket_or_sockjs():
+    caddyfile = (Path(__file__).parents[4] / "Caddyfile").read_text()
+    assert "/connection/sse*" in caddyfile
+    assert "/emulation*" in caddyfile
+    assert "/connection/websocket" not in caddyfile
+    assert "/connection/sockjs" not in caddyfile
 
 
 def test_payload_serialization():
@@ -83,18 +82,20 @@ def test_payload_serialization():
 
 
 @pytest.mark.asyncio
-async def test_realtime_token_includes_connection_expiry_and_public_websocket_url(monkeypatch):
+async def test_realtime_token_includes_connection_expiry_and_public_sse_url(monkeypatch):
     uid = uuid.uuid4()
-    monkeypatch.setattr(client, "mint_connection_token", lambda _user_id: ("signed", 1234))
+    monkeypatch.setattr(
+        client, "mint_connection_token", lambda _user_id, _version: ("signed", 1234)
+    )
     from pycil.realtime import router
 
-    monkeypatch.setattr(router.settings, "centrifugo_public_websocket_url", "wss://api.test/ws")
+    monkeypatch.setattr(router.settings, "centrifugo_public_sse_url", "https://api.test/connection/sse")
 
-    result = await realtime_token(SimpleNamespace(id=uid))
+    result = await realtime_token(SimpleNamespace(id=uid, token_version=0))
     assert result.model_dump(by_alias=True) == {
         "token": "signed",
         "expiresAt": 1234,
-        "websocketUrl": "wss://api.test/ws",
+        "sseUrl": "https://api.test/connection/sse",
     }
 
 

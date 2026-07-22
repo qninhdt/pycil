@@ -18,10 +18,12 @@ dependencies = [
     "httpx>=0.28,<0.29",
     "structlog>=24.4,<25.0",
     "pycil-shared",
+    "lexi-ai @ git+https://github.com/qninhdt/lexi-ai.git@3bbd70e96679f8baa179424228d7f32b9342732d",
     "langchain==1.3.13",
     "langgraph-checkpoint-postgres==3.1.0",
     "psycopg[binary,pool]==3.2.13",
     "langchain-openai==1.3.5",
+    "cryptography>=49.0.0",
 ]
 
 [tool.uv.sources]
