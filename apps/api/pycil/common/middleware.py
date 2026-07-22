@@ -6,6 +6,8 @@ a blank env var can never open the gate.
 """
 
 import hmac
+from collections.abc import Awaitable, Callable
+from typing import Any
 from uuid import uuid4
 
 from fastapi import FastAPI, Request
@@ -13,7 +15,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse, Response
 
+from pycil.common.errors import ErrorDetail, ErrorEnvelope
 from pycil.config import settings
+from pycil.observability import metrics
 
 INTERNAL_PREFIX = "/internal"
 
@@ -45,16 +49,88 @@ def _middleware_error(request: Request, status_code: int, code: str, message: st
     return response
 
 
-class BodySizeLimitMiddleware(BaseHTTPMiddleware):
+def _asgi_error_headers(request_id: str) -> list[tuple[bytes, bytes]]:
+    return [
+        (b"content-type", b"application/json"),
+        (b"x-request-id", request_id.encode()),
+        (b"x-content-type-options", b"nosniff"),
+        (b"x-frame-options", b"DENY"),
+        (b"referrer-policy", b"no-referrer"),
+    ]
+
+
+class BodySizeLimitMiddleware:
+    """Reject bodies over the cap, including chunked requests without a length.
+
+    The request is buffered only up to the configured maximum before the downstream
+    ASGI app is called. This prevents a chunked client from bypassing the cap by
+    omitting ``Content-Length``.
+    """
+
     def __init__(self, app, max_bytes: int):
-        super().__init__(app)
+        self.app = app
         self.max_bytes = max_bytes
 
-    async def dispatch(self, request: Request, call_next):
-        cl = request.headers.get("content-length")
-        if cl is not None and cl.isdigit() and int(cl) > self.max_bytes:
-            return _middleware_error(request, 413, "payload_too_large", "Body too large")
-        return await call_next(request)
+    async def __call__(self, scope: dict[str, Any], receive: Callable[[], Awaitable[dict]], send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        headers = {key.lower(): value for key, value in scope.get("headers", [])}
+        content_length = headers.get(b"content-length")
+        request_id = headers.get(b"x-request-id", b"").decode() or uuid4().hex
+        if (
+            content_length is not None
+            and content_length.isdigit()
+            and int(content_length) > self.max_bytes
+        ):
+            await self._send_too_large(send, request_id)
+            return
+
+        messages: list[dict] = []
+        size = 0
+        while True:
+            message = await receive()
+            if message["type"] != "http.request":
+                messages.append(message)
+                break
+            size += len(message.get("body", b""))
+            if size > self.max_bytes:
+                await self._send_too_large(send, request_id)
+                return
+            messages.append(message)
+            if not message.get("more_body", False):
+                break
+
+        async def replay_receive() -> dict:
+            if messages:
+                return messages.pop(0)
+            return {"type": "http.disconnect"}
+
+        await self.app(scope, replay_receive, send)
+
+    async def _send_too_large(self, send, request_id: str) -> None:
+        import json
+
+        payload = json.dumps(
+            ErrorEnvelope(
+                error=ErrorDetail(
+                    code="payload_too_large",
+                    message="Body too large",
+                    request_id=request_id,
+                )
+            ).model_dump(by_alias=True),
+            separators=(",", ":"),
+        ).encode()
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 413,
+                "headers": _asgi_error_headers(request_id)
+                + [(b"content-length", str(len(payload)).encode())],
+            }
+        )
+        await send({"type": "http.response.body", "body": payload})
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -73,6 +149,8 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
         request.state.request_id = request.headers.get("X-Request-ID") or uuid4().hex
         response: Response = await call_next(request)
         response.headers["X-Request-ID"] = request.state.request_id
+        metrics.increment("pycil_http_requests_total")
+        metrics.increment(f"pycil_http_status_{response.status_code}_total")
         return response
 
 

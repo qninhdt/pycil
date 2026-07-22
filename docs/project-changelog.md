@@ -30,6 +30,21 @@ provider protocol smoke test uses a local OpenAI-compatible server.
 
 ---
 
+## [Unreleased] — 2026-07-16 — Sync lexi-ai to service-foundations (ebcbb64)
+
+Re-synced `vendor/lexi-ai` editable dependency to lexi-ai's latest commit
+(`ebcbb64` — service foundations: FastAPI/gRPC runtime, alembic migrations,
+Redis caching, worker flows). Verified backward-compatible: all pycil tests
+pass unchanged (api 106p, worker 3p, shared 13p). No schema drift detected;
+`LexiClient` port and `InProcessLexiClient` adapter required zero changes.
+
+New lexi-ai capabilities available but not yet adopted:
+- `generate_fenced()` — DB-fenced generation for single-writer durability.
+- `lexi_service` package — gRPC/REST service boundary (future split option).
+- Alembic migrations in lexi-ai for schema evolution.
+
+---
+
 ## [Unreleased] — 2026-07-05 — Python greenfield migration (lexi-ai + FSRS + hierarchy)
 
 `plans/260705-0032-python-greenfield-migration/` (12 phases). Rebuilds the

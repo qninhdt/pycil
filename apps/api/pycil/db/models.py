@@ -10,7 +10,7 @@ from pycil.assistant.models import (  # noqa: F401
     AssistantRunEvent,
     AssistantThread,
 )
-from pycil.auth.models import User  # noqa: F401
+from pycil.auth.models import RefreshSession, User  # noqa: F401
 from pycil.content.models import DeckSense  # noqa: F401
 from pycil.db.base import SQLModel
 from pycil.hierarchy.models import (  # noqa: F401

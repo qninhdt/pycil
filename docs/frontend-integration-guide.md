@@ -15,14 +15,18 @@ redirect allowlist, wildcard/localhost origins, and placeholder secrets.
 ## Authentication flow
 
 1. BFF calls `GET /v1/auth/login?redirect_uri=<its exact callback URL>`.
-2. Redirect the browser to returned `authorizeUrl`.
+2. Redirect the browser to returned `authorize_url`.
 3. Google redirects to the BFF callback with `code` and `state`.
 4. BFF calls `GET /v1/auth/callback?code=…&state=…`, receives
-   `access_token` and `expires_in`, then seals the token in `iron-session`.
-5. On each server render/action, BFF calls `GET /v1/me`. A 401 means clear the
-   BFF session and restart login. `POST /v1/auth/refresh` can rotate a valid
-   token before expiry; `POST /v1/auth/logout` revokes every token for that
-   user and BFF must clear its cookie.
+   `access_token`, `refresh_token`, `expires_in`, and `refresh_expires_in`,
+   then seals both tokens and their expiries in `iron-session`.
+5. Before forwarding a Pycil call, the BFF refreshes when the access token is
+   close to expiry: `POST /v1/auth/refresh` with `{ "refresh_token": "…" }`.
+   Replace the stored refresh token atomically with the returned one. Refresh
+   tokens are single-use and rotation/replay revokes the session family.
+6. On each server render/action, BFF calls `GET /v1/me`. A 401 means clear the
+   BFF session and restart login. To sign out, call `POST /v1/auth/logout`
+   with the stored refresh token, then clear the BFF cookie.
 
 Pycil never accepts a browser cookie and never implements Auth.js/session-table
 semantics.
@@ -91,12 +95,30 @@ Errors use one envelope:
 ```
 
 Log the `requestId` for support. Do not branch on English messages. The BFF can
-obtain a Centrifugo connection token from `/realtime/token`; subscribe only to
-the owner-scoped channels provided by the API contract. On reconnect or missed
-events, refetch jobs/responses/runs: durable HTTP state wins over push events.
+obtain a Centrifugo connection token from `/realtime/token`. The response is
+`{ token, expiresAt, websocketUrl }`; connect only to that `websocketUrl` and
+renew before `expiresAt`. Subscribe only to the owner-scoped channels provided
+by the API contract. On reconnect or missed events, refetch jobs/responses/runs:
+durable HTTP state wins over push events.
 Job updates use `{ jobId, status, detail }`; grading updates use camelCase
 response/sense/verdict/mastery fields matching `GET /responses/{responseId}`.
 
-Assistant SSE runs are recoverable via
+Assistant SSE frames use `id`, `event`, and JSON `data`; persist the latest
+event id and reconnect with `Last-Event-ID`. Runs are recoverable via
 `GET /assistant/threads/{threadId}/runs/{runId}?after=<sequence>`; do not treat
-an interrupted stream as a failed run.
+an interrupted stream as a failed run. The API enforces a 1 MiB cumulative
+request-body limit (including chunked uploads); send compact JSON only.
+
+## Contract and account lifecycle
+
+The canonical, versioned OpenAPI document is `GET /v1/openapi.json` (the
+unversioned `/openapi.json` remains a convenience alias). Generate clients from
+the versioned document and treat compatible additions as the normal evolution
+path. All documented non-success responses use the error envelope above; a
+429 also supplies `Retry-After` when a retry time is known.
+
+Authenticated users can download their Pycil-owned export with
+`GET /me/export` and permanently delete their Pycil account with `DELETE /me`,
+supplying `{ "confirmation": "DELETE", "refresh_token": "…" }` as a
+confirmation.
+Deletion does not delete Lexi's independently owned dictionary data.

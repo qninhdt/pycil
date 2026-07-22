@@ -24,4 +24,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    raise RuntimeError("0004 is additive; rollback application code or forward-fix, never drop live schema")
+    raise RuntimeError(
+        "0004 is additive; rollback application code or forward-fix, never drop live schema"
+    )

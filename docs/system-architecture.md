@@ -67,7 +67,10 @@ bearer JWT.
 lexi-ai itself is vendored as an editable path dependency at `vendor/lexi-ai`
 (gitignored symlink to `~/projects/lexi-ai`, or a copied source tree in
 CI/deploy contexts) — see `pyproject.toml`'s `[tool.uv.sources]` in `apps/api`
-and `apps/worker`.
+and `apps/worker`. Currently synced to lexi-ai commit `ebcbb64` (service
+foundations: FastAPI/gRPC runtime, alembic migrations, worker flows). The
+`lexi_service` package is available but not consumed; pycil still uses the
+in-process `Lexicon` directly.
 
 ## Two-Database Boundary
 

@@ -72,9 +72,15 @@ assets/
 # External repos for study/reference
 external/
 
+.kiro
+
 # lexi-ai editable path dep — symlinked/copied into the build context locally;
 # in CI/deploy the source is provided out-of-band (interim until PyPI publish).
 vendor/
 
 # Git worktrees (local development only)
 worktrees/
+
+# Node.js
+node_modules/
+.pnpm-debug.log*

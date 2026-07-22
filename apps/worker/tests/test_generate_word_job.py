@@ -27,8 +27,9 @@ async def test_generate_word_persists_terminal_result_and_publishes(monkeypatch)
             assert query == "serendipity"
             return [SearchResult(display="serendipity", entry_type="word")]
 
-        async def generate(self, source):
+        async def generate(self, source, *, idempotency_key=None):
             assert source.display == "serendipity"
+            assert idempotency_key == f"pycil-generation-{job_id}"
             return Entry(
                 word_id=9,
                 display="serendipity",
@@ -38,25 +39,34 @@ async def test_generate_word_persists_terminal_result_and_publishes(monkeypatch)
                 senses=[SenseView("luck", "core", None, None, sense_id=44)],
             )
 
-    async def mark_running(_session, seen_job_id):
+    async def claim_generation(_session, seen_job_id, worker_id, **_kwargs):
         calls.append(("running", seen_job_id))
-        return SimpleNamespace()
+        assert worker_id == "worker-a"
+        return SimpleNamespace(id=job_id, lease_token="lease-token", lease_fence=1)
 
-    async def mark_succeeded(_session, seen_job_id, result):
+    async def complete_generation(_session, seen_job_id, token, fence, result):
+        assert (token, fence) == ("lease-token", 1)
         calls.append(("succeeded", (seen_job_id, result)))
-        return SimpleNamespace()
+        return SimpleNamespace(owner_id=uuid4())
+
+    async def release_inflight_quota(_redis, _owner_id):
+        return None
 
     async def publish(*args, **kwargs):
         events.append((args, kwargs))
 
     from pycil.jobs import service as jobs_service
 
-    monkeypatch.setattr(jobs_service, "mark_running", mark_running)
-    monkeypatch.setattr(jobs_service, "mark_succeeded", mark_succeeded)
+    monkeypatch.setattr(jobs_service, "claim_generation", claim_generation)
+    monkeypatch.setattr(jobs_service, "complete_generation", complete_generation)
+    monkeypatch.setattr(jobs_service, "release_inflight_quota", release_inflight_quota)
     monkeypatch.setattr(generate_word.realtime, "publish_job", publish)
 
     result = await generate_word.generate_word(
-        _context(Client()), "owner", "serendipity", str(job_id)
+        _context(Client()) | {"worker_id": "worker-a", "redis": object()},
+        "owner",
+        "serendipity",
+        str(job_id),
     )
 
     assert result == {"status": "succeeded", "wordId": 9, "senseIds": [44]}
@@ -72,13 +82,39 @@ async def test_generate_word_persists_terminal_result_and_publishes(monkeypatch)
 async def test_generate_word_ignores_retried_job(monkeypatch):
     job_id = uuid4()
 
-    async def mark_running(_session, _seen_job_id):
+    async def claim_generation(_session, _seen_job_id, _worker_id, **_kwargs):
         return None
 
     from pycil.jobs import service as jobs_service
 
-    monkeypatch.setattr(jobs_service, "mark_running", mark_running)
-    result = await generate_word.generate_word(
-        _context(object()), "owner", "term", str(job_id)
-    )
+    monkeypatch.setattr(jobs_service, "claim_generation", claim_generation)
+    result = await generate_word.generate_word(_context(object()), "owner", "term", str(job_id))
     assert result == {"status": "duplicate"}
+
+
+async def test_generate_word_schedules_retry_instead_of_arq_redelivery(monkeypatch):
+    job_id = uuid4()
+    events = []
+
+    class Client:
+        async def search(self, _query):
+            raise RuntimeError("lexi unavailable")
+
+    async def claim_generation(_session, _seen_job_id, _worker_id, **_kwargs):
+        return SimpleNamespace(lease_token="lease-token", lease_fence=1)
+
+    async def fail_generation(_session, _seen_job_id, token, fence, code):
+        assert (token, fence, code) == ("lease-token", 1, "generation_failed")
+        return SimpleNamespace(status=SimpleNamespace(value="queued"))
+
+    async def publish(*args, **kwargs):
+        events.append((args, kwargs))
+
+    from pycil.jobs import service as jobs_service
+
+    monkeypatch.setattr(jobs_service, "claim_generation", claim_generation)
+    monkeypatch.setattr(jobs_service, "fail_generation", fail_generation)
+    monkeypatch.setattr(generate_word.realtime, "publish_job", publish)
+    result = await generate_word.generate_word(_context(Client()), "owner", "term", str(job_id))
+    assert result == {"status": "retry_scheduled"}
+    assert events[-1][0] == ("owner", str(job_id), "queued")

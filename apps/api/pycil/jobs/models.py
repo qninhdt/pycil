@@ -18,7 +18,10 @@ class JobStatus(str, Enum):
 
 class WordGeneration(SQLModel, table=True):
     __tablename__ = "word_generations"
-    __table_args__ = (Index("ix_word_generations_owner_created", "owner_id", "created_at"),)
+    __table_args__ = (
+        Index("ix_word_generations_owner_created", "owner_id", "created_at"),
+        Index("ix_word_generations_claimable", "status", "next_attempt_at"),
+    )
 
     id: UUID | None = Field(
         default=None,
@@ -38,6 +41,16 @@ class WordGeneration(SQLModel, table=True):
     result: dict | None = Field(default=None, sa_column=Column(JSONB, nullable=True))
     error_code: str | None = None
     attempt: int = Field(default=0)
+    max_attempts: int = Field(default=4)
+    lease_owner: str | None = Field(default=None, max_length=128)
+    lease_token: str | None = Field(default=None, max_length=64)
+    lease_fence: int = Field(default=0)
+    lease_expires_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
+    next_attempt_at: datetime | None = Field(
+        default=None,
+        sa_type=DateTime(timezone=True),
+        sa_column_kwargs={"server_default": text("NOW()")},
+    )
     created_at: datetime | None = Field(
         default=None,
         sa_type=DateTime(timezone=True),

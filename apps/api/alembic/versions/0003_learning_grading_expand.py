@@ -20,9 +20,7 @@ depends_on: str | Sequence[str] | None = None
 def upgrade() -> None:
     op.add_column("responses", sa.Column("session_id", sa.String(length=64), nullable=True))
     op.add_column("responses", sa.Column("raw_answer", sa.String(length=10000), nullable=True))
-    op.add_column(
-        "responses", sa.Column("idempotency_key", sa.String(length=128), nullable=True)
-    )
+    op.add_column("responses", sa.Column("idempotency_key", sa.String(length=128), nullable=True))
     op.add_column(
         "responses", sa.Column("grading_lease_owner", sa.String(length=64), nullable=True)
     )
@@ -63,4 +61,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    raise RuntimeError("0003 is additive; rollback application code or forward-fix, never drop live schema")
+    raise RuntimeError(
+        "0003 is additive; rollback application code or forward-fix, never drop live schema"
+    )

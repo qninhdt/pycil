@@ -25,6 +25,19 @@ from pycil_worker.jobs import reconcile_assistant_retention as retention_job  # 
 pytestmark = pytest.mark.asyncio
 
 
+async def test_streaming_routes_publish_a_named_sse_openapi_contract():
+    from fastapi import FastAPI
+
+    app = FastAPI()
+    app.include_router(router.router, prefix="/v1")
+    operation = app.openapi()["paths"]["/v1/assistant/threads/{thread_id}/messages"]["post"]
+    response = operation["responses"]["200"]
+    assert "text/event-stream" in response["content"]
+    assert operation["x-pycil-sse-contract"]["eventSchema"] == (
+        "#/components/schemas/AssistantSSEEvent"
+    )
+
+
 def _session_factory(engine):
     return async_sessionmaker(engine, expire_on_commit=False)
 

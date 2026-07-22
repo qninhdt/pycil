@@ -7,6 +7,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -51,12 +52,51 @@ from pycil.assistant.schemas import (
 )
 from pycil.auth.deps import current_user
 from pycil.auth.schemas import CurrentUser
-from pycil.common.errors import ConflictError, NotFoundError, ServiceUnavailableError
+from pycil.common.errors import (
+    ConflictError,
+    NotFoundError,
+    ServiceUnavailableError,
+    error_responses,
+)
 from pycil.config import settings
 from pycil.db.redis import get_redis
 from pycil.db.session import async_session_factory, get_session
 
 router = APIRouter(prefix="/assistant", tags=["assistant"])
+
+
+class AssistantSSEEvent(BaseModel):
+    """Named contract for one logical event encoded in the SSE response stream."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: int = Field(description="Monotonically increasing event id for reconnection.")
+    event: str = Field(description="Event type, such as token, action, error, or done.")
+    data: dict = Field(description="Sanitized JSON event payload.")
+
+
+SSE_RESPONSE = {
+    200: {
+        "model": AssistantSSEEvent,
+        "description": "A recoverable server-sent event stream.",
+        "content": {
+            "text/event-stream": {
+                "schema": {
+                    "type": "string",
+                    "description": "SSE frames; each data payload matches AssistantSSEEvent.",
+                    "x-pycil-sse-event-schema": "#/components/schemas/AssistantSSEEvent",
+                }
+            }
+        },
+    }
+}
+SSE_OPENAPI_EXTENSION = {
+    "x-pycil-sse-contract": {
+        "eventSchema": "#/components/schemas/AssistantSSEEvent",
+        "frame": "id: <sequence>\\nevent: <event>\\ndata: <json>\\n\\n",
+        "reconnectHeader": "Last-Event-ID",
+    }
+}
 
 
 def _event_frame(event: AssistantRunEvent) -> str:
@@ -192,7 +232,12 @@ async def get_run(
     }
 
 
-@router.post("/threads/{thread_id}/messages")
+@router.post(
+    "/threads/{thread_id}/messages",
+    response_class=StreamingResponse,
+    responses={**SSE_RESPONSE, **error_responses(401, 404, 409, 422, 429, 503)},
+    openapi_extra=SSE_OPENAPI_EXTENSION,
+)
 async def send_message(
     thread_id: UUID,
     body: MessageCreate,
@@ -237,7 +282,12 @@ async def send_message(
     return _stream(events())
 
 
-@router.post("/threads/{thread_id}/actions/{action_id}/confirm")
+@router.post(
+    "/threads/{thread_id}/actions/{action_id}/confirm",
+    response_class=StreamingResponse,
+    responses={**SSE_RESPONSE, **error_responses(401, 404, 409, 422, 429, 503)},
+    openapi_extra=SSE_OPENAPI_EXTENSION,
+)
 async def confirm_action(
     thread_id: UUID,
     action_id: UUID,

@@ -7,14 +7,15 @@ set -eu
 : "${RESTIC_REPOSITORY:?RESTIC_REPOSITORY not set (e.g. b2:bucket/pycil)}"
 : "${RESTIC_PASSWORD_FILE:?RESTIC_PASSWORD_FILE not set}"
 
-TAG="pycil-pg-$(date -u +%F)"
+BACKUP_ID="${BACKUP_ID:-pycil-$(date -u +%Y%m%dT%H%M%SZ)}"
+TAG="pycil-pg-${BACKUP_ID}"
 
 echo "[backup] starting $TAG"
 
 restic snapshots --tag pycil-pg- >/dev/null 2>&1 || restic init
 
 pg_dump -Fc -d "$DATABASE_URL" \
-  | restic backup --tag "$TAG" --stdin --stdin-filename pycil.dump
+  | restic backup --tag "$TAG" --stdin --stdin-filename "pycil-${BACKUP_ID}.dump"
 
 echo "[backup] applying retention policy (7d/4w/6m)"
 restic forget --keep-daily 7 --keep-weekly 4 --keep-monthly 6 --prune

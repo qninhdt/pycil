@@ -11,8 +11,9 @@ from pycil.assistant import content_facade, hierarchy_facade
 from pycil.assistant.context import AssistantContext
 from pycil.assistant.models import ActionStatus, AssistantAction, AssistantActionAudit
 from pycil.assistant.persistence import revalidate_actor
+from pycil.common.errors import TooManyRequestsError
 from pycil.content.deps import get_lexi_client
-from pycil.db.redis import get_arq_pool
+from pycil.db.redis import get_arq_pool, get_redis
 from pycil.db.session import async_session_factory
 from pycil.hierarchy.viewer_stats import get_folder_stats_for_viewer
 from pycil.jobs import service as jobs_service
@@ -190,10 +191,23 @@ async def request_word_generation(query: str, runtime: ToolRuntime[AssistantCont
     """Queue vocabulary generation for the caller."""
     await _mutate(runtime)
     async with async_session_factory() as session:
-        record = await jobs_service.create_generation(session, runtime.context.user_id, query[:200])
-    await (await get_arq_pool()).enqueue_job(
-        "generate_word", str(runtime.context.user_id), query[:200], str(record.id)
-    )
+        record, created, allowed = await jobs_service.submit_generation(
+            session, get_redis(), runtime.context.user_id, query[:200], None
+        )
+    if not allowed:
+        raise TooManyRequestsError(
+            "word_generation_quota_exceeded",
+            code="word_generation_quota_exceeded",
+            retry_after=3600,
+        )
+    if created:
+        try:
+            await (await get_arq_pool()).enqueue_job(
+                "generate_word", str(runtime.context.user_id), query[:200], str(record.id)
+            )
+        except Exception:
+            # The durable reconciler will enqueue this committed row.
+            pass
     return f"generation_requested:{record.id}"
 
 

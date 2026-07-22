@@ -20,7 +20,7 @@ async def _user(session, email: str) -> User:
     return user
 
 
-async def test_job_lifecycle_is_single_claim_and_owner_scoped(session):
+async def test_job_lifecycle_is_fenced_and_owner_scoped(session):
     owner = await _user(session, "owner@x.co")
     stranger = await _user(session, "stranger@x.co")
 
@@ -29,19 +29,83 @@ async def test_job_lifecycle_is_single_claim_and_owner_scoped(session):
     assert record.normalized_query == "café test"
     assert await service.get_generation(session, record.id, stranger.id) is None
 
-    claimed = await service.mark_running(session, record.id)
+    claimed = await service.claim_generation(session, record.id, "worker-a")
     assert claimed is not None
     assert claimed.status == JobStatus.RUNNING
     assert claimed.attempt == 1
-    assert await service.mark_running(session, record.id) is None
+    assert claimed.lease_token
+    assert claimed.lease_fence == 1
+    assert await service.claim_generation(session, record.id, "worker-b") is None
 
-    completed = await service.mark_succeeded(
-        session, record.id, {"wordId": 10, "senseIds": [1, 2]}
+    assert (
+        await service.complete_generation(
+            session, record.id, "wrong-token", claimed.lease_fence, {"wordId": 10}
+        )
+        is None
+    )
+    completed = await service.complete_generation(
+        session,
+        record.id,
+        claimed.lease_token,
+        claimed.lease_fence,
+        {"wordId": 10, "senseIds": [1, 2]},
     )
     assert completed is not None
     assert completed.status == JobStatus.SUCCEEDED
     assert completed.result == {"wordId": 10, "senseIds": [1, 2]}
-    assert await service.mark_failed(session, record.id, "late_failure") is None
+    assert (
+        await service.fail_generation(
+            session, record.id, claimed.lease_token, claimed.lease_fence, "late_failure"
+        )
+        is None
+    )
+
+
+async def test_expired_lease_is_reclaimed_with_new_fence_and_failures_back_off(session):
+    owner = await _user(session, "lease-owner@x.co")
+    record = await service.create_generation(session, owner.id, "example")
+    first = await service.claim_generation(session, record.id, "worker-a", lease_seconds=0)
+    assert first is not None
+    first_token, first_fence = first.lease_token, first.lease_fence
+
+    second = await service.claim_generation(session, record.id, "worker-b")
+    assert second is not None
+    assert second.lease_fence == first_fence + 1
+    assert (
+        await service.complete_generation(
+            session, record.id, first_token, first_fence, {"wordId": 1}
+        )
+        is None
+    )
+
+    retried = await service.fail_generation(
+        session, record.id, second.lease_token, second.lease_fence, "generation_failed"
+    )
+    assert retried is not None
+    assert retried.status == JobStatus.QUEUED
+    assert retried.next_attempt_at is not None
+
+
+async def test_idempotent_submission_does_not_charge_quota_twice(session, monkeypatch):
+    owner = await _user(session, "quota-owner@x.co")
+    charges = 0
+
+    async def reserve(_redis, _owner_id):
+        nonlocal charges
+        charges += 1
+        return True
+
+    monkeypatch.setattr(service, "reserve_quota", reserve)
+    first, created, allowed = await service.submit_generation(
+        session, object(), owner.id, "example", "same-request"
+    )
+    assert created and allowed
+    replay, created, allowed = await service.submit_generation(
+        session, object(), owner.id, "changed text", "same-request"
+    )
+    assert allowed and not created
+    assert replay.id == first.id
+    assert charges == 1
 
 
 async def test_generation_endpoint_enqueues_and_job_endpoint_hides_other_owner(

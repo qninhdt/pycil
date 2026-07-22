@@ -28,7 +28,7 @@ def test_pycil_metadata_has_no_dictionary_tables():
 def test_pycil_tables_are_the_expected_set():
     pycil_tables = {t.name for t in target_metadata.tables.values()}
     expected = {
-        "users", "nodes", "deck_attributes",
+        "users", "refresh_sessions", "nodes", "deck_attributes",
         "deck_senses", "user_sense_stats", "review_log", "responses",
         "session_sense_attempts",
         "word_generations",

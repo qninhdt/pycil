@@ -17,7 +17,12 @@ async def generate_word(ctx: dict, owner_uid: str, query: str, generation_id: st
     from pycil.jobs import service as jobs_service
 
     async with session_factory() as session:
-        record = await jobs_service.mark_running(session, UUID(generation_id))
+        record = await jobs_service.claim_generation(
+            session,
+            UUID(generation_id),
+            ctx.get("worker_id", "worker"),
+            redis=ctx.get("redis"),
+        )
     if record is None:
         return {"status": "duplicate"}
 
@@ -27,17 +32,34 @@ async def generate_word(ctx: dict, owner_uid: str, query: str, generation_id: st
         results = await client.search(query)
         # Empty-search guard: no Cambridge/generated hit → custom-string generate.
         source = results[0] if results else query
-        entry = await client.generate(source)
+        entry = await client.generate(source, idempotency_key=f"pycil-generation-{record.id}")
     except Exception:
         async with session_factory() as session:
-            await jobs_service.mark_failed(session, UUID(generation_id), "generation_failed")
-        await realtime.publish_job(owner_uid, generation_id, "failed")
-        raise
+            completed = await jobs_service.fail_generation(
+                session,
+                UUID(generation_id),
+                record.lease_token,
+                record.lease_fence,
+                "generation_failed",
+            )
+        if completed is None:
+            return {"status": "stale"}
+        if completed.status.value == "failed":
+            await jobs_service.release_inflight_quota(ctx["redis"], completed.owner_id)
+            await realtime.publish_job(owner_uid, generation_id, "failed")
+            return {"status": "failed"}
+        await realtime.publish_job(owner_uid, generation_id, "queued")
+        return {"status": "retry_scheduled"}
 
     sense_ids = [s.sense_id for s in entry.senses if s.sense_id is not None]
     result = {"wordId": entry.word_id, "senseIds": sense_ids}
     async with session_factory() as session:
-        await jobs_service.mark_succeeded(session, UUID(generation_id), result)
+        completed = await jobs_service.complete_generation(
+            session, UUID(generation_id), record.lease_token, record.lease_fence, result
+        )
+    if completed is None:
+        return {"status": "stale"}
+    await jobs_service.release_inflight_quota(ctx["redis"], completed.owner_id)
     await realtime.publish_job(owner_uid, generation_id, "succeeded", detail=entry.display)
     # pycil stores nothing here — the ids belong to lexi's DB.
     return {"status": "succeeded", **result}

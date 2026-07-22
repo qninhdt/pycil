@@ -14,7 +14,7 @@ import jwt
 from pycil.config import settings
 
 _ALGO = "HS256"
-_TOKEN_TTL = 3600
+_TOKEN_TTL = 900
 
 
 async def readiness() -> bool:
@@ -29,9 +29,38 @@ async def readiness() -> bool:
 
 def sign_subscription_token(user_id: UUID | str) -> str:
     """Sign a Centrifugo connection token whose ``sub`` is the user id."""
+    return mint_connection_token(user_id)[0]
+
+
+def mint_connection_token(user_id: UUID | str) -> tuple[str, int]:
+    """Return a connection token together with its exact Unix expiry timestamp."""
     now = int(time.time())
-    claims = {"sub": str(user_id), "iat": now, "exp": now + _TOKEN_TTL}
-    return jwt.encode(claims, settings.centrifugo_token_hmac_secret, algorithm=_ALGO)
+    expires_at = now + _TOKEN_TTL
+    claims = {"sub": str(user_id), "iat": now, "exp": expires_at}
+    return jwt.encode(claims, settings.centrifugo_token_hmac_secret, algorithm=_ALGO), expires_at
+
+
+async def disconnect_user(user_id: UUID | str) -> bool:
+    """Close every Centrifugo connection belonging to a user.
+
+    Centrifugo can return command-level errors in a successful HTTP response, so
+    both transport and API-level failures are treated as an unsuccessful disconnect.
+    Callers may safely continue their local logout/revocation flow when this fails.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as http_client:
+            response = await http_client.post(
+                f"{settings.centrifugo_url}/api/disconnect",
+                json={"user": str(user_id)},
+                headers={"X-API-Key": settings.centrifugo_api_key},
+            )
+            response.raise_for_status()
+            payload = response.json()
+    except (httpx.HTTPError, ValueError):
+        return False
+    return isinstance(payload, dict) and not payload.get("error")
+
+
 async def publish(channel: str, data: dict) -> None:
     """Publish a payload to a Centrifugo channel via its HTTP API.
 

@@ -4,9 +4,11 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse, PlainTextResponse
 from sqlalchemy import text
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from pycil.account_lifecycle.router import router as account_lifecycle_router
 from pycil.assistant.checkpointer import open_checkpointer
 from pycil.assistant.graph import build_graph
 from pycil.assistant.router import router as assistant_router
@@ -29,6 +31,7 @@ from pycil.db.session import engine
 from pycil.hierarchy.router import router as hierarchy_router
 from pycil.jobs.router import router as jobs_router
 from pycil.learning.router import router as learning_router
+from pycil.observability import metrics
 from pycil.realtime.client import readiness as centrifugo_readiness
 from pycil.realtime.router import router as realtime_router
 
@@ -62,6 +65,7 @@ def create_app() -> FastAPI:
     app.add_exception_handler(HTTPException, http_error_handler)
     app.add_exception_handler(StarletteHTTPException, http_error_handler)
     app.include_router(auth_router, prefix="/v1")
+    app.include_router(account_lifecycle_router, prefix="/v1")
     app.include_router(assistant_router, prefix="/v1")
     app.include_router(content_router, prefix="/v1")
     app.include_router(hierarchy_router, prefix="/v1")
@@ -78,6 +82,11 @@ def create_app() -> FastAPI:
         return CapabilitiesRead(
             assistant=bool(settings.assistant_api_key and settings.assistant_base_url)
         )
+
+    @app.get("/v1/openapi.json", include_in_schema=False)
+    async def versioned_openapi() -> JSONResponse:
+        """Serve the v1 contract at a stable, versioned URL for API consumers."""
+        return JSONResponse(app.openapi())
 
     @app.get("/health/live")
     @app.get("/health")
@@ -100,6 +109,13 @@ def create_app() -> FastAPI:
         if not await centrifugo_readiness():
             raise ServiceUnavailableError("centrifugo_unavailable")
         return {"status": "ready"}
+
+    @app.get("/internal/metrics", include_in_schema=False)
+    async def internal_metrics() -> PlainTextResponse:
+        """Internal-secret-protected Prometheus/OpenMetrics scrape endpoint."""
+        return PlainTextResponse(
+            metrics.render_openmetrics(), media_type="text/plain; version=0.0.4"
+        )
 
     return app
 

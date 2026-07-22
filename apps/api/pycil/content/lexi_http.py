@@ -46,12 +46,17 @@ class LexiHttpClient:
         body = await self._request("GET", "/v1/search", params={"query": query})
         return [_search_result(value) for value in body["results"]]
 
-    async def generate(self, source: SearchResult | str) -> Entry:
+    async def generate(
+        self, source: SearchResult | str, *, idempotency_key: str | None = None
+    ) -> Entry:
         target = _search_result_body(source)
         submission = await self._request(
             "POST",
             "/v1/generations",
-            headers={"Idempotency-Key": f"pycil-{uuid4().hex}"},
+            # A worker retry must address the same Lexi generation. Callers
+            # therefore supply their durable Pycil job id; interactive callers
+            # retain the old safe default.
+            headers={"Idempotency-Key": idempotency_key or f"pycil-{uuid4().hex}"},
             json={
                 "target": target,
                 "reference_dataset_fingerprint": self._reference_dataset_fingerprint,

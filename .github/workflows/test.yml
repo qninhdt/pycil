@@ -171,7 +171,7 @@ jobs:
           DB_URL: postgresql+asyncpg://pycil:pycil@localhost:5432/pycil_test
         run: |
           uv run alembic upgrade head
-          test "$(uv run alembic current | tail -n 1)" = "0011_word_generation_idempotency (head)"
+          test "$(uv run alembic current | tail -n 1)" = "0013_word_generation_leases (head)"
 
   build-images:
     # Ensure both runtime images build from a clean checkout, without requiring
@@ -189,13 +189,16 @@ jobs:
           POSTGRES_PASSWORD: pycil
           POSTGRES_DB: pycil
           DATABASE_URL_ASYNC: postgresql+asyncpg://pycil:pycil@postgres:5432/pycil
-          REDIS_URL: redis://redis:6379/0
+          REDIS_PASSWORD: redis-ci-password
+          REDIS_URL: redis://:redis-ci-password@redis:6379/0
           LEXI_SERVICE_INTERNAL_SERVICE_TOKEN: test-token
           LEXI_REFERENCE_DATASET_SHA256: test-fingerprint
           AUTH_JWT_SECRET: test-jwt-secret
+          REFRESH_TOKEN_PEPPER: test-refresh-token-pepper
           INTERNAL_API_SECRET: test-internal-secret
           CENTRIFUGO_API_KEY: test-centrifugo-api-key
           CENTRIFUGO_TOKEN_HMAC_SECRET: test-centrifugo-token-secret
+          CENTRIFUGO_PUBLIC_WEBSOCKET_URL: wss://app.example.test/connection/websocket
           ALLOWED_ORIGINS: https://app.example.test
         run: docker compose config -q
       - name: Validate TLS/WSS ingress configuration

@@ -1,0 +1,44 @@
+"""Authenticated account export and deletion routes."""
+
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Response
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from pycil.account_lifecycle import service
+from pycil.account_lifecycle.schemas import AccountDeleteRequest, AccountExport
+from pycil.auth.deps import current_user
+from pycil.auth.schemas import CurrentUser
+from pycil.common.errors import UnauthorizedError
+from pycil.db.redis import get_redis
+from pycil.db.session import get_session
+from pycil.jobs.service import release_inflight_quota
+from pycil.realtime.client import disconnect_user
+
+router = APIRouter(tags=["account"])
+
+
+@router.get("/me/export", response_model=AccountExport)
+async def export_me(
+    user: Annotated[CurrentUser, Depends(current_user)],
+    session: AsyncSession = Depends(get_session),
+) -> AccountExport:
+    return AccountExport.model_validate(await service.export_account(session, user.id))
+
+
+@router.delete("/me", status_code=204)
+async def delete_me(
+    body: AccountDeleteRequest,
+    user: Annotated[CurrentUser, Depends(current_user)],
+    session: AsyncSession = Depends(get_session),
+) -> Response:
+    if body.confirmation != "DELETE":
+        raise UnauthorizedError("account_delete_confirmation_required")
+    if not await service.owns_active_refresh_token(session, user.id, body.refresh_token):
+        raise UnauthorizedError("invalid_refresh_token")
+    inflight_jobs = await service.delete_account(session, user.id)
+    redis = get_redis()
+    for _ in range(inflight_jobs):
+        await release_inflight_quota(redis, user.id)
+    await disconnect_user(user.id)
+    return Response(status_code=204)

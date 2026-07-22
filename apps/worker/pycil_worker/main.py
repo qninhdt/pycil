@@ -9,6 +9,8 @@ storage and generation; Pycil's worker only orchestrates its own jobs.
 # Register the referenced users table in SQLModel metadata.  The worker writes
 # WordGeneration records directly, while the API normally imports this model
 # through its auth router during application startup.
+from uuid import uuid4
+
 import pycil.auth.models  # noqa: F401
 from arq.connections import RedisSettings
 from arq.cron import cron
@@ -29,6 +31,7 @@ from pycil_worker.jobs.reconcile_queued_word_generations import reconcile_queued
 
 
 async def on_startup(ctx: dict) -> None:
+    ctx["worker_id"] = str(uuid4())
     ctx["lexi_client"] = LexiHttpClient(
         settings.lexi_service_url,
         settings.lexi_service_token,
@@ -66,7 +69,7 @@ class WorkerSettings:
     ]
     cron_jobs = [
         cron(reconcile_pending_grades, minute={0, 10, 20, 30, 40, 50}),
-        cron(reconcile_queued_word_generations, minute={1, 11, 21, 31, 41, 51}),
+        cron(reconcile_queued_word_generations, minute=set(range(60))),
         cron(reconcile_expired_assistant_actions, minute={0, 10, 20, 30, 40, 50}),
         cron(reconcile_assistant_retention, hour={3}, minute={15}),
         cron(heartbeat, minute=set(range(60))),

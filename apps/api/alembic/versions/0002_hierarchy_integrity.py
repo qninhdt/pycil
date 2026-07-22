@@ -33,7 +33,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    raise RuntimeError("0002 is additive; rollback application code or forward-fix, never drop live schema")
+    raise RuntimeError(
+        "0002 is additive; rollback application code or forward-fix, never drop live schema"
+    )
 
 
 def _assert_hierarchy_preflight() -> None:

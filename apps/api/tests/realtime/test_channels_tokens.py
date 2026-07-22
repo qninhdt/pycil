@@ -2,13 +2,17 @@
 
 import uuid
 from pathlib import Path
+from types import SimpleNamespace
 
+import httpx
 import jwt
+import pytest
 from shared.realtime import channels
 from shared.realtime.payloads import GradingResult, JobUpdate
 
 from pycil.config import settings
 from pycil.realtime import client
+from pycil.realtime.router import realtime_token
 
 
 def test_every_private_channel_embeds_owner_uid():
@@ -76,3 +80,57 @@ def test_payload_serialization():
     d = grade.to_dict()
     assert d["senseId"] == 42 and d["isCorrect"] is True
     assert d["masteryBefore"] == 10 and d["masteryAfter"] == 20
+
+
+@pytest.mark.asyncio
+async def test_realtime_token_includes_connection_expiry_and_public_websocket_url(monkeypatch):
+    uid = uuid.uuid4()
+    monkeypatch.setattr(client, "mint_connection_token", lambda _user_id: ("signed", 1234))
+    from pycil.realtime import router
+
+    monkeypatch.setattr(router.settings, "centrifugo_public_websocket_url", "wss://api.test/ws")
+
+    result = await realtime_token(SimpleNamespace(id=uid))
+    assert result.model_dump(by_alias=True) == {
+        "token": "signed",
+        "expiresAt": 1234,
+        "websocketUrl": "wss://api.test/ws",
+    }
+
+
+@pytest.mark.asyncio
+async def test_disconnect_user_calls_centrifugo_and_handles_api_failures(monkeypatch):
+    calls = []
+
+    class MockAsyncClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return False
+
+        async def post(self, url, **kwargs):
+            calls.append((url, kwargs))
+            return httpx.Response(200, json={}, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(client.httpx, "AsyncClient", lambda **_kwargs: MockAsyncClient())
+    assert await client.disconnect_user("user-1") is True
+    assert calls == [
+        (
+            f"{settings.centrifugo_url}/api/disconnect",
+            {
+                "json": {"user": "user-1"},
+                "headers": {"X-API-Key": settings.centrifugo_api_key},
+            },
+        )
+    ]
+
+    class ErrorClient(MockAsyncClient):
+        async def post(self, url, **kwargs):
+            del kwargs
+            return httpx.Response(
+                200, json={"error": {"code": 100}}, request=httpx.Request("POST", url)
+            )
+
+    monkeypatch.setattr(client.httpx, "AsyncClient", lambda **_kwargs: ErrorClient())
+    assert await client.disconnect_user("user-1") is False

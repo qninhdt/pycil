@@ -7,14 +7,16 @@ to seal into its iron-session. No server-side session is created here.
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pycil.auth import oauth, tokens
-from pycil.auth.deps import current_user, get_user_by_email
-from pycil.auth.models import User
-from pycil.auth.schemas import CurrentUser, LoginStart, TokenResponse
+from pycil.auth import oauth, refresh_sessions, tokens
+from pycil.auth.deps import get_user_by_email, optional_current_user
+from pycil.auth.models import RefreshSession, User
+from pycil.auth.schemas import CurrentUser, LoginStart, LogoutRequest, RefreshRequest, TokenResponse
 from pycil.common.errors import AppError, UnauthorizedError
 from pycil.db.session import get_session
+from pycil.realtime.client import disconnect_user
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -40,8 +42,8 @@ async def callback(
         raise UnauthorizedError("invalid_oauth_state") from exc
 
     email = userinfo.get("email")
-    if not email:
-        raise UnauthorizedError("oauth_no_email")
+    if not email or userinfo.get("email_verified") is not True:
+        raise UnauthorizedError("oauth_email_not_verified")
 
     # Upsert user in the same transaction, then issue the JWT.
     user = await get_user_by_email(session, email)
@@ -55,26 +57,64 @@ async def callback(
     await session.refresh(user)
 
     token, ttl = tokens.sign_access(user)
-    return TokenResponse(access_token=token, expires_in=ttl)
+    refresh_token, refresh_ttl = await refresh_sessions.issue(session, user.id)
+    await session.commit()
+    return TokenResponse(
+        access_token=token,
+        refresh_token=refresh_token,
+        expires_in=ttl,
+        refresh_expires_in=refresh_ttl,
+    )
 
 
 @router.post("/refresh", response_model=TokenResponse)
 async def refresh(
-    user: Annotated[CurrentUser, Depends(current_user)],
+    body: RefreshRequest | None = None,
+    user: CurrentUser | None = Depends(optional_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> TokenResponse:
-    # Reissue against current token_version — no server session to rotate.
-    db_user = await session.get(User, user.id)
-    token, ttl = tokens.sign_access(db_user)
-    return TokenResponse(access_token=token, expires_in=ttl)
+    if body is not None:
+        result = await refresh_sessions.rotate(session, body.refresh_token)
+        if result is None:
+            raise UnauthorizedError("invalid_refresh_token")
+        user, refresh_token, refresh_ttl = result
+    elif user is not None:
+        # v1 compatibility: old BFFs used a bearer-only refresh. Issue their
+        # first rotating token and return it alongside the renewed access JWT.
+        refresh_token, refresh_ttl = await refresh_sessions.issue(session, user.id)
+        await session.commit()
+    else:
+        raise UnauthorizedError("missing_refresh_token")
+    token, ttl = tokens.sign_access(user)
+    return TokenResponse(
+        access_token=token,
+        refresh_token=refresh_token,
+        expires_in=ttl,
+        refresh_expires_in=refresh_ttl,
+    )
 
 
 @router.post("/logout", status_code=204)
 async def logout(
-    user: Annotated[CurrentUser, Depends(current_user)],
+    body: LogoutRequest | None = None,
+    user: CurrentUser | None = Depends(optional_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> None:
-    # Bump token_version → all previously issued JWTs fail the tv re-read.
-    db_user = await session.get(User, user.id)
-    db_user.token_version += 1
-    await session.commit()
+    # Idempotent even for a token already rotated, expired, or unknown.
+    user_id = user.id if user is not None else None
+    if body is not None:
+        digest = refresh_sessions._digest(body.refresh_token)
+        row = (
+            await session.execute(
+                select(RefreshSession)
+                .where(RefreshSession.token_digest == digest)
+                .with_for_update()
+            )
+        ).scalars().first()
+        user_id = row.user_id if row is not None else user_id
+    if user_id is not None:
+        await refresh_sessions.revoke_user_sessions(session, user_id)
+        await session.commit()
+        # Revocation is authoritative; closing sockets shortens the exposure
+        # window for an already connected realtime client.
+        await disconnect_user(user_id)

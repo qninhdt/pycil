@@ -5,6 +5,7 @@ Revises: 0010_durable_word_generations
 """
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision = "0011_word_generation_idempotency"

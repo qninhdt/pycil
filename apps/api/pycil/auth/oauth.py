@@ -11,6 +11,7 @@ import secrets
 from urllib.parse import urlencode
 
 import httpx
+import jwt
 
 from pycil.config import settings
 from pycil.db.redis import get_redis
@@ -18,6 +19,8 @@ from pycil.db.redis import get_redis
 _AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 _TOKEN_URL = "https://oauth2.googleapis.com/token"
 _USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
+_JWKS_URL = "https://www.googleapis.com/oauth2/v3/certs"
+_ISSUERS = {"https://accounts.google.com", "accounts.google.com"}
 _STATE_TTL_SECONDS = 600
 _SCOPE = "openid email profile"
 
@@ -37,8 +40,11 @@ async def build_authorize_url(redirect_uri: str) -> str:
     state = secrets.token_urlsafe(24)
     verifier, challenge = _pkce_pair()
     redis = get_redis()
-    # Single-use key: verifier + the exact redirect_uri it was minted for.
-    await redis.hset(f"oauth:state:{state}", mapping={"v": verifier, "r": redirect_uri})
+    nonce = secrets.token_urlsafe(24)
+    # Single-use key: verifier, nonce, and the exact redirect URI it was minted for.
+    await redis.hset(
+        f"oauth:state:{state}", mapping={"v": verifier, "r": redirect_uri, "n": nonce}
+    )
     await redis.expire(f"oauth:state:{state}", _STATE_TTL_SECONDS)
     params = {
         "client_id": settings.google_client_id,
@@ -48,6 +54,7 @@ async def build_authorize_url(redirect_uri: str) -> str:
         "state": state,
         "code_challenge": challenge,
         "code_challenge_method": "S256",
+        "nonce": nonce,
         "access_type": "offline",
         "prompt": "consent",
     }
@@ -55,7 +62,7 @@ async def build_authorize_url(redirect_uri: str) -> str:
 
 
 async def exchange_code(code: str, state: str) -> dict:
-    """Validate single-use state, exchange code+verifier, return Google userinfo.
+    """Validate state, exchange code, and validate the OIDC ID token.
 
     Raises ValueError on invalid/expired/replayed state.
     """
@@ -68,6 +75,9 @@ async def exchange_code(code: str, state: str) -> dict:
         raise ValueError("invalid_or_expired_state")
     verifier = data["v"]
     redirect_uri = data["r"]
+    nonce = data.get("n")
+    if not nonce:
+        raise ValueError("oauth_nonce_missing")
 
     async with httpx.AsyncClient(timeout=10.0) as client:
         token_resp = await client.post(
@@ -82,10 +92,36 @@ async def exchange_code(code: str, state: str) -> dict:
             },
         )
         token_resp.raise_for_status()
-        access_token = token_resp.json()["access_token"]
+        id_token = token_resp.json().get("id_token")
+        if not id_token:
+            raise ValueError("oauth_id_token_missing")
+        jwks_response = await client.get(_JWKS_URL)
+        jwks_response.raise_for_status()
+    return _validate_id_token(id_token, jwks_response.json(), nonce)
 
-        userinfo_resp = await client.get(
-            _USERINFO_URL, headers={"Authorization": f"Bearer {access_token}"}
+
+def _validate_id_token(id_token: str, jwks: dict, nonce: str) -> dict:
+    """Verify signature, issuer, audience, expiry, and nonce before trusting claims."""
+    try:
+        header = jwt.get_unverified_header(id_token)
+        key_id = header.get("kid")
+        if header.get("alg") != "RS256" or not key_id:
+            raise ValueError("invalid_id_token_header")
+        keys = jwt.PyJWKSet.from_dict(jwks).keys
+        jwk = next((candidate for candidate in keys if candidate.key_id == key_id), None)
+        if jwk is None:
+            raise ValueError("id_token_key_not_found")
+        claims = jwt.decode(
+            id_token,
+            jwk.key,
+            algorithms=["RS256"],
+            audience=settings.google_client_id,
+            options={"require": ["sub", "aud", "exp", "iat", "nonce"]},
         )
-        userinfo_resp.raise_for_status()
-        return userinfo_resp.json()
+    except jwt.PyJWTError as exc:
+        raise ValueError("invalid_id_token") from exc
+    if claims.get("iss") not in _ISSUERS:
+        raise ValueError("invalid_id_token_issuer")
+    if not secrets.compare_digest(str(claims.get("nonce", "")), nonce):
+        raise ValueError("invalid_id_token_nonce")
+    return claims

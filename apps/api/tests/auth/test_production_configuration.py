@@ -12,6 +12,7 @@ def _production_settings(**overrides) -> Settings:
         "domain": "api.example.com",
         "db_url": "postgresql+asyncpg://pycil:strong@postgres/pycil",
         "jwt_secret": "a" * 40,
+        "refresh_token_pepper": "r" * 40,
         "internal_secret": "b" * 40,
         "centrifugo_api_key": "c" * 40,
         "centrifugo_token_hmac_secret": "d" * 40,
@@ -21,6 +22,7 @@ def _production_settings(**overrides) -> Settings:
         "google_client_secret": "google-secret",
         "allowed_origins": "https://app.example.com",
         "oauth_redirect_uris": "https://app.example.com/api/auth/callback",
+        "centrifugo_public_websocket_url": "wss://api.example.com/connection/websocket",
     }
     values.update(overrides)
     return Settings(**values)

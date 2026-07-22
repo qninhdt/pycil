@@ -8,9 +8,10 @@ set -eu
 : "${RESTIC_PASSWORD_FILE:?RESTIC_PASSWORD_FILE not set}"
 
 SNAPSHOT="${SNAPSHOT:-latest}"
+: "${BACKUP_ID:?BACKUP_ID is required}"
 
 echo "[restore] streaming snapshot $SNAPSHOT into pg_restore"
-restic dump "$SNAPSHOT" pycil.dump \
+restic dump "$SNAPSHOT" "pycil-${BACKUP_ID}.dump" \
   | pg_restore --clean --if-exists --no-owner -d "$DATABASE_URL"
 
 echo "[restore] done"

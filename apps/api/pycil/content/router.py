@@ -13,11 +13,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from pycil.auth.deps import current_user, optional_current_user
 from pycil.auth.schemas import CurrentUser
+from pycil.common.errors import TooManyRequestsError
 from pycil.content import service
 from pycil.content.deps import get_lexi_client
 from pycil.content.lexi_port import LexiClient
 from pycil.content.schemas import SenseAddRequest, SenseContent, WordRequest, WordSearchRead
-from pycil.db.redis import get_arq_pool
+from pycil.db.redis import get_arq_pool, get_redis
 from pycil.db.session import get_session
 from pycil.hierarchy.access import require_node_access
 from pycil.jobs import service as jobs_service
@@ -33,9 +34,16 @@ async def request_word(
     session: AsyncSession = Depends(get_session),
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> GenerationCreateRead:
-    record, created = await jobs_service.create_or_retrieve_generation(
-        session, user.id, body.query, idempotency_key
+    record, created, allowed = await jobs_service.submit_generation(
+        session, get_redis(), user.id, body.query, idempotency_key
     )
+    if not allowed:
+        # Kept as an existing domain exception until the API-wide 429 mapping lands.
+        raise TooManyRequestsError(
+            "word_generation_quota_exceeded",
+            code="word_generation_quota_exceeded",
+            retry_after=3600,
+        )
     if created:
         # The committed row is the source of truth. If Redis is temporarily
         # unavailable, the worker's queued-job reconciler will submit it later.

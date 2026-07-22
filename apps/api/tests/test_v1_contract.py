@@ -22,6 +22,7 @@ async def test_v1_me_capabilities_and_request_id():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         me = await client.get("/v1/me", headers={"X-Request-ID": "request-123"})
         capabilities = await client.get("/v1/capabilities")
+        contract = await client.get("/v1/openapi.json")
         legacy = await client.get("/me")
         invalid = await client.get("/v1/auth/login")
 
@@ -30,6 +31,8 @@ async def test_v1_me_capabilities_and_request_id():
     assert me.json()["email"] == "learner@example.com"
     assert capabilities.status_code == 200
     assert capabilities.json()["realtime"] is True
+    assert contract.status_code == 200
+    assert "/v1/me" in contract.json()["paths"]
     assert legacy.status_code == 404
     assert legacy.json()["error"]["code"] == "not_found"
     assert legacy.json()["error"]["requestId"]

@@ -23,7 +23,9 @@ class Settings(BaseSettings):
     # --- auth ----------------------------------------------------------------
     jwt_secret: str = "changeme-base64-32-bytes"
     jwt_secret_previous: str = ""
-    jwt_max_age_seconds: int = 604800
+    jwt_max_age_seconds: int = 900
+    refresh_token_pepper: str = "changeme-refresh-token-pepper"
+    refresh_token_ttl_seconds: int = 2_592_000
     google_client_id: str = ""
     google_client_secret: str = ""
     oauth_redirect_uris: str = ""
@@ -39,6 +41,13 @@ class Settings(BaseSettings):
     centrifugo_url: str = "http://centrifugo:8000"
     centrifugo_api_key: str = "changeme-centrifugo-api-key"
     centrifugo_token_hmac_secret: str = "changeme-centrifugo-token-secret"
+    centrifugo_public_websocket_url: str = "ws://localhost/connection/websocket"
+
+    # --- generation safety ---------------------------------------------------
+    word_generation_requests_per_hour: int = 5
+    word_generation_max_inflight_per_user: int = 10
+    word_generation_max_inflight_global: int = 500
+    word_generation_daily_limit: int = 1_000
 
     # --- Lexi service (internal network only) --------------------------------
     lexi_service_url: str = "http://lexi-service:8443"
@@ -94,6 +103,7 @@ def validate_production_settings(config: Settings) -> None:
 
     required = {
         "JWT_SECRET": config.jwt_secret,
+        "REFRESH_TOKEN_PEPPER": config.refresh_token_pepper,
         "INTERNAL_SECRET": config.internal_secret,
         "CENTRIFUGO_API_KEY": config.centrifugo_api_key,
         "CENTRIFUGO_TOKEN_HMAC_SECRET": config.centrifugo_token_hmac_secret,
@@ -110,6 +120,8 @@ def validate_production_settings(config: Settings) -> None:
         unsafe.append("OAUTH_REDIRECT_URIS")
     if not config.domain or config.domain == "localhost":
         unsafe.append("DOMAIN")
+    if not config.centrifugo_public_websocket_url.startswith("wss://"):
+        unsafe.append("CENTRIFUGO_PUBLIC_WEBSOCKET_URL")
     if unsafe:
         raise RuntimeError(f"unsafe production configuration: {', '.join(sorted(unsafe))}")
 
