@@ -41,29 +41,27 @@ def test_pycil_tables_are_the_expected_set():
 
 
 def test_runtime_has_no_lexi_implementation_imports():
-    """Only the library adapter may import the in-process Lexi implementation."""
+    """Runtime code may import only Lexi's root facade and public contracts."""
     import ast
     import pathlib
 
     root = pathlib.Path(__file__).resolve().parents[1] / "pycil"
-    allowed_importers = {pathlib.Path("content/lexi_library.py")}
-    hits = []
+    hits: list[str] = []
     for path in root.rglob("*.py"):
         tree = ast.parse(path.read_text(), filename=str(path))
-        imports_lexi_ai = any(
-            isinstance(node, ast.Import)
-            and any(
-                alias.name == "lexi_ai" or alias.name.startswith("lexi_ai.")
-                for alias in node.names
-            )
-            or isinstance(node, ast.ImportFrom)
-            and node.module is not None
-            and (node.module == "lexi_ai" or node.module.startswith("lexi_ai."))
-            for node in ast.walk(tree)
-        )
-        if imports_lexi_ai and path.relative_to(root) not in allowed_importers:
-            hits.append(str(path.relative_to(root)))
-    assert not hits, f"Lexi implementation imports outside library adapter: {hits}"
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name.startswith("lexi_ai"):
+                        hits.append(f"{path.relative_to(root)}:{node.lineno}: import {alias.name}")
+            elif isinstance(node, ast.ImportFrom) and (node.module or "").startswith("lexi_ai"):
+                names = {alias.name for alias in node.names}
+                if node.module == "lexi_ai.contracts":
+                    continue
+                if node.module == "lexi_ai" and names == {"Lexicon"}:
+                    continue
+                hits.append(f"{path.relative_to(root)}:{node.lineno}: from {node.module}")
+    assert not hits, f"Lexi implementation imports detected: {hits}"
 
 
 @pytest.mark.asyncio

@@ -4,9 +4,18 @@ from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from uuid import uuid4
 
-from pycil.content.lexi_types import Entry, SearchResult, SenseView
-
 from pycil_worker.jobs import generate_word
+
+
+def _entry(word: str, sense_id: int):
+    return SimpleNamespace(
+        word_id=9,
+        display=word,
+        norm=word,
+        status="ready",
+        entry_type="word",
+        senses=[SimpleNamespace(sense_id=sense_id)],
+    )
 
 
 def _context(reader, worker_engine):
@@ -29,20 +38,12 @@ async def test_generate_word_persists_terminal_result_and_publishes(monkeypatch)
     class Reader:
         async def search(self, query):
             assert query == "serendipity"
-            return [SearchResult(display="serendipity", entry_type="word")]
+            return [SimpleNamespace(display="serendipity", entry_type="word")]
 
     class WorkerEngine:
-        async def generate(self, source, *, idempotency_key=None):
+        async def generate_fenced(self, source):
             assert source.display == "serendipity"
-            assert idempotency_key == f"pycil-generation-{job_id}"
-            return Entry(
-                word_id=9,
-                display="serendipity",
-                norm="serendipity",
-                status="ready",
-                entry_type="word",
-                senses=[SenseView("luck", "core", None, None, sense_id=44)],
-            )
+            return _entry("serendipity", 44)
 
     async def claim_generation(_session, seen_job_id, worker_id, **_kwargs):
         calls.append(("running", seen_job_id))
@@ -107,12 +108,9 @@ async def test_generate_word_task_publishes_sse_snapshot_result(monkeypatch):
             return []
 
     class WorkerEngine:
-        async def generate(self, source, *, idempotency_key=None):
+        async def generate_fenced(self, source):
             assert source == "term"
-            assert idempotency_key == f"pycil-task-{task_id}"
-            return Entry(
-                9, "term", "term", "ready", "word", [SenseView("d", "core", None, None, 44)]
-            )
+            return _entry("term", 44)
 
     task = SimpleNamespace(id=task_id, lease_token="lease-token", lease_fence=1)
     transitions = []

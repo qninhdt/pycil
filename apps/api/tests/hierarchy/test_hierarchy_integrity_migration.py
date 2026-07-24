@@ -131,7 +131,7 @@ async def _old_response_write_still_succeeds(db_url: str) -> None:
             INSERT INTO responses (
                 user_id, sense_id, question_id, is_correct, grade_status,
                 grade_score, grade_feedback
-            ) VALUES ($1, 11, 'legacy-question', true, 'graded', 1.0, 'legacy writer')
+            ) VALUES ($1, 11, '424242', true, 'graded', 1.0, 'legacy writer')
             RETURNING id
             """,
             owner_id,

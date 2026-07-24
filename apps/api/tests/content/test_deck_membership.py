@@ -1,6 +1,7 @@
 """Deck membership CRUD + ownership gating + content resolution via port."""
 
 import uuid
+from types import SimpleNamespace
 
 import pytest
 
@@ -22,10 +23,8 @@ class FakeLexiClient:
 
     async def get_senses(self, sense_ids):
         self.get_senses_calls.append(sense_ids)
-        from pycil.content.lexi_types import SenseView
-
         return [
-            SenseView(
+            SimpleNamespace(
                 definition=f"def {sid}",
                 tier="core",
                 pos="noun",

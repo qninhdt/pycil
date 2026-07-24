@@ -10,6 +10,7 @@ from enum import Enum
 from uuid import UUID
 
 from sqlalchemy import BigInteger, Column, DateTime, Index, UniqueConstraint, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, SQLModel
 
 TZDateTime = DateTime(timezone=True)
@@ -17,10 +18,11 @@ TZDateTime = DateTime(timezone=True)
 
 class SenseStatus(str, Enum):
     # Member name == value so the native PG enum label matches the JSON value.
+    # Two durable states: a sense is either untouched (``new``) or under FSRS
+    # scheduling (``scheduled``).  The transient ``acquiring`` phase lives only in
+    # Redis session state and is never persisted here.
     new = "new"
-    learning = "learning"
-    review = "review"
-    buried = "buried"
+    scheduled = "scheduled"
 
 
 class UserSenseStats(SQLModel, table=True):
@@ -105,12 +107,20 @@ class Response(SQLModel, table=True):
     raw_answer: str | None = Field(default=None, max_length=10_000)
     idempotency_key: str | None = Field(default=None, max_length=128)
     sense_id: int = Field(sa_column=Column(BigInteger, nullable=False))
-    # Opaque lexi question id.
-    question_id: str
+    # Opaque lexi question id (int end-to-end; None ids are ephemeral and rejected
+    # before persistence).
+    question_id: int = Field(sa_column=Column(BigInteger, nullable=False))
+    # Difficulty levels captured at delivery so an async settle can recompute
+    # ``is_fallback = served_level < requested_level`` after Redis state expires.
+    requested_level: int | None = None
+    served_level: int | None = None
     is_correct: bool | None = None
     grade_status: GradeStatus = Field(default=GradeStatus.graded)
     grade_score: float | None = None
     grade_feedback: str | None = None
+    # Persist the exact terminal projection so a worker crash can replay it.
+    render_format: str | None = Field(default=None, max_length=32)
+    reveal: dict | None = Field(default=None, sa_column=Column(JSONB, nullable=True))
     # Persist FSRS snapshots for the task-delivery projection and audit trail.
     mastery_before: int | None = None
     mastery_after: int | None = None

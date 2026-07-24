@@ -1,16 +1,17 @@
-"""grade_answer: resolve a PENDING async (WRITE) verdict — idempotent.
+"""grade_answer: settle a PENDING (llm) verdict — idempotent.
 
-The learning service's ``apply_verdict`` is the source of truth: it guards on the
-``responses.grade_status`` terminal marker (so an arq retry never re-bills the
-LLM), re-fetches the authoritative question by id, grades via lexi, applies the
-FSRS update under the per-(user,sense) lock, and persists the verdict. The job
-then publishes the result to the owner-scoped grading channel.
+The learning service's ``apply_verdict`` is the source of truth: it claims a fenced
+lease (so an arq retry never re-bills the judge), calls the judge-backed
+``LexiconEngine.evaluate_answer``, and — once settled — applies the checkpoint
+consequence through the Phase 7 engine (one FSRS update per session/sense, reading
+the durable requested/served levels off the response row).  The job then publishes
+the settled result to the owner-scoped grading channel.
 """
 
 from datetime import UTC, datetime
 from uuid import UUID
 
-from pycil.content.lexi_port import LexiReader, LexiWorkerEngine
+from pycil.db.redis import get_redis
 from pycil.learning import service
 from pycil.learning.models import GradeStatus, Response
 from pycil.tasks import service as task_service
@@ -18,20 +19,6 @@ from pycil.tasks.models import AsyncTaskStatus
 from shared.realtime.payloads import GradingResult
 
 from pycil_worker import realtime
-
-
-class _LexiGrader:
-    """Combine the scoped reader and engine only for the grading service call."""
-
-    def __init__(self, reader: LexiReader, worker_engine: LexiWorkerEngine) -> None:
-        self._reader = reader
-        self._worker_engine = worker_engine
-
-    async def get_question(self, question_id: int):
-        return await self._reader.get_question(question_id)
-
-    async def grade(self, question, answer: str):
-        return await self._worker_engine.grade(question, answer)
 
 
 def _task_result(response: Response) -> dict:
@@ -43,20 +30,23 @@ def _task_result(response: Response) -> dict:
         "gradeFeedback": response.grade_feedback,
         "masteryBefore": response.mastery_before,
         "masteryAfter": response.mastery_after,
+        "renderFormat": response.render_format or "free_text",
+        "reveal": response.reveal,
     }
 
 
 async def grade_answer(ctx: dict, owner_uid: str, response_id: str) -> dict:
-    client = _LexiGrader(ctx["lexi_reader"], ctx["lexi_engine"])
+    redis = get_redis()
+    grader = ctx["lexi_engine"]
     session_factory = ctx["session_factory"]
 
     async with session_factory() as session:
         outcome = await service.apply_verdict(
-            session, client, UUID(response_id), datetime.now(UTC)
+            session, redis, grader, UUID(response_id), datetime.now(UTC)
         )
 
     if outcome is None:
-        # Already terminal — a retry or double-fire. No re-grade, no re-publish.
+        # Already terminal, or still pending (model not settled) — no re-publish.
         return {"status": "duplicate"}
 
     await realtime.publish_grading(
@@ -69,6 +59,8 @@ async def grade_answer(ctx: dict, owner_uid: str, response_id: str) -> dict:
             grade_feedback=outcome.grade_feedback,
             mastery_before=outcome.mastery_before,
             mastery_after=outcome.mastery_after,
+            render_format=outcome.render_format,
+            reveal=outcome.reveal,
         ),
     )
     return {"status": "graded", "is_correct": outcome.is_correct}
@@ -81,6 +73,8 @@ async def grade_answer_v1(ctx: dict, owner_uid: str, response_id: str) -> dict:
 
 async def grade_answer_task(ctx: dict, task_id: str, owner_uid: str, response_id: str) -> dict:
     """Persist grading results in the task registry for SSE subscribers."""
+    redis = get_redis()
+    grader = ctx["lexi_engine"]
     task_uuid = UUID(task_id)
     async with ctx["session_factory"]() as session:
         task = await task_service.claim_task(session, task_uuid, ctx.get("worker_id", "worker"))
@@ -89,14 +83,10 @@ async def grade_answer_task(ctx: dict, task_id: str, owner_uid: str, response_id
     try:
         async with ctx["session_factory"]() as session:
             outcome = await service.apply_verdict(
-                session,
-                _LexiGrader(ctx["lexi_reader"], ctx["lexi_engine"]),
-                UUID(response_id),
-                datetime.now(UTC),
+                session, redis, grader, UUID(response_id), datetime.now(UTC)
             )
             if outcome is None:
-                # A crash after apply_verdict commits leaves the task leased but its
-                # response terminal. Rebuild the delivery snapshot without regrading.
+                # Either already terminal, or still pending (model not settled).
                 response = await session.get(Response, UUID(response_id))
                 if response is None or response.grade_status != GradeStatus.graded:
                     return {"status": "duplicate"}
@@ -110,6 +100,8 @@ async def grade_answer_task(ctx: dict, task_id: str, owner_uid: str, response_id
                     "gradeFeedback": outcome.grade_feedback,
                     "masteryBefore": outcome.mastery_before,
                     "masteryAfter": outcome.mastery_after,
+                    "renderFormat": outcome.render_format,
+                    "reveal": outcome.reveal,
                 }
     except Exception:
         async with ctx["session_factory"]() as session:
@@ -122,7 +114,7 @@ async def grade_answer_task(ctx: dict, task_id: str, owner_uid: str, response_id
         updated = await task_service.transition_task(
             session, task_uuid, lease_token=task.lease_token, lease_fence=task.lease_fence,
             status=AsyncTaskStatus.SUCCEEDED, result=result,
-    )
+        )
     if updated:
         return {"status": "graded", "is_correct": result["isCorrect"]}
     return {"status": "stale"}

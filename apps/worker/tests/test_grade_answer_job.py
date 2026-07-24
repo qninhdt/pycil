@@ -27,6 +27,7 @@ async def test_grade_answer_publishes_terminal_verdict(monkeypatch, worker_conte
     outcome = SimpleNamespace(
         response_id=uuid4(), sense_id=42, is_correct=True, grade_score=1.0,
         grade_feedback="ok", mastery_before=10, mastery_after=20,
+        render_format="free_text", reveal=None,
     )
     published = []
 
@@ -65,6 +66,7 @@ async def test_grade_answer_task_persists_camel_case_snapshot(monkeypatch, worke
     outcome = SimpleNamespace(
         response_id=response_id, sense_id=42, is_correct=True, grade_score=1.0,
         grade_feedback="ok", mastery_before=10, mastery_after=20,
+        render_format="free_text", reveal=None,
     )
     transitions = []
 
@@ -91,6 +93,7 @@ async def test_grade_answer_task_persists_camel_case_snapshot(monkeypatch, worke
     assert transitions[0][1]["result"] == {
         "responseId": str(response_id), "senseId": 42, "isCorrect": True,
         "gradeScore": 1.0, "gradeFeedback": "ok", "masteryBefore": 10, "masteryAfter": 20,
+        "renderFormat": "free_text", "reveal": None,
     }
 
 
@@ -106,6 +109,8 @@ async def test_grade_task_recovers_after_verdict_persisted_before_worker_crash(m
         grade_feedback="ok",
         mastery_before=10,
         mastery_after=20,
+        render_format="single_choice",
+        reveal={"correct_index": 1, "correct_option": "answer"},
     )
     transitions = []
 
@@ -151,4 +156,7 @@ async def test_grade_task_recovers_after_verdict_persisted_before_worker_crash(m
         "gradeFeedback": "ok",
         "masteryBefore": 10,
         "masteryAfter": 20,
+        "renderFormat": "single_choice",
+        "reveal": {"correct_index": 1, "correct_option": "answer"},
+
     }

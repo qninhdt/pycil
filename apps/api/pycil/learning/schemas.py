@@ -1,4 +1,9 @@
-"""Learning DTOs — session/question/answer. Sense-based, opaque ids."""
+"""Learning DTOs — session/round/question/answer. Sense-based, opaque ids.
+
+Ready questions are generic DTOs carrying an answer-free payload dict supplied
+by Lexi. Exposure is delivered as a flashcard with ``interaction_mode='exposure'``
+and is not answered.
+"""
 
 from typing import Annotated, Literal
 from uuid import UUID
@@ -15,70 +20,85 @@ class SessionStart(BaseModel):
 class SessionRead(BaseModel):
     session_id: str = Field(serialization_alias="sessionId")
     node_id: UUID = Field(serialization_alias="nodeId")
-    queue_size: int = Field(serialization_alias="queueSize")
+    admitted_count: int = Field(serialization_alias="admittedCount")
     expires_at: str = Field(serialization_alias="expiresAt")
     first_state: str = Field(serialization_alias="firstState")
 
 
-class NextQuestion(BaseModel):
-    question_id: int = Field(serialization_alias="questionId")
-    sense_id: int = Field(serialization_alias="senseId")
-    recommended_type: str = Field(serialization_alias="recommendedType")
+# --- ready question DTO (discriminated union keyed by render_format) -----------
 
 
-class McqPresentation(BaseModel):
-    stem: str
-    options: list[str]
-
-
-class ClozePresentation(BaseModel):
-    stem_with_blank: str = Field(serialization_alias="stemWithBlank")
-
-
-class UseInSentencePresentation(BaseModel):
-    prompt: str
-
-
-class NextQuestionReadyBase(NextQuestion):
+class ReadyQuestionBase(BaseModel):
     state: Literal["ready"] = "ready"
+    question_id: int | None = Field(serialization_alias="questionId")
+    sense_id: int = Field(serialization_alias="senseId")
+    interaction_mode: str = Field(serialization_alias="interactionMode")
+    requested_level: int = Field(serialization_alias="requestedLevel")
+    served_level: int = Field(serialization_alias="servedLevel")
+    is_fallback: bool = Field(serialization_alias="isFallback")
 
 
-class DefinitionMcqReady(NextQuestionReadyBase):
-    format: Literal["definition_mcq"] = "definition_mcq"
-    payload: McqPresentation
+class FlashcardReady(ReadyQuestionBase):
+    render_format: Literal["flashcard"] = Field(
+        default="flashcard", serialization_alias="renderFormat"
+    )
+    payload: dict
 
 
-class ContextualMcqReady(NextQuestionReadyBase):
-    format: Literal["contextual_mcq"] = "contextual_mcq"
-    payload: McqPresentation
+class SingleChoiceReady(ReadyQuestionBase):
+    render_format: Literal["single_choice"] = Field(
+        default="single_choice", serialization_alias="renderFormat"
+    )
+    payload: dict
 
 
-class ClozeReady(NextQuestionReadyBase):
-    format: Literal["cloze"] = "cloze"
-    payload: ClozePresentation
+class TextSpanReady(ReadyQuestionBase):
+    render_format: Literal["text_span"] = Field(
+        default="text_span", serialization_alias="renderFormat"
+    )
+    payload: dict
 
 
-class UseInSentenceReady(NextQuestionReadyBase):
-    format: Literal["use_in_sentence"] = "use_in_sentence"
-    payload: UseInSentencePresentation
+class FreeTextReady(ReadyQuestionBase):
+    render_format: Literal["free_text"] = Field(
+        default="free_text", serialization_alias="renderFormat"
+    )
+    payload: dict
 
 
 ReadyQuestion = Annotated[
-    DefinitionMcqReady | ContextualMcqReady | ClozeReady | UseInSentenceReady,
-    Field(discriminator="format"),
+    FlashcardReady | SingleChoiceReady | TextSpanReady | FreeTextReady,
+    Field(discriminator="render_format"),
 ]
 
 
-class NextQuestionPending(BaseModel):
-    state: str = "pending"
-    sense_id: int = Field(serialization_alias="senseId")
-    recommended_type: str = Field(serialization_alias="recommendedType")
-    task_id: UUID = Field(serialization_alias="taskId")
-    delivery_id: UUID = Field(serialization_alias="deliveryId")
+# --- round / lifecycle signals --------------------------------------------------
+
+
+class NextQuestionBreak(BaseModel):
+    """A round completed — the FE may offer a break, then poll ``/next`` again."""
+
+    state: Literal["break"] = "break"
+    round_index: int = Field(serialization_alias="roundIndex")
+
+
+class NextQuestionPreparing(BaseModel):
+    """Eligible work exists but supply is still warming — poll ``/next`` shortly."""
+
+    state: Literal["preparing"] = "preparing"
+
+
+class NextQuestionWaiting(BaseModel):
+    """All work is terminal but a pending (llm) grade is still settling."""
+
+    state: Literal["waiting"] = "waiting"
 
 
 class NextQuestionExhausted(BaseModel):
-    state: str = "exhausted"
+    state: Literal["exhausted"] = "exhausted"
+
+
+# --- answer / grade --------------------------------------------------------------
 
 
 class AnswerRequest(BaseModel):
@@ -92,15 +112,17 @@ class AnswerRequest(BaseModel):
 
 
 class GradeResponse(BaseModel):
-    """Mirrors lexi ``Score`` → pycil verdict fields."""
+    """Grade result: rule types graded in-request with reveal data, llm types pending."""
 
     response_id: UUID = Field(serialization_alias="responseId")
     grade_status: str = Field(serialization_alias="gradeStatus")
     sense_id: int = Field(serialization_alias="senseId")
+    render_format: str = Field(serialization_alias="renderFormat")
     task_id: UUID | None = Field(default=None, serialization_alias="taskId")
     is_correct: bool | None = Field(default=None, serialization_alias="isCorrect")
     grade_score: float | None = Field(default=None, serialization_alias="gradeScore")
     grade_feedback: str | None = Field(default=None, serialization_alias="gradeFeedback")
+    reveal: dict | None = Field(default=None)
     mastery_before: int | None = Field(default=None, serialization_alias="masteryBefore")
     mastery_after: int | None = Field(default=None, serialization_alias="masteryAfter")
 

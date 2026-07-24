@@ -1,40 +1,89 @@
-"""Pycil-owned capabilities for reading and operating Lexi content.
+"""Structural capabilities consumed from Lexi's public boundary."""
 
-Pycil stores no dictionary content; it references senses/words by opaque id and
-uses these Pycil-owned DTO projections. API readers and worker engines stay
-separate so no process accidentally gains provider-write capability.
-"""
-
+from collections.abc import Sequence
 from typing import Protocol
 
-from pycil.content.lexi_types import Entry, Question, Score, SearchResult, SenseView
+from lexi_ai.contracts import (
+    AnswerSubmission,
+    Evaluation,
+    PrepareDemand,
+    PresentedQuestion,
+    QuestionTypeInfo,
+)
+
+
+class SearchResultView(Protocol):
+    display: str
+    entry_type: str | None
+    score: float
+    lexi_word_id: int | None
+    cambridge_id: int | None
+    gloss: str | None
+
+
+class SenseView(Protocol):
+    definition: str
+    tier: str
+    pos: str | None
+    cefr_level: str | None
+    sense_id: int | None
+    examples: list[str]
+
+
+class EntryView(Protocol):
+    word_id: int
+    display: str
+    norm: str
+    status: str
+    entry_type: str | None
+    senses: list[SenseView]
+
+
+class PrepareReportView(Protocol):
+    produced: dict[tuple[int, int], int]
 
 
 class LexiReader(Protocol):
-    async def search(self, query: str) -> list[SearchResult]: ...
+    async def search(self, query: str) -> list[SearchResultView]: ...
 
-    async def get_entry(self, word_id: int) -> Entry | None: ...
+    async def get_entry(self, word_id: int) -> EntryView | None: ...
 
     async def get_senses(self, sense_ids: list[int]) -> list[SenseView]: ...
 
-    async def get_question(self, question_id: int) -> Question | None: ...
+    def question_types(self) -> list[QuestionTypeInfo]: ...
 
-    async def get_question_for_sense(
-        self, sense_id: int, question_format: str
-    ) -> Question | None: ...
+    async def get_question(self, question_id: int) -> PresentedQuestion | None: ...
+
+    async def list_questions_for_sense(
+        self, sense_id: int, type_id: str | None = None
+    ) -> list[PresentedQuestion]: ...
+
+    async def retrieve_question(
+        self,
+        sense_id: int,
+        difficulty_level: int,
+        excluded_ids: frozenset[int],
+        type_id: str,
+    ) -> PresentedQuestion | None: ...
+
+    async def retrieve_exposure(self, sense_id: int) -> PresentedQuestion: ...
+
+    async def evaluate_answer(
+        self, question_id: int, submission: AnswerSubmission
+    ) -> Evaluation | None: ...
 
 
 class LexiWorkerEngine(Protocol):
-    async def generate(
-        self, source: SearchResult | str, *, idempotency_key: str | None = None
-    ) -> Entry: ...
+    def question_types(self) -> list[QuestionTypeInfo]: ...
 
-    async def generate_questions(
-        self, word_id: int, sense_id: int, formats: list[str], n: int
-    ) -> list[Question]: ...
+    async def prepare_questions(
+        self, word_id: int, demands: Sequence[PrepareDemand]
+    ) -> PrepareReportView: ...
 
-    async def grade(self, question: Question, answer: str) -> Score: ...
+    async def evaluate_answer(
+        self, question_id: int, submission: AnswerSubmission
+    ) -> Evaluation | None: ...
 
+    async def generate(self, source: object | str) -> EntryView: ...
 
-class LexiClient(LexiReader, LexiWorkerEngine, Protocol):
-    """Combined capability required only by legacy synchronous grading paths."""
+    async def generate_fenced(self, source: object | str) -> EntryView: ...

@@ -36,9 +36,7 @@ async def generate_word(ctx: dict, owner_uid: str, query: str, generation_id: st
         results = await reader.search(query)
         # Empty-search guard: no Cambridge/generated hit → custom-string generate.
         source = results[0] if results else query
-        entry = await worker_engine.generate(
-            source, idempotency_key=f"pycil-generation-{record.id}"
-        )
+        entry = await worker_engine.generate_fenced(source)
     except Exception:
         async with session_factory() as session:
             completed = await jobs_service.fail_generation(
@@ -81,8 +79,8 @@ async def generate_word_task(ctx: dict, task_id: str, query: str) -> dict:
         return {"status": "duplicate"}
     try:
         results = await ctx["lexi_reader"].search(query)
-        entry = await ctx["lexi_engine"].generate(
-            results[0] if results else query, idempotency_key=f"pycil-task-{task.id}"
+        entry = await ctx["lexi_engine"].generate_fenced(
+            results[0] if results else query
         )
     except Exception:
         async with ctx["session_factory"]() as session:

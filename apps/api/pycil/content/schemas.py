@@ -32,9 +32,3 @@ class SenseAddRequest(BaseModel):
     sense_id: int = Field(alias="senseId")
 
     model_config = {"populate_by_name": True}
-
-
-class SenseRef(BaseModel):
-    sense_id: int = Field(alias="senseId", serialization_alias="senseId")
-
-    model_config = {"populate_by_name": True}

@@ -1,11 +1,12 @@
 """Durable word-generation job lifecycle and owner isolation."""
 
+from types import SimpleNamespace
+
 import pytest
 
 from pycil.auth import tokens
 from pycil.auth.models import User
 from pycil.content import router as content_router
-from pycil.content.lexi_types import SearchResult
 from pycil.jobs import service
 from pycil.jobs.models import JobStatus
 
@@ -156,7 +157,7 @@ async def test_word_search_exposes_only_stable_lexi_projection():
         async def search(self, query):
             assert query == "example"
             return [
-                SearchResult(
+                SimpleNamespace(
                     display="example",
                     entry_type="word",
                     score=0.9,

@@ -25,6 +25,8 @@ class GradingResult:
     grade_feedback: str | None = None
     mastery_before: int | None = None
     mastery_after: int | None = None
+    render_format: str = "free_text"
+    reveal: dict | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -35,4 +37,6 @@ class GradingResult:
             "gradeFeedback": self.grade_feedback,
             "masteryBefore": self.mastery_before,
             "masteryAfter": self.mastery_after,
+            "renderFormat": self.render_format,
+            "reveal": self.reveal,
         }

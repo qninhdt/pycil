@@ -1,50 +1,31 @@
-"""Inactive embedded-Lexi worker composition seam tests."""
-
-import sys
-from types import SimpleNamespace
+"""Embedded-Lexi worker composition seam tests."""
 
 from pycil_worker import main
 
 
 async def test_embedded_worker_engine_factory_and_lifecycle(monkeypatch):
-    disposed = False
-    lexicon = SimpleNamespace(_engine=None)
-
-    class Engine:
-        async def dispose(self):
-            nonlocal disposed
-            disposed = True
-
-    lexicon._engine = Engine()
-
     class Lexicon:
+        closed = False
+
         @classmethod
         def from_settings(cls):
-            return lexicon
+            return cls()
+
+        async def close(self):
+            self.closed = True
 
     reader = object()
     worker_engine = object()
-    monkeypatch.setitem(sys.modules, "lexi_ai", SimpleNamespace(Lexicon=Lexicon))
-    monkeypatch.setattr(
-        main,
-        "create_lexicon_reader",
-        lambda value: reader if value is lexicon else None,
-    )
-    monkeypatch.setattr(
-        main,
-        "create_lexicon_worker_engine",
-        lambda value: worker_engine if value is lexicon else None,
-    )
+    monkeypatch.setattr(main, "Lexicon", Lexicon)
+    monkeypatch.setattr(main, "create_lexicon_reader", lambda _value: reader)
+    monkeypatch.setattr(main, "create_lexicon_worker_engine", lambda _value: worker_engine)
 
-    constructed_lexicon, constructed_reader, constructed_engine = (
-        main.create_embedded_lexi_worker_engine()
-    )
+    lexicon, constructed_reader, constructed_engine = main.create_embedded_lexi_worker_engine()
 
-    assert constructed_lexicon is lexicon
     assert constructed_reader is reader
     assert constructed_engine is worker_engine
-    await main.close_embedded_lexicon(constructed_lexicon)
-    assert disposed is True
+    await main.close_embedded_lexicon(lexicon)
+    assert lexicon.closed is True
 
 
 async def test_startup_constructs_embedded_reader_and_engine(monkeypatch):

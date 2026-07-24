@@ -1,50 +1,44 @@
-"""Question lookup and typed, API-safe delivery helpers."""
+"""Answer-safe presentation adapter for Lexi's typed render contracts."""
+
+from lexi_ai.contracts import Flashcard, FreeText, PresentedQuestion, SingleChoice, TextSpan
 
 from pycil.common.errors import ServiceUnavailableError
-from pycil.content.lexi_port import LexiReader
-from pycil.content.lexi_types import Question
 
 
-async def find_question(
-    client: LexiReader, sense_id: int, recommended_type: str
-) -> Question | None:
-    """Look up an existing question through the optional Phase-3 port seam.
+def presentation_payload(question: PresentedQuestion) -> dict:
+    """Map a typed, answer-free render contract to the existing REST payload."""
+    render = question.render
+    if isinstance(render, SingleChoice):
+        return {"stem": render.stem, "options": list(render.options)}
+    if isinstance(render, TextSpan):
+        return {
+            "stem_with_blank": render.stem_with_blank,
+            "word_bank": list(render.word_bank),
+        }
+    if isinstance(render, FreeText):
+        return {"prompt": render.prompt}
+    if isinstance(render, Flashcard):
+        return {
+            "word": render.word,
+            "definition": render.definition,
+            "pos": render.pos,
+            "example": render.example,
+            "ipa_uk": render.ipa_uk,
+            "ipa_us": render.ipa_us,
+        }
+    raise ServiceUnavailableError("lexi_question_presentation_invalid")
 
-    Older lexi deployments have no sense-format lookup yet.  They intentionally
-    yield ``None`` so session delivery remains a typed pending state rather than
-    guessing a question or leaking an arbitrary one.
-    """
-    lookup = getattr(client, "get_question_for_sense", None)
-    if lookup is None:
-        return None
-    return await lookup(sense_id, recommended_type)
 
 
-def ready_payload(question: Question, recommended_type: str) -> dict:
-    """Create one format-specific, answer-free frontend presentation.
-
-    Lexi already sends a presentation projection over HTTP. The explicit
-    allowlist below remains a second boundary: fake/misconfigured providers can
-    never leak correct indices, rubric text, accepted forms, or arbitrary JSON.
-    """
-    if question.id is None or question.sense_id is None:
-        raise ValueError("question_requires_id_and_sense")
-    payload = question.payload
-    try:
-        if question.format in {"definition_mcq", "contextual_mcq"}:
-            presentation = {"stem": payload["stem"], "options": payload["options"]}
-        elif question.format == "cloze":
-            presentation = {"stem_with_blank": payload["stem_with_blank"]}
-        elif question.format == "use_in_sentence":
-            presentation = {"prompt": payload["prompt"]}
-        else:
-            raise KeyError("format")
-    except (KeyError, TypeError) as exc:
-        raise ServiceUnavailableError("lexi_question_presentation_invalid") from exc
-    return {
-        "question_id": question.id,
-        "sense_id": question.sense_id,
-        "recommended_type": recommended_type,
-        "format": question.format,
-        "payload": presentation,
-    }
+def render_format(question: PresentedQuestion) -> str:
+    """Return the legacy REST discriminator for a typed render contract."""
+    render = question.render
+    if isinstance(render, SingleChoice):
+        return "single_choice"
+    if isinstance(render, TextSpan):
+        return "text_span"
+    if isinstance(render, FreeText):
+        return "free_text"
+    if isinstance(render, Flashcard):
+        return "flashcard"
+    raise ServiceUnavailableError("lexi_render_format_unsupported")

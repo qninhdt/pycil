@@ -4,6 +4,52 @@ All notable releases. Format derived from Keep a Changelog; dates in ISO-8601.
 
 ---
 
+## [Unreleased] — 2026-07-24 — Learning System Redesign (Lexi v0.2.1)
+
+Rebuilds the learning domain on released `lexi-ai` v0.2.1, pinned to immutable
+SHA `c0ad25217b36ad9fdade9cff5aef18cefee761f4`. Pycil consumes only Lexi's
+public root facade and `lexi_ai.contracts`; Import Linter 2.13 plus AST contract
+tests enforce that ACL. Lexi classifies, presents, and evaluates; Pycil owns
+level selection, fallback/type shuffle, rounds, checkpoints, acquisition,
+score/state separation, and the single FSRS grade per session.
+
+Verification: API 200 passed / 1 skipped, worker 24 passed, shared 13 passed;
+ruff + compileall clean; single Alembic head `0017_response_grading_projection`.
+
+### Added
+
+- Backend policy primitives: mastery→level difficulty sampler + level-fallback
+  resolver (Pycil-owned type shuffle; Lexi does not shuffle).
+- Session-scoped Redis state: admitted set, per-sense checkpoint progress, CAS
+  score/checkpoint transitions, consume-once delivery binding, and a variable-size
+  round scheduler (retries → due → acquisition → exposure).
+- Atomic question issuance reserves the sense, round slot, delivered question,
+  and exclusion before returning a ready item, preventing concurrent double serve.
+- Score/state engine: at most one FSRS update per `(session, sense)` — `Again` on
+  first disqualifier, `Good` on clean completion — guarded by the Postgres
+  `session_sense_attempts` claim + `pg_advisory_xact_lock`.
+- Answer-safe typed presentation maps Lexi render contracts to discriminated REST
+  DTOs without answer keys. Rule grading is synchronous; model grading settles
+  through the durable worker path. Reveal data appears only on completion or
+  terminal retry exhaustion.
+- Session preparation retries are cooldown- and attempt-bounded. Persistent
+  unresolved supply terminates with `question_preparation_exhausted`; it is not
+  silently treated as successful session exhaustion.
+
+### Changed
+
+- `sensestatus` enum → `{new, scheduled}`; `responses.question_id` → `bigint`;
+  durable response projection now includes requested/served levels,
+  `render_format`, and terminal `reveal` (migrations `0016` and `0017`,
+  forward-only).
+- Redis checkpoint projection runs after the Postgres commit, retries up to three
+  times, and is atomic/idempotent by response ID. Redis remains advisory; a
+  projection failure cannot undo the durable grade.
+- Worker supply path now warms through `prepare_questions`; API and worker depend
+  on the same immutable Lexi release and public-contract boundary.
+
+---
+
 ## [Unreleased] — 2026-07-18 — Owner-scoped Assistant Agent MVP
 
 Introduces the bounded `/assistant` API for hierarchy, content, and folder-stat

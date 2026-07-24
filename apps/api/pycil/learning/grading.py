@@ -1,21 +1,21 @@
-"""Grade-verdict mapping. pycil does NO grading — the verdict comes entirely from
-lexi-ai's ``Score`` (rule-based for mcq/cloze, LLM-judge for use_in_sentence).
+"""Adapters between Pycil's answer wire shape and Lexi's typed grading contract."""
 
-This module only translates a lexi ``Score`` into (a) the FSRS binary grade and
-(b) pycil's ``GradeResponse`` fields. No thresholds, no inline scoring.
-"""
+from dataclasses import asdict
 
+from lexi_ai.contracts import AnswerSubmission, PresentedQuestion, Reveal, TextResponse
 from shared.fsrs import GRADE_AGAIN, GRADE_GOOD
 
-from pycil.content.lexi_types import Score
-from pycil.learning.models import GradeStatus
+
+def answer_submission(question: PresentedQuestion, answer: str) -> AnswerSubmission:
+    """Preserve Pycil's string answer API while using Lexi's typed submission."""
+    return AnswerSubmission(question_id=question.question_id, response=TextResponse(answer))
 
 
-def fsrs_grade(score: Score) -> int:
-    """lexi verdict → FSRS binary grade. correct→Good(3), wrong→Again(1)."""
-    return GRADE_GOOD if score.correct else GRADE_AGAIN
+def reveal_payload(reveal: Reveal | None) -> dict | None:
+    """Serialize a sanctioned post-grade reveal for the existing REST contract."""
+    return None if reveal is None else asdict(reveal)
 
 
-def grade_status_for(score: Score) -> GradeStatus:
-    """A resolved lexi Score is always a completed verdict → graded."""
-    return GradeStatus.graded
+def fsrs_grade_for(applied_grade: str) -> int:
+    """Session score decision -> FSRS binary grade. ``good``->Good(3), else Again(1)."""
+    return GRADE_GOOD if applied_grade == "good" else GRADE_AGAIN

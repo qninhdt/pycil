@@ -40,16 +40,16 @@ async def test_v1_me_capabilities_and_request_id():
     assert invalid.json()["error"]["code"] == "validation_error"
 
 
-async def test_next_question_openapi_has_a_format_discriminator_and_safe_payloads():
+async def test_next_question_openapi_has_a_render_format_discriminator_and_safe_payloads():
     schema = create_app().openapi()
     response = schema["paths"]["/v1/sessions/{session_id}/next"]["get"]["responses"]["200"]
     variants = response["content"]["application/json"]["schema"]["anyOf"][0]
-    assert variants["discriminator"]["propertyName"] == "format"
+    assert variants["discriminator"]["propertyName"] == "render_format"
     assert set(variants["discriminator"]["mapping"]) == {
-        "definition_mcq",
-        "contextual_mcq",
-        "cloze",
-        "use_in_sentence",
+        "flashcard",
+        "single_choice",
+        "text_span",
+        "free_text",
     }
     rendered = str(schema["components"]["schemas"])
     assert "correct_index" not in rendered

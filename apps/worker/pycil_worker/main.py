@@ -17,13 +17,14 @@ import asyncpg
 import pycil.auth.models  # noqa: F401
 from arq.connections import RedisSettings
 from arq.cron import cron
+from lexi_ai import Lexicon
 from pycil.config import settings
 from pycil.content.lexi_library import create_lexicon_reader
 from pycil.content.lexi_port import LexiReader, LexiWorkerEngine
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from pycil_worker.jobs.dispatch_task_outbox import dispatch_task_outbox
-from pycil_worker.jobs.generate_question import generate_question
+from pycil_worker.jobs.generate_question import generate_question, prepare_questions
 from pycil_worker.jobs.generate_word import generate_word, generate_word_task
 from pycil_worker.jobs.grade_answer import grade_answer, grade_answer_task, grade_answer_v1
 from pycil_worker.jobs.heartbeat import heartbeat
@@ -39,19 +40,15 @@ from pycil_worker.lexi_library import create_lexicon_worker_engine
 _OUTBOX_NOTIFICATION_CHANNEL = "async_task_outbox"
 
 
-def create_embedded_lexi_worker_engine() -> tuple[object, LexiReader, LexiWorkerEngine]:
+def create_embedded_lexi_worker_engine() -> tuple[Lexicon, LexiReader, LexiWorkerEngine]:
     """Build one Lexicon with isolated read and provider-enabled capabilities."""
-    from lexi_ai import Lexicon
-
     lexicon = Lexicon.from_settings()
     return lexicon, create_lexicon_reader(lexicon), create_lexicon_worker_engine(lexicon)
 
 
-async def close_embedded_lexicon(lexicon: object) -> None:
-    """Release the pool owned by an embedded Lexicon instance."""
-    engine = getattr(lexicon, "_engine", None)
-    if engine is not None:
-        await engine.dispose()
+async def close_embedded_lexicon(lexicon: Lexicon) -> None:
+    """Release resources owned by an embedded Lexicon instance."""
+    await lexicon.close()
 
 
 def _asyncpg_url(database_url: str) -> str:
@@ -115,6 +112,7 @@ class WorkerSettings:
         generate_word,
         generate_word_task,
         generate_question,
+        prepare_questions,
         grade_answer,
         grade_answer_v1,
         grade_answer_task,

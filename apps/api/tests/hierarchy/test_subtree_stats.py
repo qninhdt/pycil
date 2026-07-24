@@ -1,5 +1,7 @@
 """Subtree resolution + folder stats + CEFR bucketing + REFERENCE rules."""
 
+from types import SimpleNamespace
+
 import pytest
 
 from pycil.auth.models import User
@@ -18,10 +20,8 @@ class FakeLexiClient:
         self._cefr = cefr_by_id
 
     async def get_senses(self, sense_ids):
-        from pycil.content.lexi_types import SenseView
-
         return [
-            SenseView(
+            SimpleNamespace(
                 definition=f"d{sid}",
                 tier="core",
                 pos="noun",
