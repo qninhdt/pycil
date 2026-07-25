@@ -174,7 +174,16 @@ jobs:
           LEXI_ALEMBIC="$(uv run python -c 'import pathlib, lexi_ai.migrations; print(pathlib.Path(lexi_ai.migrations.__file__).parent / "alembic.ini")')"
           uv run alembic -c "$LEXI_ALEMBIC" upgrade head
           uv run alembic upgrade head
-          test "$(uv run alembic current | tail -n 1)" = "0015_async_task_deliveries (head)"
+          # Assert a single un-branched head and that the database actually sits on
+          # it. The revision id used to be spelled out here, which rotted the moment
+          # 0016/0017 landed: this step kept asserting 0015 and the job stayed red
+          # for a week while proving nothing.
+          heads="$(uv run alembic heads)"
+          test "$(printf '%s\n' "$heads" | grep -c .)" -eq 1 \
+            || { echo "branched migration history:"; printf '%s\n' "$heads"; exit 1; }
+          current="$(uv run alembic current)"
+          test "$current" = "$heads" \
+            || { echo "database at '$current', expected '$heads'"; exit 1; }
 
   build-images:
     # Ensure both runtime images build from the pinned Lexi VCS dependency.
