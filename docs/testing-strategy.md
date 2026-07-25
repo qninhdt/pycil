@@ -11,7 +11,8 @@ does **not** describe `apps/api`/`apps/worker` (the current backend) — see
 
 Tests live in `apps/api/tests/`, organized by domain (`auth/`, `content/`,
 `hierarchy/`, `learning/`, `realtime/`, `integration/`) plus a top-level
-`test_boundary.py` asserting the two-DB structural boundary. There is no
+`test_lexi_boundary.py` asserting that neither deployed package imports Lexi
+internals. There is no
 unit/integration pytest-marker split here (unlike `apps/pycil-core` below) —
 every test in this suite runs against a **real Postgres** (a disposable
 instance pointed at via `TEST_DB_URL`, schema create/drop via
