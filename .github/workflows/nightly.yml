@@ -33,9 +33,9 @@ jobs:
           --health-timeout 3s
           --health-retries 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@v9
         with:
           enable-cache: true
       - name: Set up Python
@@ -51,7 +51,7 @@ jobs:
           uv run pytest --cov=pycil --cov-report=xml --cov-report=term-missing -q
       - name: Upload coverage XML
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: nightly-coverage-api
           path: apps/api/coverage.xml

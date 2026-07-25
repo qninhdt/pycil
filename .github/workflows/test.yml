@@ -20,9 +20,9 @@ jobs:
           - name: shared
             dir: packages/shared-py
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@v9
         with:
           enable-cache: true
       - name: Set up Python
@@ -38,9 +38,9 @@ jobs:
     # Pure-logic tests (FSRS math, packages/shared-py/shared/fsrs) — no DB, no I/O.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@v9
         with:
           enable-cache: true
       - name: Set up Python
@@ -79,10 +79,10 @@ jobs:
           --health-timeout 3s
           --health-retries 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@v9
         with:
           enable-cache: true
 
@@ -111,7 +111,7 @@ jobs:
 
       - name: Upload coverage XML
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-api
           path: apps/api/coverage.xml
@@ -121,9 +121,9 @@ jobs:
     # unregistered job or an API-package import failure in the worker image.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@v9
         with:
           enable-cache: true
       - name: Set up Python
@@ -155,9 +155,9 @@ jobs:
           --health-timeout 3s
           --health-retries 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@v9
         with:
           enable-cache: true
       - name: Set up Python
@@ -189,7 +189,7 @@ jobs:
     # Ensure both runtime images build from the pinned Lexi VCS dependency.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build API image
         run: docker build -f apps/api/Dockerfile -t pycil-api:ci .
       - name: Build worker image
