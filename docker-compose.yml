@@ -16,7 +16,13 @@ x-lexi-env: &lexi-env
   LEXI_DB_URL: ${PYCIL_DOCKER_LEXI_DB_URL:-postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}}
   LEXI_DB_SCHEMA: ${LEXI_DB_SCHEMA:-lexi}
   LEXI_CAMBRIDGE_DB_PATH: /reference/cambridge.db
-  LEXI_DOMAIN_MIGRATION_HEAD: ${LEXI_DOMAIN_MIGRATION_HEAD:-20260723_02}
+  LEXI_DOMAIN_MIGRATION_HEAD: ${LEXI_DOMAIN_MIGRATION_HEAD:-20260724_02}
+  # Lexi keeps sense vectors outside its relational schema. Pycil does not install
+  # Lexi's embeddings extra and uses no semantic search, so nothing is ever
+  # embedded; the in-process backend keeps that explicit and writes no volume.
+  # Switching to lancedb means adding Lexi's [lancedb] extra AND a persistent
+  # mount for LEXI_VECTOR_PATH.
+  LEXI_VECTOR_BACKEND: ${LEXI_VECTOR_BACKEND:-memory}
 
 x-lexi-provider-env: &lexi-provider-env
   # Providers are a worker-only capability. The API gets only the reader facade.
