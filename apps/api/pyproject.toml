@@ -83,14 +83,31 @@ name = "pycil imports only the public Lexi modules"
 type = "forbidden"
 allow_indirect_imports = true
 source_modules = ["pycil"]
+# Every Lexi submodule EXCEPT `contracts`. Kept exhaustive by
+# test_boundary.py::test_forbidden_lexi_module_list_covers_every_internal_module,
+# so a Lexi bump that adds a module fails loudly instead of silently widening
+# the boundary.
 forbidden_modules = [
     "lexi_ai.api",
     "lexi_ai.application",
+    "lexi_ai.assets",
+    "lexi_ai.config",
+    "lexi_ai.constants",
     "lexi_ai.db",
     "lexi_ai.domain",
+    "lexi_ai.embeddings",
     "lexi_ai.facades",
+    "lexi_ai.generation",
     "lexi_ai.infrastructure",
-    "lexi_ai.models",
-    "lexi_ai.persistence",
+    "lexi_ai.llm",
+    "lexi_ai.markup",
+    "lexi_ai.migrations",
+    "lexi_ai.normalize",
+    "lexi_ai.prep",
+    "lexi_ai.prompts",
     "lexi_ai.questions",
+    "lexi_ai.read_models",
+    "lexi_ai.references",
+    "lexi_ai.theming",
+    "lexi_ai.vectors",
 ]

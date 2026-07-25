@@ -64,6 +64,32 @@ def test_runtime_has_no_lexi_implementation_imports():
     assert not hits, f"Lexi implementation imports detected: {hits}"
 
 
+def test_forbidden_lexi_module_list_covers_every_internal_module():
+    """The import-linter enumeration must name every Lexi submodule but `contracts`.
+
+    Enumerated lists rot: a Lexi bump that adds a module leaves it unlisted, and the
+    contract keeps passing while the boundary quietly widens. Deriving the expected
+    set from the installed package is what keeps the list honest across bumps.
+    """
+    import pathlib
+    import pkgutil
+    import tomllib
+
+    import lexi_ai
+
+    installed = {module.name for module in pkgutil.iter_modules(lexi_ai.__path__)}
+    expected = {f"lexi_ai.{name}" for name in installed - {"contracts"}}
+
+    pyproject = pathlib.Path(__file__).resolve().parents[1] / "pyproject.toml"
+    contracts = tomllib.loads(pyproject.read_text())["tool"]["importlinter"]["contracts"]
+    listed = set(contracts[0]["forbidden_modules"])
+
+    assert listed == expected, (
+        f"unlisted Lexi modules: {sorted(expected - listed)}; "
+        f"stale entries: {sorted(listed - expected)}"
+    )
+
+
 @pytest.mark.asyncio
 @pytest_asyncio.fixture
 async def session(engine):
