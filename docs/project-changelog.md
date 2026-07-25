@@ -4,12 +4,67 @@ All notable releases. Format derived from Keep a Changelog; dates in ISO-8601.
 
 ---
 
+## [Unreleased] — 2026-07-25 — Lexi contract-first redesign (repin + boundary cleanup)
+
+Repins `lexi-ai` to immutable SHA `0631beb429d85f77edbe70a1ce356aa9ec2aa8a7`,
+which completes Lexi's contract-first hexagonal redesign. Pycil's own domain is
+unchanged; this entry records the consumption surface and the guards around it.
+
+Verification: API 198 passed / 1 skipped, worker 24 passed, shared 13 passed;
+`ruff check .` clean in all three packages.
+
+### Changed
+
+- **Lexi's public API is now two facades.** `Lexicon` is a composition root that
+  owns no use case; callers take `Lexicon.from_settings()` then `.reader()` (free
+  reads) or `.engine()` (anything that generates, writes or spends money).
+  Pycil's adapter (`content/lexi_library.py`: `create_lexicon_reader`,
+  `create_embedded_lexicon_reader`) already went through those facades, so it
+  needed no change. `LexiconReader.from_settings` / `LexiconEngine.from_settings` are gone
+  upstream: they built a second object graph, hence a second DB engine and a
+  second single-flight registry, so one word could generate twice.
+- **Lexi embeddings left the primary database.** Sense vectors live in a separate
+  index selected by `LEXI_VECTOR_BACKEND`; Lexi migration `20260724_02` drops the
+  `embedding*` columns from `lexi.senses`. Compose pins the expected head via
+  `LEXI_DOMAIN_MIGRATION_HEAD=20260724_02` and the gate refuses to start on a
+  mismatch. Pycil runs `LEXI_VECTOR_BACKEND=memory`: it neither installs the
+  encoder extra nor calls semantic search, and the in-memory index needs no
+  volume. **If semantic search is ever enabled here, this must become `lancedb`**
+  — `memory` is not durable across a container restart.
+- **Lexi now raises instead of degrading.** `semantic_search` and
+  `backfill_embeddings` propagate encoder/index failures rather than returning an
+  empty result, so "no match" can no longer be confused with "the subsystem is
+  down". No pycil code calls either method, so this is informational for now.
+- **Worker takes Lexi transitively through `pycil-api`.** The worker's own
+  duplicate pin is gone, which removes the class of drift where the two packages
+  resolved different Lexi commits. `apps/worker/Dockerfile` already copies
+  `apps/api`, so the image build resolves it.
+
+### Removed
+
+- **Import Linter and both of its forbidden-module contracts.** They had rotted:
+  the lists named two modules that no longer exist and missed thirteen that had
+  been added, and CI never invoked `lint-imports` at all, so neither contract was
+  ever enforced. The `import-linter` dev dependency and the `[tool.importlinter]`
+  blocks are gone from both app pyprojects.
+- **Three tests in the old `test_boundary.py`**: a hand-maintained 21-table
+  snapshot that had to be edited on every migration (and still listed the removed
+  `entry_links` table) plus two assertions that could not fail. What remains is
+  one AST test, `apps/api/tests/test_lexi_boundary.py`, scanning both
+  `apps/api/pycil` and `apps/worker/pycil_worker` for Lexi imports outside the
+  root package and `lexi_ai.contracts`. It deliberately does not chase
+  `importlib` evasion; it exists to catch drift, not to stop a determined author.
+- **The pin-drift test.** With one pin instead of two there is nothing to drift.
+
+---
+
 ## [Unreleased] — 2026-07-24 — Learning System Redesign (Lexi v0.2.1)
 
 Rebuilds the learning domain on released `lexi-ai` v0.2.1, pinned to immutable
 SHA `c0ad25217b36ad9fdade9cff5aef18cefee761f4`. Pycil consumes only Lexi's
-public root facade and `lexi_ai.contracts`; Import Linter 2.13 plus AST contract
-tests enforce that ACL. Lexi classifies, presents, and evaluates; Pycil owns
+public root facade and `lexi_ai.contracts`; a single AST contract test enforces
+that ACL (the Import Linter contracts it also mentioned were removed on
+2026-07-25 — see that entry). Lexi classifies, presents, and evaluates; Pycil owns
 level selection, fallback/type shuffle, rounds, checkpoints, acquisition,
 score/state separation, and the single FSRS grade per session.
 
@@ -109,7 +164,8 @@ reference, not deleted.
   `user_sense_stats`, `review_log`, `responses`) never stores dictionary
   content; `lexi-ai` owns `words`/`senses`/`questions`/etc. in its own
   database. No cross-DB foreign keys or joins — enforced structurally by
-  `apps/api/tests/test_boundary.py`.
+  `apps/api/tests/test_boundary.py` (renamed to `test_lexi_boundary.py` on
+  2026-07-25).
 - **`LexiClient` port + `InProcessLexiClient` adapter**
   (`apps/api/pycil/content/lexi_port.py`, `lexi_inprocess.py`) — the only
   interface/construction site for reaching lexi-ai (search, generate,

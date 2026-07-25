@@ -10,17 +10,18 @@ does **not** describe `apps/api`/`apps/worker` (the current backend) — see
 ## Current backend (`apps/api`)
 
 Tests live in `apps/api/tests/`, organized by domain (`auth/`, `content/`,
-`hierarchy/`, `learning/`, `realtime/`, `integration/`) plus a top-level
+`hierarchy/`, `learning/`, `realtime/`) plus a top-level
 `test_lexi_boundary.py` asserting that neither deployed package imports Lexi
 internals. There is no
 unit/integration pytest-marker split here (unlike `apps/pycil-core` below) —
 every test in this suite runs against a **real Postgres** (a disposable
 instance pointed at via `TEST_DB_URL`, schema create/drop via
 `target_metadata.create_all`/`drop_all` in `conftest.py`) and **fakeredis**
-(autouse fixture). `LexiClient` is faked at the port boundary in tests that
-need it (e.g. `apps/api/tests/integration/test_session_flow.py`'s
-`IntegrationLexiClient`) — never the LLM itself, since the port is the
-intended seam.
+(autouse fixture). Lexi is faked at the port boundary in tests that need it —
+`FakeLexiReader` and `FakeLexiWorkerEngine` in `apps/api/tests/learning/fakes.py`
+stand in for the `LexiReader` / `LexiWorkerEngine` protocols in
+`apps/api/pycil/content/lexi_port.py` — never the LLM itself, since the port is
+the intended seam.
 
 Run: `cd apps/api && uv run pytest`.
 
