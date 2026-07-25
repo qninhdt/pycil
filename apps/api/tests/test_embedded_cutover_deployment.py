@@ -2,7 +2,20 @@
 
 from pathlib import Path
 
+import lexi_ai.migrations
+
+from alembic.config import Config
+from alembic.script import ScriptDirectory
+
 ROOT = Path(__file__).resolve().parents[3]
+
+
+def _installed_lexi_migration_head() -> str:
+    """Resolve the alembic head of the Lexi build this repository pins."""
+    ini = Path(lexi_ai.migrations.__file__).parent / "alembic.ini"
+    heads = ScriptDirectory.from_config(Config(str(ini))).get_heads()
+    assert len(heads) == 1, f"Lexi must expose exactly one migration head, got {heads}"
+    return heads[0]
 
 
 def test_compose_migrates_lexi_before_pycil_and_mounts_the_reference_artifact():
@@ -14,6 +27,21 @@ def test_compose_migrates_lexi_before_pycil_and_mounts_the_reference_artifact():
     assert "LEXI_REFERENCE_DATASET_PATH:?LEXI_REFERENCE_DATASET_PATH is required" in compose
     assert "lexi-service" not in compose
     assert "pycil-backend" not in compose
+
+
+def test_migration_gate_expects_the_installed_lexi_head():
+    """The gate compares `alembic current` against this default.
+
+    A stale default fails the equality check after the migration succeeds, which
+    aborts the container before Pycil's own migrations run. Deriving the expected
+    value from the installed package keeps the gate honest across Lexi bumps.
+    """
+    head = _installed_lexi_migration_head()
+    compose = (ROOT / "docker-compose.yml").read_text()
+    env_example = (ROOT / ".env.example").read_text()
+
+    assert f"LEXI_DOMAIN_MIGRATION_HEAD: ${{LEXI_DOMAIN_MIGRATION_HEAD:-{head}}}" in compose
+    assert f"LEXI_DOMAIN_MIGRATION_HEAD={head}" in env_example
 
 
 def test_lexi_provider_credentials_are_worker_only():
