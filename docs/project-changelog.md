@@ -4,6 +4,38 @@ All notable releases. Format derived from Keep a Changelog; dates in ISO-8601.
 
 ---
 
+## [Unreleased] — 2026-07-26 — Lexi semantic search becomes opt-in
+
+Repins `lexi-ai` to `29b7ebe934e85fe3cec89652f2d8d891750d2a65`, where semantic
+search became an opt-in feature that is off by default, and switches Pycil from
+the `memory` vector backend to `none` to match what Pycil actually uses.
+
+Verification: API 198 passed / 1 skipped, worker 24 passed, shared 13 passed;
+`ruff check .` clean in all three packages; `docker compose config` resolves
+`LEXI_VECTOR_BACKEND: none` into all four services.
+
+### Changed
+
+- **`LEXI_VECTOR_BACKEND` is `none`, not `memory`** (`docker-compose.yml`,
+  `.env.example`). Pycil installs neither of Lexi's optional extras and calls
+  neither `semantic_search` nor `backfill_embeddings`, so `memory` was allocating
+  an in-process index that nothing ever wrote to or read from. `none` states that
+  directly, and it removes the trap the previous comment had to warn about: a
+  `memory` backend that silently loses vectors would have looked like a working
+  configuration the moment anyone enabled the feature.
+- **An accidental semantic-search call now fails instead of returning nothing.**
+  Upstream, `semantic_search` and `backfill_embeddings` raise
+  `SemanticSearchDisabled` when the feature is off, so if Pycil ever reaches for
+  them without enabling the feature it gets an error naming the switch rather than
+  an empty list that reads as "this word is not in the dictionary". Enabling the
+  feature here needs Lexi's `[embeddings]` and `[lancedb]` extras, a persistent
+  mount for `LEXI_VECTOR_PATH`, and `LEXI_VECTOR_BACKEND=lancedb`.
+
+No Pycil source changed: the `LexiReader` / `LexiWorkerEngine` port surface Pycil
+depends on is untouched by the upstream work.
+
+---
+
 ## [Unreleased] — 2026-07-25 — Lexi contract-first redesign (repin + boundary cleanup)
 
 Repins `lexi-ai` to immutable SHA `0631beb429d85f77edbe70a1ce356aa9ec2aa8a7`,
@@ -27,10 +59,10 @@ Verification: API 198 passed / 1 skipped, worker 24 passed, shared 13 passed;
   index selected by `LEXI_VECTOR_BACKEND`; Lexi migration `20260724_02` drops the
   `embedding*` columns from `lexi.senses`. Compose pins the expected head via
   `LEXI_DOMAIN_MIGRATION_HEAD=20260724_02` and the gate refuses to start on a
-  mismatch. Pycil runs `LEXI_VECTOR_BACKEND=memory`: it neither installs the
-  encoder extra nor calls semantic search, and the in-memory index needs no
-  volume. **If semantic search is ever enabled here, this must become `lancedb`**
-  — `memory` is not durable across a container restart.
+  mismatch. Pycil runs `LEXI_VECTOR_BACKEND=none` (see the 2026-07-26 entry; it
+  ran `memory` until then): it installs neither optional extra and calls no
+  semantic search. **If semantic search is ever enabled here it must become
+  `lancedb`, never `memory`** — `memory` loses every vector on restart.
 - **Lexi now raises instead of degrading.** `semantic_search` and
   `backfill_embeddings` propagate encoder/index failures rather than returning an
   empty result, so "no match" can no longer be confused with "the subsystem is
