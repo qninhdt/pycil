@@ -41,53 +41,42 @@ def test_pycil_tables_are_the_expected_set():
 
 
 def test_runtime_has_no_lexi_implementation_imports():
-    """Runtime code may import only Lexi's root facade and public contracts."""
+    """Runtime code may import only Lexi's root facade and public contracts.
+
+    This is the whole enforcement, and it covers BOTH deployed packages. Two
+    import-linter contracts used to restate it as hand-kept lists of forbidden Lexi
+    submodules, and both rotted: each still named two modules Lexi had deleted while
+    missing thirteen it had added, and both passed anyway. The worker's list was the
+    only thing guarding the worker at all.
+
+    Reading the source instead of importing it is what lets one test cover both apps
+    from the repo root — they are separate uv projects with separate virtualenvs, so
+    neither can import the other, but the files are right there.
+    """
     import ast
     import pathlib
 
-    root = pathlib.Path(__file__).resolve().parents[1] / "pycil"
+    repo = pathlib.Path(__file__).resolve().parents[3]
+    packages = [repo / "apps" / "api" / "pycil", repo / "apps" / "worker" / "pycil_worker"]
     hits: list[str] = []
-    for path in root.rglob("*.py"):
-        tree = ast.parse(path.read_text(), filename=str(path))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    if alias.name.startswith("lexi_ai"):
-                        hits.append(f"{path.relative_to(root)}:{node.lineno}: import {alias.name}")
-            elif isinstance(node, ast.ImportFrom) and (node.module or "").startswith("lexi_ai"):
-                names = {alias.name for alias in node.names}
-                if node.module == "lexi_ai.contracts":
-                    continue
-                if node.module == "lexi_ai" and names == {"Lexicon"}:
-                    continue
-                hits.append(f"{path.relative_to(root)}:{node.lineno}: from {node.module}")
+    for package in packages:
+        assert package.is_dir(), f"deployed package moved or renamed: {package}"
+        for path in sorted(package.rglob("*.py")):
+            where = path.relative_to(repo)
+            tree = ast.parse(path.read_text(), filename=str(path))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        if alias.name.startswith("lexi_ai"):
+                            hits.append(f"{where}:{node.lineno}: import {alias.name}")
+                elif isinstance(node, ast.ImportFrom) and (node.module or "").startswith("lexi_ai"):
+                    names = {alias.name for alias in node.names}
+                    if node.module == "lexi_ai.contracts":
+                        continue
+                    if node.module == "lexi_ai" and names == {"Lexicon"}:
+                        continue
+                    hits.append(f"{where}:{node.lineno}: from {node.module}")
     assert not hits, f"Lexi implementation imports detected: {hits}"
-
-
-def test_forbidden_lexi_module_list_covers_every_internal_module():
-    """The import-linter enumeration must name every Lexi submodule but `contracts`.
-
-    Enumerated lists rot: a Lexi bump that adds a module leaves it unlisted, and the
-    contract keeps passing while the boundary quietly widens. Deriving the expected
-    set from the installed package is what keeps the list honest across bumps.
-    """
-    import pathlib
-    import pkgutil
-    import tomllib
-
-    import lexi_ai
-
-    installed = {module.name for module in pkgutil.iter_modules(lexi_ai.__path__)}
-    expected = {f"lexi_ai.{name}" for name in installed - {"contracts"}}
-
-    pyproject = pathlib.Path(__file__).resolve().parents[1] / "pyproject.toml"
-    contracts = tomllib.loads(pyproject.read_text())["tool"]["importlinter"]["contracts"]
-    listed = set(contracts[0]["forbidden_modules"])
-
-    assert listed == expected, (
-        f"unlisted Lexi modules: {sorted(expected - listed)}; "
-        f"stale entries: {sorted(listed - expected)}"
-    )
 
 
 @pytest.mark.asyncio
@@ -110,3 +99,33 @@ async def test_grade_writes_only_pycil_learning_tables(session):
     assert learning_tables <= pycil_tables
     # None of the learning tables are dictionary tables.
     assert not (learning_tables & _LEXI_TABLES)
+
+
+
+def test_api_and_worker_pin_the_same_lexi_commit():
+    """Both deployed packages must run the same Lexi build.
+
+    They pin it independently, and they drifted: the worker was left on the previous
+    commit through a Lexi bump. Nothing caught it, because each app's suite installs
+    only its own pin. A split pin means two Lexi versions against ONE database and
+    one migrated schema — the API reading rows the worker's build never wrote.
+
+    A movable tag would hide the drift instead of fixing it, so both must be an
+    immutable full commit SHA.
+    """
+    import pathlib
+    import re
+    import tomllib
+
+    apps = pathlib.Path(__file__).resolve().parents[3] / "apps"
+    pins: dict[str, str] = {}
+    for name in ("api", "worker"):
+        manifest = tomllib.loads((apps / name / "pyproject.toml").read_text())
+        requirement = next(
+            dep for dep in manifest["project"]["dependencies"] if dep.startswith("lexi-ai")
+        )
+        _spec, _, reference = requirement.partition("lexi-ai.git@")
+        pins[name] = reference
+
+    assert pins["api"] == pins["worker"], f"Lexi pin drifted between apps: {pins}"
+    assert re.fullmatch(r"[0-9a-f]{40}", pins["api"]), f"pin must be a full SHA: {pins['api']}"

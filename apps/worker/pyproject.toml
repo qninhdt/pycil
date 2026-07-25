@@ -15,8 +15,9 @@ dependencies = [
     "sqlmodel>=0.0.38,<0.1",
     "pycil-shared",
     "pycil-api",
-    # lexi-ai v0.2.1; immutable release commit.
-    "lexi-ai @ git+https://github.com/qninhdt/lexi-ai.git@c0ad25217b36ad9fdade9cff5aef18cefee761f4",
+    # lexi-ai, pinned to an immutable commit (never a movable tag). MUST match
+    # apps/api — the two deploy together against one database and one schema.
+    "lexi-ai @ git+https://github.com/qninhdt/lexi-ai.git@acb76d6163f96bcc7eeece239816732bbd856d73",
 ]
 
 [tool.uv.sources]
@@ -33,7 +34,6 @@ dev = [
     "pytest-mock>=3.14,<4.0",
     "pytest-cov>=6.0,<7.0",
     "ruff>=0.8,<0.9",
-    "import-linter==2.13",
 ]
 
 [tool.pytest.ini_options]
@@ -59,26 +59,3 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.ruff.lint.flake8-bugbear]
 extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path"]
-
-
-# Import Linter enforces module-level Lexi boundaries. Symbol-level root imports,
-# dynamic imports, and private attribute access are covered by the API AST contract test.
-[tool.importlinter]
-root_packages = ["pycil_worker", "lexi_ai"]
-
-[[tool.importlinter.contracts]]
-name = "worker imports only the public Lexi modules"
-type = "forbidden"
-allow_indirect_imports = true
-source_modules = ["pycil_worker"]
-forbidden_modules = [
-    "lexi_ai.api",
-    "lexi_ai.application",
-    "lexi_ai.db",
-    "lexi_ai.domain",
-    "lexi_ai.facades",
-    "lexi_ai.infrastructure",
-    "lexi_ai.models",
-    "lexi_ai.persistence",
-    "lexi_ai.questions",
-]
