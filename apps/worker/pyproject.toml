@@ -14,10 +14,12 @@ dependencies = [
     "sqlalchemy>=2.0,<2.1",
     "sqlmodel>=0.0.38,<0.1",
     "pycil-shared",
+    # Lexi arrives THROUGH pycil-api, deliberately unpinned here. The worker used to
+    # pin it too, and the two drifted through a Lexi bump: one build in the API, an
+    # older one in the worker, against one database and one migrated schema. Nothing
+    # caught it, because each app's suite installs only its own pin. One pin makes
+    # that impossible instead of detectable.
     "pycil-api",
-    # lexi-ai, pinned to an immutable commit (never a movable tag). MUST match
-    # apps/api — the two deploy together against one database and one schema.
-    "lexi-ai @ git+https://github.com/qninhdt/lexi-ai.git@acb76d6163f96bcc7eeece239816732bbd856d73",
 ]
 
 [tool.uv.sources]

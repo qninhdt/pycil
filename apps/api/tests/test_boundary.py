@@ -99,33 +99,3 @@ async def test_grade_writes_only_pycil_learning_tables(session):
     assert learning_tables <= pycil_tables
     # None of the learning tables are dictionary tables.
     assert not (learning_tables & _LEXI_TABLES)
-
-
-
-def test_api_and_worker_pin_the_same_lexi_commit():
-    """Both deployed packages must run the same Lexi build.
-
-    They pin it independently, and they drifted: the worker was left on the previous
-    commit through a Lexi bump. Nothing caught it, because each app's suite installs
-    only its own pin. A split pin means two Lexi versions against ONE database and
-    one migrated schema — the API reading rows the worker's build never wrote.
-
-    A movable tag would hide the drift instead of fixing it, so both must be an
-    immutable full commit SHA.
-    """
-    import pathlib
-    import re
-    import tomllib
-
-    apps = pathlib.Path(__file__).resolve().parents[3] / "apps"
-    pins: dict[str, str] = {}
-    for name in ("api", "worker"):
-        manifest = tomllib.loads((apps / name / "pyproject.toml").read_text())
-        requirement = next(
-            dep for dep in manifest["project"]["dependencies"] if dep.startswith("lexi-ai")
-        )
-        _spec, _, reference = requirement.partition("lexi-ai.git@")
-        pins[name] = reference
-
-    assert pins["api"] == pins["worker"], f"Lexi pin drifted between apps: {pins}"
-    assert re.fullmatch(r"[0-9a-f]{40}", pins["api"]), f"pin must be a full SHA: {pins['api']}"
