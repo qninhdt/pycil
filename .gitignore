@@ -39,6 +39,14 @@ plans/**/*
 !plans/templates/*
 screenshots/*
 docs/screenshots/*
+
+# Plan-scoped review artifacts must stay committable: the plan body itself is
+# scratch, but reports and the screenshots they cite are evidence for the work.
+# `!plans/*/` only reopens the plan directories so git descends into them; the
+# plan markdown underneath is still matched by `plans/**/*`.
+!plans/*/
+!plans/*/reports/
+!plans/*/reports/**
 logs.txt
 test-ck
 __pycache__

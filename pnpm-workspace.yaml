@@ -6,6 +6,10 @@ allowBuilds:
   protobufjs: true
   sharp: true
   unrs-resolver: true
+# Supply-chain cooling-off: refuse any version published less than 24h ago.
+# Without this the exclude list below is inert, because pnpm only consults the
+# exclusions when a minimum age is actually enforced.
+minimumReleaseAge: 1440
 minimumReleaseAgeExclude:
   - '@storybook/addon-a11y@10.5.3'
   - '@storybook/addon-docs@10.5.3'
