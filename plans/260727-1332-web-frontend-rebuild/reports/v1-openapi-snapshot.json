@@ -1,0 +1,4849 @@
+{
+  "components": {
+    "schemas": {
+      "AccountDeleteRequest": {
+        "properties": {
+          "confirmation": {
+            "title": "Confirmation",
+            "type": "string"
+          },
+          "refresh_token": {
+            "minLength": 1,
+            "title": "Refresh Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "refresh_token",
+          "confirmation"
+        ],
+        "title": "AccountDeleteRequest",
+        "type": "object"
+      },
+      "AccountExport": {
+        "properties": {
+          "assistant": {
+            "additionalProperties": true,
+            "title": "Assistant",
+            "type": "object"
+          },
+          "hierarchy": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Hierarchy",
+            "type": "array"
+          },
+          "learning": {
+            "additionalProperties": true,
+            "title": "Learning",
+            "type": "object"
+          },
+          "profile": {
+            "additionalProperties": true,
+            "title": "Profile",
+            "type": "object"
+          },
+          "wordGenerations": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Wordgenerations",
+            "type": "array"
+          }
+        },
+        "required": [
+          "profile",
+          "hierarchy",
+          "learning",
+          "wordGenerations",
+          "assistant"
+        ],
+        "title": "AccountExport",
+        "type": "object"
+      },
+      "ActionDecision": {
+        "properties": {
+          "decision": {
+            "enum": [
+              "approve",
+              "reject"
+            ],
+            "title": "Decision",
+            "type": "string"
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "title": "ActionDecision",
+        "type": "object"
+      },
+      "AnswerRequest": {
+        "properties": {
+          "answer": {
+            "maxLength": 10000,
+            "minLength": 1,
+            "title": "Answer",
+            "type": "string"
+          },
+          "questionId": {
+            "title": "Questionid",
+            "type": "integer"
+          },
+          "sessionId": {
+            "title": "Sessionid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sessionId",
+          "questionId",
+          "answer"
+        ],
+        "title": "AnswerRequest",
+        "type": "object"
+      },
+      "AssistantSSEEvent": {
+        "description": "Named contract for one logical event encoded in the SSE response stream.",
+        "properties": {
+          "data": {
+            "additionalProperties": true,
+            "description": "Sanitized JSON event payload.",
+            "title": "Data",
+            "type": "object"
+          },
+          "event": {
+            "description": "Event type, such as token, action, error, or done.",
+            "title": "Event",
+            "type": "string"
+          },
+          "id": {
+            "description": "Monotonically increasing event id for reconnection.",
+            "title": "Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "event",
+          "data"
+        ],
+        "title": "AssistantSSEEvent",
+        "type": "object"
+      },
+      "CapabilitiesRead": {
+        "properties": {
+          "assistant": {
+            "title": "Assistant",
+            "type": "boolean"
+          },
+          "realtime": {
+            "default": true,
+            "title": "Realtime",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "assistant"
+        ],
+        "title": "CapabilitiesRead",
+        "type": "object"
+      },
+      "DashboardStatsRead": {
+        "properties": {
+          "dueTodayCount": {
+            "title": "Duetodaycount",
+            "type": "integer"
+          },
+          "fsrsForecast": {
+            "items": {
+              "$ref": "#/components/schemas/FSRSForecastDay"
+            },
+            "title": "Fsrsforecast",
+            "type": "array"
+          },
+          "masteryPercentage": {
+            "title": "Masterypercentage",
+            "type": "number"
+          },
+          "recentSession": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecentSessionInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "totalLearnedWords": {
+            "title": "Totallearnedwords",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "totalLearnedWords",
+          "dueTodayCount",
+          "masteryPercentage",
+          "fsrsForecast"
+        ],
+        "title": "DashboardStatsRead",
+        "type": "object"
+      },
+      "DeckSettingsRead": {
+        "properties": {
+          "maxQuestionsPerRound": {
+            "title": "Maxquestionsperround",
+            "type": "integer"
+          },
+          "targetWordsPerSession": {
+            "title": "Targetwordspersession",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "targetWordsPerSession",
+          "maxQuestionsPerRound"
+        ],
+        "title": "DeckSettingsRead",
+        "type": "object"
+      },
+      "DeckSettingsUpdate": {
+        "description": "The two session-shape settings, named after the keys the planner reads.\n\nThe previous names (``newPerBatch`` / ``reviewPerBatch``) were written to\n``deck_attributes.settings`` under keys ``planning.settings_from_deck`` never\nlooked up, so writing deck settings had no effect on any session.",
+        "properties": {
+          "maxQuestionsPerRound": {
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Maxquestionsperround",
+            "type": "integer"
+          },
+          "targetWordsPerSession": {
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Targetwordspersession",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "targetWordsPerSession",
+          "maxQuestionsPerRound"
+        ],
+        "title": "DeckSettingsUpdate",
+        "type": "object"
+      },
+      "ErrorDetail": {
+        "description": "The stable, client-facing shape carried by every API error.",
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "details": {
+            "additionalProperties": true,
+            "title": "Details",
+            "type": "object"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "requestId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requestid"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ErrorDetail",
+        "type": "object"
+      },
+      "ErrorEnvelope": {
+        "description": "Canonical non-success response body for the public API.",
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorDetail"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "title": "ErrorEnvelope",
+        "type": "object"
+      },
+      "FSRSForecastDay": {
+        "properties": {
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "dueCount": {
+            "title": "Duecount",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "date",
+          "dueCount"
+        ],
+        "title": "FSRSForecastDay",
+        "type": "object"
+      },
+      "FlashcardReady": {
+        "properties": {
+          "interactionMode": {
+            "title": "Interactionmode",
+            "type": "string"
+          },
+          "isFallback": {
+            "title": "Isfallback",
+            "type": "boolean"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "title": "Payload",
+            "type": "object"
+          },
+          "questionId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Questionid"
+          },
+          "renderFormat": {
+            "const": "flashcard",
+            "default": "flashcard",
+            "title": "Renderformat",
+            "type": "string"
+          },
+          "requestedLevel": {
+            "title": "Requestedlevel",
+            "type": "integer"
+          },
+          "senseId": {
+            "title": "Senseid",
+            "type": "integer"
+          },
+          "servedLevel": {
+            "title": "Servedlevel",
+            "type": "integer"
+          },
+          "state": {
+            "const": "ready",
+            "default": "ready",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "questionId",
+          "senseId",
+          "interactionMode",
+          "requestedLevel",
+          "servedLevel",
+          "isFallback",
+          "payload"
+        ],
+        "title": "FlashcardReady",
+        "type": "object"
+      },
+      "FolderItemRead": {
+        "properties": {
+          "cefrLevel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cefrlevel"
+          },
+          "definition": {
+            "title": "Definition",
+            "type": "string"
+          },
+          "senseId": {
+            "title": "Senseid",
+            "type": "integer"
+          },
+          "tier": {
+            "title": "Tier",
+            "type": "string"
+          }
+        },
+        "required": [
+          "senseId",
+          "definition",
+          "tier"
+        ],
+        "title": "FolderItemRead",
+        "type": "object"
+      },
+      "FolderStatsRead": {
+        "properties": {
+          "avgMastery": {
+            "title": "Avgmastery",
+            "type": "number"
+          },
+          "learned": {
+            "title": "Learned",
+            "type": "integer"
+          },
+          "mastered": {
+            "title": "Mastered",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "learned",
+          "mastered",
+          "avgMastery"
+        ],
+        "title": "FolderStatsRead",
+        "type": "object"
+      },
+      "FreeTextReady": {
+        "properties": {
+          "interactionMode": {
+            "title": "Interactionmode",
+            "type": "string"
+          },
+          "isFallback": {
+            "title": "Isfallback",
+            "type": "boolean"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "title": "Payload",
+            "type": "object"
+          },
+          "questionId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Questionid"
+          },
+          "renderFormat": {
+            "const": "free_text",
+            "default": "free_text",
+            "title": "Renderformat",
+            "type": "string"
+          },
+          "requestedLevel": {
+            "title": "Requestedlevel",
+            "type": "integer"
+          },
+          "senseId": {
+            "title": "Senseid",
+            "type": "integer"
+          },
+          "servedLevel": {
+            "title": "Servedlevel",
+            "type": "integer"
+          },
+          "state": {
+            "const": "ready",
+            "default": "ready",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "questionId",
+          "senseId",
+          "interactionMode",
+          "requestedLevel",
+          "servedLevel",
+          "isFallback",
+          "payload"
+        ],
+        "title": "FreeTextReady",
+        "type": "object"
+      },
+      "GenerationCreateRead": {
+        "properties": {
+          "taskId": {
+            "format": "uuid",
+            "title": "Taskid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "taskId"
+        ],
+        "title": "GenerationCreateRead",
+        "type": "object"
+      },
+      "GradeResponse": {
+        "description": "Grade result: rule types graded in-request with reveal data, llm types pending.",
+        "properties": {
+          "gradeFeedback": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gradefeedback"
+          },
+          "gradeScore": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gradescore"
+          },
+          "gradeStatus": {
+            "title": "Gradestatus",
+            "type": "string"
+          },
+          "isCorrect": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Iscorrect"
+          },
+          "masteryAfter": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Masteryafter"
+          },
+          "masteryBefore": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Masterybefore"
+          },
+          "renderFormat": {
+            "title": "Renderformat",
+            "type": "string"
+          },
+          "responseId": {
+            "format": "uuid",
+            "title": "Responseid",
+            "type": "string"
+          },
+          "reveal": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reveal"
+          },
+          "senseId": {
+            "title": "Senseid",
+            "type": "integer"
+          },
+          "taskId": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Taskid"
+          }
+        },
+        "required": [
+          "responseId",
+          "gradeStatus",
+          "senseId",
+          "renderFormat"
+        ],
+        "title": "GradeResponse",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HistoryBucketRead": {
+        "properties": {
+          "avgMastery": {
+            "title": "Avgmastery",
+            "type": "number"
+          },
+          "bucket": {
+            "title": "Bucket",
+            "type": "string"
+          },
+          "reviewed": {
+            "title": "Reviewed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "bucket",
+          "reviewed",
+          "avgMastery"
+        ],
+        "title": "HistoryBucketRead",
+        "type": "object"
+      },
+      "LoginStart": {
+        "properties": {
+          "authorizeUrl": {
+            "title": "Authorizeurl",
+            "type": "string"
+          }
+        },
+        "required": [
+          "authorizeUrl"
+        ],
+        "title": "LoginStart",
+        "type": "object"
+      },
+      "LogoutRequest": {
+        "properties": {
+          "refresh_token": {
+            "title": "Refresh Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "refresh_token"
+        ],
+        "title": "LogoutRequest",
+        "type": "object"
+      },
+      "MessageCreate": {
+        "properties": {
+          "clientMessageId": {
+            "format": "uuid",
+            "title": "Clientmessageid",
+            "type": "string"
+          },
+          "content": {
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          }
+        },
+        "required": [
+          "clientMessageId",
+          "content"
+        ],
+        "title": "MessageCreate",
+        "type": "object"
+      },
+      "NextQuestionBreak": {
+        "description": "A round completed \u2014 the FE may offer a break, then poll ``/next`` again.",
+        "properties": {
+          "roundIndex": {
+            "title": "Roundindex",
+            "type": "integer"
+          },
+          "state": {
+            "const": "break",
+            "default": "break",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "roundIndex"
+        ],
+        "title": "NextQuestionBreak",
+        "type": "object"
+      },
+      "NextQuestionExhausted": {
+        "properties": {
+          "state": {
+            "const": "exhausted",
+            "default": "exhausted",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "title": "NextQuestionExhausted",
+        "type": "object"
+      },
+      "NextQuestionPreparing": {
+        "description": "Eligible work exists but supply is still warming \u2014 poll ``/next`` shortly.",
+        "properties": {
+          "state": {
+            "const": "preparing",
+            "default": "preparing",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "title": "NextQuestionPreparing",
+        "type": "object"
+      },
+      "NextQuestionWaiting": {
+        "description": "All work is terminal but a pending (llm) grade is still settling.",
+        "properties": {
+          "state": {
+            "const": "waiting",
+            "default": "waiting",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "title": "NextQuestionWaiting",
+        "type": "object"
+      },
+      "NodeAncestorRead": {
+        "description": "One breadcrumb hop. Name and type only \u2014 enough to render and link.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/components/schemas/NodeType"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "type"
+        ],
+        "title": "NodeAncestorRead",
+        "type": "object"
+      },
+      "NodeCreate": {
+        "properties": {
+          "confirmSubtreePublication": {
+            "default": false,
+            "title": "Confirmsubtreepublication",
+            "type": "boolean"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "parentNodeId": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parentnodeid"
+          },
+          "targetNodeId": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Targetnodeid"
+          },
+          "type": {
+            "$ref": "#/components/schemas/NodeType"
+          },
+          "visibility": {
+            "$ref": "#/components/schemas/Visibility",
+            "default": "PRIVATE"
+          }
+        },
+        "required": [
+          "type",
+          "name"
+        ],
+        "title": "NodeCreate",
+        "type": "object"
+      },
+      "NodeMove": {
+        "properties": {
+          "parentNodeId": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parentnodeid"
+          }
+        },
+        "title": "NodeMove",
+        "type": "object"
+      },
+      "NodePageRead": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/NodeRead"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nextcursor"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "NodePageRead",
+        "type": "object"
+      },
+      "NodeRead": {
+        "properties": {
+          "createdAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Createdat"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "itemCount": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Itemcount"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "parentNodeId": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parentnodeid"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/NodeAncestorRead"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          },
+          "targetNodeId": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Targetnodeid"
+          },
+          "type": {
+            "$ref": "#/components/schemas/NodeType"
+          },
+          "updatedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updatedat"
+          },
+          "visibility": {
+            "$ref": "#/components/schemas/Visibility"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "name",
+          "visibility"
+        ],
+        "title": "NodeRead",
+        "type": "object"
+      },
+      "NodeType": {
+        "enum": [
+          "FOLDER",
+          "DECK",
+          "REFERENCE"
+        ],
+        "title": "NodeType",
+        "type": "string"
+      },
+      "NodeUpdate": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 10000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "title": "NodeUpdate",
+        "type": "object"
+      },
+      "NodeVisibilityUpdate": {
+        "properties": {
+          "confirmSubtreePublication": {
+            "default": false,
+            "title": "Confirmsubtreepublication",
+            "type": "boolean"
+          },
+          "visibility": {
+            "$ref": "#/components/schemas/Visibility"
+          }
+        },
+        "required": [
+          "visibility"
+        ],
+        "title": "NodeVisibilityUpdate",
+        "type": "object"
+      },
+      "RecentSessionInfo": {
+        "properties": {
+          "deckTitle": {
+            "title": "Decktitle",
+            "type": "string"
+          },
+          "nodeId": {
+            "format": "uuid",
+            "title": "Nodeid",
+            "type": "string"
+          },
+          "remainingCount": {
+            "title": "Remainingcount",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "nodeId",
+          "deckTitle",
+          "remainingCount"
+        ],
+        "title": "RecentSessionInfo",
+        "type": "object"
+      },
+      "RefreshRequest": {
+        "properties": {
+          "refresh_token": {
+            "title": "Refresh Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "refresh_token"
+        ],
+        "title": "RefreshRequest",
+        "type": "object"
+      },
+      "RunEventRead": {
+        "properties": {
+          "eventType": {
+            "title": "Eventtype",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "title": "Payload",
+            "type": "object"
+          },
+          "sequence": {
+            "title": "Sequence",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "sequence",
+          "eventType",
+          "payload"
+        ],
+        "title": "RunEventRead",
+        "type": "object"
+      },
+      "RunRecoveryRead": {
+        "properties": {
+          "errorCode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Errorcode"
+          },
+          "eventCursor": {
+            "title": "Eventcursor",
+            "type": "integer"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/RunEventRead"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "threadId": {
+            "format": "uuid",
+            "title": "Threadid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "threadId",
+          "status",
+          "eventCursor",
+          "events"
+        ],
+        "title": "RunRecoveryRead",
+        "type": "object"
+      },
+      "SenseAddRequest": {
+        "properties": {
+          "senseId": {
+            "title": "Senseid",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "senseId"
+        ],
+        "title": "SenseAddRequest",
+        "type": "object"
+      },
+      "SenseContent": {
+        "properties": {
+          "cefrLevel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cefrlevel"
+          },
+          "definition": {
+            "title": "Definition",
+            "type": "string"
+          },
+          "examples": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Examples",
+            "type": "array"
+          },
+          "lapseCount": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lapsecount"
+          },
+          "mastery": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mastery"
+          },
+          "masteryStage": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Masterystage"
+          },
+          "masteryStageName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Masterystagename"
+          },
+          "nextReviewDate": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nextreviewdate"
+          },
+          "pos": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pos"
+          },
+          "reviewCount": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewcount"
+          },
+          "senseId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Senseid"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "tier": {
+            "title": "Tier",
+            "type": "string"
+          },
+          "word": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Word"
+          },
+          "wordId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wordid"
+          }
+        },
+        "required": [
+          "definition",
+          "tier"
+        ],
+        "title": "SenseContent",
+        "type": "object"
+      },
+      "SenseDetailRead": {
+        "description": "The full lexical record for one sense, returned by the single-sense read\nalone. Listing endpoints return ``SenseContent`` so their payload does not\ngrow.",
+        "properties": {
+          "cefrLevel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cefrlevel"
+          },
+          "collocations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Collocations",
+            "type": "array"
+          },
+          "connotation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connotation"
+          },
+          "definition": {
+            "title": "Definition",
+            "type": "string"
+          },
+          "domain": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Domain"
+          },
+          "examples": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Examples",
+            "type": "array"
+          },
+          "forms": {
+            "items": {
+              "$ref": "#/components/schemas/SenseFormRead"
+            },
+            "title": "Forms",
+            "type": "array"
+          },
+          "grammar": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Grammar",
+            "type": "array"
+          },
+          "guideword": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Guideword"
+          },
+          "ipaUk": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ipauk"
+          },
+          "ipaUs": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ipaus"
+          },
+          "pos": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pos"
+          },
+          "references": {
+            "items": {
+              "$ref": "#/components/schemas/SenseReferenceRead"
+            },
+            "title": "References",
+            "type": "array"
+          },
+          "register": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Register"
+          },
+          "relations": {
+            "items": {
+              "$ref": "#/components/schemas/SenseRelationRead"
+            },
+            "title": "Relations",
+            "type": "array"
+          },
+          "senseId": {
+            "title": "Senseid",
+            "type": "integer"
+          },
+          "tier": {
+            "title": "Tier",
+            "type": "string"
+          },
+          "usageNote": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Usagenote"
+          },
+          "word": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Word"
+          },
+          "wordId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wordid"
+          }
+        },
+        "required": [
+          "senseId",
+          "definition",
+          "tier"
+        ],
+        "title": "SenseDetailRead",
+        "type": "object"
+      },
+      "SenseFormRead": {
+        "description": "One inflected form: ``surface`` (ran) tagged with its ``inf`` label (past).\n\nField names mirror Lexi's ``FormView`` exactly. Do not rename them to anything\nresembling an answer-key shape: ``test_v1_contract`` substring-scans the whole\ncomponent-schema document for the three answer-safety tokens, so even prose in\na docstring here can trip it.",
+        "properties": {
+          "inf": {
+            "title": "Inf",
+            "type": "string"
+          },
+          "surface": {
+            "title": "Surface",
+            "type": "string"
+          }
+        },
+        "required": [
+          "inf",
+          "surface"
+        ],
+        "title": "SenseFormRead",
+        "type": "object"
+      },
+      "SenseReferenceRead": {
+        "properties": {
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "sourceRef": {
+            "title": "Sourceref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "sourceRef"
+        ],
+        "title": "SenseReferenceRead",
+        "type": "object"
+      },
+      "SenseRelationRead": {
+        "description": "A sense-level semantic relation. ``wsdState`` is derived by Lexi, not\nstored: ``resolved`` carries a target sense, ``pending`` and ``unresolvable``\ncarry only the target word.",
+        "properties": {
+          "relType": {
+            "title": "Reltype",
+            "type": "string"
+          },
+          "toSenseGloss": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tosensegloss"
+          },
+          "toSenseId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tosenseid"
+          },
+          "toWordDisplay": {
+            "title": "Toworddisplay",
+            "type": "string"
+          },
+          "toWordId": {
+            "title": "Towordid",
+            "type": "integer"
+          },
+          "toWordStatus": {
+            "title": "Towordstatus",
+            "type": "string"
+          },
+          "wsdState": {
+            "title": "Wsdstate",
+            "type": "string"
+          }
+        },
+        "required": [
+          "relType",
+          "toWordDisplay",
+          "toWordId",
+          "toWordStatus",
+          "wsdState"
+        ],
+        "title": "SenseRelationRead",
+        "type": "object"
+      },
+      "SessionRead": {
+        "properties": {
+          "admittedCount": {
+            "title": "Admittedcount",
+            "type": "integer"
+          },
+          "expiresAt": {
+            "title": "Expiresat",
+            "type": "string"
+          },
+          "firstState": {
+            "title": "Firststate",
+            "type": "string"
+          },
+          "nodeId": {
+            "format": "uuid",
+            "title": "Nodeid",
+            "type": "string"
+          },
+          "sessionId": {
+            "title": "Sessionid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sessionId",
+          "nodeId",
+          "admittedCount",
+          "expiresAt",
+          "firstState"
+        ],
+        "title": "SessionRead",
+        "type": "object"
+      },
+      "SessionSenseProgressRead": {
+        "description": "Where one admitted sense stands. Live-session shape only.",
+        "properties": {
+          "awaitingGrade": {
+            "title": "Awaitinggrade",
+            "type": "boolean"
+          },
+          "exposed": {
+            "title": "Exposed",
+            "type": "boolean"
+          },
+          "passed": {
+            "title": "Passed",
+            "type": "integer"
+          },
+          "purpose": {
+            "title": "Purpose",
+            "type": "string"
+          },
+          "required": {
+            "title": "Required",
+            "type": "integer"
+          },
+          "score": {
+            "title": "Score",
+            "type": "string"
+          },
+          "senseId": {
+            "title": "Senseid",
+            "type": "integer"
+          },
+          "terminal": {
+            "title": "Terminal",
+            "type": "boolean"
+          },
+          "terminalReason": {
+            "title": "Terminalreason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "senseId",
+          "purpose",
+          "passed",
+          "required",
+          "score",
+          "exposed",
+          "awaitingGrade",
+          "terminal",
+          "terminalReason"
+        ],
+        "title": "SessionSenseProgressRead",
+        "type": "object"
+      },
+      "SessionStart": {
+        "properties": {
+          "nodeId": {
+            "format": "uuid",
+            "title": "Nodeid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "nodeId"
+        ],
+        "title": "SessionStart",
+        "type": "object"
+      },
+      "SessionStateRead": {
+        "description": "One session, live or finished.\n\n``status`` discriminates: ``live`` is served from Redis and carries the round\ncounters and per-sense progress; ``completed`` is served from the durable\nsummary row and carries the recap counts only, because ``end_session`` deleted\nthe live namespace. A client that reloads mid-session gets ``live``; one that\nreloads after finishing gets ``completed`` instead of a 404.",
+        "properties": {
+          "answersCorrect": {
+            "default": 0,
+            "title": "Answerscorrect",
+            "type": "integer"
+          },
+          "answersTotal": {
+            "default": 0,
+            "title": "Answerstotal",
+            "type": "integer"
+          },
+          "completedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completedat"
+          },
+          "expiresAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expiresat"
+          },
+          "maxPerRound": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maxperround"
+          },
+          "nodeId": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nodeid"
+          },
+          "roundCount": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Roundcount"
+          },
+          "roundIndex": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Roundindex"
+          },
+          "roundsUsed": {
+            "default": 0,
+            "title": "Roundsused",
+            "type": "integer"
+          },
+          "senses": {
+            "items": {
+              "$ref": "#/components/schemas/SessionSenseProgressRead"
+            },
+            "title": "Senses",
+            "type": "array"
+          },
+          "sensesAdmitted": {
+            "default": 0,
+            "title": "Sensesadmitted",
+            "type": "integer"
+          },
+          "sensesCompleted": {
+            "default": 0,
+            "title": "Sensescompleted",
+            "type": "integer"
+          },
+          "sensesExhausted": {
+            "default": 0,
+            "title": "Sensesexhausted",
+            "type": "integer"
+          },
+          "sessionId": {
+            "title": "Sessionid",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "live",
+              "completed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sessionId",
+          "status"
+        ],
+        "title": "SessionStateRead",
+        "type": "object"
+      },
+      "SingleChoiceReady": {
+        "properties": {
+          "interactionMode": {
+            "title": "Interactionmode",
+            "type": "string"
+          },
+          "isFallback": {
+            "title": "Isfallback",
+            "type": "boolean"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "title": "Payload",
+            "type": "object"
+          },
+          "questionId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Questionid"
+          },
+          "renderFormat": {
+            "const": "single_choice",
+            "default": "single_choice",
+            "title": "Renderformat",
+            "type": "string"
+          },
+          "requestedLevel": {
+            "title": "Requestedlevel",
+            "type": "integer"
+          },
+          "senseId": {
+            "title": "Senseid",
+            "type": "integer"
+          },
+          "servedLevel": {
+            "title": "Servedlevel",
+            "type": "integer"
+          },
+          "state": {
+            "const": "ready",
+            "default": "ready",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "questionId",
+          "senseId",
+          "interactionMode",
+          "requestedLevel",
+          "servedLevel",
+          "isFallback",
+          "payload"
+        ],
+        "title": "SingleChoiceReady",
+        "type": "object"
+      },
+      "TextSpanReady": {
+        "properties": {
+          "interactionMode": {
+            "title": "Interactionmode",
+            "type": "string"
+          },
+          "isFallback": {
+            "title": "Isfallback",
+            "type": "boolean"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "title": "Payload",
+            "type": "object"
+          },
+          "questionId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Questionid"
+          },
+          "renderFormat": {
+            "const": "text_span",
+            "default": "text_span",
+            "title": "Renderformat",
+            "type": "string"
+          },
+          "requestedLevel": {
+            "title": "Requestedlevel",
+            "type": "integer"
+          },
+          "senseId": {
+            "title": "Senseid",
+            "type": "integer"
+          },
+          "servedLevel": {
+            "title": "Servedlevel",
+            "type": "integer"
+          },
+          "state": {
+            "const": "ready",
+            "default": "ready",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "questionId",
+          "senseId",
+          "interactionMode",
+          "requestedLevel",
+          "servedLevel",
+          "isFallback",
+          "payload"
+        ],
+        "title": "TextSpanReady",
+        "type": "object"
+      },
+      "ThreadCreate": {
+        "properties": {
+          "title": {
+            "default": "New conversation",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "title": "ThreadCreate",
+        "type": "object"
+      },
+      "ThreadRead": {
+        "properties": {
+          "createdAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Createdat"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updatedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updatedat"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "status",
+          "createdAt",
+          "updatedAt"
+        ],
+        "title": "ThreadRead",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "ViewerRead": {
+        "description": "The ``GET /v1/me`` projection.\n\nExists so ``token_version`` cannot reach the browser. It was previously served\nbecause ``CurrentUser`` doubled as the response model, which meant the\nrevocation counter shipped to every client that asked who it was.",
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "image": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "required": [
+          "id",
+          "email"
+        ],
+        "title": "ViewerRead",
+        "type": "object"
+      },
+      "Visibility": {
+        "enum": [
+          "PRIVATE",
+          "PUBLIC"
+        ],
+        "title": "Visibility",
+        "type": "string"
+      },
+      "WeakSenseRead": {
+        "description": "A weakest-sense row. Carries enough to render without a second request:\nthe previous shape was ``{senseId, mastery}``, which is a progress bar with no\nlabel.",
+        "properties": {
+          "cefrLevel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cefrlevel"
+          },
+          "definition": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Definition"
+          },
+          "mastery": {
+            "title": "Mastery",
+            "type": "integer"
+          },
+          "pos": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pos"
+          },
+          "senseId": {
+            "title": "Senseid",
+            "type": "integer"
+          },
+          "word": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Word"
+          }
+        },
+        "required": [
+          "senseId",
+          "mastery"
+        ],
+        "title": "WeakSenseRead",
+        "type": "object"
+      },
+      "WordRequest": {
+        "properties": {
+          "query": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Query",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "title": "WordRequest",
+        "type": "object"
+      },
+      "WordSearchRead": {
+        "properties": {
+          "cambridgeId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cambridgeid"
+          },
+          "display": {
+            "title": "Display",
+            "type": "string"
+          },
+          "entryType": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entrytype"
+          },
+          "gloss": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gloss"
+          },
+          "pos": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pos"
+          },
+          "score": {
+            "default": 0.0,
+            "title": "Score",
+            "type": "number"
+          },
+          "senses": {
+            "items": {
+              "$ref": "#/components/schemas/SenseContent"
+            },
+            "title": "Senses",
+            "type": "array"
+          },
+          "wordId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wordid"
+          }
+        },
+        "required": [
+          "display"
+        ],
+        "title": "WordSearchRead",
+        "type": "object"
+      },
+      "pycil__auth__schemas__TokenResponse": {
+        "properties": {
+          "accessToken": {
+            "title": "Accesstoken",
+            "type": "string"
+          },
+          "expiresIn": {
+            "title": "Expiresin",
+            "type": "integer"
+          },
+          "refreshExpiresIn": {
+            "title": "Refreshexpiresin",
+            "type": "integer"
+          },
+          "refreshToken": {
+            "title": "Refreshtoken",
+            "type": "string"
+          },
+          "tokenType": {
+            "default": "bearer",
+            "title": "Tokentype",
+            "type": "string"
+          }
+        },
+        "required": [
+          "accessToken",
+          "refreshToken",
+          "expiresIn",
+          "refreshExpiresIn"
+        ],
+        "title": "TokenResponse",
+        "type": "object"
+      },
+      "pycil__realtime__router__TokenResponse": {
+        "properties": {
+          "expiresAt": {
+            "title": "Expiresat",
+            "type": "integer"
+          },
+          "sseUrl": {
+            "title": "Sseurl",
+            "type": "string"
+          },
+          "token": {
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "expiresAt",
+          "sseUrl"
+        ],
+        "title": "TokenResponse",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "title": "Pycil API",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Health Health Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health"
+      }
+    },
+    "/health/live": {
+      "get": {
+        "operationId": "health_health_live_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Health Health Live Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health"
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "operationId": "readiness_health_ready_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Readiness Health Ready Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Readiness"
+      }
+    },
+    "/v1/answers": {
+      "post": {
+        "operationId": "submit_answer_v1_answers_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnswerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GradeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Submit Answer",
+        "tags": [
+          "learning"
+        ]
+      }
+    },
+    "/v1/assistant/threads": {
+      "get": {
+        "operationId": "list_threads_v1_assistant_threads_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ThreadRead"
+                  },
+                  "title": "Response List Threads V1 Assistant Threads Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Threads",
+        "tags": [
+          "assistant"
+        ]
+      },
+      "post": {
+        "operationId": "create_thread_v1_assistant_threads_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ThreadCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThreadRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Thread",
+        "tags": [
+          "assistant"
+        ]
+      }
+    },
+    "/v1/assistant/threads/{thread_id}": {
+      "delete": {
+        "operationId": "delete_thread_v1_assistant_threads__thread_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Thread Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Thread",
+        "tags": [
+          "assistant"
+        ]
+      }
+    },
+    "/v1/assistant/threads/{thread_id}/actions/{action_id}/confirm": {
+      "post": {
+        "operationId": "confirm_action_v1_assistant_threads__thread_id__actions__action_id__confirm_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Thread Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "action_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Action Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActionDecision"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantSSEEvent"
+                }
+              },
+              "text/event-stream": {
+                "schema": {
+                  "description": "SSE frames; each data payload matches AssistantSSEEvent.",
+                  "type": "string",
+                  "x-pycil-sse-event-schema": "#/components/schemas/AssistantSSEEvent"
+                }
+              }
+            },
+            "description": "A recoverable server-sent event stream."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Canonical API error."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Canonical API error."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Canonical API error."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Canonical API error."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Canonical API error."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Canonical API error."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Confirm Action",
+        "tags": [
+          "assistant"
+        ],
+        "x-pycil-sse-contract": {
+          "eventSchema": "#/components/schemas/AssistantSSEEvent",
+          "frame": "id: <sequence>\\nevent: <event>\\ndata: <json>\\n\\n",
+          "reconnectHeader": "Last-Event-ID"
+        }
+      }
+    },
+    "/v1/assistant/threads/{thread_id}/messages": {
+      "get": {
+        "operationId": "thread_messages_v1_assistant_threads__thread_id__messages_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Thread Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RunEventRead"
+                  },
+                  "title": "Response Thread Messages V1 Assistant Threads  Thread Id  Messages Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Thread Messages",
+        "tags": [
+          "assistant"
+        ]
+      },
+      "post": {
+        "operationId": "send_message_v1_assistant_threads__thread_id__messages_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Thread Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MessageCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantSSEEvent"
+                }
+              },
+              "text/event-stream": {
+                "schema": {
+                  "description": "SSE frames; each data payload matches AssistantSSEEvent.",
+                  "type": "string",
+                  "x-pycil-sse-event-schema": "#/components/schemas/AssistantSSEEvent"
+                }
+              }
+            },
+            "description": "A recoverable server-sent event stream."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Canonical API error."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Canonical API error."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Canonical API error."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Canonical API error."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Canonical API error."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Canonical API error."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Send Message",
+        "tags": [
+          "assistant"
+        ],
+        "x-pycil-sse-contract": {
+          "eventSchema": "#/components/schemas/AssistantSSEEvent",
+          "frame": "id: <sequence>\\nevent: <event>\\ndata: <json>\\n\\n",
+          "reconnectHeader": "Last-Event-ID"
+        }
+      }
+    },
+    "/v1/assistant/threads/{thread_id}/runs/{run_id}": {
+      "get": {
+        "operationId": "get_run_v1_assistant_threads__thread_id__runs__run_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Thread Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "After",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunRecoveryRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Run",
+        "tags": [
+          "assistant"
+        ]
+      }
+    },
+    "/v1/auth/callback": {
+      "get": {
+        "operationId": "callback_v1_auth_callback_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "title": "Code",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": true,
+            "schema": {
+              "title": "State",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/pycil__auth__schemas__TokenResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Callback",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/v1/auth/login": {
+      "get": {
+        "operationId": "login_v1_auth_login_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "redirect_uri",
+            "required": true,
+            "schema": {
+              "title": "Redirect Uri",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginStart"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Login",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/v1/auth/logout": {
+      "post": {
+        "operationId": "logout_v1_auth_logout_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/LogoutRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Logout",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/v1/auth/refresh": {
+      "post": {
+        "operationId": "refresh_v1_auth_refresh_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/RefreshRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/pycil__auth__schemas__TokenResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Refresh",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/v1/capabilities": {
+      "get": {
+        "operationId": "capabilities_v1_capabilities_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapabilitiesRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Capabilities"
+      }
+    },
+    "/v1/decks/{node_id}/items": {
+      "get": {
+        "operationId": "deck_items_v1_decks__node_id__items_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "node_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Node Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SenseContent"
+                  },
+                  "title": "Response Deck Items V1 Decks  Node Id  Items Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Deck Items",
+        "tags": [
+          "content"
+        ]
+      }
+    },
+    "/v1/decks/{node_id}/senses": {
+      "post": {
+        "operationId": "add_sense_v1_decks__node_id__senses_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "node_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Node Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SenseAddRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "integer"
+                  },
+                  "title": "Response Add Sense V1 Decks  Node Id  Senses Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Add Sense",
+        "tags": [
+          "content"
+        ]
+      }
+    },
+    "/v1/decks/{node_id}/senses/{sense_id}": {
+      "delete": {
+        "operationId": "remove_sense_v1_decks__node_id__senses__sense_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "node_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Node Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sense_id",
+            "required": true,
+            "schema": {
+              "title": "Sense Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Remove Sense",
+        "tags": [
+          "content"
+        ]
+      }
+    },
+    "/v1/decks/{node_id}/settings": {
+      "get": {
+        "description": "Effective session settings for a deck.\n\nResolved through the planner's own reader, so a deck with no settings row \u2014 or\none still holding the legacy keys that were never read \u2014 reports the policy\ndefaults the next session will actually use, rather than an empty object the\nclient would have to interpret.",
+        "operationId": "get_deck_settings_v1_decks__node_id__settings_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "node_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Node Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeckSettingsRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Deck Settings",
+        "tags": [
+          "hierarchy"
+        ]
+      },
+      "patch": {
+        "operationId": "update_deck_settings_v1_decks__node_id__settings_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "node_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Node Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeckSettingsUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeckSettingsRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Deck Settings",
+        "tags": [
+          "hierarchy"
+        ]
+      }
+    },
+    "/v1/folders/{node_id}/cefr": {
+      "get": {
+        "operationId": "folder_cefr_v1_folders__node_id__cefr_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "node_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Node Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "integer"
+                  },
+                  "title": "Response Folder Cefr V1 Folders  Node Id  Cefr Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Folder Cefr",
+        "tags": [
+          "hierarchy"
+        ]
+      }
+    },
+    "/v1/folders/{node_id}/history": {
+      "get": {
+        "operationId": "folder_history_v1_folders__node_id__history_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "node_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Node Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To"
+            }
+          },
+          {
+            "in": "query",
+            "name": "bucket",
+            "required": false,
+            "schema": {
+              "const": "day",
+              "default": "day",
+              "title": "Bucket",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/HistoryBucketRead"
+                  },
+                  "title": "Response Folder History V1 Folders  Node Id  History Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Folder History",
+        "tags": [
+          "hierarchy"
+        ]
+      }
+    },
+    "/v1/folders/{node_id}/items": {
+      "get": {
+        "operationId": "folder_items_v1_folders__node_id__items_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "node_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Node Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/FolderItemRead"
+                  },
+                  "title": "Response Folder Items V1 Folders  Node Id  Items Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Folder Items",
+        "tags": [
+          "hierarchy"
+        ]
+      }
+    },
+    "/v1/folders/{node_id}/stats": {
+      "get": {
+        "operationId": "folder_stats_v1_folders__node_id__stats_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "node_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Node Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FolderStatsRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Folder Stats",
+        "tags": [
+          "hierarchy"
+        ]
+      }
+    },
+    "/v1/folders/{node_id}/weakest": {
+      "get": {
+        "operationId": "folder_weakest_v1_folders__node_id__weakest_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "node_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Node Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 10,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/WeakSenseRead"
+                  },
+                  "title": "Response Folder Weakest V1 Folders  Node Id  Weakest Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Folder Weakest",
+        "tags": [
+          "hierarchy"
+        ]
+      }
+    },
+    "/v1/learning/dashboard": {
+      "get": {
+        "operationId": "get_dashboard_stats_v1_learning_dashboard_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardStatsRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Dashboard Stats",
+        "tags": [
+          "learning"
+        ]
+      }
+    },
+    "/v1/me": {
+      "delete": {
+        "operationId": "delete_me_v1_me_delete",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccountDeleteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Me",
+        "tags": [
+          "account"
+        ]
+      },
+      "get": {
+        "operationId": "me_v1_me_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ViewerRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Me"
+      }
+    },
+    "/v1/me/cefr": {
+      "get": {
+        "description": "`folder_cefr` over every sense the caller has state for.",
+        "operationId": "global_cefr_v1_me_cefr_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "integer"
+                  },
+                  "title": "Response Global Cefr V1 Me Cefr Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Global Cefr",
+        "tags": [
+          "hierarchy"
+        ]
+      }
+    },
+    "/v1/me/export": {
+      "get": {
+        "operationId": "export_me_v1_me_export_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountExport"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Export Me",
+        "tags": [
+          "account"
+        ]
+      }
+    },
+    "/v1/me/history": {
+      "get": {
+        "description": "`folder_history` over every sense the caller has state for.",
+        "operationId": "global_history_v1_me_history_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To"
+            }
+          },
+          {
+            "in": "query",
+            "name": "bucket",
+            "required": false,
+            "schema": {
+              "const": "day",
+              "default": "day",
+              "title": "Bucket",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/HistoryBucketRead"
+                  },
+                  "title": "Response Global History V1 Me History Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Global History",
+        "tags": [
+          "hierarchy"
+        ]
+      }
+    },
+    "/v1/me/stats": {
+      "get": {
+        "operationId": "global_stats_v1_me_stats_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FolderStatsRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Global Stats",
+        "tags": [
+          "hierarchy"
+        ]
+      }
+    },
+    "/v1/me/weakest": {
+      "get": {
+        "description": "`folder_weakest` over every sense the caller has state for.",
+        "operationId": "global_weakest_v1_me_weakest_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 10,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/WeakSenseRead"
+                  },
+                  "title": "Response Global Weakest V1 Me Weakest Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Global Weakest",
+        "tags": [
+          "hierarchy"
+        ]
+      }
+    },
+    "/v1/nodes": {
+      "get": {
+        "description": "List the caller's roots or one owned folder's immediate children.\n\nPublic nodes deliberately have no discovery/listing surface; a public item is\nvisible only through an explicit direct link or a tree owned by its author.",
+        "operationId": "list_nodes_v1_nodes_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "parentNodeId",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Parentnodeid"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NodePageRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Nodes",
+        "tags": [
+          "hierarchy"
+        ]
+      },
+      "post": {
+        "operationId": "create_node_v1_nodes_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NodeCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NodeRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Node",
+        "tags": [
+          "hierarchy"
+        ]
+      }
+    },
+    "/v1/nodes/{node_id}": {
+      "delete": {
+        "operationId": "delete_node_v1_nodes__node_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "node_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Node Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Node",
+        "tags": [
+          "hierarchy"
+        ]
+      },
+      "get": {
+        "description": "Read a node directly; anonymous callers see public nodes only.",
+        "operationId": "get_node_v1_nodes__node_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "node_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Node Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NodeRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Node",
+        "tags": [
+          "hierarchy"
+        ]
+      },
+      "patch": {
+        "operationId": "update_node_v1_nodes__node_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "node_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Node Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NodeUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NodeRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Node",
+        "tags": [
+          "hierarchy"
+        ]
+      }
+    },
+    "/v1/nodes/{node_id}/move": {
+      "patch": {
+        "operationId": "move_node_v1_nodes__node_id__move_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "node_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Node Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NodeMove"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NodeRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Move Node",
+        "tags": [
+          "hierarchy"
+        ]
+      }
+    },
+    "/v1/nodes/{node_id}/visibility": {
+      "patch": {
+        "operationId": "update_visibility_v1_nodes__node_id__visibility_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "node_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Node Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NodeVisibilityUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NodeRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Visibility",
+        "tags": [
+          "hierarchy"
+        ]
+      }
+    },
+    "/v1/realtime/token": {
+      "get": {
+        "operationId": "realtime_token_v1_realtime_token_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/pycil__realtime__router__TokenResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Canonical API error."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Canonical API error."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Realtime Token",
+        "tags": [
+          "realtime"
+        ]
+      }
+    },
+    "/v1/senses/{sense_id}": {
+      "get": {
+        "description": "The full lexical record for one sense, authorized owner-or-public.\n\nA sense is not an owned resource in pycil \u2014 it is Lexi content that becomes\nreachable by being a member of a deck. So access is derived: the caller may\nread the sense if at least one deck holding it is readable by them, which is\nthe same rule ``require_node_access`` applies to the deck itself.\n\nUnknown, unreferenced and unreadable all return one 404 with one code, so the\nendpoint cannot be used to probe which senses exist or who has them.",
+        "operationId": "sense_detail_v1_senses__sense_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sense_id",
+            "required": true,
+            "schema": {
+              "title": "Sense Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SenseDetailRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Sense Detail",
+        "tags": [
+          "content"
+        ]
+      }
+    },
+    "/v1/sessions": {
+      "post": {
+        "operationId": "start_session_v1_sessions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionStart"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Start Session",
+        "tags": [
+          "learning"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}": {
+      "get": {
+        "description": "Read one session. A TRUE read \u2014 it advances nothing and reserves nothing.\n\nUnlike ``/next``, which is a mutation dressed as a GET (it advances rounds,\nreserves deliveries and extends the exclusion set), this endpoint is safe to\npoll, retry and prefetch.\n\nLive sessions are served from Redis. Once a session completes, ``end_session``\nhas deleted that namespace, so the durable recap answers instead. 404 only when\nneither exists.",
+        "operationId": "read_session_v1_sessions__session_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionStateRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Read Session",
+        "tags": [
+          "learning"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/next": {
+      "get": {
+        "operationId": "next_question_v1_sessions__session_id__next_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "discriminator": {
+                        "mapping": {
+                          "flashcard": "#/components/schemas/FlashcardReady",
+                          "free_text": "#/components/schemas/FreeTextReady",
+                          "single_choice": "#/components/schemas/SingleChoiceReady",
+                          "text_span": "#/components/schemas/TextSpanReady"
+                        },
+                        "propertyName": "render_format"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/FlashcardReady"
+                        },
+                        {
+                          "$ref": "#/components/schemas/SingleChoiceReady"
+                        },
+                        {
+                          "$ref": "#/components/schemas/TextSpanReady"
+                        },
+                        {
+                          "$ref": "#/components/schemas/FreeTextReady"
+                        }
+                      ]
+                    },
+                    {
+                      "$ref": "#/components/schemas/NextQuestionBreak"
+                    },
+                    {
+                      "$ref": "#/components/schemas/NextQuestionPreparing"
+                    },
+                    {
+                      "$ref": "#/components/schemas/NextQuestionWaiting"
+                    },
+                    {
+                      "$ref": "#/components/schemas/NextQuestionExhausted"
+                    }
+                  ],
+                  "title": "Response Next Question V1 Sessions  Session Id  Next Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Next Question",
+        "tags": [
+          "learning"
+        ]
+      }
+    },
+    "/v1/word-generations": {
+      "post": {
+        "operationId": "request_word_v1_word_generations_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenerationCreateRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Request Word",
+        "tags": [
+          "content"
+        ]
+      }
+    },
+    "/v1/words/search": {
+      "get": {
+        "operationId": "search_words_v1_words_search_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Q",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/WordSearchRead"
+                  },
+                  "title": "Response Search Words V1 Words Search Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Search Words",
+        "tags": [
+          "content"
+        ]
+      }
+    }
+  }
+}

@@ -4,12 +4,18 @@ Domains raise these; handlers translate to JSON responses so route code stays
 free of HTTP plumbing.
 """
 
+import re
 from typing import Any
 
 from fastapi import HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
+
+# A message that is itself a machine-readable identifier: lowercase words joined
+# by single underscores. Human prose fails this — it has spaces, punctuation, or
+# interpolated values.
+_CODE_SHAPED = re.compile(r"[a-z][a-z0-9]*(?:_[a-z0-9]+)*")
 
 
 class ErrorDetail(BaseModel):
@@ -38,6 +44,20 @@ def error_responses(*status_codes: int) -> dict[int, dict[str, Any]]:
 
 
 class AppError(Exception):
+    """A domain failure, carrying the identifier a client branches on.
+
+    Almost every raise site in this codebase passes a snake_case identifier as
+    the only argument — `ConflictError("session_scope_changed")`. Treating that
+    purely as a human message left the wire `code` at the class default, so four
+    distinct conflicts all arrived as `conflict`: a client could see that
+    something conflicted but not whether to abandon the session, retry the same
+    question, or move to a different one. The identifier the raise site already
+    supplies is the specific answer, so it becomes the code.
+
+    Prose messages are left alone. They are not identifiers and must not be
+    presented to a client as something to branch on.
+    """
+
     status_code: int = 400
     code: str = "bad_request"
 
@@ -45,6 +65,8 @@ class AppError(Exception):
         self.message = message
         if code:
             self.code = code
+        elif _CODE_SHAPED.fullmatch(message):
+            self.code = message
         super().__init__(message)
 
 
