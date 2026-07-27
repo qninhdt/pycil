@@ -81,8 +81,12 @@ async def test_reference_expands_to_target_deck(session):
         parent_node_id=root.id,
         target_node_id=target_deck.id,
     )
-    ids = await subtree.resolve_sense_ids(session, root.id)
+    # The viewer is explicit: a reference target is authorized on its own merits,
+    # and target_deck is private, so only the owner reaches it. Passing no viewer
+    # means ANONYMOUS here, not "skip the check".
+    ids = await subtree.resolve_sense_ids(session, root.id, owner.id)
     assert sorted(ids) == [10, 11]
+    assert await subtree.resolve_sense_ids(session, root.id, None) == []
 
 
 async def test_reference_must_target_deck_not_folder(session):

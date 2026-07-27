@@ -93,3 +93,74 @@ async def test_deleted_ancestor_makes_descendant_reference_target_unavailable(se
     await service.soft_delete_node(session, source_folder)
 
     assert await router._defset(session, reference_root.id, owner.id) == []
+
+
+
+async def test_anonymous_viewer_is_not_privileged_over_a_signed_in_one(session):
+    """A NULL viewer must never be treated as "skip the visibility check".
+
+    The readable-deck predicate used to open with ``viewer_id IS NULL``, which
+    short-circuited the whole OR to TRUE and returned every live reference target
+    regardless of visibility or owner. The observable symptom was inverted
+    authorization: signing OUT revealed a private deck that a signed-in reader was
+    correctly denied. Anonymous must resolve through exactly the two paths
+    ``can_read_node`` allows it, public or same-owner-inherited-public.
+    """
+    owner = await _user(session, "anon-bypass-owner@example.com")
+    reader = await _user(session, "anon-bypass-reader@example.com")
+    public_root = await service.create_node(
+        session,
+        owner.id,
+        node_type=NodeType.FOLDER,
+        name="public root",
+        visibility=Visibility.PUBLIC,
+        confirm_subtree_publication=True,
+    )
+    private_deck = await service.create_node(
+        session, owner.id, node_type=NodeType.DECK, name="private deck"
+    )
+    await content_service.add_sense(session, private_deck.id, 4242)
+    await service.create_node(
+        session,
+        owner.id,
+        node_type=NodeType.REFERENCE,
+        name="reference to a private deck",
+        parent_node_id=public_root.id,
+        target_node_id=private_deck.id,
+    )
+
+    assert await router._defset(session, public_root.id, reader.id) == []
+    assert await router._defset(session, public_root.id, None) == []
+    # The owner still reaches their own deck through the reference.
+    assert await router._defset(session, public_root.id, owner.id) == [4242]
+
+
+async def test_anonymous_still_reaches_a_genuinely_public_reference_target(session):
+    """The tightening must not break the case references exist for."""
+    owner = await _user(session, "anon-grant-owner@example.com")
+    reference_root = await service.create_node(
+        session,
+        owner.id,
+        node_type=NodeType.FOLDER,
+        name="reference root",
+        visibility=Visibility.PUBLIC,
+        confirm_subtree_publication=True,
+    )
+    public_deck = await service.create_node(
+        session,
+        owner.id,
+        node_type=NodeType.DECK,
+        name="public deck",
+        visibility=Visibility.PUBLIC,
+    )
+    await content_service.add_sense(session, public_deck.id, 4343)
+    await service.create_node(
+        session,
+        owner.id,
+        node_type=NodeType.REFERENCE,
+        name="reference",
+        parent_node_id=reference_root.id,
+        target_node_id=public_deck.id,
+    )
+
+    assert await router._defset(session, reference_root.id, None) == [4343]
