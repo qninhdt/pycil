@@ -1,0 +1,129 @@
+"use client"
+
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import {
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerTrigger,
+} from "@/components/ui/drawer"
+import { Empty, EmptyDescription, EmptyTitle } from "@/components/ui/empty"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTitle,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import { useIsMobile } from "@/hooks/use-mobile"
+import { BellIcon } from "@/lib/icons"
+import { useActivitySubscriptions } from "@/lib/realtime/use-activity-subscriptions"
+import { isUnsettled } from "@/lib/stores/activity-store"
+import {
+  useActivityActions,
+  useActivityStore,
+  useUiStore,
+} from "@/lib/stores/store-provider"
+
+import { ActivityTaskRow } from "./activity-task-row"
+import { RealtimeStateNotice } from "./realtime-state-notice"
+
+function ActivityTrigger({ unsettledCount }: { unsettledCount: number }) {
+  return (
+    <Button variant="ghost" size="icon" aria-label="Activity" className="relative">
+      <BellIcon />
+      {unsettledCount > 0 ? (
+        <Badge
+          aria-hidden
+          className="absolute -top-0.5 -right-0.5 h-4 min-w-4 px-1 text-[0.625rem]"
+        >
+          {unsettledCount}
+        </Badge>
+      ) : null}
+      {unsettledCount > 0 ? (
+        <span className="sr-only">
+          {unsettledCount} in progress
+        </span>
+      ) : null}
+    </Button>
+  )
+}
+
+function ActivityBody() {
+  const tasks = useActivityStore((state) => state.tasks)
+  const { dismiss } = useActivityActions()
+
+  return (
+    <div className="flex flex-col gap-3">
+      <RealtimeStateNotice />
+      {tasks.length === 0 ? (
+        <Empty className="border-none py-6">
+          <EmptyTitle>Nothing running</EmptyTitle>
+          <EmptyDescription>
+            Generated words and graded answers show up here while they work.
+          </EmptyDescription>
+        </Empty>
+      ) : (
+        // The row is the list item, so it is not wrapped in another one here.
+        <ul className="flex flex-col divide-y divide-border">
+          {tasks.map((task) => (
+            <ActivityTaskRow key={task.taskId} task={task} onDismiss={dismiss} />
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Bottom drawer on mobile, popover on desktop.
+ *
+ * This is one of the few genuinely non-CSS branches in the shell: both surfaces
+ * render through a portal, so a `lg:hidden` wrapper would not hide the one that
+ * is meant to be inactive — the portal escapes it and the content would sit on
+ * top of the page. The trigger is the same `Button` either way, so the decision
+ * settling after mount is not visible.
+ *
+ * The subscription effect lives here rather than in the surface so a task keeps
+ * settling while the surface is closed.
+ */
+export function ActivityCenter() {
+  useActivitySubscriptions()
+
+  const isMobile = useIsMobile()
+  const open = useUiStore((state) => state.openSurface === "activity")
+  const openActivity = useUiStore((state) => state.openActivity)
+  const closeSurface = useUiStore((state) => state.closeSurface)
+  const unsettledCount = useActivityStore(
+    (state) => state.tasks.filter(isUnsettled).length,
+  )
+
+  const onOpenChange = (next: boolean) => (next ? openActivity() : closeSurface())
+
+  if (isMobile) {
+    return (
+      <Drawer open={open} onOpenChange={onOpenChange}>
+        <DrawerTrigger render={<ActivityTrigger unsettledCount={unsettledCount} />} />
+        <DrawerContent>
+          <DrawerHeader>
+            <DrawerTitle>Activity</DrawerTitle>
+          </DrawerHeader>
+          <div className="overflow-y-auto px-4 pb-6">
+            <ActivityBody />
+          </div>
+        </DrawerContent>
+      </Drawer>
+    )
+  }
+
+  return (
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <PopoverTrigger render={<ActivityTrigger unsettledCount={unsettledCount} />} />
+      <PopoverContent align="end" className="w-88">
+        <PopoverTitle>Activity</PopoverTitle>
+        <ActivityBody />
+      </PopoverContent>
+    </Popover>
+  )
+}

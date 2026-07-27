@@ -1,9 +1,15 @@
-import { NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
+import {
+  isSafeReturnPath,
+  RETURN_PATH_COOKIE,
+  RETURN_PATH_MAX_AGE,
+} from "@/lib/auth/return-path";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const apiUrl = process.env.PYCIL_API_URL || "http://localhost:8000";
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
   const redirectUri = `${appUrl}/api/auth/callback`;
+  const returnPath = request.nextUrl.searchParams.get("from");
 
   try {
     const res = await fetch(`${apiUrl}/v1/auth/login?redirect_uri=${encodeURIComponent(redirectUri)}`, {
@@ -17,7 +23,22 @@ export async function GET() {
     }
 
     const data = (await res.json()) as { authorize_url: string };
-    return NextResponse.redirect(data.authorize_url);
+    const response = NextResponse.redirect(data.authorize_url);
+
+    // Where the guard sent them from, held for the round trip so a deep link to
+    // /progress does not silently land on / after sign-in. Validated here rather
+    // than on return: an unsafe value is never worth storing.
+    if (isSafeReturnPath(returnPath)) {
+      response.cookies.set(RETURN_PATH_COOKIE, returnPath, {
+        httpOnly: true,
+        sameSite: "lax",
+        secure: new URL(appUrl).protocol === "https:",
+        path: "/api/auth/callback",
+        maxAge: RETURN_PATH_MAX_AGE,
+      });
+    }
+
+    return response;
   } catch (error) {
     console.error("Error in login route handler:", error);
     return NextResponse.redirect(new URL("/login?error=network_error", appUrl));

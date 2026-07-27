@@ -266,6 +266,21 @@ export function createApiClient(session: SessionData) {
     getFolderStats: (nodeId: string) =>
       apiFetch<FolderStats>(`/v1/folders/${nodeId}/stats`),
 
+    // Global analytics: the same shapes as the folder variants, over every sense
+    // the caller has state for rather than one subtree.
+    getGlobalWeakest: (limit = 10) =>
+      apiFetch<WeakSenseRead[]>(`/v1/me/weakest?limit=${limit}`),
+
+    getGlobalCefr: () => apiFetch<CefrDistribution>("/v1/me/cefr"),
+
+    getGlobalHistory: (from?: string, to?: string) => {
+      const params = new URLSearchParams();
+      if (from) params.set("from", from);
+      if (to) params.set("to", to);
+      const q = params.toString();
+      return apiFetch<HistoryBucketRead[]>(`/v1/me/history${q ? `?${q}` : ""}`);
+    },
+
     // Dashboard & Engagement
     getDashboardStats: () =>
       apiFetch<DashboardStatsRead>("/v1/learning/dashboard"),

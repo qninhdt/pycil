@@ -121,6 +121,43 @@ services:
       timeout: 5s
       retries: 6
 
+  # The browser app, served through Caddy so it shares one origin with /v1 and
+  # the SSE endpoint. The SSE URL is handed to the browser by the API verbatim,
+  # so a frontend on its own origin would be making a cross-origin subscribe and
+  # would have to be added to CENTRIFUGO_ALLOWED_ORIGINS above. Sharing the
+  # origin avoids that, and keeps the session cookie first-party.
+  web:
+    image: ${WEB_IMAGE:-pycil-web:latest}
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        # Inlined into the bundle at build time, so it cannot be deferred to the
+        # environment below.
+        NEXT_PUBLIC_APP_URL: ${PUBLIC_APP_URL:-https://localhost}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      # Required, and deliberately without a default: the app refuses to boot on
+      # a missing or short value rather than sealing cookies with a shared key.
+      SESSION_PASSWORD: ${SESSION_PASSWORD:?SESSION_PASSWORD is required}
+      SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-pycil_session}
+      # Container-internal: the bearer token never leaves the server, so this
+      # traffic does not need to go out through the edge.
+      PYCIL_API_URL: ${PYCIL_API_INTERNAL_URL:-http://api:8000}
+      NEXT_PUBLIC_APP_URL: ${PUBLIC_APP_URL:-https://localhost}
+    # Loopback-bound for debugging only; public traffic arrives through Caddy.
+    ports:
+      - "${WEB_HOST_PORT:-127.0.0.1:3000}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/login').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
@@ -139,6 +176,8 @@ services:
       api:
         condition: service_healthy
       centrifugo:
+        condition: service_healthy
+      web:
         condition: service_healthy
 
   # One-shot migration gate: a healthy Postgres is NOT a migrated Postgres.

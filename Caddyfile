@@ -28,7 +28,9 @@
 		}
 	}
 
+	# Everything else is the Next app. This has to be last: it is the catch-all,
+	# so any matcher placed after it would never be reached.
 	handle {
-		respond "not found" 404
+		reverse_proxy web:3000
 	}
 }

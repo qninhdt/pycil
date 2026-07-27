@@ -4,6 +4,9 @@ import { Geist, Geist_Mono, Newsreader } from "next/font/google"
 import { ThemeProvider } from "@/components/theme/theme-provider"
 import { IconWeightProvider } from "@/components/theme/icon-weight-provider"
 import { Toaster } from "@/components/ui/toast"
+import { CentrifugoProvider } from "@/lib/realtime/provider"
+import { QueryProvider } from "@/lib/stores/query-provider"
+import { StoreProvider } from "@/lib/stores/store-provider"
 
 import "./globals.css"
 
@@ -76,8 +79,18 @@ export default function RootLayout({
       <body className="min-h-dvh bg-background text-foreground antialiased">
         <ThemeProvider>
           <IconWeightProvider>
-            {children}
-            <Toaster />
+            {/* Query cache, stores and the realtime connection all mount here
+                and nowhere else. Mounting any of them inside a route group
+                would fork them per segment, so an outstanding task registered
+                by the palette would be invisible to the study screen. */}
+            <QueryProvider>
+              <StoreProvider>
+                <CentrifugoProvider>
+                  {children}
+                  <Toaster />
+                </CentrifugoProvider>
+              </StoreProvider>
+            </QueryProvider>
           </IconWeightProvider>
         </ThemeProvider>
       </body>

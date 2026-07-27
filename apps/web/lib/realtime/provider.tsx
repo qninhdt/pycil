@@ -1,91 +1,106 @@
-"use client";
+"use client"
 
-import React, { createContext, useContext, useEffect, useRef, useState } from "react";
-import { Centrifuge } from "centrifuge";
-import { getRealtimeToken } from "@/lib/actions/realtime";
-import type { RealtimeToken } from "@/lib/api/types";
+import { createContext, useContext, useEffect, useState } from "react"
+import { Centrifuge, UnauthorizedError } from "centrifuge"
 
-export type RealtimeConnectionState = "connecting" | "connected" | "disconnected";
+import { getRealtimeToken } from "@/lib/actions/realtime"
+
+export type RealtimeConnectionState = "connecting" | "connected" | "disconnected"
 
 interface CentrifugoContextValue {
-  client: Centrifuge | null;
-  connectionState: RealtimeConnectionState;
+  client: Centrifuge | null
+  connectionState: RealtimeConnectionState
 }
 
 const CentrifugoContext = createContext<CentrifugoContextValue>({
   client: null,
   connectionState: "connecting",
-});
+})
 
+/**
+ * Mounted once, in the root layout. Subscriptions are opened by the components
+ * that need them; this provider only owns the connection and its credentials.
+ */
 export function CentrifugoProvider({ children }: { children: React.ReactNode }) {
-  const centrifugeRef = useRef<Centrifuge | null>(null);
-  const [client, setClient] = useState<Centrifuge | null>(null);
-  const [connectionState, setConnectionState] = useState<RealtimeConnectionState>("connecting");
+  const [client, setClient] = useState<Centrifuge | null>(null)
+  const [connectionState, setConnectionState] =
+    useState<RealtimeConnectionState>("connecting")
 
   useEffect(() => {
-    let mounted = true;
+    let mounted = true
+    let centrifuge: Centrifuge | null = null
 
-    async function initRealtime() {
-      const tokenData: RealtimeToken | null = await getRealtimeToken();
-      if (!tokenData || !mounted) {
-        if (mounted) setConnectionState("disconnected");
-        return;
+    async function connect() {
+      const initial = await getRealtimeToken()
+      if (!mounted) return
+      if (!initial) {
+        setConnectionState("disconnected")
+        return
       }
 
-      try {
-        const centrifuge = new Centrifuge([{ transport: "sse", endpoint: tokenData.sseUrl }], {
-          token: tokenData.token,
-        });
+      centrifuge = new Centrifuge(
+        [{ transport: "sse", endpoint: initial.sseUrl }],
+        {
+          token: initial.token,
+          // Realtime tokens are short-lived, so a connection that only ever
+          // holds its first token dies mid-task: a grade issued fifteen
+          // minutes into a session could never settle in this client. The
+          // callback re-mints from the session cookie instead.
+          getToken: async () => {
+            const refreshed = await getRealtimeToken()
+            // A missing token means the session is gone, not that the network
+            // blipped. Rejecting with anything else makes Centrifugo retry
+            // forever against a signed-out viewer.
+            if (!refreshed) throw new UnauthorizedError("realtime token denied")
+            return refreshed.token
+          },
+        },
+      )
 
-        centrifuge.on("connected", (ctx) => {
-          if (mounted) setConnectionState("connected");
-          if (process.env.NODE_ENV === "development") {
-            console.log("Connected to Centrifugo:", ctx);
-          }
-        });
+      centrifuge.on("connected", () => {
+        if (mounted) setConnectionState("connected")
+      })
 
-        centrifuge.on("disconnected", (ctx) => {
-          if (mounted) setConnectionState("disconnected");
-          if (process.env.NODE_ENV === "development") {
-            console.warn("Disconnected from Centrifugo:", ctx);
-          }
-        });
+      centrifuge.on("connecting", () => {
+        if (mounted) setConnectionState("connecting")
+      })
 
-        centrifuge.on("error", (err) => {
-          console.warn("Centrifugo connection error:", err);
-        });
+      centrifuge.on("disconnected", () => {
+        if (mounted) setConnectionState("disconnected")
+      })
 
-        centrifuge.connect();
-        centrifugeRef.current = centrifuge;
-        setClient(centrifuge);
-      } catch (err) {
-        if (mounted) setConnectionState("disconnected");
-        console.warn("Failed to initialize Centrifugo client:", err);
-      }
+      centrifuge.on("error", (context) => {
+        // Recovery is enabled server-side and the subscribe proxy replays the
+        // latest snapshot, so a transport error is not a lost update.
+        if (process.env.NODE_ENV === "development") {
+          console.warn("realtime error", context)
+        }
+      })
+
+      centrifuge.connect()
+      setClient(centrifuge)
     }
 
-    initRealtime();
+    void connect()
 
     return () => {
-      mounted = false;
-      if (centrifugeRef.current) {
-        centrifugeRef.current.disconnect();
-        centrifugeRef.current = null;
-      }
-    };
-  }, []);
+      mounted = false
+      centrifuge?.disconnect()
+      setClient(null)
+    }
+  }, [])
 
   return (
     <CentrifugoContext.Provider value={{ client, connectionState }}>
       {children}
     </CentrifugoContext.Provider>
-  );
+  )
 }
 
 export function useCentrifuge() {
-  return useContext(CentrifugoContext).client;
+  return useContext(CentrifugoContext).client
 }
 
 export function useRealtimeConnectionState() {
-  return useContext(CentrifugoContext).connectionState;
+  return useContext(CentrifugoContext).connectionState
 }

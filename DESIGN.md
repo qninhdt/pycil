@@ -482,8 +482,10 @@ Near-flat. Structure comes from `1px` borders and negative space.
 - The only backdrop blur is the sticky mobile header, at low strength, with an
   opaque fallback under `prefers-reduced-transparency`.
 - Layer order is a fixed named scale, declared once: base 0, sticky header 10,
-  bottom nav 20, drawer/sidebar 30, dialog/palette 40, toast 50. No arbitrary
-  `z-50` sprinkled at call sites.
+  bottom nav 20, drawer/sidebar 30, overlay 50, toast 60. Overlay is 50 rather
+  than a tidier 40 because every overlay primitive in the registry hardcodes
+  `z-50`, so a dialog, sheet, popover or palette sits there by definition and
+  toast has to clear it. No arbitrary `z-50` sprinkled at call sites.
 
 ## Shapes
 
@@ -591,6 +593,23 @@ its success state is not delivered.
 - No icon library other than Phosphor, and no hand-drawn SVG icon paths.
 
 ## Implementation Notes
+
+**Required skills, loaded before any implementation.** This document is a
+specification, not a substitute for the house rules that keep an
+implementation consistent with it. Load all three of the following before
+writing or editing any file under `apps/web`, and keep their guidelines in
+force for the whole session:
+
+| Skill | Why it is mandatory here |
+| --- | --- |
+| `minimalist-ui` | Owns the warm-monochrome canvas, macro-whitespace, flat surfaces, and the ban on heavy shadows and pill-shaped containers that this system's Colors, Layout, Elevation, and Shapes sections assume. |
+| `design-taste-frontend` | Owns the anti-default discipline: no AI-purple, no centered-hero reflex, no serif-by-default, contrast and wrap checks on every control. It is what stops a screen from drifting into generic SaaS while still satisfying the token table. |
+| `shadcn` | Owns the registry contract: this project is `base` (Base UI), so custom triggers use `render` and not `asChild`, items live inside their Group, and forms are `FieldGroup` + `Field`. Guessing that API produces code that typechecks and still behaves wrongly. |
+
+A change that touches only tokens, copy, or a plan file does not need them. A
+change that renders anything does. When the three disagree, the order of
+precedence is this document, then `minimalist-ui`, then
+`design-taste-frontend`, then `shadcn`.
 
 **Stack, as verified in the workspace.** Next.js 16.2.6 App Router (RSC on),
 React 19.2.4, Tailwind v4 with tokens in `app/globals.css` via `@theme`,

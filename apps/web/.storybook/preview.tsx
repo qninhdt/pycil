@@ -11,10 +11,18 @@ import "./preview-fonts.css"
  * the token layer keys off `.dark` on an ancestor and portalled surfaces
  * (dialog, popover, toast) mount outside the story subtree. Setting only the
  * wrapper would leave every overlay rendering light tokens on a dark canvas.
+ *
+ * This is a component rather than the body of the decorator below: a decorator
+ * is a plain function, so a hook called directly inside one has no component
+ * identity to attach its state to.
  */
-const withTheme: Decorator = (Story, context) => {
-  const theme = context.globals.theme as "light" | "dark"
-
+function ThemeFrame({
+  theme,
+  children,
+}: {
+  theme: "light" | "dark"
+  children: React.ReactNode
+}) {
   React.useEffect(() => {
     const root = document.documentElement
     root.classList.toggle("dark", theme === "dark")
@@ -24,11 +32,17 @@ const withTheme: Decorator = (Story, context) => {
   return (
     <IconWeightProvider>
       <div className="bg-background text-foreground min-h-svh p-6 font-sans">
-        <Story />
+        {children}
       </div>
     </IconWeightProvider>
   )
 }
+
+const withTheme: Decorator = (Story, context) => (
+  <ThemeFrame theme={context.globals.theme as "light" | "dark"}>
+    <Story />
+  </ThemeFrame>
+)
 
 const preview: Preview = {
   decorators: [withTheme],

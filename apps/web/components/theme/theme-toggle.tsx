@@ -1,8 +1,8 @@
 "use client"
 
-import * as React from "react"
 import { useTheme } from "next-themes"
 
+import { useHydrated } from "@/hooks/use-hydrated"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -31,9 +31,7 @@ const OPTIONS = [
  */
 export function ThemeToggle() {
   const { theme, setTheme, resolvedTheme } = useTheme()
-  const [mounted, setMounted] = React.useState(false)
-
-  React.useEffect(() => setMounted(true), [])
+  const mounted = useHydrated()
 
   const TriggerIcon = !mounted
     ? DesktopIcon

@@ -28,7 +28,7 @@ export function reduceAsyncTaskSnapshot(
   return incoming;
 }
 
-function isAsyncTaskSnapshot(value: unknown): value is AsyncTaskSnapshot {
+export function isAsyncTaskSnapshot(value: unknown): value is AsyncTaskSnapshot {
   if (!value || typeof value !== "object") return false;
   const snapshot = value as Record<string, unknown>;
   return (

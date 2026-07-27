@@ -1,5 +1,26 @@
 .git
-**/.?env
 **/*.py[cod]
 docs
 plans
+
+# Dependencies are installed from the lockfile inside the image. Copying the
+# host tree in would overwrite that install with whatever the developer happens
+# to have, and platform-specific binaries built for the host would not run.
+node_modules
+**/node_modules
+
+# Secrets. `.?env` is a single-character wildcard, so it matches `.venv` but not
+# `.env` or `.env.local`; those need rules of their own or they are copied into a
+# build layer and stay in the image history even if a later layer deletes them.
+# The example file is re-included because it holds placeholders, not values.
+**/.env
+**/.env.*
+!**/.env.example
+**/.?env
+
+# Build output and caches. Stale artifacts from a host build otherwise shadow
+# what the image builds for itself.
+**/.next
+**/storybook-static
+**/tsconfig.tsbuildinfo
+**/.turbo

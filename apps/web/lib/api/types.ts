@@ -105,11 +105,20 @@ export interface FolderItemRead {
   cefrLevel?: string | null;
 }
 
+/**
+ * A weakest-sense row, carrying enough to render without a second request.
+ *
+ * Every content field is nullable: a sense regenerated away upstream still has
+ * local stats, and the API keeps the row rather than dropping it, so a renderer
+ * has to cope with a mastery score and no headword.
+ */
 export interface WeakSenseRead {
   senseId: number;
   mastery: number;
-  definition?: string;
-  pos?: string;
+  word?: string | null;
+  definition?: string | null;
+  pos?: string | null;
+  cefrLevel?: string | null;
 }
 
 export type CefrDistribution = Record<string, number>;

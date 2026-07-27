@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth/session";
+import { RETURN_PATH_COOKIE, resolveReturnPath } from "@/lib/auth/return-path";
 
 interface TokenResponse {
   access_token: string;
@@ -75,7 +76,16 @@ export async function GET(request: NextRequest) {
     session.isLoggedIn = true;
     await session.save();
 
-    return NextResponse.redirect(new URL("/dashboard", appUrl));
+    // Back to whatever the guard interrupted, or home. The value was validated
+    // before it was stored, and it is re-checked here because a cookie is not a
+    // trusted channel either.
+    const returnPath = resolveReturnPath(
+      request.cookies.get(RETURN_PATH_COOKIE)?.value,
+    );
+    const response = NextResponse.redirect(new URL(returnPath, appUrl));
+    // One use only, so a later sign-in does not inherit this destination.
+    response.cookies.delete(RETURN_PATH_COOKIE);
+    return response;
   } catch (error) {
     console.error("Error in auth callback route handler:", error);
     return NextResponse.redirect(new URL("/login?error=callback_internal_error", appUrl));
