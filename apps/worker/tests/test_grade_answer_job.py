@@ -37,13 +37,108 @@ async def test_grade_answer_publishes_terminal_verdict(monkeypatch, worker_conte
     async def publish(owner_uid, event):
         published.append((owner_uid, event))
 
+    async def no_task(*args, **kwargs):
+        return None
+
     monkeypatch.setattr(grade_answer.service, "apply_verdict", resolve)
     monkeypatch.setattr(grade_answer.realtime, "publish_grading", publish)
+    monkeypatch.setattr(grade_answer.task_service, "find_live_task", no_task)
 
     result = await grade_answer.grade_answer(worker_context, "owner", str(outcome.response_id))
 
-    assert result == {"status": "graded", "is_correct": True}
+    assert result == {"status": "graded", "is_correct": True, "task": "no-task"}
     assert published[0][1].to_dict()["masteryAfter"] == 20
+
+
+async def test_reconciled_grade_converges_the_task_snapshot(monkeypatch, worker_context):
+    """A grade that arrives through the reconciler must settle the durable task.
+
+    reconcile_pending_grades re-enqueues grade_answer_v1 by RESPONSE id, so this
+    path has no task id. It used to publish only to the owner-scoped grading
+    channel — which the subscribe proxy denies — and leave the AsyncTask QUEUED
+    forever, so the snapshot the client watches disagreed with a verdict that was
+    already durably applied.
+    """
+    response_id = uuid4()
+    task_id = uuid4()
+    outcome = SimpleNamespace(
+        response_id=response_id, sense_id=7, is_correct=False, grade_score=0.25,
+        grade_feedback="not quite", mastery_before=30, mastery_after=28,
+        render_format="free_text", reveal={"answer": "x"},
+    )
+    looked_up: list[tuple[str, str]] = []
+    transitions: list[dict] = []
+
+    async def resolve(*args):
+        return outcome
+
+    async def publish(*args):
+        return None
+
+    async def find_live_task(session, *, kind, work_key):
+        looked_up.append((kind, work_key))
+        return SimpleNamespace(id=task_id)
+
+    async def claim_task(session, tid, owner, **kwargs):
+        assert tid == task_id
+        return SimpleNamespace(id=task_id, lease_token="token", lease_fence=3)
+
+    async def transition_task(session, tid, **kwargs):
+        transitions.append({"task_id": tid, **kwargs})
+        return True
+
+    monkeypatch.setattr(grade_answer.service, "apply_verdict", resolve)
+    monkeypatch.setattr(grade_answer.realtime, "publish_grading", publish)
+    monkeypatch.setattr(grade_answer.task_service, "find_live_task", find_live_task)
+    monkeypatch.setattr(grade_answer.task_service, "claim_task", claim_task)
+    monkeypatch.setattr(grade_answer.task_service, "transition_task", transition_task)
+
+    result = await grade_answer.grade_answer_v1(worker_context, "owner", str(response_id))
+
+    assert result["status"] == "graded"
+    assert result["task"] == "converged"
+    # Located through the SAME work key that created the task, not a guessed id.
+    assert looked_up == [("grading", f"grading:{response_id}")]
+    settled = transitions[0]
+    assert settled["status"] is grade_answer.AsyncTaskStatus.SUCCEEDED
+    assert settled["lease_token"] == "token"
+    assert settled["lease_fence"] == 3
+    # The snapshot carries the verdict the client is waiting on, camelCase.
+    assert settled["result"]["isCorrect"] is False
+    assert settled["result"]["masteryAfter"] == 28
+    assert settled["result"]["responseId"] == str(response_id)
+
+
+async def test_grade_convergence_failure_does_not_fail_the_grade(monkeypatch, worker_context):
+    """The verdict is already durably applied; the snapshot is only an accelerator."""
+    response_id = uuid4()
+    outcome = SimpleNamespace(
+        response_id=response_id, sense_id=1, is_correct=True, grade_score=1.0,
+        grade_feedback="", mastery_before=1, mastery_after=2,
+        render_format="free_text", reveal=None,
+    )
+
+    async def resolve(*args):
+        return outcome
+
+    async def publish(*args):
+        return None
+
+    async def find_live_task(session, *, kind, work_key):
+        return SimpleNamespace(id=uuid4())
+
+    async def claim_task(*args, **kwargs):
+        return None  # another worker holds the lease
+
+    monkeypatch.setattr(grade_answer.service, "apply_verdict", resolve)
+    monkeypatch.setattr(grade_answer.realtime, "publish_grading", publish)
+    monkeypatch.setattr(grade_answer.task_service, "find_live_task", find_live_task)
+    monkeypatch.setattr(grade_answer.task_service, "claim_task", claim_task)
+
+    result = await grade_answer.grade_answer_v1(worker_context, "owner", str(response_id))
+
+    assert result["status"] == "graded"
+    assert result["task"] == "not-claimable"
 
 
 async def test_grade_answer_retry_does_not_republish(monkeypatch, worker_context):

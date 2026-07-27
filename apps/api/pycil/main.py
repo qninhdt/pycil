@@ -14,7 +14,7 @@ from pycil.assistant.graph import build_graph
 from pycil.assistant.router import router as assistant_router
 from pycil.auth.deps import current_user
 from pycil.auth.router import router as auth_router
-from pycil.auth.schemas import CapabilitiesRead, CurrentUser
+from pycil.auth.schemas import CapabilitiesRead, CurrentUser, ViewerRead
 from pycil.common.errors import (
     AppError,
     ServiceUnavailableError,
@@ -74,9 +74,11 @@ def create_app() -> FastAPI:
     app.include_router(realtime_router, prefix="/v1")
     app.include_router(subscribe_proxy_router)
 
-    @app.get("/v1/me", response_model=CurrentUser)
-    async def me(user: CurrentUser = Depends(current_user)) -> CurrentUser:
-        return user
+    @app.get("/v1/me", response_model=ViewerRead)
+    async def me(user: CurrentUser = Depends(current_user)) -> ViewerRead:
+        # A projection, not the internal CurrentUser: token_version is the auth
+        # revocation counter and has no business reaching a browser.
+        return ViewerRead(id=user.id, email=user.email, name=user.name, image=user.image)
 
     @app.get("/v1/capabilities", response_model=CapabilitiesRead)
     async def capabilities() -> CapabilitiesRead:

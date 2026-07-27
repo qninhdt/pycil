@@ -376,6 +376,24 @@ async def claim_task(
     return task if task.status == AsyncTaskStatus.RUNNING else None
 
 
+async def find_live_task(
+    session: AsyncSession, *, kind: str, work_key: str
+) -> AsyncTask | None:
+    """Find a non-terminal task by its server-derived work key.
+
+    For settle paths that hold the domain identity but not the task id — the
+    pending-grade reconciler re-enqueues by response id, so the task row it needs to
+    converge can only be reached through the same work key that created it.
+    """
+    return await session.scalar(
+        select(AsyncTask).where(
+            AsyncTask.kind == kind,
+            AsyncTask.work_key == work_key,
+            AsyncTask.status.in_([AsyncTaskStatus.QUEUED, AsyncTaskStatus.RUNNING]),
+        )
+    )
+
+
 async def list_reenqueueable_tasks(session: AsyncSession) -> list[AsyncTask]:
     """Return durable task rows whose ARQ execution may have been lost."""
     now = _now()

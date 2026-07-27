@@ -153,3 +153,44 @@ class SessionSenseAttempt(SQLModel, table=True):
     created_at: datetime | None = Field(
         default=None, sa_type=TZDateTime, sa_column_kwargs={"server_default": text("NOW()")}
     )
+
+
+
+class SessionSummary(SQLModel, table=True):
+    """Presentation-only recap of a finished session.
+
+    Redis holds a session's live state and ``end_session`` deletes that namespace
+    the moment the session completes, so without this row any reload during or
+    after finishing a session returned 404 and the recap was lost.
+
+    Deliberately NOT a second copy of scheduling state. FSRS effects stay
+    authoritative in ``review_log`` and ``user_sense_stats``; these are counts,
+    which cannot drift from anything because nothing reads them back into the
+    domain.
+    """
+
+    __tablename__ = "session_summaries"
+    __table_args__ = (
+        UniqueConstraint("user_id", "session_id", name="uq_session_summary"),
+    )
+
+    id: UUID | None = Field(
+        default=None,
+        sa_column_kwargs={"server_default": text("gen_random_uuid()")},
+        primary_key=True,
+    )
+    user_id: UUID = Field(foreign_key="users.id", index=True)
+    session_id: str = Field(max_length=64)
+    node_id: UUID | None = Field(default=None, foreign_key="nodes.id")
+    # Admitted senses and how they ended.
+    senses_admitted: int = Field(default=0)
+    senses_completed: int = Field(default=0)
+    senses_exhausted: int = Field(default=0)
+    # Answered checkpoints, from the durable responses rows rather than Redis.
+    answers_total: int = Field(default=0)
+    answers_correct: int = Field(default=0)
+    rounds_used: int = Field(default=0)
+    started_at: datetime | None = Field(default=None, sa_type=TZDateTime)
+    completed_at: datetime | None = Field(
+        default=None, sa_type=TZDateTime, sa_column_kwargs={"server_default": text("NOW()")}
+    )

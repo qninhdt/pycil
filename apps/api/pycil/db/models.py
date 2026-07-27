@@ -21,6 +21,7 @@ from pycil.jobs.models import WordGeneration  # noqa: F401
 from pycil.learning.models import (  # noqa: F401
     Response,
     ReviewLog,
+    SessionSummary,
     UserSenseStats,
 )
 from pycil.tasks.models import (  # noqa: F401

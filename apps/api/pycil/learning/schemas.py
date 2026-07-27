@@ -25,6 +25,49 @@ class SessionRead(BaseModel):
     first_state: str = Field(serialization_alias="firstState")
 
 
+class SessionSenseProgressRead(BaseModel):
+    """Where one admitted sense stands. Live-session shape only."""
+
+    sense_id: int = Field(serialization_alias="senseId")
+    purpose: str
+    passed: int
+    required: int
+    score: str
+    exposed: bool
+    awaiting_grade: bool = Field(serialization_alias="awaitingGrade")
+    terminal: bool
+    terminal_reason: str = Field(serialization_alias="terminalReason")
+
+
+class SessionStateRead(BaseModel):
+    """One session, live or finished.
+
+    ``status`` discriminates: ``live`` is served from Redis and carries the round
+    counters and per-sense progress; ``completed`` is served from the durable
+    summary row and carries the recap counts only, because ``end_session`` deleted
+    the live namespace. A client that reloads mid-session gets ``live``; one that
+    reloads after finishing gets ``completed`` instead of a 404.
+    """
+
+    session_id: str = Field(serialization_alias="sessionId")
+    status: Literal["live", "completed"]
+    node_id: UUID | None = Field(default=None, serialization_alias="nodeId")
+    # Live only.
+    round_index: int | None = Field(default=None, serialization_alias="roundIndex")
+    round_count: int | None = Field(default=None, serialization_alias="roundCount")
+    max_per_round: int | None = Field(default=None, serialization_alias="maxPerRound")
+    expires_at: str | None = Field(default=None, serialization_alias="expiresAt")
+    senses: list[SessionSenseProgressRead] = Field(default_factory=list)
+    # Both, sourced from Redis while live and from the summary row afterwards.
+    senses_admitted: int = Field(default=0, serialization_alias="sensesAdmitted")
+    senses_completed: int = Field(default=0, serialization_alias="sensesCompleted")
+    senses_exhausted: int = Field(default=0, serialization_alias="sensesExhausted")
+    answers_total: int = Field(default=0, serialization_alias="answersTotal")
+    answers_correct: int = Field(default=0, serialization_alias="answersCorrect")
+    rounds_used: int = Field(default=0, serialization_alias="roundsUsed")
+    completed_at: str | None = Field(default=None, serialization_alias="completedAt")
+
+
 # --- ready question DTO (discriminated union keyed by render_format) -----------
 
 

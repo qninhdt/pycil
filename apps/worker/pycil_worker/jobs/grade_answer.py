@@ -16,6 +16,7 @@ from pycil.learning import service
 from pycil.learning.models import GradeStatus, Response
 from pycil.tasks import service as task_service
 from pycil.tasks.models import AsyncTaskStatus
+from pycil.tasks.work_keys import grading_work_key
 from shared.realtime.payloads import GradingResult
 
 from pycil_worker import realtime
@@ -33,6 +34,44 @@ def _task_result(response: Response) -> dict:
         "renderFormat": response.render_format or "free_text",
         "reveal": response.reveal,
     }
+
+
+async def _converge_task_snapshot(ctx: dict, response_id: str, result: dict) -> str:
+    """Settle the durable task for a response graded outside the task job.
+
+    The pending-grade reconciler re-enqueues ``grade_answer_v1`` by response id, not
+    by task id. That publishes to the owner-scoped grading channel — which the
+    subscribe proxy denies outright — and left the ``AsyncTask`` sitting in QUEUED
+    forever, so the snapshot the client actually watches never agreed with a verdict
+    that had already been applied.
+
+    The task is located through the same work key that created it, claimed, and
+    transitioned. The session lifecycle stays authoritative; this snapshot is an
+    accelerator, so every failure to converge is reported and swallowed rather than
+    failing a grade that is already durably applied.
+    """
+    async with ctx["session_factory"]() as session:
+        task = await task_service.find_live_task(
+            session, kind="grading", work_key=grading_work_key(response_id)
+        )
+        if task is None:
+            return "no-task"
+        claimed = await task_service.claim_task(
+            session, task.id, ctx.get("worker_id", "worker")
+        )
+    if claimed is None:
+        # Another worker owns the lease, or the task is already terminal.
+        return "not-claimable"
+    async with ctx["session_factory"]() as session:
+        updated = await task_service.transition_task(
+            session,
+            claimed.id,
+            lease_token=claimed.lease_token,
+            lease_fence=claimed.lease_fence,
+            status=AsyncTaskStatus.SUCCEEDED,
+            result=result,
+        )
+    return "converged" if updated else "stale"
 
 
 async def grade_answer(ctx: dict, owner_uid: str, response_id: str) -> dict:
@@ -63,7 +102,22 @@ async def grade_answer(ctx: dict, owner_uid: str, response_id: str) -> dict:
             reveal=outcome.reveal,
         ),
     )
-    return {"status": "graded", "is_correct": outcome.is_correct}
+    task_state = await _converge_task_snapshot(
+        ctx,
+        response_id,
+        {
+            "responseId": str(outcome.response_id),
+            "senseId": outcome.sense_id,
+            "isCorrect": outcome.is_correct,
+            "gradeScore": outcome.grade_score,
+            "gradeFeedback": outcome.grade_feedback,
+            "masteryBefore": outcome.mastery_before,
+            "masteryAfter": outcome.mastery_after,
+            "renderFormat": outcome.render_format,
+            "reveal": outcome.reveal,
+        },
+    )
+    return {"status": "graded", "is_correct": outcome.is_correct, "task": task_state}
 
 
 async def grade_answer_v1(ctx: dict, owner_uid: str, response_id: str) -> dict:

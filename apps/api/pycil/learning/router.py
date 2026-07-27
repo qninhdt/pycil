@@ -24,7 +24,15 @@ from pycil.db.redis import get_arq_pool, get_redis
 from pycil.db.session import get_session
 from pycil.hierarchy.access import require_node_access
 from pycil.hierarchy.models import DeckAttributes, Node, NodeType
-from pycil.learning import grading, planning, resolver, round_scheduler, service, session_store
+from pycil.learning import (
+    grading,
+    planning,
+    resolver,
+    round_scheduler,
+    service,
+    session_recap,
+    session_store,
+)
 from pycil.learning.models import Response, ReviewLog, UserSenseStats
 from pycil.learning.question_delivery import (
     presentation_payload,
@@ -45,7 +53,9 @@ from pycil.learning.schemas import (
     ReadyQuestion,
     RecentSessionInfo,
     SessionRead,
+    SessionSenseProgressRead,
     SessionStart,
+    SessionStateRead,
     SingleChoiceReady,
     TextSpanReady,
 )
@@ -237,6 +247,91 @@ def _build_ready(resolved: ResolvedQuestion) -> ReadyQuestion:
     )
 
 
+@router.get("/sessions/{session_id}", response_model=SessionStateRead)
+async def read_session(
+    session_id: str,
+    user: Annotated[CurrentUser, Depends(current_user)],
+    session: AsyncSession = Depends(get_session),
+) -> SessionStateRead:
+    """Read one session. A TRUE read — it advances nothing and reserves nothing.
+
+    Unlike ``/next``, which is a mutation dressed as a GET (it advances rounds,
+    reserves deliveries and extends the exclusion set), this endpoint is safe to
+    poll, retry and prefetch.
+
+    Live sessions are served from Redis. Once a session completes, ``end_session``
+    has deleted that namespace, so the durable recap answers instead. 404 only when
+    neither exists.
+    """
+    redis = get_redis()
+    meta = await session_store.get_meta(redis, session_id)
+    if meta is not None:
+        if meta.owner_id != user.id:
+            # Same 404 as an unknown id: never confirm that someone else's session
+            # exists.
+            raise NotFoundError("session_not_found")
+        admitted = await session_store.get_admitted(redis, session_id)
+        senses: list[SessionSenseProgressRead] = []
+        completed = 0
+        exhausted = 0
+        for sense_id, purpose in sorted(admitted.items()):
+            progress = await session_store.get_progress(redis, session_id, sense_id)
+            if progress is None:
+                continue
+            if progress.terminal_reason == "retries_exhausted":
+                exhausted += 1
+            elif progress.terminal:
+                completed += 1
+            senses.append(
+                SessionSenseProgressRead(
+                    sense_id=sense_id,
+                    purpose=purpose,
+                    passed=progress.passed,
+                    required=len(progress.requested_levels),
+                    score=progress.score,
+                    exposed=progress.exposed,
+                    awaiting_grade=progress.awaiting_grade,
+                    terminal=progress.terminal,
+                    terminal_reason=progress.terminal_reason,
+                )
+            )
+        answers_total, answers_correct = await session_recap.answer_counts(
+            session, user.id, session_id
+        )
+        return SessionStateRead(
+            session_id=session_id,
+            status="live",
+            node_id=meta.node_id,
+            round_index=meta.round_index,
+            round_count=meta.round_count,
+            max_per_round=meta.max_per_round,
+            expires_at=meta.expires_at.isoformat(),
+            senses=senses,
+            senses_admitted=len(admitted),
+            senses_completed=completed,
+            senses_exhausted=exhausted,
+            answers_total=answers_total,
+            answers_correct=answers_correct,
+            rounds_used=meta.round_index + 1,
+        )
+
+    summary = await session_recap.load(session, user.id, session_id)
+    if summary is None:
+        raise NotFoundError("session_not_found")
+    return SessionStateRead(
+        session_id=session_id,
+        status="completed",
+        node_id=summary.node_id,
+        senses_admitted=summary.senses_admitted,
+        senses_completed=summary.senses_completed,
+        senses_exhausted=summary.senses_exhausted,
+        answers_total=summary.answers_total,
+        answers_correct=summary.answers_correct,
+        rounds_used=summary.rounds_used,
+        completed_at=summary.completed_at.isoformat() if summary.completed_at else None,
+    )
+
+
 @router.get(
     "/sessions/{session_id}/next",
     response_model=(
@@ -327,6 +422,11 @@ async def next_question(
         await session_store.advance_round(redis, session_id, expected_round=cur)
         return NextQuestionBreak(round_index=cur + 1)
     if await round_scheduler.session_complete(session, redis, session_id):
+        # The recap must be written while the Redis state still exists — end_session
+        # deletes the namespace on the next line.
+        await session_recap.persist(
+            session, redis, session_id, user_id=user.id, node_id=meta.node_id
+        )
         await session_store.end_session(redis, session_id)
         return NextQuestionExhausted()
     return NextQuestionWaiting()
@@ -349,14 +449,21 @@ async def submit_answer(
         raise ConflictError("session_scope_changed")
 
     question = await client.get_question(body.question_id)
-    if question is None or question.sense_id is None:
-        # Purged/regenerated question — reject gracefully (F14), not a 500.
+    sense_id: int | None = None
+    if question is not None and question.sense_id is not None:
+        try:
+            sense_id = int(question.sense_id)
+        except (TypeError, ValueError):
+            sense_id = None
+    if sense_id is None:
+        # Purged/regenerated question (F14) — reject gracefully, not a 500. But the
+        # sense is still BOUND to this question id, and nobody can ever submit it
+        # again now that it is gone, so the checkpoint has to be reopened here or
+        # that sense is undeliverable for the rest of the session.
+        await session_store.reopen_bound_delivery(redis, body.session_id, body.question_id)
         raise ConflictError("question_not_available")
-    try:
-        sense_id = int(question.sense_id)
-    except (TypeError, ValueError) as err:
-        raise ConflictError("question_not_available") from err
     if question.interaction != "assessment":
+        await session_store.reopen_bound_delivery(redis, body.session_id, body.question_id)
         raise ConflictError("question_not_assessable")
 
     # Consume-once bind (F5): the submitted question must be the sense's currently

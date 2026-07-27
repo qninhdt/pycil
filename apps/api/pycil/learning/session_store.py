@@ -239,6 +239,21 @@ async def add_excluded(redis: Redis, session_id: str, sense_id: int, question_id
 # --- consume-once delivered-question bind (F5) ----------------------------------
 
 
+async def get_delivered(redis: Redis, session_id: str, sense_id: int) -> int | None:
+    """The question currently bound to a sense's open checkpoint, if any.
+
+    ``None`` means the checkpoint is open with nothing delivered — which is exactly
+    the state ``reserve_round_delivery`` requires before it will serve the sense.
+    """
+    raw = await redis.hget(_sense_key(session_id, sense_id), "current_qid")
+    if raw is None or raw == _MISSING:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
 async def set_delivered(
     redis: Redis, session_id: str, sense_id: int, question_id: int
 ) -> None:
@@ -278,10 +293,83 @@ async def consume_delivered(
 async def restore_delivered(
     redis: Redis, session_id: str, sense_id: int, question_id: int
 ) -> None:
-    """Re-arm the delivered bind after an aborted answer (release the claim)."""
-    skey = _sense_key(session_id, sense_id)
-    await redis.hset(skey, "current_qid", str(question_id))
-    await redis.expire(skey, _TTL_SECONDS)
+    """Reopen a checkpoint after an aborted answer, so the sense stays deliverable.
+
+    This used to re-arm ``current_qid`` with the same question id and stop there,
+    which wedged the sense permanently. ``reserve_round_delivery`` refuses any sense
+    whose ``current_qid`` is not ``_MISSING``, so once an answer aborted, that sense
+    could never be delivered again in any later round — the only escape was the
+    client resubmitting the exact same question id. ``/next`` would then keep
+    returning "preparing" without ever reaching ``exhausted``.
+
+    Reopening means undoing the whole delivery, not just releasing the claim:
+
+    - clear ``current_qid``, so the sense passes the reservation guard again;
+    - move ``last_round_used`` below the current round, so it is eligible again
+      immediately rather than only after a round boundary;
+    - drop the question id from the exclusion set, so the same checkpoint can be
+      re-served rather than forcing a different question.
+
+    ``round_count`` is deliberately NOT decremented. An aborted delivery still
+    consumed a slot, so the round may end sooner; that is harmless, because the
+    sense is now eligible in the next round rather than stranded. Undoing the
+    counter would need its own reconciliation against concurrent reservations for
+    no behavioural gain.
+
+    Exposing a resubmit path instead was rejected: it would weaken the consume-once
+    tamper protection that ``consume_delivered`` exists to provide.
+    """
+    meta_key = _key(session_id)
+    sense_key = _sense_key(session_id, sense_id)
+    excluded_key = _excluded_key(session_id, sense_id)
+    while True:
+        async with redis.pipeline(transaction=True) as pipe:
+            try:
+                await pipe.watch(meta_key, sense_key)
+                raw_round = await pipe.hget(meta_key, "round_index")
+                if raw_round is None:
+                    # The session is gone (completed or expired); nothing to reopen.
+                    await pipe.unwatch()
+                    return
+                reopened_round = int(raw_round) - 1
+                pipe.multi()
+                pipe.hset(
+                    sense_key,
+                    mapping={
+                        "current_qid": _MISSING,
+                        "last_round_used": str(reopened_round),
+                    },
+                )
+                pipe.srem(excluded_key, question_id)
+                pipe.expire(sense_key, _TTL_SECONDS)
+                pipe.expire(excluded_key, _TTL_SECONDS)
+                await pipe.execute()
+                return
+            except WatchError:
+                continue
+
+
+async def reopen_bound_delivery(
+    redis: Redis, session_id: str, question_id: int
+) -> int | None:
+    """Reopen whichever sense is currently bound to ``question_id``.
+
+    For rejections raised BEFORE ``consume_delivered``, the caller has no sense id
+    — a purged question carries no sense — so the binding is found by scanning the
+    admitted set. That is bounded by ``target_words_per_session`` (10 by default),
+    not by the deck.
+
+    Guarded on purpose: only the sense actually holding this question id is
+    reopened. Reopening grants no progress, but a caller must not be able to reset
+    an arbitrary sense's checkpoint by submitting an unrelated question id.
+
+    Returns the sense id reopened, or None when nothing was bound to it.
+    """
+    for sense_id in await get_admitted(redis, session_id):
+        if await get_delivered(redis, session_id, sense_id) == question_id:
+            await restore_delivered(redis, session_id, sense_id, question_id)
+            return sense_id
+    return None
 
 
 # --- round bookkeeping ----------------------------------------------------------

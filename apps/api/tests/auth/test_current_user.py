@@ -34,10 +34,13 @@ async def test_valid_token_authenticates(client, session):
     resp = await client.post("/v1/auth/refresh", json={"refresh_token": raw_refresh})
     assert resp.status_code == 200
     body = resp.json()
-    assert body["access_token"]
-    assert body["refresh_token"] != raw_refresh
-    assert body["expires_in"] == 900
-    assert body["refresh_expires_in"] > 0
+    # camelCase on the wire: the response DTOs carry serialization_alias so the
+    # client does not have to transform bodies to find its own fields.
+    assert body["accessToken"]
+    assert body["refreshToken"] != raw_refresh
+    assert body["tokenType"] == "bearer"
+    assert body["expiresIn"] == 900
+    assert body["refreshExpiresIn"] > 0
 
 
 async def test_missing_token_401(client):
@@ -61,7 +64,7 @@ async def test_reused_refresh_token_revokes_the_new_access_token(client, session
 
     first = await client.post("/v1/auth/refresh", json={"refresh_token": raw_refresh})
     assert first.status_code == 200
-    new_access = first.json()["access_token"]
+    new_access = first.json()["accessToken"]
 
     replay = await client.post("/v1/auth/refresh", json={"refresh_token": raw_refresh})
     assert replay.status_code == 401
