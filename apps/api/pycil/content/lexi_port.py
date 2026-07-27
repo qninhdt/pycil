@@ -21,6 +21,26 @@ class SearchResultView(Protocol):
     gloss: str | None
 
 
+class SenseFormView(Protocol):
+    inf: str
+    surface: str
+
+
+class SenseReferenceView(Protocol):
+    source: str
+    source_ref: str
+
+
+class SenseRelationView(Protocol):
+    rel_type: str
+    to_word_display: str
+    to_word_id: int
+    to_word_status: str
+    wsd_state: str
+    to_sense_id: int | None
+    to_sense_gloss: str | None
+
+
 class SenseView(Protocol):
     definition: str
     tier: str
@@ -28,6 +48,25 @@ class SenseView(Protocol):
     cefr_level: str | None
     sense_id: int | None
     examples: list[str]
+    # The headword this sense belongs to. Derived by Lexi as ``render(norm)``, so it
+    # is neutral even under a themed read. Optional because a view synthesized with
+    # no word in scope leaves it None.
+    word: str | None
+    word_id: int | None
+    # Full lexical record — surfaced only by the single-sense read. Deck and search
+    # listings deliberately do not carry these.
+    ipa_uk: str | None
+    ipa_us: str | None
+    guideword: str | None
+    grammar: list[str]
+    register: str | None
+    connotation: str | None
+    collocations: list[str]
+    domain: str | None
+    usage_note: str | None
+    forms: list[SenseFormView]
+    references: list[SenseReferenceView]
+    relations: list[SenseRelationView]
 
 
 class EntryView(Protocol):

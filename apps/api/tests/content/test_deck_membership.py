@@ -30,6 +30,9 @@ class FakeLexiClient:
                 pos="noun",
                 cefr_level="A1",
                 sense_id=sid,
+                examples=[],
+                word=f"word{sid}",
+                word_id=sid * 10,
             )
             for sid in sense_ids
         ]
@@ -129,3 +132,48 @@ async def test_resolve_senses_empty_shortcircuits(session):
     client = FakeLexiClient()
     assert await service.resolve_senses(client, []) == []
     assert client.get_senses_calls == []  # no client call on empty input
+
+
+
+async def test_deck_items_carry_the_headword_for_every_item(session):
+    """A deck row renders the word, so no item may come back with a null one.
+
+    pycil stores only an opaque sense_id, so the headword can only arrive from the
+    Lexi read model. Before it existed on ``SenseView`` this listing was a column
+    of definitions with nothing to label them.
+    """
+    from pycil.content.router import deck_items
+
+    owner = await _seed_user(session, "deck-items@x.co")
+    deck = await service.create_deck(session, owner.id, "Deck")
+    await service.add_sense(session, deck.id, 11)
+    await service.add_sense(session, deck.id, 22)
+
+    items = await deck_items(deck.id, _cu(owner), session, FakeLexiClient())
+
+    assert [item.sense_id for item in items] == [11, 22]
+    assert all(item.word for item in items), "an item came back with no headword"
+    assert [item.word for item in items] == ["word11", "word22"]
+    assert [item.word_id for item in items] == [110, 220]
+
+
+async def test_deck_items_listing_stays_lean(session):
+    """The listing DTO must not grow into the full lexical record.
+
+    ``SenseContent`` is also built inside the per-result loop in ``search_words``,
+    which already issues one cross-boundary ``get_entry`` per result. Every field
+    added here is paid for on each keystroke by a UI that does not render it, so
+    the full record lives on ``SenseDetailRead`` instead.
+    """
+    from pycil.content.schemas import SenseContent
+
+    assert set(SenseContent.model_fields) == {
+        "sense_id",
+        "definition",
+        "tier",
+        "pos",
+        "cefr_level",
+        "examples",
+        "word",
+        "word_id",
+    }

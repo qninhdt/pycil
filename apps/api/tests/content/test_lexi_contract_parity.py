@@ -160,3 +160,54 @@ getattr(lexicon, "_engine")
 """
     violations = _runtime_boundary_violations(source)
     assert len(violations) == 4
+
+
+
+def test_installed_sense_view_satisfies_the_pycil_port():
+    """Every field ``lexi_port.SenseView`` declares must exist on the real build.
+
+    The protocol is structural, so a missing attribute is not a type error — it is
+    an ``AttributeError`` at request time, or worse a silently null field. Pinning
+    the manifest without syncing the venv is the exact way that happens, so this
+    asserts against the INSTALLED dataclass rather than the lockfile.
+    """
+    from dataclasses import fields
+
+    from lexi_ai.read_models import SenseView as InstalledSenseView
+
+    from pycil.content.lexi_port import SenseView as PortSenseView
+
+    declared = set(PortSenseView.__annotations__)
+    installed = {field.name for field in fields(InstalledSenseView)}
+    assert declared - installed == set(), (
+        f"pycil expects fields Lexi does not provide: {sorted(declared - installed)}"
+    )
+    # Named explicitly: the headword is what makes a sense listing renderable, and
+    # a build without it must fail loudly here rather than serve null words.
+    assert {"word", "word_id"} <= installed
+
+
+def test_installed_nested_sense_views_satisfy_the_pycil_ports():
+    from dataclasses import fields
+
+    from lexi_ai.read_models import FormView, ReferenceView, SenseRelationView
+
+    from pycil.content.lexi_port import (
+        SenseFormView,
+        SenseReferenceView,
+    )
+    from pycil.content.lexi_port import (
+        SenseRelationView as PortSenseRelationView,
+    )
+
+    for port, installed_type in (
+        (SenseFormView, FormView),
+        (SenseReferenceView, ReferenceView),
+        (PortSenseRelationView, SenseRelationView),
+    ):
+        declared = set(port.__annotations__)
+        installed = {field.name for field in fields(installed_type)}
+        assert declared - installed == set(), (
+            f"{port.__name__} expects fields {installed_type.__name__} lacks: "
+            f"{sorted(declared - installed)}"
+        )

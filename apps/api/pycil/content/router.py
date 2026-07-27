@@ -13,14 +13,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from pycil.auth.deps import current_user, optional_current_user
 from pycil.auth.schemas import CurrentUser
-from pycil.common.errors import TooManyRequestsError
+from pycil.common.errors import NotFoundError, TooManyRequestsError
 from pycil.config import settings
 from pycil.content import service
 from pycil.content.deps import get_lexi_client
-from pycil.content.lexi_port import LexiReader
-from pycil.content.schemas import SenseAddRequest, SenseContent, WordRequest, WordSearchRead
+from pycil.content.lexi_port import LexiReader, SenseView
+from pycil.content.schemas import (
+    SenseAddRequest,
+    SenseContent,
+    SenseDetailRead,
+    SenseFormRead,
+    SenseReferenceRead,
+    SenseRelationRead,
+    WordRequest,
+    WordSearchRead,
+)
 from pycil.db.redis import get_arq_pool, get_redis
 from pycil.db.session import get_session
+from pycil.hierarchy import subtree
 from pycil.hierarchy.access import require_node_access
 from pycil.jobs import service as jobs_service
 from pycil.jobs.schemas import GenerationCreateRead
@@ -28,6 +38,20 @@ from pycil.tasks import service as task_service
 from pycil.tasks.work_keys import word_work_key
 
 router = APIRouter(tags=["content"])
+
+
+def _sense_content(view: SenseView) -> SenseContent:
+    """Project a Lexi sense view onto the listing DTO (headword, no full record)."""
+    return SenseContent(
+        sense_id=view.sense_id,
+        definition=view.definition,
+        tier=view.tier,
+        pos=view.pos,
+        cefr_level=view.cefr_level,
+        examples=view.examples,
+        word=view.word,
+        word_id=view.word_id,
+    )
 
 
 @router.post("/word-generations", response_model=GenerationCreateRead, status_code=202)
@@ -83,23 +107,17 @@ async def search_words(
 ) -> list[WordSearchRead]:
     results = await client.search(q)
     output: list[WordSearchRead] = []
+    # KNOWN ISSUE, pre-existing and deliberately not fixed here: this issues one
+    # cross-boundary get_entry per search result. A batched reader capability is
+    # the real fix. Until then, treat the per-result payload as a hot path — see
+    # the note on SenseContent before adding a field to it.
     for result in results:
         read_dto = WordSearchRead.model_validate(result, from_attributes=True)
         if result.lexi_word_id:
             try:
                 entry = await client.get_entry(result.lexi_word_id)
                 if entry and entry.senses:
-                    read_dto.senses = [
-                        SenseContent(
-                            sense_id=s.sense_id,
-                            definition=s.definition,
-                            tier=s.tier,
-                            pos=s.pos,
-                            cefr_level=s.cefr_level,
-                            examples=s.examples,
-                        )
-                        for s in entry.senses
-                    ]
+                    read_dto.senses = [_sense_content(s) for s in entry.senses]
                     if not read_dto.pos and entry.senses[0].pos:
                         read_dto.pos = entry.senses[0].pos
             except Exception:
@@ -142,14 +160,76 @@ async def deck_items(
     await require_node_access(session, node_id, user, write=False)
     sense_ids = await service.list_sense_ids(session, node_id)
     views = await service.resolve_senses(client, sense_ids)
-    return [
-        SenseContent(
-            sense_id=v.sense_id,
-            definition=v.definition,
-            tier=v.tier,
-            pos=v.pos,
-            cefr_level=v.cefr_level,
-            examples=v.examples,
-        )
-        for v in views
-    ]
+    return [_sense_content(v) for v in views]
+
+
+@router.get("/senses/{sense_id}", response_model=SenseDetailRead)
+async def sense_detail(
+    sense_id: int,
+    user: Annotated[CurrentUser | None, Depends(optional_current_user)],
+    session: AsyncSession = Depends(get_session),
+    client: LexiReader = Depends(get_lexi_client),
+) -> SenseDetailRead:
+    """The full lexical record for one sense, authorized owner-or-public.
+
+    A sense is not an owned resource in pycil — it is Lexi content that becomes
+    reachable by being a member of a deck. So access is derived: the caller may
+    read the sense if at least one deck holding it is readable by them, which is
+    the same rule ``require_node_access`` applies to the deck itself.
+
+    Unknown, unreferenced and unreadable all return one 404 with one code, so the
+    endpoint cannot be used to probe which senses exist or who has them.
+    """
+    candidate_decks = await service.deck_ids_for_sense(session, sense_id)
+    viewer_id = user.id if user is not None else None
+    if not await subtree.readable_deck_ids(session, candidate_decks, viewer_id):
+        raise NotFoundError("sense_not_found")
+    views = await client.get_senses([sense_id])
+    if not views:
+        # Membership without content: the sense was regenerated away in Lexi.
+        raise NotFoundError("sense_not_found")
+    return _sense_detail(views[0], sense_id)
+
+
+def _sense_detail(view: SenseView, sense_id: int) -> SenseDetailRead:
+    """Project a Lexi sense view onto the full-record DTO.
+
+    ``sense_id`` is passed explicitly rather than read off the view: the view's own
+    id is optional in Lexi's contract, and the caller already resolved a concrete
+    id to authorize against.
+    """
+    return SenseDetailRead(
+        sense_id=sense_id,
+        word=view.word,
+        word_id=view.word_id,
+        definition=view.definition,
+        tier=view.tier,
+        pos=view.pos,
+        cefr_level=view.cefr_level,
+        examples=list(view.examples),
+        ipa_uk=view.ipa_uk,
+        ipa_us=view.ipa_us,
+        guideword=view.guideword,
+        grammar=list(view.grammar),
+        register=view.register,
+        connotation=view.connotation,
+        collocations=list(view.collocations),
+        domain=view.domain,
+        usage_note=view.usage_note,
+        forms=[SenseFormRead(inf=f.inf, surface=f.surface) for f in view.forms],
+        references=[
+            SenseReferenceRead(source=r.source, source_ref=r.source_ref) for r in view.references
+        ],
+        relations=[
+            SenseRelationRead(
+                rel_type=r.rel_type,
+                to_word_display=r.to_word_display,
+                to_word_id=r.to_word_id,
+                to_word_status=r.to_word_status,
+                wsd_state=r.wsd_state,
+                to_sense_id=r.to_sense_id,
+                to_sense_gloss=r.to_sense_gloss,
+            )
+            for r in view.relations
+        ],
+    )

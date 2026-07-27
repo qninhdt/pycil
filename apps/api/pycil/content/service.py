@@ -87,6 +87,18 @@ async def list_sense_ids(session: AsyncSession, node_id: UUID) -> list[int]:
     return [row[0] for row in result]
 
 
+async def deck_ids_for_sense(session: AsyncSession, sense_id: int) -> list[UUID]:
+    """Every deck holding this sense, unauthorized.
+
+    The caller MUST narrow this through ``subtree.readable_deck_ids`` before
+    exposing anything: membership alone says nothing about who may read it.
+    """
+    result = await session.execute(
+        select(DeckSense.node_id).where(DeckSense.sense_id == sense_id).distinct()
+    )
+    return [row[0] for row in result]
+
+
 async def resolve_senses(client: LexiReader, sense_ids: list[int]) -> list:
     """Resolve sense content for display through the port (never from pycil DB)."""
     if not sense_ids:
