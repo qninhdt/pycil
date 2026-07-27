@@ -1,6 +1,8 @@
 """Content DTOs. Sense content fields are populated from LexiClient responses,
 never from pycil rows (pycil stores only opaque ``senseId`` membership)."""
 
+from datetime import datetime
+
 from pydantic import BaseModel, Field
 
 
@@ -22,6 +24,20 @@ class SenseContent(BaseModel):
     # record lives on ``SenseDetailRead`` instead.
     word: str | None = None
     word_id: int | None = Field(default=None, serialization_alias="wordId")
+    # Per-caller learning state, joined in one query for the whole deck. All None
+    # for an anonymous caller and for a sense the caller has never studied, which
+    # the UI renders as "not started" rather than as zero progress.
+    #
+    # Exception to the keep-it-lean rule above, and safe: these are populated only
+    # by ``deck_items``. ``search_words`` leaves them None, so its payload is
+    # unchanged and no extra query is added to the keystroke path.
+    mastery: int | None = None
+    mastery_stage: int | None = Field(default=None, serialization_alias="masteryStage")
+    mastery_stage_name: str | None = Field(default=None, serialization_alias="masteryStageName")
+    next_review_date: datetime | None = Field(default=None, serialization_alias="nextReviewDate")
+    review_count: int | None = Field(default=None, serialization_alias="reviewCount")
+    lapse_count: int | None = Field(default=None, serialization_alias="lapseCount")
+    status: str | None = None
 
 
 class SenseFormRead(BaseModel):

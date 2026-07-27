@@ -74,6 +74,37 @@ def mastery_band(mastery: int) -> _Band:
     return LEVEL_PROFILES[-1]
 
 
+# --- Mastery stages (the single source of truth for "mastered") -----------------
+#
+# The bands above already partition 0..100; naming them makes the ramp the API
+# reports and the ramp the UI renders the same object. Three definitions of
+# "mastered" existed before: these bands, a literal 80 in hierarchy/stats.py, and
+# another inlined literal 80 in hierarchy/router.py. A sense at exactly 80 was
+# therefore counted as mastered while sitting in the fourth stage, and a single
+# screen could show both figures.
+STAGE_NAMES: tuple[str, ...] = ("New", "Recognised", "Familiar", "Applied", "Fluent")
+
+if len(STAGE_NAMES) != len(LEVEL_PROFILES):
+    raise AssertionError(
+        f"{len(STAGE_NAMES)} stage names for {len(LEVEL_PROFILES)} bands"
+    )
+
+# Mastered == the top stage. Derived, never a literal: moving a band edge moves
+# this with it.
+MASTERED_FLOOR = LEVEL_PROFILES[-1].lo
+
+
+def mastery_stage(mastery: int) -> int:
+    """1-based stage index for ``mastery`` (1..len(LEVEL_PROFILES))."""
+    band = mastery_band(mastery)
+    return LEVEL_PROFILES.index(band) + 1
+
+
+def mastery_stage_name(mastery: int) -> str:
+    """Human stage label for ``mastery``."""
+    return STAGE_NAMES[mastery_stage(mastery) - 1]
+
+
 def sample_requested_level(mastery: int, rng: random.Random | None = None) -> int:
     """Sample an assessment level (1..4) from the mastery band's distribution.
 

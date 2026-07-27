@@ -14,6 +14,7 @@ from pycil.content.models import DeckSense
 from pycil.hierarchy import cache
 from pycil.hierarchy import service as hierarchy_service
 from pycil.hierarchy.models import Node, NodeType
+from pycil.learning.models import UserSenseStats
 
 
 async def create_deck(
@@ -85,6 +86,27 @@ async def list_sense_ids(session: AsyncSession, node_id: UUID) -> list[int]:
         .order_by(DeckSense.position, DeckSense.id)
     )
     return [row[0] for row in result]
+
+
+async def learning_state_for(
+    session: AsyncSession, user_id: UUID | None, sense_ids: list[int]
+) -> dict[int, UserSenseStats]:
+    """The caller's stats for these senses, in ONE query for the whole deck.
+
+    Empty for an anonymous caller: learning state is per-user, and there is no
+    sensible default to invent. A sense with no row is absent from the mapping
+    rather than present-and-zero, so the caller can tell "never studied" from
+    "studied and scored zero".
+    """
+    if user_id is None or not sense_ids:
+        return {}
+    rows = await session.execute(
+        select(UserSenseStats).where(
+            UserSenseStats.user_id == user_id,
+            UserSenseStats.sense_id.in_(sense_ids),
+        )
+    )
+    return {row.sense_id: row for row in rows.scalars()}
 
 
 async def deck_ids_for_sense(session: AsyncSession, sense_id: int) -> list[UUID]:

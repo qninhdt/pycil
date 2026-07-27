@@ -23,6 +23,14 @@ class NodeCreate(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class NodeAncestorRead(BaseModel):
+    """One breadcrumb hop. Name and type only — enough to render and link."""
+
+    id: UUID
+    name: str
+    type: NodeType
+
+
 class NodeRead(BaseModel):
     id: UUID
     type: NodeType
@@ -33,6 +41,24 @@ class NodeRead(BaseModel):
     visibility: Visibility
     created_at: datetime | None = Field(default=None, serialization_alias="createdAt")
     updated_at: datetime | None = Field(default=None, serialization_alias="updatedAt")
+    # Root-first breadcrumb ending at this node. Truncated at the first ancestor
+    # the caller cannot read, so it never leaks a private folder's name.
+    #
+    # Populated by `get_node` ONLY. This is a deliberate, tested asymmetry across
+    # the six producers of this DTO, because both fields are optional and would
+    # otherwise be silently absent:
+    #   get_node                  -> path + item_count populated
+    #   list_nodes                -> item_count for DECK rows; path omitted, since
+    #                                one walk per row is the N+1 this rebuild removes
+    #                                and the caller already knows the parent context
+    #   create / update / move /  -> both omitted. A structural mutation invalidates
+    #   set_visibility               the caller's node and list queries anyway, so the
+    #                                client refetches rather than trusting a response
+    #                                that cannot carry sibling or ordering changes.
+    path: list[NodeAncestorRead] | None = None
+    # Senses held directly by this deck. None for FOLDER and REFERENCE rows, and on
+    # the mutation responses above.
+    item_count: int | None = Field(default=None, serialization_alias="itemCount")
     model_config = {"from_attributes": True}
 
 
@@ -53,14 +79,22 @@ class NodePageRead(BaseModel):
 
 
 class DeckSettingsUpdate(BaseModel):
-    new_per_batch: int = Field(alias="newPerBatch", ge=1, le=100)
-    review_per_batch: int = Field(alias="reviewPerBatch", ge=1, le=100)
+    """The two session-shape settings, named after the keys the planner reads.
+
+    The previous names (``newPerBatch`` / ``reviewPerBatch``) were written to
+    ``deck_attributes.settings`` under keys ``planning.settings_from_deck`` never
+    looked up, so writing deck settings had no effect on any session.
+    """
+
+    target_words_per_session: int = Field(alias="targetWordsPerSession", ge=1, le=100)
+    max_questions_per_round: int = Field(alias="maxQuestionsPerRound", ge=1, le=100)
 
     model_config = {"populate_by_name": True}
 
 
-class DeckSettingsRead(DeckSettingsUpdate):
-    pass
+class DeckSettingsRead(BaseModel):
+    target_words_per_session: int = Field(serialization_alias="targetWordsPerSession")
+    max_questions_per_round: int = Field(serialization_alias="maxQuestionsPerRound")
 
 
 class NodeVisibilityUpdate(BaseModel):
@@ -80,8 +114,16 @@ class FolderStatsRead(BaseModel):
 
 
 class WeakSenseRead(BaseModel):
+    """A weakest-sense row. Carries enough to render without a second request:
+    the previous shape was ``{senseId, mastery}``, which is a progress bar with no
+    label."""
+
     sense_id: int = Field(serialization_alias="senseId")
     mastery: int
+    word: str | None = None
+    definition: str | None = None
+    pos: str | None = None
+    cefr_level: str | None = Field(default=None, serialization_alias="cefrLevel")
 
 
 class FolderItemRead(BaseModel):

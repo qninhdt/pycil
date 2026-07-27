@@ -161,19 +161,112 @@ async def test_deck_items_listing_stays_lean(session):
     """The listing DTO must not grow into the full lexical record.
 
     ``SenseContent`` is also built inside the per-result loop in ``search_words``,
-    which already issues one cross-boundary ``get_entry`` per result. Every field
-    added here is paid for on each keystroke by a UI that does not render it, so
-    the full record lives on ``SenseDetailRead`` instead.
+    which already issues one cross-boundary ``get_entry`` per result. The lexical
+    record therefore lives on ``SenseDetailRead`` instead.
+
+    The learning-state fields are the one sanctioned exception: they are populated
+    only by ``deck_items``, from a single query for the whole deck, and stay None on
+    the search path so its payload and query count are unchanged.
     """
     from pycil.content.schemas import SenseContent
 
-    assert set(SenseContent.model_fields) == {
-        "sense_id",
-        "definition",
-        "tier",
-        "pos",
-        "cefr_level",
-        "examples",
-        "word",
-        "word_id",
+    lexical = {"sense_id", "definition", "tier", "pos", "cefr_level", "examples", "word", "word_id"}
+    learning_state = {
+        "mastery",
+        "mastery_stage",
+        "mastery_stage_name",
+        "next_review_date",
+        "review_count",
+        "lapse_count",
+        "status",
     }
+    assert set(SenseContent.model_fields) == lexical | learning_state
+    # No part of the full record leaked down from SenseDetailRead.
+    assert not set(SenseContent.model_fields) & {
+        "ipa_uk",
+        "ipa_us",
+        "forms",
+        "references",
+        "relations",
+        "collocations",
+        "guideword",
+    }
+
+
+async def test_search_results_carry_no_learning_state(session):
+    """The keystroke path must not gain a per-user query or per-user fields."""
+    from pycil.content.router import _sense_content
+
+    view = (await FakeLexiClient().get_senses([1]))[0]
+    content = _sense_content(view)
+    assert content.word == "word1"
+    assert content.mastery is None
+    assert content.mastery_stage is None
+    assert content.status is None
+
+
+async def test_deck_items_carry_the_callers_learning_state(session):
+    """A deck row shows where the caller stands on each sense, in one query."""
+    from datetime import UTC, datetime
+
+    from pycil.content.router import deck_items
+    from pycil.learning.models import SenseStatus, UserSenseStats
+
+    owner = await _seed_user(session, "deck-state@x.co")
+    deck = await service.create_deck(session, owner.id, "Deck")
+    await service.add_sense(session, deck.id, 11)
+    await service.add_sense(session, deck.id, 22)
+    due = datetime(2026, 8, 1, tzinfo=UTC)
+    session.add(
+        UserSenseStats(
+            user_id=owner.id,
+            sense_id=11,
+            mastery=85,
+            review_count=4,
+            lapse_count=1,
+            next_review_date=due,
+            status=SenseStatus.scheduled,
+        )
+    )
+    await session.commit()
+
+    items = await deck_items(deck.id, _cu(owner), session, FakeLexiClient())
+    studied = next(item for item in items if item.sense_id == 11)
+    untouched = next(item for item in items if item.sense_id == 22)
+
+    assert studied.mastery == 85
+    assert studied.mastery_stage == 5
+    assert studied.mastery_stage_name == "Fluent"
+    assert studied.review_count == 4
+    assert studied.lapse_count == 1
+    assert studied.next_review_date == due
+    assert studied.status == "scheduled"
+    # Never studied stays NULL, not zero: "not started" and "scored zero" are
+    # different things on a progress ramp.
+    assert untouched.mastery is None
+    assert untouched.review_count is None
+    assert untouched.status is None
+
+
+async def test_deck_items_expose_no_learning_state_to_anonymous(session):
+    from pycil.content.router import deck_items
+    from pycil.hierarchy.models import Visibility
+    from pycil.learning.models import SenseStatus, UserSenseStats
+
+    owner = await _seed_user(session, "deck-anon@x.co")
+    deck = await service.create_deck(session, owner.id, "Deck")
+    deck.visibility = Visibility.PUBLIC
+    await service.add_sense(session, deck.id, 11)
+    session.add(
+        UserSenseStats(
+            user_id=owner.id, sense_id=11, mastery=85, review_count=4, status=SenseStatus.scheduled
+        )
+    )
+    await session.commit()
+
+    items = await deck_items(deck.id, None, session, FakeLexiClient())
+
+    assert [item.sense_id for item in items] == [11]
+    assert items[0].word == "word11"
+    assert items[0].mastery is None, "another user's progress leaked to an anonymous read"
+    assert items[0].status is None

@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from pycil.common.errors import ConflictError, NotFoundError
 from pycil.hierarchy import cache
+from pycil.hierarchy.ancestry import ancestor_chain
 from pycil.hierarchy.models import DeckAttributes, Node, NodeType, Visibility
 
 
@@ -173,15 +174,14 @@ async def _validate_reference_target(
 async def _is_descendant(
     session: AsyncSession, candidate_id: UUID | None, ancestor_id: UUID
 ) -> bool:
-    current = candidate_id
-    seen: set[UUID] = set()
-    while current is not None and current not in seen:
-        if current == ancestor_id:
-            return True
-        seen.add(current)
-        result = await session.execute(select(Node.parent_node_id).where(Node.id == current))
-        current = result.scalar_one_or_none()
-    return False
+    """Whether ``ancestor_id`` is ``candidate_id`` itself or one of its ancestors.
+
+    Used for move-cycle detection, so it shares the one upward walk rather than
+    keeping a fourth copy with its own cycle policy.
+    """
+    if candidate_id is None:
+        return False
+    return ancestor_id in await ancestor_chain(session, candidate_id)
 
 
 async def _descendant_ids(session: AsyncSession, root_id: UUID) -> set[UUID | None]:

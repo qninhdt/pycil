@@ -60,13 +60,20 @@ async def test_tree_list_update_and_deck_settings_survive_reload(hierarchy_clien
         f"/v1/nodes/{deck.id}", json={"name": "common verbs", "description": "daily"}
     )
     settings = await client.patch(
-        f"/v1/decks/{deck.id}/settings", json={"newPerBatch": 7, "reviewPerBatch": 13}
+        f"/v1/decks/{deck.id}/settings",
+        json={"targetWordsPerSession": 7, "maxQuestionsPerRound": 13},
     )
+    settings_read = await client.get(f"/v1/decks/{deck.id}/settings")
 
     assert roots.status_code == 200
     assert [item["id"] for item in roots.json()["items"]] == [str(folder.id)]
     assert children.status_code == 200
     assert [item["id"] for item in children.json()["items"]] == [str(deck.id)]
+    # A deck row carries its size; a folder row does not pretend to.
+    assert children.json()["items"][0]["itemCount"] == 0
+    assert roots.json()["items"][0]["itemCount"] is None
     assert updated.json()["name"] == "common verbs"
     assert updated.json()["description"] == "daily"
-    assert settings.json() == {"newPerBatch": 7, "reviewPerBatch": 13}
+    assert settings.json() == {"targetWordsPerSession": 7, "maxQuestionsPerRound": 13}
+    # Survives the reload, which is the point of this test.
+    assert settings_read.json() == {"targetWordsPerSession": 7, "maxQuestionsPerRound": 13}

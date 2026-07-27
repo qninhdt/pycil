@@ -13,8 +13,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pycil.content.lexi_port import LexiReader
-
-_MASTERED_DEFAULT = 80
+from pycil.learning.policy import MASTERED_FLOOR
 
 
 @dataclass
@@ -36,7 +35,7 @@ async def folder_stats(
     user_id: UUID,
     sense_ids: list[int],
     *,
-    mastered_threshold: int = _MASTERED_DEFAULT,
+    mastered_threshold: int = MASTERED_FLOOR,
 ) -> FolderStats:
     """{total, learned, mastered, avg_mastery} for a user over a sense-id set."""
     total = len(sense_ids)

@@ -34,15 +34,21 @@ from pycil.hierarchy import subtree
 from pycil.hierarchy.access import require_node_access
 from pycil.jobs import service as jobs_service
 from pycil.jobs.schemas import GenerationCreateRead
+from pycil.learning.models import UserSenseStats
+from pycil.learning.policy import mastery_stage, mastery_stage_name
 from pycil.tasks import service as task_service
 from pycil.tasks.work_keys import word_work_key
 
 router = APIRouter(tags=["content"])
 
 
-def _sense_content(view: SenseView) -> SenseContent:
-    """Project a Lexi sense view onto the listing DTO (headword, no full record)."""
-    return SenseContent(
+def _sense_content(view: SenseView, state: UserSenseStats | None = None) -> SenseContent:
+    """Project a Lexi sense view onto the listing DTO (headword, no full record).
+
+    ``state`` is the caller's learning state when the surface has it. Omitted on the
+    search path, which has no user scope and must not grow a query.
+    """
+    content = SenseContent(
         sense_id=view.sense_id,
         definition=view.definition,
         tier=view.tier,
@@ -52,6 +58,15 @@ def _sense_content(view: SenseView) -> SenseContent:
         word=view.word,
         word_id=view.word_id,
     )
+    if state is not None:
+        content.mastery = state.mastery
+        content.mastery_stage = mastery_stage(state.mastery)
+        content.mastery_stage_name = mastery_stage_name(state.mastery)
+        content.next_review_date = state.next_review_date
+        content.review_count = state.review_count
+        content.lapse_count = state.lapse_count
+        content.status = state.status.value
+    return content
 
 
 @router.post("/word-generations", response_model=GenerationCreateRead, status_code=202)
@@ -160,7 +175,10 @@ async def deck_items(
     await require_node_access(session, node_id, user, write=False)
     sense_ids = await service.list_sense_ids(session, node_id)
     views = await service.resolve_senses(client, sense_ids)
-    return [_sense_content(v) for v in views]
+    state = await service.learning_state_for(
+        session, user.id if user is not None else None, sense_ids
+    )
+    return [_sense_content(v, state.get(v.sense_id) if v.sense_id else None) for v in views]
 
 
 @router.get("/senses/{sense_id}", response_model=SenseDetailRead)

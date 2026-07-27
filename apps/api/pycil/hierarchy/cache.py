@@ -13,6 +13,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pycil.db.redis import get_redis
+from pycil.hierarchy.ancestry import ancestor_chain
 from pycil.hierarchy.models import Node
 
 _TTL = 3600
@@ -60,13 +61,13 @@ async def bump_generations(
 
     affected = set(changed)
     for node_id in tuple(changed):
-        affected.update(await _ancestor_ids(session, node_id))
+        affected.update(await ancestor_chain(session, node_id))
 
     references = await session.execute(
         select(Node.id).where(Node.target_node_id.in_(changed))
     )
     for reference_id in references.scalars():
-        affected.update(await _ancestor_ids(session, reference_id))
+        affected.update(await ancestor_chain(session, reference_id))
 
     rows = await session.execute(
         select(Node.id, Node.structural_generation).where(Node.id.in_(affected))
@@ -90,15 +91,3 @@ async def delete_prior_defsets(prior_generations: dict[UUID, int]) -> None:
                 for node_id, generation in prior_generations.items()
             ]
         )
-
-
-async def _ancestor_ids(session: AsyncSession, node_id: UUID) -> set[UUID]:
-    ancestors: set[UUID] = set()
-    current: UUID | None = node_id
-    while current is not None and current not in ancestors:
-        ancestors.add(current)
-        result = await session.execute(
-            select(Node.parent_node_id).where(Node.id == current)
-        )
-        current = result.scalar_one_or_none()
-    return ancestors
