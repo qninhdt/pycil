@@ -38,6 +38,27 @@ colors:
   dark-muted-foreground: "#9A958C"
   dark-primary: "#93B2DA"
   dark-on-primary: "#101822"
+  destructive: "#A3302C"
+  on-destructive: "#FDF6F5"
+  dark-ink: "#EDEAE4"
+  dark-on-ink: "#131211"
+  dark-primary-wash: "#0B1622"
+  dark-on-primary-wash: "#A5C8EC"
+  dark-success-wash: "#0C170F"
+  dark-on-success-wash: "#A7D3AC"
+  dark-danger-wash: "#1B0D0D"
+  dark-on-danger-wash: "#F0A9A4"
+  dark-warn-wash: "#191207"
+  dark-on-warn-wash: "#E8C879"
+  dark-info-wash: "#0B1520"
+  dark-on-info-wash: "#9FC9E8"
+  dark-destructive: "#E8938C"
+  dark-on-destructive: "#1A0A09"
+  dark-stage-1: "#3C3934"
+  dark-stage-2: "#4E5A6B"
+  dark-stage-3: "#64788F"
+  dark-stage-4: "#7B96BC"
+  dark-stage-5: "#93B2DA"
 typography:
   headword:
     fontFamily: Newsreader
@@ -279,7 +300,7 @@ Contextual surfaces, none of which is a tab:
 | Surface | Trigger | Mobile | Desktop |
 | --- | --- | --- | --- |
 | Command palette | `Cmd/Ctrl K`, search field in Library header | Full-screen sheet | Centered dialog |
-| Assistant | Header action, disabled when `capabilities.assistant` is false | Bottom drawer | Right collapsible sidebar, 380px |
+| Assistant | Header action, absent when `capabilities.assistant` is false | Bottom drawer | Right collapsible sidebar, 380px |
 | Activity | Header action, badge counts unsettled tasks | Bottom drawer | Popover |
 | Study | Start action on Today or a deck | Full screen, chrome hidden | Full screen, chrome hidden |
 | Sense detail | Any word row, anywhere | Full-screen route | Full-screen route |
@@ -351,6 +372,22 @@ canvas `#131211`, surface `#1A1917`, border `#2C2A26`, text `#EDEAE4`. The
 accent lifts to `#93B2DA` so it stays visible without glowing. One theme per
 page load; sections never invert mid-scroll.
 
+Dark mode is not a remapping of the neutrals with the washes left alone. Every
+wash, every wash foreground, the destructive pair, and all five ramp stages have
+their own dark values, because reusing a light wash on a dark ground produces a
+near-white block that *passes* a contrast check while looking broken. Two rules
+govern the dark values and both are asserted mechanically rather than eyeballed:
+
+1. **A dark wash is darker than `dark-surface`.** Contrast ratio alone cannot
+   express this: a pale wash scores ~10:1 against dark text and reads as a
+   glowing slab. Relative luminance is the check that catches it.
+2. **The dark ramp ascends.** In light mode the ramp walks warm graphite up to
+   the accent, so more colour means more learned. Inverting the canvas without
+   re-deriving the ramp reverses that reading, making `stage-1` the brightest pip
+   and `stage-5` the dimmest. The dark ramp therefore runs dim graphite
+   (`#3C3934`) up to the lifted accent (`#93B2DA`), preserving the same
+   direction of meaning.
+
 ## Typography
 
 Two families plus a mono. No third family, ever.
@@ -384,9 +421,23 @@ Body copy is capped at `max-w-[65ch]`. Emphasis inside a headline uses italic or
 weight of the same family; a serif word is never dropped into a sans line for
 visual interest.
 
-**IPA caveat.** Geist Mono coverage of extended IPA glyphs must be verified
-before ship. If glyphs are missing, IPA falls back to a stack ending in a
-system serif with full IPA coverage rather than rendering tofu.
+**IPA coverage, verified.** The dataset's own transcriptions (`ˈel.ə.kwənt`)
+render from Geist Mono, as do the length marks, both affricates written as
+digraphs, the script g, the glottal stop, the rhotic schwa and the syllabic
+ring. Three characters do not, because Google serves Geist Mono without a Greek
+subset and without the combining ranges above U+0333:
+
+| Character | Codepoint | Appears in |
+| --- | --- | --- |
+| `θ` | U+03B8 | every voiceless dental fricative - *thing*, *both*, *method* |
+| tie bar | U+0361 | affricates written `t͡ʃ` rather than `tʃ` |
+| `◌̬` | U+032C | the voicing/flap diacritic |
+
+The first is not an edge case, so `meta-mono` carries a per-glyph fallback: the
+browser keeps Geist Mono for everything it has and reaches into the next family
+only for the missing characters. The stack ends in `serif`, so a machine with
+none of the named faces still shows a letter rather than tofu. This is also why
+IPA is never given a bare `font-mono` class.
 
 ## Layout
 

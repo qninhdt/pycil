@@ -1,5 +1,276 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "./tokens.generated.css";
 
-/* Minimal Tailwind v4 entry so PostCSS has something to compile during the
-   teardown window. The real token layer (@theme, semantic colours, the mastery
-   ramp, dark variants) lands in the design-tokens phase, which owns this file. */
+@custom-variant dark (&:is(.dark *));
+
+/* Base UI's own theme layer. Every name here is owned by the primitives in
+   components/ui, so the generated palette deliberately lives in a separate
+   --pycil-* namespace and is only ever read through the semantic layer below.
+   Two @theme blocks defining the same --color-* name would be last-wins. */
+@theme inline {
+    /* Each family reads the next/font variable declared in app/layout.tsx, so
+       the stacks resolve after the font loader has run. The generated names are
+       kept distinct from the token names: --font-sans: var(--font-sans) inside
+       @theme inline is self-referential and resolves to nothing. */
+    --font-sans: var(--font-geist-sans), system-ui, -apple-system, "Segoe UI",
+        sans-serif;
+    --font-heading: var(--font-geist-sans), system-ui, -apple-system, "Segoe UI",
+        sans-serif;
+    --font-serif: var(--font-newsreader), Georgia, "Times New Roman", serif;
+
+    /* The tail is a per-glyph IPA fallback, not decoration. Google serves Geist
+       Mono without a Greek subset, so theta in every dental fricative would be
+       tofu; the tie bar and the voicing diacritic are missing for the same
+       reason. The browser keeps Geist Mono for every glyph it does have and
+       reaches down this list only for the ones it does not. */
+    --font-mono: var(--font-geist-mono), "DejaVu Sans Mono", Menlo,
+        "Charis SIL", "Doulos SIL", "Gentium Plus", serif;
+
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+    --color-card: var(--card);
+    --color-card-foreground: var(--card-foreground);
+    --color-popover: var(--popover);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-primary: var(--primary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-secondary: var(--secondary);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-muted: var(--muted);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-accent: var(--accent);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-destructive: var(--destructive);
+    --color-destructive-foreground: var(--destructive-foreground);
+    --color-border: var(--border);
+    --color-input: var(--input);
+    --color-ring: var(--ring);
+    --color-chart-1: var(--chart-1);
+    --color-chart-2: var(--chart-2);
+    --color-chart-3: var(--chart-3);
+    --color-chart-4: var(--chart-4);
+    --color-chart-5: var(--chart-5);
+
+    /* Accent-tinted surface. Selected answers, active navigation. */
+    --color-wash-primary: var(--wash-primary);
+    --color-on-wash-primary: var(--on-wash-primary);
+    /* Verdict and connection state. Tag and banner backgrounds only. */
+    --color-wash-success: var(--wash-success);
+    --color-on-wash-success: var(--on-wash-success);
+    --color-wash-danger: var(--wash-danger);
+    --color-on-wash-danger: var(--on-wash-danger);
+    --color-wash-warn: var(--wash-warn);
+    --color-on-wash-warn: var(--on-wash-warn);
+    --color-wash-info: var(--wash-info);
+    --color-on-wash-info: var(--on-wash-info);
+
+    /* Mastery ramp. One ordered dimension, never a categorical palette. */
+    --color-stage-1: var(--stage-1);
+    --color-stage-2: var(--stage-2);
+    --color-stage-3: var(--stage-3);
+    --color-stage-4: var(--stage-4);
+    --color-stage-5: var(--stage-5);
+
+    /* All seven levels the primitives actually consume, given explicit values
+       rather than a calc() chain off a single --radius. The chain put
+       --radius-xl at 14px, over the 12px container ceiling the spec locks. */
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --radius-lg: 8px;
+    --radius-xl: 12px;
+    --radius-2xl: 12px;
+    --radius-3xl: 12px;
+    --radius-4xl: 9999px;
+
+    --shadow-hover: 0 1px 2px rgb(25 24 23 / 0.04);
+}
+
+:root {
+    color-scheme: light;
+
+    --background: var(--pycil-bone);
+    --foreground: var(--pycil-foreground);
+    --card: var(--pycil-surface);
+    --card-foreground: var(--pycil-foreground);
+    --popover: var(--pycil-surface);
+    --popover-foreground: var(--pycil-foreground);
+
+    /* Primary fill is ink, not the accent. The accent marks interaction only,
+       so it reaches the UI through --ring and the wash pair below. */
+    --primary: var(--pycil-ink);
+    --primary-foreground: var(--pycil-on-ink);
+    --secondary: var(--pycil-surface);
+    --secondary-foreground: var(--pycil-foreground);
+    --muted: var(--pycil-surface-sunken);
+    --muted-foreground: var(--pycil-muted-foreground);
+    --accent: var(--pycil-surface-sunken);
+    --accent-foreground: var(--pycil-foreground);
+    --destructive: var(--pycil-destructive);
+    --destructive-foreground: var(--pycil-on-destructive);
+
+    --border: var(--pycil-border);
+    --border-strong: var(--pycil-border-strong);
+    --input: var(--pycil-border);
+    --ring: var(--pycil-primary);
+
+    --wash-primary: var(--pycil-primary-wash);
+    --on-wash-primary: var(--pycil-on-primary-wash);
+    --wash-success: var(--pycil-success-wash);
+    --on-wash-success: var(--pycil-on-success-wash);
+    --wash-danger: var(--pycil-danger-wash);
+    --on-wash-danger: var(--pycil-on-danger-wash);
+    --wash-warn: var(--pycil-warn-wash);
+    --on-wash-warn: var(--pycil-on-warn-wash);
+    --wash-info: var(--pycil-info-wash);
+    --on-wash-info: var(--pycil-on-info-wash);
+
+    --stage-1: var(--pycil-stage-1);
+    --stage-2: var(--pycil-stage-2);
+    --stage-3: var(--pycil-stage-3);
+    --stage-4: var(--pycil-stage-4);
+    --stage-5: var(--pycil-stage-5);
+
+    /* Charts read the mastery ramp so a distribution chart and a mastery pip
+       row cannot disagree about what "more learned" looks like. */
+    --chart-1: var(--stage-1);
+    --chart-2: var(--stage-2);
+    --chart-3: var(--stage-3);
+    --chart-4: var(--stage-4);
+    --chart-5: var(--stage-5);
+
+    --radius: 12px;
+
+    /* The stacking scale, mirrored by LAYERS in lib/design/layers.ts. Both must
+       change together. Registry overlays hardcode z-50, so dialogs and the
+       palette sit there by definition and toast has to clear it. */
+    --z-base: 0;
+    --z-header: 10;
+    --z-nav: 20;
+    --z-drawer: 30;
+    --z-overlay: 50;
+    --z-toast: 60;
+}
+
+.dark {
+    color-scheme: dark;
+
+    --background: var(--pycil-dark-bone);
+    --foreground: var(--pycil-dark-foreground);
+    --card: var(--pycil-dark-surface);
+    --card-foreground: var(--pycil-dark-foreground);
+    --popover: var(--pycil-dark-surface);
+    --popover-foreground: var(--pycil-dark-foreground);
+
+    --primary: var(--pycil-dark-ink);
+    --primary-foreground: var(--pycil-dark-on-ink);
+    --secondary: var(--pycil-dark-surface);
+    --secondary-foreground: var(--pycil-dark-foreground);
+    --muted: var(--pycil-dark-surface-sunken);
+    --muted-foreground: var(--pycil-dark-muted-foreground);
+    --accent: var(--pycil-dark-surface-sunken);
+    --accent-foreground: var(--pycil-dark-foreground);
+    --destructive: var(--pycil-dark-destructive);
+    --destructive-foreground: var(--pycil-dark-on-destructive);
+
+    --border: var(--pycil-dark-border);
+    --border-strong: var(--pycil-dark-border-strong);
+    --input: var(--pycil-dark-border);
+    --ring: var(--pycil-dark-primary);
+
+    /* Dark washes are darker than the dark surface. Reusing the light washes
+       here would pass a contrast check while rendering a near-white block. */
+    --wash-primary: var(--pycil-dark-primary-wash);
+    --on-wash-primary: var(--pycil-dark-on-primary-wash);
+    --wash-success: var(--pycil-dark-success-wash);
+    --on-wash-success: var(--pycil-dark-on-success-wash);
+    --wash-danger: var(--pycil-dark-danger-wash);
+    --on-wash-danger: var(--pycil-dark-on-danger-wash);
+    --wash-warn: var(--pycil-dark-warn-wash);
+    --on-wash-warn: var(--pycil-dark-on-warn-wash);
+    --wash-info: var(--pycil-dark-info-wash);
+    --on-wash-info: var(--pycil-dark-on-info-wash);
+
+    /* Runs dim to bright, like the light ramp. The light ramp inverts under a
+       dark ground: stage-1 would become the most visible pip. */
+    --stage-1: var(--pycil-dark-stage-1);
+    --stage-2: var(--pycil-dark-stage-2);
+    --stage-3: var(--pycil-dark-stage-3);
+    --stage-4: var(--pycil-dark-stage-4);
+    --stage-5: var(--pycil-dark-stage-5);
+
+    --chart-1: var(--stage-1);
+    --chart-2: var(--stage-2);
+    --chart-3: var(--stage-3);
+    --chart-4: var(--stage-4);
+    --chart-5: var(--stage-5);
+}
+
+@layer base {
+    * {
+        @apply border-border outline-ring/50;
+    }
+    body {
+        @apply bg-background text-foreground;
+    }
+    html {
+        @apply font-sans;
+    }
+}
+
+@layer components {
+    /* Driven by data-stage so a pip row, a bar and a chip read one source. */
+    [data-stage="1"] {
+        --stage: var(--stage-1);
+    }
+    [data-stage="2"] {
+        --stage: var(--stage-2);
+    }
+    [data-stage="3"] {
+        --stage: var(--stage-3);
+    }
+    [data-stage="4"] {
+        --stage: var(--stage-4);
+    }
+    [data-stage="5"] {
+        --stage: var(--stage-5);
+    }
+}
+
+@utility stage-fill {
+    background-color: var(--stage);
+}
+
+@utility stage-text {
+    color: var(--stage);
+}
+
+/* Dark mode gets its depth from surface lightness steps instead. */
+@utility card-hover {
+    transition: box-shadow 150ms cubic-bezier(0.16, 1, 0.3, 1);
+    &:hover {
+        box-shadow: var(--shadow-hover);
+    }
+    .dark &:hover {
+        box-shadow: none;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+    [data-slot="app-header"] {
+        backdrop-filter: none;
+        background-color: var(--background);
+    }
+}
