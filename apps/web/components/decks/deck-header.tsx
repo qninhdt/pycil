@@ -1,9 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, BookOpen, Layers, Plus, Play, Lock, Globe } from "lucide-react";
+import { ArrowLeft, Layers, Plus, Play, Lock, Globe, Settings } from "lucide-react";
 import type { NodeItem } from "@/lib/api/types";
 import { MasteryBadge } from "@/components/decks/mastery-badge";
+import { DeckSettingsDialog } from "@/components/decks/deck-settings-dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
@@ -11,9 +13,12 @@ interface DeckHeaderProps {
   deck: NodeItem;
   totalItems: number;
   avgMastery?: number;
+  onAddWordClick?: () => void;
 }
 
-export function DeckHeader({ deck, totalItems, avgMastery = 0 }: DeckHeaderProps) {
+export function DeckHeader({ deck, totalItems, avgMastery = 0, onAddWordClick }: DeckHeaderProps) {
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
   return (
     <div className="space-y-4">
       <Link
@@ -62,21 +67,38 @@ export function DeckHeader({ deck, totalItems, avgMastery = 0 }: DeckHeaderProps
         </div>
 
         <div className="flex items-center gap-3 shrink-0 pt-2 md:pt-0">
-          <Button variant="outline" asChild>
-            <Link href={`/search?deckId=${deck.id}`} className="flex items-center gap-2">
-              <Plus className="h-4 w-4 text-primary" />
-              <span>Thêm từ mới</span>
-            </Link>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setSettingsOpen(true)}
+            title="Cài đặt bộ từ"
+            className="rounded-xl"
+          >
+            <Settings className="h-4 w-4 text-muted-foreground hover:text-foreground" />
           </Button>
 
-          <Button asChild className="bg-primary hover:bg-primary/90">
-            <Link href={`/study?deckId=${deck.id}`} className="flex items-center gap-2">
+          <Button variant="outline" onClick={onAddWordClick}>
+            <span className="flex items-center gap-2">
+              <Plus className="h-4 w-4 text-primary" />
+              <span>Thêm từ mới</span>
+            </span>
+          </Button>
+
+          <Button render={<Link href={`/study?deckId=${deck.id}`} />}>
+            <span className="flex items-center gap-2">
               <Play className="h-4 w-4 fill-primary-foreground" />
               <span>Học ngay</span>
-            </Link>
+            </span>
           </Button>
         </div>
       </div>
+
+      <DeckSettingsDialog
+        nodeId={deck.id}
+        deckName={deck.name}
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+      />
     </div>
   );
 }
