@@ -1,4 +1,4 @@
-name: Backend Tests
+name: Tests
 
 on:
   pull_request:
@@ -29,7 +29,7 @@ jobs:
         run: uv python install 3.12
       - name: Sync dev deps for ${{ matrix.name }}
         working-directory: ${{ matrix.dir }}
-        run: uv sync --extra dev
+        run: uv sync --locked --extra dev
       - name: Ruff
         working-directory: ${{ matrix.dir }}
         run: uv run ruff check .
@@ -47,7 +47,7 @@ jobs:
         run: uv python install 3.12
       - name: Sync dev deps
         working-directory: packages/shared-py
-        run: uv sync --extra dev
+        run: uv sync --locked --extra dev
       - name: Assert tests collected (no silent gap)
         working-directory: packages/shared-py
         run: |
@@ -91,7 +91,7 @@ jobs:
 
       - name: Sync dev deps
         working-directory: apps/api
-        run: uv sync --extra dev
+        run: uv sync --locked --extra dev
 
       - name: Assert tests collected (no silent gap)
         working-directory: apps/api
@@ -130,7 +130,7 @@ jobs:
         run: uv python install 3.12
       - name: Sync dev deps
         working-directory: apps/worker
-        run: uv sync --extra dev
+        run: uv sync --locked --extra dev
       - name: Assert tests collected
         working-directory: apps/worker
         run: uv run pytest --collect-only -q >/dev/null
@@ -164,7 +164,7 @@ jobs:
         run: uv python install 3.12
       - name: Sync runtime deps
         working-directory: apps/api
-        run: uv sync
+        run: uv sync --locked
       - name: Upgrade a fresh PostgreSQL database to head
         working-directory: apps/api
         env:
@@ -219,6 +219,53 @@ jobs:
             -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" \
             caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 
-# No e2e job: this repo is backend-only (API + worker + shared Python). The
-# frontend lives in a separate repository, so browser e2e coverage (if any)
-# belongs there, not here.
+  test-web:
+    # The web app's stack-independent gate: typecheck, lint, the Vitest unit
+    # layer (pure logic — the session reducer, error taxonomy, snapshot
+    # reconciliation, mastery mapping, the assistant transport), the mechanical
+    # design-system audit, the production build, and the Storybook build.
+    #
+    # No e2e here. Playwright needs the full `docker compose` stack (API, worker,
+    # Postgres, Redis, Centrifugo, Caddy) plus an LLM credential for the
+    # generation tier, which is too heavy per push; it belongs on the nightly
+    # workflow against a stood-up stack, not this PR gate.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        # Lockfile is authoritative in CI: a drifted manifest fails rather than
+        # silently resolving a different tree than a developer ran against.
+        run: pnpm install --frozen-lockfile
+        working-directory: .
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Unit tests
+        run: pnpm test:unit
+
+      - name: Design-system audit
+        run: pnpm audit:design
+
+      - name: Build
+        run: pnpm build
+
+      - name: Build Storybook
+        run: pnpm build-storybook
