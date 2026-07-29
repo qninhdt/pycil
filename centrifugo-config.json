@@ -2,7 +2,7 @@
   "sse": {
     "enabled": true
   },
-  "emulation": {
+  "health": {
     "enabled": true
   },
   "engine": {
@@ -14,7 +14,8 @@
   "channel": {
     "proxy": {
       "subscribe": {
-        "endpoint": "http://api:8000/internal/realtime/subscribe"
+        "endpoint": "http://api:8000/internal/realtime/subscribe",
+        "include_connection_meta": true
       }
     },
     "namespaces": [

@@ -58,7 +58,14 @@ def test_centrifugo_config_enables_sse_proxy_and_recovery_only():
     assert '"subscribe_proxy_enabled": true' in value
     assert '"history_size": 1' in value
     assert '"force_recovery": true' in value
-    assert '"sse"' in value and '"emulation"' in value
+    assert '"sse"' in value
+    # `authorize_subscription` reads `meta["tokenVersion"]` off the proxy body and
+    # fails closed without it. Centrifugo does not forward connection meta by
+    # default, so dropping this flag denies every subscribe with code 103 — which
+    # is exactly how it shipped until the E2E suite caught it. No emulation
+    # assertion here: v6 has no `emulation.enabled` (the handler is always
+    # registered), and its routing is covered by the Caddyfile test below.
+    assert '"include_connection_meta": true' in value
 
 
 def test_caddy_exposes_sse_emulation_but_not_websocket_or_sockjs():

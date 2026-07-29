@@ -71,8 +71,11 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
+    # Loopback-bound debugging access only; containers reach Postgres over Docker
+    # DNS. Parameterised because 5433 is a common second-Postgres port and a
+    # clash with an unrelated local stack must not block this one.
     ports:
-      - "5433:5432"
+      - "${POSTGRES_HOST_PORT:-5433}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -103,16 +106,28 @@ services:
     # The mounted config is mandatory: it enables SSE, Redis recovery, and the
     # application-owned subscribe proxy for opaque async resources.
     command: ["centrifugo", "-c", "/centrifugo/config.json"]
+    # Every name below is a real v6 configuration path. Centrifugo does NOT fail
+    # on an unrecognised CENTRIFUGO_* variable — it logs `unknown var in
+    # environment` at warn and carries on with the default, so a misspelt key is
+    # silently inert. Four were, until the E2E work surfaced them: `_ADMIN`,
+    # `_HEALTH`, `_PROXY_STATIC_HTTP_HEADERS`, and the config file's
+    # `emulation.enabled`. The subscribe-proxy secret was the costly one — the API
+    # rejects /internal/realtime/subscribe without that header, so no async task
+    # channel could be subscribed at all. Check the logs for that warning after
+    # renaming anything here.
     environment:
-      CENTRIFUGO_ADMIN: "false"
+      CENTRIFUGO_ADMIN_ENABLED: "false"
       # Keep local defaults in lockstep with the API settings. Production is
       # still rejected unless these placeholders are replaced.
       CENTRIFUGO_CLIENT_TOKEN_HMAC_SECRET_KEY: ${CENTRIFUGO_TOKEN_HMAC_SECRET:-changeme-centrifugo-token-secret}
       CENTRIFUGO_HTTP_API_KEY: ${CENTRIFUGO_API_KEY:-changeme-centrifugo-api-key}
       CENTRIFUGO_CLIENT_ALLOWED_ORIGINS: ${CENTRIFUGO_ALLOWED_ORIGINS:-http://localhost https://localhost http://localhost:3000}
       CENTRIFUGO_ENGINE_REDIS_PASSWORD: ${REDIS_PASSWORD:-redis-dev-only}
-      CENTRIFUGO_PROXY_STATIC_HTTP_HEADERS: '{"X-Centrifugo-Subscribe-Proxy-Secret":"${CENTRIFUGO_SUBSCRIBE_PROXY_SECRET:-changeme-centrifugo-subscribe-proxy-secret}"}'
-      CENTRIFUGO_HEALTH: "true"
+      # v6 path is channel.proxy.subscribe.http.static_headers. The API compares
+      # this against CENTRIFUGO_SUBSCRIBE_PROXY_SECRET in constant time and 401s
+      # the subscribe when it does not match.
+      CENTRIFUGO_CHANNEL_PROXY_SUBSCRIBE_HTTP_STATIC_HEADERS: '{"X-Centrifugo-Subscribe-Proxy-Secret":"${CENTRIFUGO_SUBSCRIBE_PROXY_SECRET:-changeme-centrifugo-subscribe-proxy-secret}"}'
+      CENTRIFUGO_HEALTH_ENABLED: "true"
     volumes:
       - ./centrifugo-config.json:/centrifugo/config.json:ro
     healthcheck:
