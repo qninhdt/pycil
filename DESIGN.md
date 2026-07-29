@@ -358,11 +358,16 @@ literally means "more learned". Stage names, used verbatim in the UI:
 
 | Band | Token | Name | What the sampler actually does |
 | --- | --- | --- | --- |
-| 0-10 | `stage-1` | Introduced | 90% level 1 |
+| 0-10 | `stage-1` | New | 90% level 1 |
 | 11-30 | `stage-2` | Recognised | 65% level 1, 30% level 2 |
-| 31-55 | `stage-3` | Recalled | 55% level 2, 23% level 3 |
+| 31-55 | `stage-3` | Familiar | 55% level 2, 23% level 3 |
 | 56-80 | `stage-4` | Applied | 55% level 3, 15% level 4 |
 | 81-100 | `stage-5` | Fluent | 50% level 3, 40% level 4 |
+
+The names are the API's, copied from `STAGE_NAMES` in `learning/policy.py`. Two
+surfaces render them side by side: a deck row shows the name the server sent,
+while the dashboard and the study verdict resolve one locally from the same
+bands. So the two tables have to agree exactly, or one score shows two labels.
 
 A rainbow scale is forbidden here. Five hues would imply five unrelated
 categories; this is one ordered dimension.
@@ -643,3 +648,29 @@ leave the server, and they are sealed in an encrypted `HttpOnly` iron-session
 cookie. They are kept. The data-access layer above them (`lib/query`,
 `lib/actions`, `lib/stores`) is rewritten, and the entire presentation layer is
 replaced.
+
+## Outcomes Resolved During Implementation
+
+These were open at design time and are recorded here with what the build
+actually settled on, so the spec is not read as still deciding them.
+
+**IPA coverage held; no font swap was needed.** The `meta-mono` per-glyph
+fallback chain in the Typography section renders the dataset's transcriptions
+(`ˈel.ə.kwənt`) and the extended tie-bar and length marks without tofu on the
+verified stack, so the "IPA is never given a bare `font-mono` class" rule stands
+as written and `IpaLine` uses `font-mono` against that extended chain rather than
+a separate face.
+
+**The radius scale gained an explicit `--radius-xs` at 2px.** The `MasteryStage`
+pips, the `RoundIndicator` pips, and the `MasteryDistribution` segments use
+`rounded-xs`, which had no token and was silently taking Tailwind's built-in 2px
+default. It is now defined at 2px in `app/globals.css`, matching what already
+rendered, so the "one radius system, locked" rule holds mechanically rather than
+by coincidence. See the ten-check audit in `docs/design-guidelines.md`.
+
+**The serif boundary held at exactly two component families plus the wordmark.**
+The phase 13 audit caught one drift — a serif `Assistant` panel heading, which is
+chrome — and it was moved to sans. Serif now appears only on lexical content
+(`Headword`, `DefinitionBlock`, the example and reveal text that inherit from
+them, deck/weakest word rows, the assistant approval target) and the `Pycil`
+brand wordmark, which the audit's allow-list encodes.

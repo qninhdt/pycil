@@ -4,6 +4,64 @@ All notable releases. Format derived from Keep a Changelog; dates in ISO-8601.
 
 ---
 
+## [Unreleased] — 2026-07-28 — Web frontend rebuild + contract completion
+
+Rebuilds `apps/web` on the shipped API contract and closes the API-side gaps and
+bugs the rebuild surfaced. The web app is now tracked in this repository rather
+than assumed to live elsewhere. See
+`plans/260727-1332-web-frontend-rebuild/plan.md`.
+
+Verification (web, stack-independent): `pnpm --filter web typecheck`, `lint`,
+`build`, and `build-storybook` clean; 86 Vitest unit tests pass; the ten-check
+design-system audit is clean across 162 files. Backend: 292 API tests pass.
+Playwright E2E, the LLM generation tier, and the screenshot set are deferred to a
+nightly stack, since they need a live `docker compose` and an LLM credential.
+
+### Added
+
+- **`apps/web` is a tracked Next.js 16 app** (App Router, React 19, Tailwind v4,
+  TanStack Query, Base UI primitives, Phosphor icons). Bearer tokens stay
+  server-side, sealed in an encrypted `HttpOnly` iron-session cookie; the
+  `app/api/*` BFF routes are the only place `Authorization` is attached.
+- **Three-layer web test harness.** Vitest for pure logic (the session reducer,
+  error taxonomy, task-snapshot reconciliation, mastery mapping, the assistant
+  transcript fold and SSE frame parser), Storybook for component review with
+  `addon-a11y`, and the design-system audit as a CI gate. A `test-web` job runs
+  them; every Python job now uses `uv sync --locked` to catch lockfile drift.
+- **API reads the frontend needed:** `GET /v1/senses/{senseId}`,
+  `GET /v1/sessions/{sessionId}` (durable summary, so a recap survives a reload),
+  node `path` and deck `itemCount`, per-item deck learning state, enriched
+  weakest, and `GET /v1/me/history|cefr|weakest`.
+
+### Fixed
+
+- **The Lexi sense-headword contract.** A sense read could arrive with no
+  headword after an upstream regeneration; the contract now carries `word` as
+  explicitly nullable and the UI names the absence rather than rendering an empty
+  heading. Repin recorded with the change.
+- **Deck settings had been a no-op since they were written** — the endpoint
+  accepted a value and never applied it to session planning. Session shape now
+  lives on the learner (`UserLearningSettings`, migration
+  `0019_user_learning_settings`) and the planner reads it, so a configured
+  target and per-round cap take effect on every deck. Folder sessions previously
+  ignored settings entirely.
+- **Session-lifecycle desync bugs.** `restore_delivered` permanently wedged a
+  sense after any aborted answer; an aborted answer now reopens its checkpoint so
+  the sense returns in a later round. The three delivery-desync codes
+  (`question_not_issued_for_session`, `question_not_available`,
+  `question_not_assessable`) now classify distinctly instead of collapsing to one
+  generic `conflict`, so the study screen recovers the first two by re-polling and
+  treats the third as a not-your-question conflict.
+- **Assistant SSE transport contract.** `RunEventRead` now validates from ORM
+  rows (alias choices + `from_attributes`), the `token` payload is typed
+  `{content}` rather than a bare string, and each event carries its `runId` so the
+  transcript dedupes on `(runId, sequence)` — a per-run sequence had collided
+  across runs and silently dropped most of a multi-turn thread. `confirmation_required`
+  now carries the owned target *names* so the approval card can say what it is
+  about to act on.
+
+---
+
 ## [Unreleased] — 2026-07-26 — Lexi semantic search becomes opt-in
 
 Repins `lexi-ai` to `29b7ebe934e85fe3cec89652f2d8d891750d2a65`, where semantic

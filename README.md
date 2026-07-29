@@ -33,8 +33,11 @@ Pycil does not duplicate dictionary content in its application schema. The
 embedded `lexi-ai` library owns the isolated `lexi` schema; API and worker use
 independent pools.
 
-This repository is backend-only (API + worker + shared Python). There is no
-frontend in this repo; any client consumes the API over REST + bearer JWT.
+The repository also contains the web client in `apps/web`: a Next.js 16 App
+Router BFF that seals bearer tokens in an encrypted `HttpOnly` `iron-session`
+cookie and forwards `Authorization: Bearer` only from the server, so a token
+never reaches the browser. It talks to the API over REST and receives task
+updates over Centrifugo SSE.
 
 ## Local development
 

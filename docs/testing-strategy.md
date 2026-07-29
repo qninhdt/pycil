@@ -36,6 +36,100 @@ that used to live in `packages/shared-py/tests/` were removed alongside
 `apps/worker` has no test suite yet — the previous LLM-pipeline tests were
 removed during the worker redesign and not replaced.
 
+## Current frontend (`apps/web`)
+
+Three layers, distinct jobs, no overlap. Vitest for pure logic (no DOM, no
+network); Storybook for component review and a11y in isolation; Playwright for
+the real browser against the real stack. There are deliberately **no**
+component-level DOM tests in Vitest — the same assertions are cheaper and truer
+in Storybook and Playwright.
+
+### Unit (`apps/web/tests/unit/`, Vitest)
+
+Pure functions that take values and return values, where a bug is a logic bug
+rather than a render bug. Config in `vitest.config.ts` (`environment: "node"`,
+`@/` alias mirroring `tsconfig.json`). Covers the modules that carry real risk:
+the study session reducer (`lib/study/session-machine.ts`), the error taxonomy
+(`lib/api/error-taxonomy.ts`), async-task snapshot reconciliation
+(`lib/realtime/task-snapshot.ts`), mastery-stage mapping (`lib/design/mastery.ts`),
+and the assistant transport (`lib/assistant/transcript.ts`, `sse-frames.ts`).
+No test asserts against fabricated data to pass — fixtures are built to the real
+wire types.
+
+Run: `pnpm --filter web test:unit` (or `test:coverage`).
+
+### Design-system audit (`apps/web/scripts/design-system-audit.mjs`)
+
+Ten mechanical greps that enforce the `DESIGN.md` rules a typecheck cannot:
+serif reserved for lexical content, spacing via `gap` not `space-*`, elevation
+as a hairline ring not a drop shadow, colour through the semantic token layer
+not raw hex or a call-site `dark:` override, icons from `lib/icons`, `size-N`
+over `w-N h-N`, `min-h-[100dvh]` over `h-screen`, and every `rounded-*` radius
+resolving to a defined token. Comment-aware: it strips line and block comments
+but keeps string and JSX-text content, so a class inside `className="…"` is
+still checked while an em dash in a JSDoc note is not. The `components/ui/**`
+primitive registry is exempt (that layer wires the tokens); the rules keep the
+rest of the app off the raw values. Non-zero exit on any violation.
+
+Run: `pnpm --filter web audit:design`.
+
+### Storybook (`apps/web/stories/`)
+
+Component review and axe a11y in isolation, themed light/dark via a preview
+decorator, viewports at 390 and 1280. Foundations cover the primitive inventory
+and design tokens; feature stories cover the four question formats, the study
+feedback surfaces (verdict/pending/round), lexical content (headword,
+definition, mastery ramp), library rows and the anonymous-read notice, the
+assistant confirmation card and recovery notice, and the progress figures and
+activity rows — each with loading, empty, and error variants where they apply.
+
+Run: `pnpm --filter web storybook` (dev) or `build-storybook` (CI).
+
+### E2E (`apps/web/tests/e2e/`, Playwright)
+
+The real browser against `docker compose up`, through Caddy's single
+`https://localhost` origin. Nothing is stubbed: no mocked `getSession`, no
+dev-login route, no fabricated question payloads. Auth seals a session cookie
+from the `dev_identity` CLI one-shot using the app's own `sessionOptions`, so the
+cookie under test is the cookie production issues.
+
+Selection is by accessible role and text only. The app ships no `data-testid`
+anywhere, which means a spec cannot pass while the accessible name is wrong — a
+selector that a screen reader could not follow does not resolve either.
+
+`global-setup.ts` seeds a run-scoped folder, deck, and senses over the API and
+warms the question supply, then each spec that studies takes its **own** learner
+via the `learner` fixture. Scheduling state is keyed `(user_id, sense_id)`, so a
+shared learner would make the study specs order-dependent: the first to run
+would pass and the rest would open on "Nothing due right now" — a stale schedule
+that reads exactly like a planner bug. Per-spec learners are cheap because senses
+and prepared questions are global (the generation job drops the owner
+explicitly), so a new identity inherits warm supply and pays no model call.
+
+`fixtures/schedule.ts` is the one documented exception to the API-only rule: no
+endpoint sets `next_review_date` or `mastery`, by design, so making a sense due
+at a chosen mastery runs SQLAlchemy inside the API container. Without it the
+level-3 and level-4 question formats are unreachable, because a new sense is
+always requested at the assessment floor.
+
+Covered: the auth seam, library navigation and anonymous read-only access, and
+the study loop end to end — exposure cards, all four question formats, round
+breaks, the recap and its reload, and a free-text verdict arriving over SSE and
+surviving a reload mid-grade.
+
+Run: `pnpm --filter web test:e2e`.
+
+Not on the per-push gate. It needs the full stack (API, worker, Postgres, Redis,
+Centrifugo, Caddy) plus an LLM credential for the generation tier, so it belongs
+on a nightly workflow against a stood-up stack.
+
+### CI
+
+`test-web` in `.github/workflows/test.yml` runs typecheck, lint, unit, the
+design-system audit, build, and build-storybook on Node 22 / pnpm with a frozen
+lockfile. E2E placement is explicitly the nightly stack. The Python jobs use
+`uv sync --locked` so lockfile drift fails CI.
+
 ---
 
 ## Historical: `apps/pycil-core` testing strategy

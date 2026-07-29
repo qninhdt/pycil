@@ -1,16 +1,16 @@
 # Pycil — Roadmap
 
 **Current status:** backend rebuilt as a Python greenfield migration
-(FastAPI + SQLModel + Alembic), with `lexi-ai` deployed as a separate internal
-HTTP dictionary/grading service. The current source of truth is
+(FastAPI + SQLModel + Alembic) with `lexi-ai` embedded as a domain library, and
+a tracked Next.js 16 web app (`apps/web`) rebuilt against the completed contract.
+The current source of truth is
 [`current-system-architecture.md`](./current-system-architecture.md),
 [`codebase-summary.md`](./codebase-summary.md), and the
 [`frontend-integration-guide.md`](./frontend-integration-guide.md).
 
 The original 7-day sprint plan and its v0.2/v0.3 follow-ups (further down this
 file) describe the pre-migration Python/Next.js MVP. They're kept for
-history; they do not describe the current backend. This repo is now
-backend-only — no frontend ships here.
+history; they do not describe the current system.
 
 ---
 
@@ -60,10 +60,59 @@ Sensitive mutations ship with the MVP behind durable per-action human approval;
 verification is complete: API 122 passed / 2 skipped; worker 3 passed. The
 provider protocol smoke test runs against a local OpenAI-compatible server.
 
-**Phase 10 detail:** the frontend (`apps/web`, Next.js 15) was removed from
-this repo. Pycil is now backend-only — the API is consumed by external
-clients over REST + bearer JWT. Any frontend lives and ships in a separate
-repository.
+**Phase 10 detail:** the original frontend (`apps/web`, Next.js 15) was removed
+from this repo during the greenfield migration. It was later rebuilt from
+scratch against the completed contract — see the Web Frontend Rebuild milestone
+below.
+
+## Web Frontend Rebuild (complete bar the live-stack verification)
+
+**Plan:** [Web Frontend Rebuild](../plans/260727-1332-web-frontend-rebuild/plan.md)
+
+A fresh `apps/web` (Next.js 16 App Router, React 19, Tailwind v4, TanStack
+Query) rebuilt on the retained BFF seam: bearer tokens stay server-side in an
+encrypted `iron-session` cookie, and every screen consumes `/v1` through server
+actions. The rebuild also closed backend contract gaps the frontend needed
+(`GET /v1/senses/{id}`, `GET /v1/sessions/{id}`, node `path`, deck `itemCount`,
+per-item learning state, enriched weakest, the corrected deck-settings pair,
+`/v1/me/{history,cefr,weakest}`) and fixed three backend defects surfaced along
+the way — a no-op deck-settings endpoint, `restore_delivered` wedging a sense
+after an aborted answer, and a `RunEventRead` serialization mismatch.
+
+Phases 1–12 shipped. Phase 13 (verification) landed its stack-independent slice:
+the Vitest unit layer (session reducer, error taxonomy, snapshot reconciliation,
+mastery mapping, the assistant transport), a runnable ten-check design-system
+audit, Storybook stories for the feature components, and a CI web job. The
+remaining phase-13 work (Playwright E2E against `docker compose`, the generation
+tier, a11y runs, and the screenshot set) needs a live stack and is deferred to a
+nightly workflow. Phase 14 is this docs sync.
+
+### Cut P1 scope (recorded as decisions, not omissions)
+
+These were in the design's ambition and deliberately left out of the rebuild;
+re-discovering them later as "missing" would be wrong — they were cut on purpose:
+
+- TTS / audio pronunciation (the product ships IPA as text only).
+- Streaks and the activity heatmap.
+- The sense relation graph as a visual (relations ship as a grouped list).
+- User themes and tags.
+
+### Deliberate capability cuts made during red team
+
+- Folder `dueCount` and folder aggregates were removed from the node **list**
+  response and are served on the opened node instead: they cannot be aggregated
+  in bounded time across a listing.
+- The `search_words` per-result `get_entry` N+1 was left in place rather than
+  amplified; the search path stays single-scoped.
+
+### Backend follow-up (known, not yet fixed)
+
+A run left `RUNNING` after a mid-stream client disconnect is never marked
+abandoned server-side: `GeneratorExit` is a `BaseException` and escapes
+`stream_run`'s `except Exception` handlers, so no terminal event is ever
+written. The frontend copes honestly — it re-reads persisted events and offers a
+resend rather than claiming the reply will resume — but an interrupted reply can
+only be resent, not resumed, until the server reaps such runs.
 
 ## System Design Alignment and Hardening (active)
 
@@ -94,9 +143,12 @@ phases above retain their stated validation work. See the
 - ~~`apps/pycil-core`, `docker-compose.staging.yml`/Dex/MinIO, and
   `apps/web/e2e`~~ — removed 2026-07-06 (superseded/unreferenced by the new
   stack; see system-architecture.md § Known Gaps for what each depended on).
-- There is no browser e2e coverage because this repository has no frontend.
-  The future Next.js BFF must add its own OAuth, sealed-session, and browser
-  journey coverage.
+- Browser e2e coverage is scaffolded but not yet running in CI. `apps/web` now
+  has a Vitest unit layer and a CI web job (typecheck, lint, unit, design-system
+  audit, build, Storybook build); the Playwright journey suite — OAuth via the
+  `dev_identity` CLI seam, sealed-session validation, the study loop, and SSE
+  settlement — needs a live `docker compose` stack and is deferred to a nightly
+  workflow (Web Frontend Rebuild, phase 13).
 - The remaining deployment gate is a real two-Compose smoke test with a
   published Cambridge artifact; it cannot be hermetic because it validates
   the runtime artifact download and shared Docker network.
