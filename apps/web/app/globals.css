@@ -73,9 +73,13 @@
     --color-stage-4: var(--stage-4);
     --color-stage-5: var(--stage-5);
 
-    /* All seven levels the primitives actually consume, given explicit values
-       rather than a calc() chain off a single --radius. The chain put
-       --radius-xl at 14px, over the 12px container ceiling the spec locks. */
+    /* Every level the app consumes, given explicit values rather than a calc()
+       chain off a single --radius. The chain put --radius-xl at 14px, over the
+       12px container ceiling the spec locks. `xs` is stated too: the mastery pips
+       and round counter use `rounded-xs`, and leaving it undefined let it fall to
+       Tailwind's own default (2px) — a silent dependency the audit forbids. 2px
+       is that same value, now owned here rather than inherited. */
+    --radius-xs: 2px;
     --radius-sm: 4px;
     --radius-md: 8px;
     --radius-lg: 8px;

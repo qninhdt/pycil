@@ -18,6 +18,13 @@ export default async function TodayPage() {
 
   return (
     <div className="flex flex-col gap-8 lg:gap-12">
+      {/* Every other route names itself in a level-one heading; this one did not,
+          which left the app's default landing page with no top-level heading at
+          all. That is the one a screen reader announces on arrival and the anchor
+          the rest of the document's outline hangs from, so its absence is a real
+          defect rather than a stylistic choice — the cards below are `h3`s inside
+          `CardTitle`, so without this the outline started mid-level. */}
+      <h1 className="text-2xl tracking-tight">Today</h1>
       <DueSummary
         dueTodayCount={stats.dueTodayCount}
         masteryPercentage={stats.masteryPercentage}

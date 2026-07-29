@@ -8,7 +8,7 @@ import { CommandGroup, CommandItem } from "@/components/ui/command"
 import { Spinner } from "@/components/ui/spinner"
 import { toast } from "@/components/ui/toast"
 import { searchWords } from "@/lib/actions/words"
-import type { SenseItem, WordSearchRead } from "@/lib/api/types"
+import type { SenseContent, WordSearchResult } from "@/lib/api/types"
 import { PlusIcon } from "@/lib/icons"
 
 /** Long enough that a fast typist does not fire a request per keystroke. */
@@ -29,7 +29,7 @@ function useWordSearch(query: string) {
   // would cascade a second render on every keystroke.
   const [settled, setSettled] = useState<{
     query: string
-    results: WordSearchRead[]
+    results: WordSearchResult[]
   }>({ query: "", results: [] })
 
   const trimmed = query.trim()
@@ -68,20 +68,35 @@ function useWordSearch(query: string) {
   }
 }
 
-/** The senses a search hit offers, flattened with their headword. */
+/**
+ * The senses a search hit offers, flattened with their headword.
+ *
+ * `senseId` is non-null here even though the wire type allows null. Every action
+ * this list offers — the row key, adding to a deck, opening the detail — needs an
+ * id, so a sense without one is dropped rather than rendered as a row that
+ * cannot do anything.
+ */
 interface SenseChoice {
   key: string
   headword: string
-  sense: SenseItem
+  senseId: number
+  sense: SenseContent
 }
 
-function toSenseChoices(results: WordSearchRead[]): SenseChoice[] {
+function toSenseChoices(results: WordSearchResult[]): SenseChoice[] {
   return results.flatMap((result) =>
-    (result.senses ?? []).map((sense) => ({
-      key: `${result.display}-${sense.senseId}`,
-      headword: result.display,
-      sense,
-    })),
+    (result.senses ?? []).flatMap((sense) =>
+      sense.senseId == null
+        ? []
+        : [
+            {
+              key: `${result.display}-${sense.senseId}`,
+              headword: result.display,
+              senseId: sense.senseId,
+              sense,
+            },
+          ],
+    ),
   )
 }
 
@@ -114,7 +129,7 @@ export function PaletteWordResults({
 
   return (
     <CommandGroup heading="Words">
-      {choices.map(({ key, headword, sense }) => (
+      {choices.map(({ key, headword, senseId, sense }) => (
         <CommandItem
           key={key}
           value={`${headword} ${sense.definition}`}
@@ -123,11 +138,11 @@ export function PaletteWordResults({
             // sense. Search always exists to put a word somewhere, so adding is
             // the default whenever there is a somewhere.
             if (targetNodeId) {
-              onAddSense(sense.senseId, headword)
+              onAddSense(senseId, headword)
               return
             }
             onNavigate()
-            router.push(`/w/${sense.senseId}`)
+            router.push(`/w/${senseId}`)
           }}
         >
           <span className="flex min-w-0 flex-1 flex-col gap-0.5">

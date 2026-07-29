@@ -5,6 +5,8 @@ import {
   RETURN_PATH_MAX_AGE,
 } from "@/lib/auth/return-path";
 
+import type { LoginStart } from "@/lib/api/types";
+
 export async function GET(request: NextRequest) {
   const apiUrl = process.env.PYCIL_API_URL || "http://localhost:8000";
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
@@ -22,8 +24,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(new URL("/login?error=auth_init_failed", appUrl));
     }
 
-    const data = (await res.json()) as { authorize_url: string };
-    const response = NextResponse.redirect(data.authorize_url);
+    const data: LoginStart = await res.json();
+    const response = NextResponse.redirect(data.authorizeUrl);
 
     // Where the guard sent them from, held for the round trip so a deep link to
     // /progress does not silently land on / after sign-in. Validated here rather

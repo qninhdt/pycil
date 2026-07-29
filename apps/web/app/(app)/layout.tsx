@@ -25,7 +25,7 @@ export default async function AppLayout({
   // needs no caller, which is why the anonymous library view resolves it too.
   let assistantEnabled = false
   try {
-    const capabilities = await createApiClient(session).getCapabilities()
+    const capabilities = await createApiClient(session).auth.getCapabilities()
     assistantEnabled = capabilities.assistant
   } catch {
     assistantEnabled = false

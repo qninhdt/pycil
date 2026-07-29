@@ -8,7 +8,7 @@ export async function getRealtimeToken() {
   if (!session.isLoggedIn) return null;
   try {
     const client = createApiClient(session);
-    return await client.getRealtimeToken();
+    return await client.auth.getRealtimeToken();
   } catch (err) {
     console.warn("Failed to fetch realtime token:", err);
     return null;

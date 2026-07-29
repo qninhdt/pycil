@@ -1,78 +1,65 @@
 "use server"
 
-import { createApiClient } from "@/lib/api/client"
-import { handleAction, type ActionResult } from "@/lib/api/handle-api-error"
-import type {
-  GenerationCreateRead,
-  SenseAddResponse,
-  WordSearchRead,
-} from "@/lib/api/types"
-import { getSession } from "@/lib/auth/session"
+import { revalidatePath } from "next/cache"
+
+import type { ActionResult } from "@/lib/api/handle-api-error"
+import type { GenerationCreated, SenseAdded, WordSearchResult } from "@/lib/api/types"
+
+import { withClient } from "./authorized-action"
 
 /**
- * The palette's three server actions.
+ * The palette's three actions.
  *
- * They exist as actions rather than as route handlers because each one is called
- * from a client component with no need for a URL of its own, and the session
- * cookie is read on the server either way: the bearer token never reaches the
- * browser.
+ * They are actions rather than route handlers because each is called from a
+ * client component with no need for a URL of its own, and the session cookie is
+ * read on the server either way: the bearer token never reaches the browser.
  */
-
-const SIGNED_OUT = {
-  success: false as const,
-  error: "Sign in to continue",
-  code: "not_authenticated",
-}
 
 export async function searchWords(
   query: string,
-): Promise<ActionResult<WordSearchRead[]>> {
+): Promise<ActionResult<WordSearchResult[]>> {
   const trimmed = query.trim()
-  // An empty query is not an error and not a request: the API would reject it and
-  // the palette would show a failure for having typed nothing.
+  // An empty query is not an error and not a request. Sending it would fail
+  // validation and the palette would report a failure for having typed nothing.
   if (trimmed.length === 0) return { success: true, data: [] }
 
-  const session = await getSession()
-  if (!session.isLoggedIn) return SIGNED_OUT
-
-  const client = createApiClient(session)
-  return handleAction(() => client.searchWords(trimmed))
+  return withClient((client) => client.content.searchWords(trimmed))
 }
 
 /**
- * Starts a word generation and returns its task id. The work itself is
- * asynchronous; the caller registers the id with the activity store so the
- * result is still reachable after a reload.
+ * Starts a word generation and returns its task id.
+ *
+ * The work itself is asynchronous. The caller registers the id with the activity
+ * store, which is what keeps the result reachable after a reload.
  */
 export async function generateWord(
   query: string,
-): Promise<ActionResult<GenerationCreateRead>> {
+): Promise<ActionResult<GenerationCreated>> {
   const trimmed = query.trim()
   if (trimmed.length === 0) {
-    return { success: false, error: "Type a word first", code: "empty_query" }
+    return { success: false, error: "Type a word first.", code: "empty_query" }
   }
 
-  const session = await getSession()
-  if (!session.isLoggedIn) return SIGNED_OUT
-
-  const client = createApiClient(session)
-  return handleAction(() => client.submitWordGeneration(trimmed))
+  return withClient((client) => client.content.generateWord(trimmed))
 }
 
 /**
  * Adds a sense to a deck.
  *
- * This is the mutation that bumps the deck's structural generation, along with
- * every ancestor and reverse reference of it, which is why the palette confirms
- * first when a session is live.
+ * This bumps the deck's structural generation and propagates to every ancestor
+ * and reverse reference, which is why the palette confirms first when a session
+ * is live: the addition can invalidate a session scoped to a parent folder.
+ *
+ * The deck page is revalidated so the new word is present on the next visit
+ * rather than after a manual refresh.
  */
 export async function addSenseToDeck(
   nodeId: string,
   senseId: number,
-): Promise<ActionResult<SenseAddResponse>> {
-  const session = await getSession()
-  if (!session.isLoggedIn) return SIGNED_OUT
-
-  const client = createApiClient(session)
-  return handleAction(() => client.addSenseToDeck(nodeId, senseId))
+): Promise<ActionResult<SenseAdded>> {
+  const result = await withClient((client) =>
+    client.hierarchy.addSenseToDeck(nodeId, senseId),
+  )
+  if (result.success) revalidatePath(`/library/${nodeId}`)
+  return result
 }

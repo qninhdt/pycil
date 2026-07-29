@@ -1,4 +1,4 @@
-import type { FSRSForecastDay } from "@/lib/api/types"
+import type { ForecastDay } from "@/lib/api/types"
 
 /** Weekday initial for a `YYYY-MM-DD` date, in the viewer's locale. */
 function weekday(date: string): string {
@@ -16,7 +16,7 @@ function weekday(date: string): string {
  * seven invisible stubs. The counts are in the markup either way, so the bars
  * are decoration over a readable table rather than the only source.
  */
-export function ForecastStrip({ forecast }: { forecast: FSRSForecastDay[] }) {
+export function ForecastStrip({ forecast }: { forecast: ForecastDay[] }) {
   if (forecast.length === 0) return null
 
   const busiest = Math.max(...forecast.map((day) => day.dueCount))

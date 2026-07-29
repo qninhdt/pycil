@@ -2,21 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth/session";
 import { RETURN_PATH_COOKIE, resolveReturnPath } from "@/lib/auth/return-path";
 
-interface TokenResponse {
-  access_token: string;
-  refresh_token: string;
-  expires_in: number;
-  refresh_expires_in: number;
-  token_type: string;
-}
-
-interface UserResponse {
-  id: string;
-  email: string;
-  name: string | null;
-  image: string | null;
-  token_version: number;
-}
+import type { AuthTokens, Viewer } from "@/lib/api/types";
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
@@ -43,13 +29,17 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(new URL("/login?error=token_exchange_failed", appUrl));
     }
 
-    const tokens: TokenResponse = await tokenRes.json();
+    // The API serializes by alias, so these arrive camelCase. This route talks
+    // to the API with a raw fetch rather than the typed client, so nothing
+    // converts the casing for it: reading `access_token` here yields undefined
+    // and seals a session with no tokens in it.
+    const tokens: AuthTokens = await tokenRes.json();
     const nowInSeconds = Math.floor(Date.now() / 1000);
 
     // 2. Fetch current user details from /v1/me
     const meRes = await fetch(`${apiUrl}/v1/me`, {
       headers: {
-        Authorization: `Bearer ${tokens.access_token}`,
+        Authorization: `Bearer ${tokens.accessToken}`,
       },
       cache: "no-store",
     });
@@ -59,19 +49,22 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(new URL("/login?error=profile_fetch_failed", appUrl));
     }
 
-    const userProfile: UserResponse = await meRes.json();
+    const userProfile: Viewer = await meRes.json();
 
     // 3. Seal tokens and user info into iron-session cookie
     const session = await getSession();
-    session.accessToken = tokens.access_token;
-    session.refreshToken = tokens.refresh_token;
-    session.expiresAt = nowInSeconds + tokens.expires_in;
-    session.refreshExpiresAt = nowInSeconds + tokens.refresh_expires_in;
+    session.accessToken = tokens.accessToken;
+    session.refreshToken = tokens.refreshToken;
+    session.expiresAt = nowInSeconds + tokens.expiresIn;
+    session.refreshExpiresAt = nowInSeconds + tokens.refreshExpiresIn;
     session.user = {
       id: userProfile.id,
       email: userProfile.email,
-      name: userProfile.name,
-      image: userProfile.image,
+      // Both are optional on the wire and nullable in the session: an absent
+      // field and an explicitly null one mean the same thing here, so the
+      // distinction is collapsed rather than carried into the cookie.
+      name: userProfile.name ?? null,
+      image: userProfile.image ?? null,
     };
     session.isLoggedIn = true;
     await session.save();

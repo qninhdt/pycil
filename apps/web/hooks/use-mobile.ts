@@ -1,38 +1,60 @@
 import * as React from "react"
 
-/** Matches the `md` breakpoint: below this the design spec is single-column. */
+/**
+ * Viewport queries for the two decisions CSS genuinely cannot make.
+ *
+ * Anything expressible as a responsive class must be one. These hooks exist only
+ * for choosing between two *different components* — a `Drawer` versus a `Popover`,
+ * a portal versus an in-flow element — where a `lg:hidden` wrapper cannot help
+ * because the portal escapes it and renders anyway.
+ */
+
+/** The `md` breakpoint: below this the design spec is single-column. */
 const MOBILE_BREAKPOINT = 768
 
-const QUERY = `(max-width: ${MOBILE_BREAKPOINT - 1}px)`
+/** The `lg` breakpoint, where the shell swaps the tab bar for the nav rail. */
+const DESKTOP_BREAKPOINT = 1024
 
-function subscribe(onChange: () => void): () => void {
-  const query = window.matchMedia(QUERY)
-  query.addEventListener("change", onChange)
-  return () => query.removeEventListener("change", onChange)
-}
+function useMediaQuery(query: string): boolean {
+  const subscribe = React.useCallback(
+    (onChange: () => void) => {
+      const list = window.matchMedia(query)
+      list.addEventListener("change", onChange)
+      return () => list.removeEventListener("change", onChange)
+    },
+    [query],
+  )
 
-function getSnapshot(): boolean {
-  return window.matchMedia(QUERY).matches
+  const getSnapshot = React.useCallback(() => window.matchMedia(query).matches, [query])
+
+  // The server has no viewport, so every query reports false and the server renders
+  // the desktop case. React swaps to the real value straight after hydration without
+  // a mismatch warning, which is why this is safe and a `useEffect` + `setState` pair
+  // is not.
+  const getServerSnapshot = React.useCallback(() => false, [])
+
+  return React.useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot)
 }
 
 /**
- * The server has no viewport, so it reports desktop. React swaps to the real
- * value straight after hydration without a mismatch warning, which is why this
- * is safe here and a `useEffect` + `setState` pair is not.
- */
-function getServerSnapshot(): boolean {
-  return false
-}
-
-/**
- * Whether the viewport is narrower than the `md` breakpoint.
+ * Whether the viewport is narrower than `md`.
  *
- * Reserved for decisions CSS genuinely cannot make — currently choosing between
- * a `Drawer` and a `Popover`, or a `Sheet` and a `Dialog`, both of which render
- * through a portal that a `lg:hidden` wrapper would not contain. Anything that
- * can be a responsive class must be one: this hook returns the desktop value on
- * the server, so using it for layout would flip the layout after hydration.
+ * Used where the mobile form is a bottom sheet and the desktop form is a popover
+ * anchored to its trigger — the activity centre being the current case.
  */
 export function useIsMobile(): boolean {
-  return React.useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot)
+  return useMediaQuery(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`)
+}
+
+/**
+ * Whether the viewport is narrower than `lg`, which is where the shell changes shape.
+ *
+ * Distinct from `useIsMobile` on purpose. The assistant's desktop form is an in-flow
+ * sidebar that shrinks the content column, and the column only has room for one once
+ * the nav rail has replaced the bottom tab bar. Keying it to `md` instead put a
+ * full-height sidebar and the bottom tab bar on screen together between 768 and
+ * 1023px, where they overlap.
+ */
+export function useIsBelowDesktop(): boolean {
+  return useMediaQuery(`(max-width: ${DESKTOP_BREAKPOINT - 1}px)`)
 }

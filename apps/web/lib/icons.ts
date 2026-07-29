@@ -33,6 +33,9 @@ export {
   MoonIcon,
   DesktopIcon,
 
+  // Loading. Used by the spinner primitive, which spins it in CSS.
+  CircleNotchIcon,
+
   // Direction and disclosure.
   CaretRightIcon,
   CaretLeftIcon,
@@ -50,6 +53,7 @@ export {
   FolderIcon,
   FolderOpenIcon,
   CardsThreeIcon,
+  LinkSimpleIcon,
   BookOpenIcon,
   FilePlusIcon,
   PencilSimpleIcon,

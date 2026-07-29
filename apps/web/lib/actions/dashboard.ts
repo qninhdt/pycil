@@ -1,7 +1,7 @@
 import "server-only"
 
 import { createApiClient } from "@/lib/api/client"
-import type { DashboardStatsRead, WeakSenseRead } from "@/lib/api/types"
+import type { DashboardStats, WeakSense } from "@/lib/api/types"
 import { getSession } from "@/lib/auth/session"
 
 /**
@@ -13,8 +13,8 @@ import { getSession } from "@/lib/auth/session"
  */
 
 export interface TodayData {
-  stats: DashboardStatsRead
-  weakest: WeakSenseRead[]
+  stats: DashboardStats
+  weakest: WeakSense[]
 }
 
 export async function getTodayData(): Promise<TodayData> {
@@ -25,8 +25,8 @@ export async function getTodayData(): Promise<TodayData> {
   // either is left to propagate: the route's error boundary states it once
   // instead of every block rendering its own half-empty guess.
   const [stats, weakest] = await Promise.all([
-    client.getDashboardStats(),
-    client.getGlobalWeakest(5),
+    client.analytics.getDashboard(),
+    client.analytics.getGlobalWeakest(5),
   ])
 
   return { stats, weakest }

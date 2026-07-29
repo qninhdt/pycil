@@ -1,7 +1,7 @@
 import Link from "next/link"
 
 import { Badge } from "@/components/ui/badge"
-import type { WeakSenseRead } from "@/lib/api/types"
+import type { WeakSense } from "@/lib/api/types"
 import { masteryStageAttr, masteryStageName } from "@/lib/design/mastery"
 
 /**
@@ -13,7 +13,7 @@ import { masteryStageAttr, masteryStageName } from "@/lib/design/mastery"
  * real. Such a row still links somewhere useful, so it renders with the score and
  * a plain note instead of being dropped.
  */
-export function WeakestPreview({ weakest }: { weakest: WeakSenseRead[] }) {
+export function WeakestPreview({ weakest }: { weakest: WeakSense[] }) {
   if (weakest.length === 0) return null
 
   return (

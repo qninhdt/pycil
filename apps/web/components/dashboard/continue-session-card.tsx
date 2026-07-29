@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/card"
 import { Empty, EmptyDescription, EmptyTitle } from "@/components/ui/empty"
 import { PlayIcon } from "@/lib/icons"
-import type { RecentSessionInfo } from "@/lib/api/types"
+import type { RecentSession } from "@/lib/api/types"
 
 /**
  * The one action Today exists to offer.
@@ -26,7 +26,7 @@ export function ContinueSessionCard({
   recentSession,
   dueCount,
 }: {
-  recentSession: RecentSessionInfo | null
+  recentSession: RecentSession | null
   dueCount: number
 }) {
   if (!recentSession) {
