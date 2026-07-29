@@ -10,6 +10,17 @@
 
 # testing
 /coverage
+# Playwright run artifacts. Traces and DOM snapshots embed sealed session
+# cookies and internal proxy headers, so they must never reach the remote.
+/playwright-report/
+/test-results/
+/blob-report/
+/playwright/.cache/
+# The signed-in storage state and the seeded fixture, written by global setup.
+# `state.json` holds a live `pycil-session` cookie — an actual credential, not a
+# placeholder — and `fixture.json` names run-scoped ids. Both are rebuilt by every
+# run, so there is nothing to preserve and everything to leak.
+/tests/e2e/.auth/
 
 # next.js
 /.next/
