@@ -196,12 +196,7 @@ async def thread_messages(
         .where(AssistantRun.thread_id == thread_id)
         .order_by(AssistantRunEvent.created_at, AssistantRunEvent.sequence)
     )
-    return [
-        RunEventRead(
-            id=e.id, sequence=e.sequence, eventType=e.event_type, payload=e.sanitized_payload
-        )
-        for e in events.scalars()
-    ]
+    return [RunEventRead.model_validate(e) for e in events.scalars()]
 
 
 @router.get("/threads/{thread_id}/runs/{run_id}", response_model=RunRecoveryRead)
@@ -221,15 +216,13 @@ async def get_run(
         .where(AssistantRunEvent.run_id == run.id, AssistantRunEvent.sequence > after)
         .order_by(AssistantRunEvent.sequence)
     )
-    return {
-        **RunRead.model_validate(run).model_dump(by_alias=True),
-        "events": [
-            RunEventRead(
-                id=e.id, sequence=e.sequence, eventType=e.event_type, payload=e.sanitized_payload
-            ).model_dump(by_alias=True)
-            for e in events
-        ],
-    }
+    # Returned as the model rather than a hand-dumped dict: `response_model` then
+    # applies the aliases itself, so the camelCase output cannot drift from the
+    # schema the way two separate `model_dump(by_alias=True)` calls could.
+    return RunRecoveryRead(
+        **RunRead.model_validate(run).model_dump(),
+        events=[RunEventRead.model_validate(e) for e in events],
+    )
 
 
 @router.post(

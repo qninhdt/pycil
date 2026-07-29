@@ -39,7 +39,7 @@ async def hierarchy_client(engine):
         yield client, factory, owner
 
 
-async def test_tree_list_update_and_deck_settings_survive_reload(hierarchy_client):
+async def test_tree_list_update_and_learning_settings_survive_reload(hierarchy_client):
     client, factory, owner = hierarchy_client
     async with factory() as session:
         folder = await service.create_node(
@@ -59,11 +59,13 @@ async def test_tree_list_update_and_deck_settings_survive_reload(hierarchy_clien
     updated = await client.patch(
         f"/v1/nodes/{deck.id}", json={"name": "common verbs", "description": "daily"}
     )
+    # Session shape is the caller's own, not the deck's: the same values apply
+    # whichever node a session starts from.
     settings = await client.patch(
-        f"/v1/decks/{deck.id}/settings",
+        "/v1/me/learning-settings",
         json={"targetWordsPerSession": 7, "maxQuestionsPerRound": 13},
     )
-    settings_read = await client.get(f"/v1/decks/{deck.id}/settings")
+    settings_read = await client.get("/v1/me/learning-settings")
 
     assert roots.status_code == 200
     assert [item["id"] for item in roots.json()["items"]] == [str(folder.id)]

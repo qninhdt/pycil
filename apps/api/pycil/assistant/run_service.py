@@ -209,6 +209,14 @@ async def stream_run(
                         async with async_session_factory() as session:
                             generation = None
                             generations: dict[str, int] = {}
+                            # What the approval is *about*, in words. The confirmable
+                            # tools are the destructive ones, and an approval prompt
+                            # naming only the tool asks the learner to authorise
+                            # "delete_node" against an opaque UUID. The target row is
+                            # already loaded here for the generation check, so its name
+                            # costs nothing extra and is the difference between
+                            # informed consent and a blind yes.
+                            targets: dict[str, str] = {}
                             from pycil.hierarchy.models import Node
 
                             for key in ("node_id", "deck_id", "parent_id"):
@@ -219,8 +227,11 @@ async def stream_run(
                                     target = await session.get(Node, UUID(str(raw_target)))
                                 except ValueError:
                                     continue
+                                # Ownership is already required, so echoing the name
+                                # back discloses nothing the caller cannot already read.
                                 if target is not None and target.author_id == context.user_id:
                                     generations[key] = target.structural_generation
+                                    targets[key] = target.name
                                     if key in {"node_id", "deck_id"}:
                                         generation = target.structural_generation
                             arguments = {**arguments, "_resource_generations": generations}
@@ -241,6 +252,12 @@ async def stream_run(
                                 "action_id": str(action.id),
                                 "tool": tool,
                                 "expires_at": action.expires_at.isoformat(),
+                                # Only the owned names resolved above, never the raw
+                                # argument dict: that also holds ids and the internal
+                                # `_resource_generations`, none of which belong in a
+                                # payload the client renders. Absent when the tool
+                                # targets nothing nameable.
+                                "targets": targets,
                             },
                         )
                         return

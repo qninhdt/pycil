@@ -25,6 +25,7 @@ from lexi_ai.contracts import PrepareDemand
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pycil.learning import session_queue
+from pycil.learning.models import UserLearningSettings
 from pycil.learning.policy import (
     ASSESSMENT_FLOOR,
     DEFAULT_MAX_QUESTIONS_PER_ROUND,
@@ -48,14 +49,33 @@ class PlanResult:
     demands: list[PrepareDemand]
 
 
-def settings_from_deck(settings: dict | None) -> SessionSettings:
-    """Read the two session-shape settings from deck JSONB, applying defaults."""
-    raw = settings or {}
-    target = int(raw.get("target_words_per_session", DEFAULT_TARGET_WORDS_PER_SESSION))
-    max_round = int(raw.get("max_questions_per_round", DEFAULT_MAX_QUESTIONS_PER_ROUND))
+DEFAULT_SESSION_SETTINGS = SessionSettings(
+    target_words_per_session=DEFAULT_TARGET_WORDS_PER_SESSION,
+    max_questions_per_round=DEFAULT_MAX_QUESTIONS_PER_ROUND,
+)
+
+
+async def settings_for_user(session: AsyncSession, user_id: UUID) -> SessionSettings:
+    """The learner's session shape, or the policy defaults when they have none.
+
+    Session shape belongs to the learner rather than to a deck: the same person
+    wants the same session length whichever deck they open, and holding it per deck
+    meant a client showing "your settings" had to walk the node tree to find every
+    deck first.
+
+    An absent row is the normal state, not a missing one. Signing up writes nothing,
+    and a learner who never opens Settings keeps whatever the policy defaults say —
+    which is also how a default can be changed for everyone who never overrode it.
+    """
+    row = await session.get(UserLearningSettings, user_id)
+    if row is None:
+        return DEFAULT_SESSION_SETTINGS
+    # Clamped on read as well as written under a CHECK constraint: the planner
+    # divides work by these, so a zero arriving from any future writer would produce
+    # a session with nothing in it rather than an error.
     return SessionSettings(
-        target_words_per_session=max(1, target),
-        max_questions_per_round=max(1, max_round),
+        target_words_per_session=max(1, row.target_words_per_session),
+        max_questions_per_round=max(1, row.max_questions_per_round),
     )
 
 

@@ -13,6 +13,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pycil.auth.deps import current_user
@@ -23,7 +24,7 @@ from pycil.content.lexi_port import LexiReader
 from pycil.db.redis import get_arq_pool, get_redis
 from pycil.db.session import get_session
 from pycil.hierarchy.access import require_node_access
-from pycil.hierarchy.models import DeckAttributes, Node, NodeType
+from pycil.hierarchy.models import Node, NodeType
 from pycil.learning import (
     grading,
     planning,
@@ -33,7 +34,12 @@ from pycil.learning import (
     session_recap,
     session_store,
 )
-from pycil.learning.models import Response, ReviewLog, UserSenseStats
+from pycil.learning.models import (
+    Response,
+    ReviewLog,
+    UserLearningSettings,
+    UserSenseStats,
+)
 from pycil.learning.question_delivery import (
     presentation_payload,
     render_format,
@@ -46,6 +52,8 @@ from pycil.learning.schemas import (
     FreeTextReady,
     FSRSForecastDay,
     GradeResponse,
+    LearningSettingsRead,
+    LearningSettingsUpdate,
     NextQuestionBreak,
     NextQuestionExhausted,
     NextQuestionPreparing,
@@ -70,6 +78,70 @@ _READY_CLASSES = {
     "text_span": TextSpanReady,
     "free_text": FreeTextReady,
 }
+
+
+@router.get("/me/learning-settings", response_model=LearningSettingsRead)
+async def get_learning_settings(
+    user: Annotated[CurrentUser, Depends(current_user)],
+    session: AsyncSession = Depends(get_session),
+) -> LearningSettingsRead:
+    """The caller's effective session shape.
+
+    Resolved through the planner's own reader, so what comes back is what the next
+    session will actually use rather than the contents of a row that may not exist.
+    A learner who has never set anything gets the policy defaults, not an empty
+    object every client would have to interpret.
+    """
+    effective = await planning.settings_for_user(session, user.id)
+    return LearningSettingsRead(
+        target_words_per_session=effective.target_words_per_session,
+        max_questions_per_round=effective.max_questions_per_round,
+    )
+
+
+@router.patch("/me/learning-settings", response_model=LearningSettingsRead)
+async def update_learning_settings(
+    body: LearningSettingsUpdate,
+    user: Annotated[CurrentUser, Depends(current_user)],
+    session: AsyncSession = Depends(get_session),
+) -> LearningSettingsRead:
+    """Sets the caller's session shape, creating the row on first write.
+
+    A real upsert rather than a read-then-branch. The row is absent until someone
+    saves, and a SELECT finding nothing locks nothing — so two tabs saving at once
+    would both take the insert branch and the second would fail on the primary key.
+    ``ON CONFLICT`` makes the first write idempotent for the same reason the session
+    recap needs it.
+
+    A live session is unaffected. It carries the plan it was created with, so a
+    change here applies from the next session, which is what the form says.
+    """
+    now = datetime.now(UTC)
+    statement = pg_insert(UserLearningSettings).values(
+        user_id=user.id,
+        target_words_per_session=body.target_words_per_session,
+        max_questions_per_round=body.max_questions_per_round,
+        updated_at=now,
+    )
+    await session.execute(
+        statement.on_conflict_do_update(
+            # Named as a string rather than as the model attribute: SQLModel's
+            # annotation resolves to the Python type, not to a Column, so passing the
+            # attribute here does not describe an index target.
+            index_elements=["user_id"],
+            set_={
+                "target_words_per_session": statement.excluded.target_words_per_session,
+                "max_questions_per_round": statement.excluded.max_questions_per_round,
+                "updated_at": statement.excluded.updated_at,
+            },
+        )
+    )
+    await session.commit()
+
+    return LearningSettingsRead(
+        target_words_per_session=body.target_words_per_session,
+        max_questions_per_round=body.max_questions_per_round,
+    )
 
 
 @router.get("/learning/dashboard", response_model=DashboardStatsRead)
@@ -166,16 +238,14 @@ async def start_session(
     rng = random.Random(session_id)
     # A structural mutation can change the canonical resolver while this request
     # runs.  Retry once so the plan carries the generation it was resolved from.
+    # Session shape is the learner's, not the node's, so it is resolved once here
+    # rather than per node kind. A folder session and a deck session now get the
+    # same shape, which is what the learner configured.
+    settings = await planning.settings_for_user(session, user.id)
     plan = None
-    settings = None
     for _ in range(2):
         node = await require_node_access(session, body.node_id, user, write=False)
         generation = node.structural_generation
-        deck_settings = None
-        if node.type == NodeType.DECK:
-            attributes = await session.get(DeckAttributes, node.id)
-            deck_settings = attributes.settings if attributes else None
-        settings = planning.settings_from_deck(deck_settings)
         plan = await planning.plan_session(session, user.id, body.node_id, now, settings, rng)
         node = await require_node_access(session, body.node_id, user, write=False)
         if node.structural_generation == generation:

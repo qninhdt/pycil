@@ -156,6 +156,32 @@ class SessionSenseAttempt(SQLModel, table=True):
 
 
 
+class UserLearningSettings(SQLModel, table=True):
+    """How this learner's sessions are shaped.
+
+    One row per learner, or none. An absent row means the policy defaults, so
+    signing up writes nothing and a learner who never opens Settings stores
+    nothing.
+
+    Per user rather than per deck because session shape describes the person, not
+    the material: the same learner wanting shorter sessions wants them everywhere.
+    The previous per-deck JSONB also had no readable listing — a client showing
+    "your settings" had to walk the whole node tree to discover every deck first.
+    """
+
+    __tablename__ = "user_learning_settings"
+
+    user_id: UUID = Field(foreign_key="users.id", primary_key=True)
+    target_words_per_session: int
+    max_questions_per_round: int
+    created_at: datetime | None = Field(
+        default=None, sa_type=TZDateTime, sa_column_kwargs={"server_default": text("NOW()")}
+    )
+    updated_at: datetime | None = Field(
+        default=None, sa_type=TZDateTime, sa_column_kwargs={"server_default": text("NOW()")}
+    )
+
+
 class SessionSummary(SQLModel, table=True):
     """Presentation-only recap of a finished session.
 

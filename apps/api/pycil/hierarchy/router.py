@@ -22,10 +22,8 @@ from pycil.db.session import get_session
 from pycil.hierarchy import cache, service, stats, subtree
 from pycil.hierarchy.access import require_node_access
 from pycil.hierarchy.ancestry import ancestor_chain
-from pycil.hierarchy.models import DeckAttributes, Node, NodeType, Visibility
+from pycil.hierarchy.models import Node, NodeType, Visibility
 from pycil.hierarchy.schemas import (
-    DeckSettingsRead,
-    DeckSettingsUpdate,
     FolderItemRead,
     FolderStatsRead,
     HistoryBucketRead,
@@ -39,7 +37,6 @@ from pycil.hierarchy.schemas import (
     WeakSenseRead,
 )
 from pycil.hierarchy.viewer_stats import get_folder_stats_for_viewer
-from pycil.learning import planning
 from pycil.learning.history import MasteryObservation, daily_history
 from pycil.learning.models import UserSenseStats
 from pycil.learning.policy import MASTERED_FLOOR
@@ -281,60 +278,6 @@ async def get_node(
     if node.type == NodeType.DECK:
         read.item_count = (await _deck_item_counts(session, [node.id])).get(node.id, 0)
     return read
-
-
-@router.get("/decks/{node_id}/settings", response_model=DeckSettingsRead)
-async def get_deck_settings(
-    node_id: UUID,
-    user: Annotated[CurrentUser, Depends(current_user)],
-    session: AsyncSession = Depends(get_session),
-) -> DeckSettingsRead:
-    """Effective session settings for a deck.
-
-    Resolved through the planner's own reader, so a deck with no settings row — or
-    one still holding the legacy keys that were never read — reports the policy
-    defaults the next session will actually use, rather than an empty object the
-    client would have to interpret.
-    """
-    node = await require_node_access(session, node_id, user, write=True)
-    if node.type != NodeType.DECK:
-        raise ConflictError("node_is_not_deck")
-    attributes = await session.get(DeckAttributes, node.id)
-    effective = planning.settings_from_deck(attributes.settings if attributes else None)
-    return DeckSettingsRead(
-        target_words_per_session=effective.target_words_per_session,
-        max_questions_per_round=effective.max_questions_per_round,
-    )
-
-
-@router.patch("/decks/{node_id}/settings", response_model=DeckSettingsRead)
-async def update_deck_settings(
-    node_id: UUID,
-    body: DeckSettingsUpdate,
-    user: Annotated[CurrentUser, Depends(current_user)],
-    session: AsyncSession = Depends(get_session),
-) -> DeckSettingsRead:
-    node = await require_node_access(session, node_id, user, write=True)
-    if node.type != NodeType.DECK:
-        raise ConflictError("node_is_not_deck")
-    attributes = await session.get(DeckAttributes, node.id, with_for_update=True)
-    if attributes is None:
-        attributes = DeckAttributes(node_id=node.id)
-        session.add(attributes)
-    # These key names are load-bearing: planning.settings_from_deck reads exactly
-    # these two. The previous new_per_batch / review_per_batch keys were written
-    # here and read nowhere, so deck settings never reached a session. Legacy keys
-    # are dropped rather than migrated — they were inert, so there is no value to
-    # carry forward, and settings_from_deck falls back to the policy defaults.
-    attributes.settings = {
-        "target_words_per_session": body.target_words_per_session,
-        "max_questions_per_round": body.max_questions_per_round,
-    }
-    await session.commit()
-    return DeckSettingsRead(
-        target_words_per_session=body.target_words_per_session,
-        max_questions_per_round=body.max_questions_per_round,
-    )
 
 
 @router.get("/folders/{node_id}/stats", response_model=FolderStatsRead)

@@ -17,6 +17,37 @@ class SessionStart(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class LearningSettingsUpdate(BaseModel):
+    """The learner's session shape.
+
+    Per user, not per deck. Holding these on a deck meant the same person got a
+    different session length depending on which deck they opened, and a folder
+    session ignored them entirely because a folder has no settings row — so the
+    values only applied about half the time.
+
+    The bounds are duplicated as CHECK constraints on the table. The planner
+    divides its work by both numbers, so a zero arriving from anywhere would build
+    a session with nothing in it.
+    """
+
+    target_words_per_session: int = Field(alias="targetWordsPerSession", ge=1, le=100)
+    max_questions_per_round: int = Field(alias="maxQuestionsPerRound", ge=1, le=100)
+
+    model_config = {"populate_by_name": True}
+
+
+class LearningSettingsRead(BaseModel):
+    """Effective session shape: the learner's row, or the policy defaults.
+
+    Never an empty object. A learner who has never opened Settings has no row, and
+    reporting that as ``{}`` would make every client reimplement the defaults in
+    order to show anything.
+    """
+
+    target_words_per_session: int = Field(serialization_alias="targetWordsPerSession")
+    max_questions_per_round: int = Field(serialization_alias="maxQuestionsPerRound")
+
+
 class SessionRead(BaseModel):
     session_id: str = Field(serialization_alias="sessionId")
     node_id: UUID = Field(serialization_alias="nodeId")

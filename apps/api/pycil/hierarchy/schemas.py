@@ -78,25 +78,6 @@ class NodePageRead(BaseModel):
     next_cursor: str | None = Field(default=None, serialization_alias="nextCursor")
 
 
-class DeckSettingsUpdate(BaseModel):
-    """The two session-shape settings, named after the keys the planner reads.
-
-    The previous names (``newPerBatch`` / ``reviewPerBatch``) were written to
-    ``deck_attributes.settings`` under keys ``planning.settings_from_deck`` never
-    looked up, so writing deck settings had no effect on any session.
-    """
-
-    target_words_per_session: int = Field(alias="targetWordsPerSession", ge=1, le=100)
-    max_questions_per_round: int = Field(alias="maxQuestionsPerRound", ge=1, le=100)
-
-    model_config = {"populate_by_name": True}
-
-
-class DeckSettingsRead(BaseModel):
-    target_words_per_session: int = Field(serialization_alias="targetWordsPerSession")
-    max_questions_per_round: int = Field(serialization_alias="maxQuestionsPerRound")
-
-
 class NodeVisibilityUpdate(BaseModel):
     visibility: Visibility
     confirm_subtree_publication: bool = Field(

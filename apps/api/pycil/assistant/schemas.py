@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 
 
 class ThreadCreate(BaseModel):
@@ -43,12 +43,35 @@ class RunRead(BaseModel):
 
 
 class RunEventRead(BaseModel):
-    id: UUID
-    sequence: int
-    event_type: str = Field(serialization_alias="eventType")
-    payload: dict
+    """One persisted run event, as replayed by the two non-streaming reads.
 
-    model_config = {"populate_by_name": True}
+    Both aliases are declared for a reason. `serialization_alias` alone names only
+    the *output* field, so a keyword built from the camelCase name failed
+    validation and the endpoint answered 500 on its first row. And `payload` is
+    stored as `sanitized_payload`, so validating straight off the ORM row needs
+    that name accepted too — which is what lets the router hand over the row
+    itself instead of restating every field at two call sites.
+    """
+
+    id: UUID
+    # `sequence` is only unique *within* a run, because it is that run's
+    # `event_cursor`. The thread read returns every run's events in one list, so a
+    # consumer that ordered or de-duplicated on `sequence` alone would collide the
+    # second turn's first event with the first turn's. Carrying the run makes the
+    # real key `(runId, sequence)`, and it is also the only way a client learns a
+    # run id at all — which is what the recovery endpoint needs.
+    run_id: UUID = Field(
+        validation_alias=AliasChoices("run_id", "runId"),
+        serialization_alias="runId",
+    )
+    sequence: int
+    event_type: str = Field(
+        validation_alias=AliasChoices("event_type", "eventType"),
+        serialization_alias="eventType",
+    )
+    payload: dict = Field(validation_alias=AliasChoices("payload", "sanitized_payload"))
+
+    model_config = {"populate_by_name": True, "from_attributes": True}
 
 
 class RunRecoveryRead(RunRead):

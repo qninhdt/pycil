@@ -19,8 +19,9 @@ REQUIRED_CHECKPOINTS = 2
 MAX_RETRIES_PER_CHECKPOINT = 2
 # Minimum new senses reserved per session even under a large due backlog.
 NEW_WORD_FLOOR = 2
-# Backend-configurable session-shape defaults (overridable per deck via the
-# JSONB ``deck_attributes.settings``; see ``planning.settings_from_deck``).
+# Session-shape defaults. A learner overrides them on their own row; see
+# ``planning.settings_for_user``. Changing a value here moves it for everyone who
+# has never overridden it, which is why the default lives in one place.
 DEFAULT_TARGET_WORDS_PER_SESSION = 10
 DEFAULT_MAX_QUESTIONS_PER_ROUND = 8
 # Full difficulty ladder (0 = exposure, 1..4 = assessment).

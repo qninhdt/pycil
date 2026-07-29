@@ -22,6 +22,7 @@ from pycil.learning.models import (  # noqa: F401
     Response,
     ReviewLog,
     SessionSummary,
+    UserLearningSettings,
     UserSenseStats,
 )
 from pycil.tasks.models import (  # noqa: F401
