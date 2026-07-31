@@ -136,6 +136,17 @@
     --stage-4: var(--pycil-stage-4);
     --stage-5: var(--pycil-stage-5);
 
+    /* The same five bands as text. A stage-1 fill at 1.7:1 on white is the
+       intended reading for a pip — barely there, because nothing is learned yet
+       — and unreadable as a numeral. The ink track clears AA at every stage and
+       keeps the ramp's direction, so the two never disagree about which end
+       means "more learned". */
+    --stage-ink-1: var(--pycil-stage-ink-1);
+    --stage-ink-2: var(--pycil-stage-ink-2);
+    --stage-ink-3: var(--pycil-stage-ink-3);
+    --stage-ink-4: var(--pycil-stage-ink-4);
+    --stage-ink-5: var(--pycil-stage-ink-5);
+
     /* Charts read the mastery ramp so a distribution chart and a mastery pip
        row cannot disagree about what "more learned" looks like. */
     --chart-1: var(--stage-1);
@@ -204,6 +215,12 @@
     --stage-4: var(--pycil-dark-stage-4);
     --stage-5: var(--pycil-dark-stage-5);
 
+    --stage-ink-1: var(--pycil-dark-stage-ink-1);
+    --stage-ink-2: var(--pycil-dark-stage-ink-2);
+    --stage-ink-3: var(--pycil-dark-stage-ink-3);
+    --stage-ink-4: var(--pycil-dark-stage-ink-4);
+    --stage-ink-5: var(--pycil-dark-stage-ink-5);
+
     --chart-1: var(--stage-1);
     --chart-2: var(--stage-2);
     --chart-3: var(--stage-3);
@@ -224,21 +241,28 @@
 }
 
 @layer components {
-    /* Driven by data-stage so a pip row, a bar and a chip read one source. */
+    /* Driven by data-stage so a pip row, a bar and a chip read one source. Each
+       stage carries both tracks, so a fill and a numeral at the same stage stay
+       in step without the call site choosing a palette. */
     [data-stage="1"] {
         --stage: var(--stage-1);
+        --stage-ink: var(--stage-ink-1);
     }
     [data-stage="2"] {
         --stage: var(--stage-2);
+        --stage-ink: var(--stage-ink-2);
     }
     [data-stage="3"] {
         --stage: var(--stage-3);
+        --stage-ink: var(--stage-ink-3);
     }
     [data-stage="4"] {
         --stage: var(--stage-4);
+        --stage-ink: var(--stage-ink-4);
     }
     [data-stage="5"] {
         --stage: var(--stage-5);
+        --stage-ink: var(--stage-ink-5);
     }
 }
 
@@ -246,8 +270,12 @@
     background-color: var(--stage);
 }
 
+/* Reads the ink track, not the fill ramp. The fill ramp is tuned so a stage-1
+   pip is barely there — which is the intended reading for a pip and unreadable
+   as a numeral. Both tracks move in the same direction, so the colour still says
+   "more learned" either way. */
 @utility stage-text {
-    color: var(--stage);
+    color: var(--stage-ink);
 }
 
 /* Dark mode gets its depth from surface lightness steps instead. */

@@ -36,7 +36,10 @@ export default async function LoginPage({
   return (
     <div className="flex w-full max-w-sm flex-col gap-8">
       <div className="flex flex-col gap-2">
-        <span className="font-serif text-2xl font-semibold">Pycil</span>
+        {/* The wordmark is this screen's only title, so it carries the h1 rather
+            than being decorative text above an unlabelled page. Serif here is the
+            brand wordmark, which is the one non-lexical serif the audit allows. */}
+        <h1 className="font-serif text-2xl font-semibold">Pycil</h1>
         <p className="text-sm text-muted-foreground">
           A vocabulary trainer that schedules what you are about to forget.
         </p>

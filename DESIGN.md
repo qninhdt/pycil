@@ -29,6 +29,11 @@ colors:
   stage-3: "#6E86A6"
   stage-4: "#47688F"
   stage-5: "#2E4A6E"
+  stage-ink-1: "#6F6A62"
+  stage-ink-2: "#5B6779"
+  stage-ink-3: "#4B6280"
+  stage-ink-4: "#3C5778"
+  stage-ink-5: "#2E4A6E"
   dark-bone: "#131211"
   dark-surface: "#1A1917"
   dark-surface-sunken: "#100F0E"
@@ -59,6 +64,11 @@ colors:
   dark-stage-3: "#64788F"
   dark-stage-4: "#7B96BC"
   dark-stage-5: "#93B2DA"
+  dark-stage-ink-1: "#9A958C"
+  dark-stage-ink-2: "#A2AEBF"
+  dark-stage-ink-3: "#AABDD4"
+  dark-stage-ink-4: "#B0C6E0"
+  dark-stage-ink-5: "#B6CDEA"
 typography:
   headword:
     fontFamily: Newsreader
@@ -371,6 +381,20 @@ bands. So the two tables have to agree exactly, or one score shows two labels.
 
 A rainbow scale is forbidden here. Five hues would imply five unrelated
 categories; this is one ordered dimension.
+
+**The ramp has two tracks, and text uses the second one.** `stage-1` through
+`stage-5` are *fill* values: they are read as area, in pips, segments and bars,
+where the eye compares them against each other. `stage-1` is warm graphite at
+1.7:1 against white on purpose, because an unreached pip should recede. Tinting a
+figure or a band name with the same value puts 1.7:1 text on the screen, which
+fails WCAG 1.4.3 outright — a learner at 0% mastery could not read their own
+score. So a parallel `stage-ink-1` through `stage-ink-5` carries the same
+direction of meaning at text contrast: every stop clears 4.5:1 against both
+`surface` and `surface-sunken`, and the hue still walks warm neutral to the
+accent. Fills use `stage-fill`; anything with a glyph in it uses `stage-text`,
+which reads the ink track. The dark ink track ascends for the same reason the
+dark fill track does. Both are asserted mechanically in
+`scripts/build-design-tokens.mjs` rather than eyeballed.
 
 **Dark mode.** Mandatory and equal-effort. Warm-neutral dark, not blue-grey:
 canvas `#131211`, surface `#1A1917`, border `#2C2A26`, text `#EDEAE4`. The
