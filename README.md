@@ -81,15 +81,41 @@ cd apps/worker && uv sync && uv run arq pycil_worker.main.WorkerSettings
 Both need Postgres/Redis plus the read-only reference artifact configured by
 `LEXI_REFERENCE_DATASET_PATH`.
 
+### Running the web app without Docker
+
+```bash
+cd apps/web && pnpm install
+pnpm dev                            # http://localhost:3000
+pnpm build && pnpm start            # production build
+```
+
+`apps/web` reads four variables of its own, seeded from `apps/web/.env.example`:
+
+| Variable | Purpose |
+|----------|---------|
+| `SESSION_PASSWORD` | iron-session encryption password, at least 32 bytes (`openssl rand -base64 32`). No default — the app refuses to boot without it rather than sealing cookies with a shared key. |
+| `SESSION_COOKIE_NAME` | Cookie name, `pycil_session` by default. |
+| `PYCIL_API_URL` | Server-side API origin. Never reaches the browser, so under Compose it is the container-internal `http://api:8000`. |
+| `NEXT_PUBLIC_APP_URL` | Public origin and OAuth callback base. Inlined into the bundle at build time, so Compose passes it as a build arg rather than an environment variable. |
+
+Under `docker compose up` the `web` service supplies all four; only
+`SESSION_PASSWORD` has to be present in the root `.env`.
+
 ## Tests
 
 ```bash
 cd apps/api && uv run pytest        # disposable Postgres (Testcontainers) + fakeredis
 cd packages/shared-py && uv run pytest
+cd apps/web && pnpm test            # Vitest: reducer, mastery, SSE frames, taxonomy
+cd apps/web && pnpm audit:design    # ten mechanical design-system rules
+cd apps/web && pnpm test:e2e        # Playwright, against a running stack
 ```
 
 The worker has registration plus durable generation/grade-job coverage. API
-and shared-package tests cover the remaining domain behaviour.
+and shared-package tests cover the remaining domain behaviour. The web suite is
+three layers: Vitest for pure logic, Storybook for component states, and
+Playwright against the live stack — the last needs `docker compose up` first,
+since it drives real sessions and real grading.
 
 ## Production deploy
 

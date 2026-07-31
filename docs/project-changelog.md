@@ -52,6 +52,21 @@ nightly stack, since they need a live `docker compose` and an LLM credential.
   `question_not_assessable`) now classify distinctly instead of collapsing to one
   generic `conflict`, so the study screen recovers the first two by re-polling and
   treats the third as a not-your-question conflict.
+- **The add-word warning could never fire.** The study screen published the live
+  session on mount and cleared it in the effect's cleanup, but the command palette
+  is mounted in the shell and the study route renders no shell by design — so
+  reaching an add always unmounted the runner first, and every consumer saw no
+  session to warn about. The warning, its dialog, and the store seam were
+  unreachable code. Walking away does not end a session (the Redis meta stands
+  until it completes or expires, and the URL resumes it), so publication now
+  outlives the screen and clears when the session actually finishes or stops.
+- **A spent grading budget wedged the question it refused.** The consume-once CAS
+  clears `current_qid` before the rubric branch runs, so the delivery claim was
+  already gone when the quota check fired: the retry failed `consume_delivered`
+  and surfaced as `question_not_issued_for_session` — a session-desync code shown
+  to someone who had merely hit a rate limit, and one the client recovers from by
+  discarding their typed answer. The same question id is now re-armed before the
+  refusal is raised, rather than reopening the whole delivery.
 - **Assistant SSE transport contract.** `RunEventRead` now validates from ORM
   rows (alias choices + `from_attributes`), the `token` payload is typed
   `{content}` rather than a bare string, and each event carries its `runId` so the

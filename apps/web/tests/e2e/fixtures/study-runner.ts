@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test"
+import type { Locator, Page } from "@playwright/test"
 
 import { expect } from "./test"
 
@@ -78,6 +78,27 @@ export async function showing(page: Page, name: RegExp, role: "button" | "headin
     .first()
     .isVisible()
     .catch(() => false)
+}
+
+/**
+ * Clicks an advance control, optionally reaching its handler twice in one task.
+ *
+ * Two `locator.click()` calls in a row double-invoke nothing. Playwright serialises
+ * them, so the second waits for actionability and lands on whatever screen the first
+ * click produced — and when that screen has no advance control, it waits out the whole
+ * test rather than failing, because the default action timeout is unbounded. Firing
+ * both from inside the page instead reaches the same handler twice before React can
+ * re-render, which is the collision the runner's guard exists to absorb.
+ */
+async function clickAdvance(control: Locator, twice: boolean): Promise<void> {
+  if (!twice) {
+    await control.click()
+    return
+  }
+  await control.evaluate((element: HTMLElement) => {
+    element.click()
+    element.click()
+  })
 }
 
 /** Opens a fresh session on a deck through the real launch screen. */
@@ -267,7 +288,11 @@ export const FREE_TEXT_ANSWER =
  * would otherwise need a branch at every step. Returns what it did, so a caller can
  * assert on the kind of question it happened to get.
  */
-export async function answerCurrent(page: Page, key: AnswerKey): Promise<Answered> {
+export async function answerCurrent(
+  page: Page,
+  key: AnswerKey,
+  doubleAdvance = false,
+): Promise<Answered> {
   const submit = page.getByRole("button", { name: /^submit$/i })
   // "Got it" belongs with the other advance controls: it is the exposure card's only
   // action, and treating its absence as "settled" ended the walk on question one.
@@ -275,7 +300,7 @@ export async function answerCurrent(page: Page, key: AnswerKey): Promise<Answere
 
   if (!(await submit.isVisible().catch(() => false))) {
     if (await advance.first().isVisible().catch(() => false)) {
-      await advance.first().click()
+      await clickAdvance(advance.first(), doubleAdvance)
       return "exposure"
     }
     return "settled"
@@ -353,7 +378,18 @@ export async function walkSession(
     key,
     stopAt,
     steps = 80,
-  }: { key: AnswerKey; stopAt?: Answered; steps?: number },
+    doubleAdvance = false,
+  }: {
+    key: AnswerKey
+    stopAt?: Answered
+    steps?: number
+    /**
+     * Reach every advance handler twice instead of once. Set by the spec that probes
+     * the runner's single-flight guard, since `/next` mutates: a duplicate that got
+     * through would reserve a second delivery and strand the first question.
+     */
+    doubleAdvance?: boolean
+  },
 ): Promise<WalkResult> {
   const seen: WalkResult = { exposures: 0, assessments: 0, rounds: 0, ended: "budget" }
 
@@ -380,11 +416,14 @@ export async function walkSession(
     // the specific thing the exhaustion spec exists to prove.
     if (await showing(page, /^next round$/i, "button")) {
       seen.rounds += 1
-      await page.getByRole("button", { name: /^next round$/i }).click()
+      await clickAdvance(
+        page.getByRole("button", { name: /^next round$/i }),
+        doubleAdvance,
+      )
       continue
     }
 
-    const kind = await answerCurrent(page, key)
+    const kind = await answerCurrent(page, key, doubleAdvance)
     if (kind === "settled") return seen
     if (kind === "exposure") {
       seen.exposures += 1
@@ -402,7 +441,7 @@ export async function walkSession(
     // waiting for Continue rather than by branching here.
     const carryOn = page.getByRole("button", { name: /^continue$/i })
     await expect(carryOn).toBeVisible({ timeout: 240_000 })
-    await carryOn.click()
+    await clickAdvance(carryOn, doubleAdvance)
   }
 
   return seen

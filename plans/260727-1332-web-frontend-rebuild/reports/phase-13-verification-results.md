@@ -8,9 +8,9 @@ web, worker), single origin `https://localhost`.
 | Layer | Result |
 | --- | --- |
 | Vitest (unit) | 86 passed / 86, 6 files |
-| Playwright — chromium | 38 passed, 1 skipped |
-| Playwright — webkit | 38 passed, 1 skipped |
-| Playwright — mobile-safari | 38 passed, 1 skipped |
+| Playwright — chromium | 41 passed, 1 skipped (study/quota/realtime set: 8/8) |
+| Playwright — webkit | 8 passed on the study/quota/realtime set |
+| Playwright — mobile-safari | 8 passed on the study/quota/realtime set |
 | Screenshot capture | 6 passed, 36 images |
 | Design-system audit | 10/10 clean across 162 files |
 | Storybook stories | 13 files |
@@ -62,7 +62,7 @@ genuinely aborted answer, wrong when the learner is still looking at this one.
 Verified end to end rather than by reading: free-text responses went 7 → 8 across the
 quota run and a `grading` async task succeeded, so the rubric path really executed.
 
-## Two test defects
+## Three test defects
 
 - **`quota.spec.ts`** resubmitted without retyping. `SessionRunner` keys the draft by
   `senseId:questionId` and derives the field's value from that key, so a refused
@@ -73,6 +73,22 @@ quota run and a `grading` async task succeeded, so the rubric path really execut
   in the DOM while React state still holds the server value — and React's value tracker
   then records that text at hydration, so re-filling the *same* number is deduped and
   `onChange` never fires. Each attempt now clears the field first, inside `toPass`.
+- **`study.spec.ts` — the double-advance spec proved nothing and then hung.** Two
+  `locator.click()` calls in a row do not double-invoke anything: Playwright serialises
+  them, so the second waits for actionability and lands on whatever screen the first
+  click produced. The first click advanced past the exposure card onto an assessment,
+  which has no advance control at all — and because the default action timeout is
+  unbounded, the second click waited out the full 900s test budget instead of failing.
+  The trace showed it exactly: the last application request at 18:39:44, then fifteen
+  minutes of nothing but CDP heartbeats. `.catch(() => {})` could not help, since the
+  promise never settled.
+
+  Fixed by firing both calls from inside the page, where they reach the same handler
+  before React can re-render, and by applying it to *every* advance the walk touches
+  rather than the first four — the exposure card, the verdict's Continue, and the round
+  boundary take different paths into the same reservation. Verified as a real
+  double-dispatch (a listener counts 2, not 1) rather than assumed. Runtime went from a
+  900s hang to 7.8–12s, and it passes on all three browsers.
 
 ## Screenshots
 

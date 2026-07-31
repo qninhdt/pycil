@@ -38,6 +38,23 @@ test.describe("an authenticated viewer", () => {
       )
     }
   })
+
+  test("is sent away from the sign-in screen rather than shown it again", async ({
+    page,
+  }) => {
+    // The other direction of the guard (`proxy.ts`, the `AUTH_ONLY` branch), and the
+    // only one the rest of this file cannot see: every assertion above is "did not
+    // land on /login", which a proxy that simply never redirected would also satisfy.
+    // Offering sign-in to someone already signed in is the specific confusion this
+    // branch exists to prevent.
+    await page.goto("/login")
+
+    // Asserted as the root path itself, not merely as "not /login": the redirect
+    // target is part of the contract, and landing anywhere else would still satisfy
+    // a negative check.
+    await expect(page).toHaveURL(/^https?:\/\/[^/]+\/$/)
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible()
+  })
 })
 
 test.describe("an anonymous visitor", () => {

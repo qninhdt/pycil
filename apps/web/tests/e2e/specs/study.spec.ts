@@ -173,6 +173,53 @@ test.describe("the study loop", () => {
     ).toBeGreaterThan(0)
   })
 
+  test("a double advance does not destroy a question", async ({
+    learnerPage,
+    learner,
+    fixture,
+  }) => {
+    test.skip(!fixture.supplyWarmed, "Needs retrievable assessments to exhaust.")
+    test.setTimeout(900_000)
+
+    // `/next` mutates despite being a GET: it advances the round, reserves a delivery
+    // against the chosen sense, and adds the question id to the exclusion set. So a
+    // duplicate call destroys a question — the second cannot re-serve that sense, and
+    // the first question is left recorded as delivered, excluded, and clearable only
+    // by answering it. The learner never saw it.
+    //
+    // Two guards exist: the runner's own ref (`session-runner.tsx`) and the action
+    // layer's single-flight map (`lib/actions/study.ts`). Phase 8 proved the second
+    // mechanically. This drives the first through the browser, which is the only place
+    // the double invocation it defends against actually originates.
+    await startSession(learnerPage, learner.deckId)
+
+    // Every advance control the walk touches — the exposure card's "Got it", the
+    // verdict's "Continue", and the round boundary's "Next round" — is invoked twice
+    // within one task, so both handler calls land before React re-renders. Doing it
+    // across the whole session rather than at the opening screen matters: the exposure
+    // card and the round boundary take different paths into the same reservation.
+    const walk = await walkSession(learnerPage, {
+      key: answerKey(fixture.senses),
+      doubleAdvance: true,
+    })
+
+    // The consequence a destroyed question produces, asserted rather than the guard
+    // itself. A stranded sense can never be re-delivered
+    // (`reserve_round_delivery` refuses any sense whose `current_qid` is set), so
+    // `/next` returns "preparing" forever and the session never reaches its recap.
+    // Completing the walk is therefore proof that no question was lost.
+    expect(
+      walk.ended,
+      "the session stalled instead of reaching its recap, which is what a question " +
+        "destroyed by a duplicate /next looks like: the sense is stranded and can " +
+        "never be delivered again",
+    ).toBe("complete")
+
+    // Guards against a vacuous pass: a walk that answered nothing would also "complete"
+    // if the session had no supply, and would have doubled no advance worth doubling.
+    expect(walk.exposures + walk.assessments).toBeGreaterThan(0)
+  })
+
   test("a live session is resumed by its own URL rather than restarted", async ({
     learnerPage,
     learner,
