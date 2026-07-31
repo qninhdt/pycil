@@ -7,14 +7,18 @@ separately. Lexi owns all dictionary storage and generation; Pycil's worker only
 orchestrates its own jobs.
 """
 
-# Register the referenced users table in SQLModel metadata.  The worker writes
-# WordGeneration records directly, while the API normally imports this model
-# through its auth router during application startup.
+# Register every ORM model in SQLModel metadata before any job runs. The worker
+# writes rows the API would have registered through its routers at application
+# startup — WordGeneration needs `users`, and the grading job's ReviewLog needs
+# both `users` and `nodes`. A foreign key is not resolved when its model is
+# imported but when the flush sorts tables, so a missing registration surfaces as
+# a NoReferencedTableError on the first write rather than at import, and only for
+# whichever job happens to run first on a cold worker.
 import asyncio
 from uuid import uuid4
 
 import asyncpg
-import pycil.auth.models  # noqa: F401
+import pycil.db.models  # noqa: F401
 from arq.connections import RedisSettings
 from arq.cron import cron
 from lexi_ai import Lexicon

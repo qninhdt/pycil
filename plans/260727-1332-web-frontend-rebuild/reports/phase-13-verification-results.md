@@ -8,20 +8,21 @@ web, worker), single origin `https://localhost`.
 | Layer | Result |
 | --- | --- |
 | Vitest (unit) | 86 passed / 86, 6 files |
-| Playwright — chromium | 41 passed, 1 skipped (study/quota/realtime set: 8/8) |
+| Playwright — chromium | 51 passed, 1 skipped (whole suite) |
 | Playwright — webkit | 8 passed on the study/quota/realtime set |
-| Playwright — mobile-safari | 8 passed on the study/quota/realtime set |
+| Playwright — mobile-safari | 15 passed, 1 skipped (a11y + generation) |
 | Screenshot capture | 6 passed, 36 images |
 | Design-system audit | 10/10 clean across 162 files |
 | Storybook stories | 13 files |
 | API pytest (`tests/learning`) | 75 passed |
+| Worker pytest | 30 passed |
 | `typecheck` / `lint` / `build` | clean |
 
 The E2E suite runs `fullyParallel: false`, `workers: 1`, `retries: 0`. No retry is
 configured on purpose: the async paths here are meant to converge, so a spec that
 passed only on a second attempt would be reporting a real defect in recovery.
 
-## Two product defects found by the E2E layer
+## Four product defects found by the E2E layer
 
 Both were found because the specs run against the real stack, and both were fixed in
 product code rather than worked around in the test.
@@ -61,6 +62,44 @@ genuinely aborted answer, wrong when the learner is still looking at this one.
 
 Verified end to end rather than by reading: free-text responses went 7 → 8 across the
 quota run and a `grading` async task succeeded, so the rubric path really executed.
+
+### The activity centre could not be opened at all
+
+Found the moment a credential made the generation tier testable, because nothing had
+ever clicked that button. `ActivityCenter` passed a custom component to the trigger's
+`render` prop — `render={<ActivityTrigger unsettledCount={n} />}` — and that component
+declared only `unsettledCount`. Base UI clones the element it is given and injects the
+click handler, the ref and `aria-expanded` onto it; a component that does not spread
+its props drops all of them. So the button rendered, took focus, and opened nothing.
+Repeated clicks over sixty seconds never mounted the popup, and the panel's own text
+appears nowhere in the trace.
+
+Every other `render` in the app hands over a primitive that spreads — `<Link>`,
+`<a>`, `<Button>` — which is why this was the only surface affected. The fix follows
+the idiom already in `user-menu.tsx`: the trigger is a plain `Button`, and the bell
+and its badge are children (`components/activity/activity-center.tsx`).
+
+That makes three surfaces the browser layer found unreachable rather than merely
+wrong, all of them invisible to typecheck, lint and the design audit.
+
+### A cold worker failed the grades it happened to run first
+
+Surfaced by restarting the worker to pick up the credential: `grade_answer_v1` began
+failing with `NoReferencedTableError: review_log.node_id could not find table 'nodes'`
+— and succeeding, in the same second, for other jobs.
+
+The interleaving is the tell. A foreign key is not resolved when its own model is
+imported but when a flush sorts the tables, so `ReviewLog` needs `nodes` and `users`
+to be registered by the time the first grade is written. The worker's entrypoint
+imported `pycil.auth.models` alone, with a comment explaining that the API registers
+these through its routers and the worker must do it itself — the same reasoning that
+never got extended to `nodes` when grading started writing `ReviewLog`. Whether a
+grade succeeded therefore depended on which job the process happened to run first.
+
+`pycil_worker/main.py` now imports `pycil.db.models`, the aggregate module that exists
+for exactly this, which closes the class rather than adding a second one-off. Pinned by
+`tests/test_worker_registration.py`, which fails with the production error when the
+import is narrowed back.
 
 ## Three test defects
 
@@ -117,16 +156,26 @@ nothing.
   browser, 3 total). The digit shortcuts apply to single-choice, and the round did not
   open on one. Which format is served is the sampler's decision; this test is about the
   keyboard, so it skips rather than fails. The guard is at `a11y.spec.ts:182`.
-- **The opt-in generation tier (step 10) is not implemented.** `LEXI_LLM_API_KEY` is
-  empty in this environment, so a word-generation spec would have nothing to assert
-  against. Question supply and rubric grading both work here — supply warmed on every
-  run — so this gap is specific to generating a *new* word, not to the model paths in
-  general.
+- **The opt-in generation tier now runs.** A `LEXI_LLM_*` credential was supplied
+  after the first pass, so `generation.spec.ts` exists and passes: a real word is
+  authored end to end in roughly 22s. It still skips, naming the variables to set,
+  when no credential is configured.
+
+  The endpoint is an OpenAI-compatible proxy, and `LEXI_LLM_STRUCTURED_METHOD` has to
+  be `function_calling` against it. Probed rather than assumed: asked for a strict
+  `json_schema` response it answers 200 with prose, silently ignoring the schema,
+  which is precisely the failure `lexi_ai/config.py` documents that setting for. A
+  forced tool call returns conforming JSON.
+
+  The spec picks its word at run time — the first headword the dataset knows but has
+  no senses for — and the pool has to be headwords rather than obscure words. A word
+  the dataset has never heard of resolves to its nearest neighbour ("halcyon" becomes
+  "halcyon days"), so it never gains senses under its own name, gets picked again on
+  every run, and joins the same finished task forever. That is how this first passed
+  and then failed.
 
 ## Unresolved questions
 
-- Step 10's generation-tier spec still needs writing, and needs an environment with a
-  populated `LEXI_LLM_*` credential to be meaningful.
 - The keyboard-only study spec has never actually executed its assertions in any run
   observed here, because the sampler has not yet served a single-choice question first.
   Seeding a session whose opening question is single-choice would make it real rather

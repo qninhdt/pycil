@@ -67,6 +67,21 @@ nightly stack, since they need a live `docker compose` and an LLM credential.
   to someone who had merely hit a rate limit, and one the client recovers from by
   discarding their typed answer. The same question id is now re-armed before the
   refusal is raised, rather than reopening the whole delivery.
+- **The activity centre could not be opened.** Its trigger handed a custom
+  component to the popover's `render` prop, and that component took only the
+  unsettled count — so the click handler, ref and `aria-expanded` the surface
+  injects were all dropped. The button rendered and took focus; the panel never
+  mounted, which made every asynchronous result — word generation, rubric
+  grading — unreportable. The trigger is now the plain `Button` primitive every
+  other `render` in the app passes, with the bell and its badge as children.
+- **A cold worker failed whichever grades it ran first.** `ReviewLog` carries
+  foreign keys to `users` and `nodes`, and a foreign key resolves when a flush
+  sorts tables rather than when its model is imported. The worker entrypoint
+  registered `pycil.auth.models` alone, so a process that reached grading before
+  any job that imported the hierarchy raised
+  `NoReferencedTableError: review_log.node_id could not find table 'nodes'` —
+  intermittently, since a later job would register it and the next grade would
+  pass. The entrypoint now imports the `pycil.db.models` aggregate.
 - **Assistant SSE transport contract.** `RunEventRead` now validates from ORM
   rows (alias choices + `from_attributes`), the `token` payload is typed
   `{content}` rather than a bare string, and each event carries its `runId` so the

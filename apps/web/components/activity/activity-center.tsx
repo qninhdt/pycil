@@ -29,9 +29,19 @@ import {
 import { ActivityTaskRow } from "./activity-task-row"
 import { RealtimeStateNotice } from "./realtime-state-notice"
 
-function ActivityTrigger({ unsettledCount }: { unsettledCount: number }) {
+/**
+ * The bell and its unsettled count.
+ *
+ * Returned as children of the trigger rather than as the trigger itself. A
+ * custom component handed to `render` receives the props the trigger injects —
+ * the click handler, the ref, `aria-expanded` — and has to spread them; this one
+ * took only `unsettledCount`, so it dropped all of them and the surface could
+ * never open. Every other `render` in the app passes a primitive that spreads,
+ * which is why this was the only one affected.
+ */
+function ActivityTriggerContent({ unsettledCount }: { unsettledCount: number }) {
   return (
-    <Button variant="ghost" size="icon" aria-label="Activity" className="relative">
+    <>
       <BellIcon />
       {unsettledCount > 0 ? (
         <Badge
@@ -42,13 +52,16 @@ function ActivityTrigger({ unsettledCount }: { unsettledCount: number }) {
         </Badge>
       ) : null}
       {unsettledCount > 0 ? (
-        <span className="sr-only">
-          {unsettledCount} in progress
-        </span>
+        <span className="sr-only">{unsettledCount} in progress</span>
       ) : null}
-    </Button>
+    </>
   )
 }
+
+/** The trigger element itself, shared by the drawer and the popover. */
+const activityTriggerButton = (
+  <Button variant="ghost" size="icon" aria-label="Activity" className="relative" />
+)
 
 function ActivityBody() {
   const tasks = useActivityStore((state) => state.tasks)
@@ -104,7 +117,9 @@ export function ActivityCenter() {
   if (isMobile) {
     return (
       <Drawer open={open} onOpenChange={onOpenChange}>
-        <DrawerTrigger render={<ActivityTrigger unsettledCount={unsettledCount} />} />
+        <DrawerTrigger render={activityTriggerButton}>
+          <ActivityTriggerContent unsettledCount={unsettledCount} />
+        </DrawerTrigger>
         <DrawerContent>
           <DrawerHeader>
             <DrawerTitle>Activity</DrawerTitle>
@@ -119,7 +134,9 @@ export function ActivityCenter() {
 
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
-      <PopoverTrigger render={<ActivityTrigger unsettledCount={unsettledCount} />} />
+      <PopoverTrigger render={activityTriggerButton}>
+        <ActivityTriggerContent unsettledCount={unsettledCount} />
+      </PopoverTrigger>
       <PopoverContent align="end" className="w-88">
         <PopoverTitle>Activity</PopoverTitle>
         <ActivityBody />
