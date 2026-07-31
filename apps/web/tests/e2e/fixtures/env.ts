@@ -144,6 +144,27 @@ export function apiBaseUrl(): string {
 export const composeApiService = "api"
 
 /**
+ * The compose service holding the per-user quota counters.
+ *
+ * Named here rather than at the call site so the one place that reaches into Redis
+ * is as explicit about which container it means as the API seam above is.
+ */
+export const composeRedisService = "redis"
+
+/**
+ * The Redis password, matching the compose default.
+ *
+ * `docker-compose.yml` starts the server with `--requirepass`, so an unauthenticated
+ * `redis-cli` inside the container is refused. The default is repeated here for the
+ * same reason as the session cookie name: the stack runs on it unless `.env` says
+ * otherwise, and assuming it is set would fail with a confusing NOAUTH rather than a
+ * clear message.
+ */
+export function redisPassword(): string {
+  return envValue("REDIS_PASSWORD", "redis-dev-only")
+}
+
+/**
  * A fresh identity per run, and that is a correctness requirement rather than
  * hygiene.
  *

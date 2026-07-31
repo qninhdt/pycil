@@ -103,5 +103,24 @@ export default defineConfig({
       name: "mobile-safari",
       use: { ...devices["iPhone 14"] },
     },
+    /**
+     * The review screenshot set, deliberately not part of the gating suite.
+     *
+     * Its own project rather than a spec, because it must be excluded from a plain
+     * `playwright test` run: it captures every screen at two viewports in both
+     * themes, which is minutes of work that asserts almost nothing. `testDir`
+     * points outside `tests/e2e/specs` so the default projects never pick it up,
+     * and the global setup is shared so it captures the same seeded fixture the
+     * suite runs against.
+     */
+    {
+      name: "screenshots",
+      testDir: "./tests/screenshots",
+      // `capture.ts` is not a `*.spec.ts`, deliberately: the default `testMatch` is
+      // what keeps a plain `playwright test` from picking it up, and naming it as a
+      // spec would put a minutes-long capture run inside the gating suite.
+      testMatch: /capture\.ts$/,
+      use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
+    },
   ],
 })

@@ -21,6 +21,10 @@
 # placeholder — and `fixture.json` names run-scoped ids. Both are rebuilt by every
 # run, so there is nothing to preserve and everything to leak.
 /tests/e2e/.auth/
+# The screenshot working directory. The reviewed set is committed under the
+# plan's reports/ instead — keeping both would mean two copies drifting apart,
+# and this one is overwritten by every capture run.
+/tests/screenshots/captured/
 
 # next.js
 /.next/
