@@ -544,6 +544,11 @@ async def submit_answer(
         raise ConflictError("question_not_issued_for_session")
 
     committed = False
+    # Set when a rejection leaves the question answerable exactly as it is, so the
+    # generic handler below must not undo the delivery. Distinct from ``committed``:
+    # that one means "a durable row exists"; this one means "nothing was written and
+    # the learner may simply submit again".
+    bind_held = False
     try:
         progress = await session_store.get_progress(redis, body.session_id, sense_id)
         if progress is None:
@@ -607,6 +612,28 @@ async def submit_answer(
 
         # llm type: defer to the worker + SSE settle.
         if not await session_store.take_grading_slot(redis, user.id):
+            # Re-arm the very same question, because this rejection is the one case
+            # where what is on screen is still exactly the question to answer. The
+            # budget is a short rolling window and nothing durable was written, so the
+            # honest recovery is "submit that same answer again in a moment".
+            #
+            # Re-armed rather than merely left alone: the consume-once CAS above has
+            # already cleared ``current_qid``, so doing nothing here would fail the
+            # next ``consume_delivered`` and return ``question_not_issued_for_session``
+            # — a session-desync code, shown to someone who had merely hit a rate
+            # limit, and one the client recovers from by polling ``/next`` and
+            # discarding their typed answer.
+            #
+            # And not ``restore_delivered`` either: that reopens the whole delivery
+            # (clearing the claim, rewinding ``last_round_used``, un-excluding the id)
+            # so the sense comes back as some *other* question later. Correct for a
+            # genuinely aborted answer, wrong here, where the learner is still looking
+            # at this one. The client keeps the question on screen for this code
+            # (``session-machine.ts``), and this is what makes that promise true.
+            await session_store.set_delivered(
+                redis, body.session_id, sense_id, body.question_id
+            )
+            bind_held = True
             raise ConflictError("answer_grading_quota_exceeded")
         response = await service.create_pending_response(
             session,
@@ -650,9 +677,17 @@ async def submit_answer(
             task_id=submission.task.id,
         )
     except Exception:
-        # Release the consume-once claim so the learner can retry — but only if no
-        # durable response row was written yet (else a retry would double-insert).
-        if not committed:
+        # Reopen the delivery so the sense stays reachable — but only when neither
+        # guard above claimed it.
+        #
+        # ``committed``: a durable response row exists, so reopening would let a
+        # retry double-insert.
+        # ``bind_held``: nothing was written *and* the same question is still the one
+        # to answer, so the binding must survive for the retry to work at all.
+        #
+        # Everything else is a genuine abort: the claim is released and the sense
+        # returns in a later round rather than being stranded.
+        if not committed and not bind_held:
             await session_store.restore_delivered(
                 redis, body.session_id, sense_id, body.question_id
             )

@@ -80,12 +80,20 @@ export function SessionRunner({
   // compares on every `/next` and `/answers`. So the palette and the deck views have
   // to know a session is open before they offer that mutation, and this screen is the
   // only place that knows.
+  //
+  // The publication outlives this screen, because the session does. Walking away
+  // neither ends the session nor releases its scope generation: the Redis meta stands
+  // until the session completes or expires, and this URL resumes it. Clearing on
+  // unmount is what made the warning unreachable — the library is the only screen an
+  // add can be started from, so by the time one was, the store had already forgotten
+  // there was a session to warn about. It is cleared when the session actually ends,
+  // and it is per-tab in memory, so a reload forgets it too.
   const setLiveSession = useUiStore((store) => store.setLiveSession)
+  const sessionOver = phase.kind === "finished" || phase.kind === "stopped"
   useEffect(() => {
     if (!nodeId) return
-    setLiveSession({ sessionId, nodeId, deckTitle })
-    return () => setLiveSession(null)
-  }, [sessionId, nodeId, deckTitle, setLiveSession])
+    setLiveSession(sessionOver ? null : { sessionId, nodeId, deckTitle })
+  }, [sessionId, nodeId, deckTitle, sessionOver, setLiveSession])
 
   // --- the `/next` loop ---------------------------------------------------------
   //
