@@ -56,8 +56,11 @@ class CheckpointOutcome:
     is_correct: bool
     grade_score: float | None
     grade_feedback: str | None
-    mastery_before: int
-    mastery_after: int
+    # Optional because the transition is genuinely unknown when this submission lost
+    # the claim and the winner has not yet committed its stats row. Reporting 0
+    # there would be a lie the caller cannot detect, since 0 is a real mastery.
+    mastery_before: int | None
+    mastery_after: int | None
     stability_after: float
     applied_grade: str | None  # "again" | "good" | None
     fsrs_applied: bool
@@ -205,6 +208,21 @@ async def apply_checkpoint_result(
             # Claim lost: another submission already applied this session's grade.
             mastery_before = mastery_after = stats.mastery
             stability_after = stats.stability
+        else:
+            # B6. Claim lost AND no stats row is visible yet — the winner holds the
+            # row lock and has not committed. The three fields kept their zero
+            # initialisers here, so the response reported `masteryBefore: 0,
+            # masteryAfter: 0` for an answer that DID apply FSRS, which the client
+            # renders as "no progress". Zero is not a neutral placeholder: it is a
+            # legitimate mastery value, so a caller cannot tell it apart from a real
+            # reading.
+            #
+            # `None` is the honest answer — the transition is unknown from here, not
+            # zero — and the schema already allows it (`mastery_before`/`_after` are
+            # `int | None` in `GradeResponse`), so a client that renders "—" for an
+            # absent value stays correct rather than being told a falsehood.
+            mastery_before = mastery_after = None
+            stability_after = 0.0
 
     # --- terminal response mutation (same transaction) ---
     response.is_correct = verdict

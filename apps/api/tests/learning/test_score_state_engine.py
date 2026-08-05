@@ -266,3 +266,45 @@ async def test_a_hard_deleted_deck_releases_its_review_history(session):
     ).all()
     assert len(rows) == len(logs), "the review must outlive its deck"
     assert all(row.node_id is None for row in rows), f"the FK must SET NULL, got {rows}"
+
+
+async def test_a_lost_claim_with_no_visible_stats_reports_no_transition(session, monkeypatch):
+    """B6. Losing the claim before the winner commits must not report 0 -> 0.
+
+    Three variables (`mastery_before`, `mastery_after`, `stability_after`) were
+    initialised to zero and only assigned inside `if first:` or
+    `elif stats is not None:`. When a submission lost the claim AND no stats row was
+    visible — the winner holds the row lock and has not committed — neither branch
+    ran, so the response announced `masteryBefore: 0, masteryAfter: 0` for an answer
+    that did apply FSRS. Zero is a legitimate mastery, so the client cannot tell that
+    reading apart from a real one; it renders as "no progress was made".
+
+    `None` says "unknown from here", which the schema allows and the web client
+    already renders as nothing at all.
+    """
+    redis = get_redis()
+    user = await _user(session)
+    sid = await _start(session, redis, user, 61, "due", [2, 2])
+    await session_store.set_exposed(redis, sid, 61)
+
+    # Force exactly the racing shape: the claim is taken by someone else, and the
+    # stats row is not yet visible to this transaction.
+    monkeypatch.setattr(service, "_claim_first_attempt", lambda *a, **k: _false())
+    monkeypatch.setattr(service, "_lock_stats", lambda *a, **k: _none())
+
+    outcome = await _answer(session, redis, user, sid, 61, 9301, 2, 2, False)
+
+    assert outcome.fsrs_applied is False
+    assert outcome.mastery_before is None, (
+        f"a lost claim with no stats must not claim a mastery, got "
+        f"{outcome.mastery_before}"
+    )
+    assert outcome.mastery_after is None
+
+
+async def _false() -> bool:
+    return False
+
+
+async def _none() -> None:
+    return None
