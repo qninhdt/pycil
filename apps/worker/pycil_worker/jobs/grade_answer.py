@@ -23,17 +23,39 @@ from pycil_worker import realtime
 
 
 def _task_result(response: Response) -> dict:
-    return {
-        "responseId": str(response.id),
-        "senseId": response.sense_id,
-        "isCorrect": response.is_correct,
-        "gradeScore": response.grade_score,
-        "gradeFeedback": response.grade_feedback,
-        "masteryBefore": response.mastery_before,
-        "masteryAfter": response.mastery_after,
-        "renderFormat": response.render_format or "free_text",
-        "reveal": response.reveal,
-    }
+    """The durable task snapshot, built from a persisted row.
+
+    `GradingResult.to_dict()` is the single definition of this wire shape. Three
+    hand-written copies of the same nine keys existed here — one per code path — so
+    adding a field meant finding all three, and the SSE payload published from the
+    same function already went through the dataclass while the task snapshot did not.
+    """
+    return GradingResult(
+        response_id=str(response.id),
+        sense_id=response.sense_id,
+        is_correct=bool(response.is_correct),
+        grade_score=response.grade_score or 0.0,
+        grade_feedback=response.grade_feedback,
+        mastery_before=response.mastery_before,
+        mastery_after=response.mastery_after,
+        render_format=response.render_format or "free_text",
+        reveal=response.reveal,
+    ).to_dict()
+
+
+def _outcome_result(outcome) -> dict:
+    """The same snapshot, built from a fresh grading outcome."""
+    return GradingResult(
+        response_id=str(outcome.response_id),
+        sense_id=outcome.sense_id,
+        is_correct=bool(outcome.is_correct),
+        grade_score=outcome.grade_score or 0.0,
+        grade_feedback=outcome.grade_feedback,
+        mastery_before=outcome.mastery_before,
+        mastery_after=outcome.mastery_after,
+        render_format=outcome.render_format,
+        reveal=outcome.reveal,
+    ).to_dict()
 
 
 async def _converge_task_snapshot(ctx: dict, response_id: str, result: dict) -> str:
@@ -105,17 +127,7 @@ async def grade_answer(ctx: dict, owner_uid: str, response_id: str) -> dict:
     task_state = await _converge_task_snapshot(
         ctx,
         response_id,
-        {
-            "responseId": str(outcome.response_id),
-            "senseId": outcome.sense_id,
-            "isCorrect": outcome.is_correct,
-            "gradeScore": outcome.grade_score,
-            "gradeFeedback": outcome.grade_feedback,
-            "masteryBefore": outcome.mastery_before,
-            "masteryAfter": outcome.mastery_after,
-            "renderFormat": outcome.render_format,
-            "reveal": outcome.reveal,
-        },
+        _outcome_result(outcome),
     )
     return {"status": "graded", "is_correct": outcome.is_correct, "task": task_state}
 
@@ -146,17 +158,7 @@ async def grade_answer_task(ctx: dict, task_id: str, owner_uid: str, response_id
                     return {"status": "duplicate"}
                 result = _task_result(response)
             else:
-                result = {
-                    "responseId": str(outcome.response_id),
-                    "senseId": outcome.sense_id,
-                    "isCorrect": outcome.is_correct,
-                    "gradeScore": outcome.grade_score,
-                    "gradeFeedback": outcome.grade_feedback,
-                    "masteryBefore": outcome.mastery_before,
-                    "masteryAfter": outcome.mastery_after,
-                    "renderFormat": outcome.render_format,
-                    "reveal": outcome.reveal,
-                }
+                result = _outcome_result(outcome)
     except Exception:
         async with ctx["session_factory"]() as session:
             updated = await task_service.transition_task(
