@@ -79,7 +79,87 @@ async def test_queued_dispatch_payload_is_private_and_recoverable(session):
 
     assert event is not None and event.snapshot["result"] is None
     assert recoverable == [submission.task]
-    assert recoverable[0].result == {"dispatch": {"query": "run"}}
+    assert recoverable[0].dispatch == {"query": "run"}
+    # `result` describes the outcome only. It used to carry the dispatch payload as
+    # well, which is what let a requeue transition erase it.
+    assert recoverable[0].result is None
+
+
+async def test_a_requeue_transition_preserves_the_dispatch_payload(session):
+    """The two-schema `result` column, and the silent stranding it caused.
+
+    `submit_or_join` wrote `{"dispatch": ...}` into `result`; `transition_task`
+    assigns `task.result = result` from a parameter that defaults to None. A requeue
+    transition therefore erased the payload, the task then failed
+    `list_reenqueueable_tasks`'s dispatch filter, and every later sweep skipped it —
+    queued forever with nothing reporting it.
+
+    Measured before the split: after one QUEUED transition the reconciler returned 0
+    rows for a task that had just asked to be retried.
+    """
+    user = await _user(session, "task-requeue-dispatch@example.com")
+    submission = await service.submit_or_join(
+        session,
+        kind="word",
+        server_work_key="word:requeue:dataset-v1",
+        requester_id=user.id,
+        command_kind="word.generate",
+        command_id="requeue-command",
+        provenance="word-search",
+        dispatch={"query": "probe", "owner_id": str(user.id)},
+    )
+    claimed = await service.claim_task(session, submission.task.id, "worker-a")
+    assert claimed is not None
+
+    requeued = await service.transition_task(
+        session,
+        submission.task.id,
+        lease_token=claimed.lease_token,
+        lease_fence=claimed.lease_fence,
+        status=AsyncTaskStatus.QUEUED,
+    )
+
+    assert requeued is not None
+    assert requeued.dispatch == {"query": "probe", "owner_id": str(user.id)}
+    # And the reconciler can still find it, which is the point. The requeue sets
+    # `next_attempt_at` one second out (the first retry delay), so the sweep has to
+    # be looked at past that backoff rather than immediately.
+    assert await service.list_reenqueueable_tasks(session) == []
+    requeued.next_attempt_at = datetime.now(UTC) - timedelta(seconds=1)
+    await session.commit()
+    assert [task.id for task in await service.list_reenqueueable_tasks(session)] == [
+        submission.task.id
+    ]
+
+
+async def test_a_terminal_outcome_does_not_overwrite_the_dispatch(session):
+    """A settled task keeps its dispatch: the columns are independent now."""
+    user = await _user(session, "task-terminal-dispatch@example.com")
+    submission = await service.submit_or_join(
+        session,
+        kind="word",
+        server_work_key="word:terminal:dataset-v1",
+        requester_id=user.id,
+        command_kind="word.generate",
+        command_id="terminal-command",
+        provenance="word-search",
+        dispatch={"query": "settled"},
+    )
+    claimed = await service.claim_task(session, submission.task.id, "worker-a")
+    assert claimed is not None
+
+    settled = await service.transition_task(
+        session,
+        submission.task.id,
+        lease_token=claimed.lease_token,
+        lease_fence=claimed.lease_fence,
+        status=AsyncTaskStatus.SUCCEEDED,
+        result={"wordId": 7, "senseIds": [1]},
+    )
+
+    assert settled is not None
+    assert settled.result == {"wordId": 7, "senseIds": [1]}
+    assert settled.dispatch == {"query": "settled"}
 
 
 async def test_fenced_transition_writes_one_versioned_event_and_outbox(session):

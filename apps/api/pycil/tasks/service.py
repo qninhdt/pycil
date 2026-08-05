@@ -172,7 +172,7 @@ async def submit_or_join(
             kind=kind,
             work_key=server_work_key,
             max_attempts=max_attempts,
-            result={"dispatch": dispatch} if dispatch is not None else None,
+            dispatch=dispatch,
         )
         session.add(task)
         try:
@@ -310,7 +310,7 @@ async def list_reenqueueable_tasks(session: AsyncSession) -> list[AsyncTask]:
             )
         ).scalars()
     )
-    return [task for task in tasks if task.result and isinstance(task.result.get("dispatch"), dict)]
+    return [task for task in tasks if isinstance(task.dispatch, dict)]
 
 
 async def _clamp_interests_to_grace(session: AsyncSession, task_id: UUID) -> None:

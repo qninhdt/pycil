@@ -46,6 +46,15 @@ class AsyncTask(SQLModel, table=True):
         sa_column=Column(Text, nullable=False, server_default=text("'queued'")),
     )
     version: int = Field(default=1, sa_column_kwargs={"server_default": text("1")})
+    # What to re-enqueue, written once at submission and never overwritten.
+    #
+    # This used to live under `result["dispatch"]`, which made `result` a
+    # two-schema column: `transition_task` assigns `task.result = result` with a
+    # None default, so a requeue transition erased the dispatch payload. The task
+    # then failed `list_reenqueueable_tasks`'s `dispatch` filter and was skipped by
+    # every subsequent sweep — queued forever, with nothing reporting it.
+    dispatch: dict | None = Field(default=None, sa_column=Column(JSONB, nullable=True))
+    # The outcome, and only the outcome. Surfaced to subscribers on success.
     result: dict | None = Field(default=None, sa_column=Column(JSONB, nullable=True))
     error_code: str | None = Field(default=None, max_length=120)
     attempt: int = Field(default=0, sa_column_kwargs={"server_default": text("0")})

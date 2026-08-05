@@ -40,12 +40,12 @@ async def test_reconciliation_reenqueues_each_live_task_kind(monkeypatch):
         SimpleNamespace(
             id=uuid4(),
             kind="word",
-            result={"dispatch": {"query": "run", "owner_id": "word-owner"}},
+            dispatch={"query": "run", "owner_id": "word-owner"},
         ),
         SimpleNamespace(
             id=uuid4(),
             kind="grading",
-            result={"dispatch": {"owner_id": "owner", "response_id": "response"}},
+            dispatch={"owner_id": "owner", "response_id": "response"},
         ),
     ]
     redis = _Redis()
@@ -71,7 +71,7 @@ async def test_a_word_row_from_the_previous_release_is_still_reenqueued(monkeypa
     release. Requiring `owner_id` here would strand them permanently, so the job
     passes None and settles the task without releasing a slot it cannot attribute.
     """
-    tasks = [SimpleNamespace(id=uuid4(), kind="word", result={"dispatch": {"query": "legacy"}})]
+    tasks = [SimpleNamespace(id=uuid4(), kind="word", dispatch={"query": "legacy"})]
     redis = _Redis()
     _patch_tasks(monkeypatch, tasks)
 
@@ -92,9 +92,9 @@ async def test_a_kind_with_no_handler_is_counted_and_not_enqueued(monkeypatch):
     """
     tasks = [
         SimpleNamespace(
-            id=uuid4(), kind="word", result={"dispatch": {"query": "run", "owner_id": "o"}}
+            id=uuid4(), kind="word", dispatch={"query": "run", "owner_id": "o"}
         ),
-        SimpleNamespace(id=uuid4(), kind="something_removed", result={"dispatch": {}}),
+        SimpleNamespace(id=uuid4(), kind="something_removed", dispatch={}),
     ]
     redis = _Redis()
     _patch_tasks(monkeypatch, tasks)
@@ -110,9 +110,9 @@ async def test_a_kind_with_no_handler_is_counted_and_not_enqueued(monkeypatch):
 async def test_an_unhandled_kind_does_not_stop_the_rest_of_the_batch(monkeypatch):
     """One unrecoverable row must not strand the recoverable ones behind it."""
     tasks = [
-        SimpleNamespace(id=uuid4(), kind="gone", result={"dispatch": {}}),
+        SimpleNamespace(id=uuid4(), kind="gone", dispatch={}),
         SimpleNamespace(
-            id=uuid4(), kind="word", result={"dispatch": {"query": "after", "owner_id": "o"}}
+            id=uuid4(), kind="word", dispatch={"query": "after", "owner_id": "o"}
         ),
     ]
     redis = _Redis()
@@ -136,7 +136,7 @@ async def test_question_pool_is_gone_and_would_now_be_reported(monkeypatch):
         SimpleNamespace(
             id=uuid4(),
             kind="question_pool",
-            result={"dispatch": {"word_id": 7, "sense_id": 8}},
+            dispatch={"word_id": 7, "sense_id": 8},
         )
     ]
     redis = _Redis()

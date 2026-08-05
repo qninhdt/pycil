@@ -14,7 +14,7 @@ async def reconcile_async_tasks(ctx: dict) -> dict:
     reenqueued = 0
     unknown: dict[str, int] = {}
     for task in tasks:
-        dispatch = task.result["dispatch"]
+        dispatch = task.dispatch
         if task.kind == "word":
             # `owner_id` is absent on rows written by the previous release; the job
             # treats it as optional and settles without releasing a slot it cannot
