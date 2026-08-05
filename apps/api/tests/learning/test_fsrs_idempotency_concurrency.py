@@ -16,6 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from pycil.auth.models import User
 from pycil.db.redis import get_redis
+from pycil.hierarchy import service as hierarchy_service
+from pycil.hierarchy.models import NodeType
 from pycil.learning import service, session_store
 from pycil.learning.models import Response, ReviewLog
 from pycil.learning.session_store import AdmittedSense
@@ -47,10 +49,16 @@ async def test_concurrent_disqualifier_applies_one_fsrs(engine):
         session.add(user)
         await session.commit()
         await session.refresh(user)
+        # A real deck: `ReviewLog.node_id` is a foreign key, so a fabricated id
+        # now fails the insert rather than writing NULL.
+        node = await hierarchy_service.create_node(
+            session, user.id, node_type=NodeType.DECK, name="conc-deck"
+        )
+        node_id = node.id
 
     sid = uuid.uuid4().hex
     await session_store.create(
-        redis, sid, owner_id=user.id, node_id=uuid.uuid4(), scope_generation=1,
+        redis, sid, owner_id=user.id, node_id=node_id, scope_generation=1,
         target_words=1, max_per_round=4, admitted=[AdmittedSense(70, "due", [2, 2])],
     )
 

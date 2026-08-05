@@ -15,6 +15,8 @@ from sqlalchemy import select
 
 from pycil.auth.models import User
 from pycil.db.redis import get_redis
+from pycil.hierarchy import service as hierarchy_service
+from pycil.hierarchy.models import NodeType
 from pycil.learning import service, session_store
 from pycil.learning.models import GradeStatus, Response, ReviewLog, SenseStatus, UserSenseStats
 from pycil.learning.session_store import AdmittedSense
@@ -30,11 +32,25 @@ async def _user(session) -> User:
     return user
 
 
-async def _start(redis, user, sense_id, purpose, levels):
+async def _deck(session, owner_id):
+    """A real deck row.
+
+    `ReviewLog.node_id` is a foreign key to `nodes.id` (SET NULL on delete), so a
+    session created with a fabricated `node_id` now fails the insert instead of
+    silently writing NULL. Tests that drive `apply_checkpoint_result` therefore need
+    a node that exists.
+    """
+    node = await hierarchy_service.create_node(
+        session, owner_id, node_type=NodeType.DECK, name=f"deck-{uuid.uuid4().hex[:6]}"
+    )
+    return node.id
+
+
+async def _start(session, redis, user, sense_id, purpose, levels):
     sid = uuid.uuid4().hex
     await session_store.create(
-        redis, sid, owner_id=user.id, node_id=uuid.uuid4(), scope_generation=1,
-        target_words=1, max_per_round=4,
+        redis, sid, owner_id=user.id, node_id=await _deck(session, user.id),
+        scope_generation=1, target_words=1, max_per_round=4,
         admitted=[AdmittedSense(sense_id, purpose, levels)],
     )
     return sid
@@ -65,7 +81,7 @@ async def _review_logs(session, user):
 async def test_acquisition_enters_fsrs_after_n_checkpoints(session):
     redis = get_redis()
     user = await _user(session)
-    sid = await _start(redis, user, 42, "new", [1, 1])
+    sid = await _start(session, redis, user, 42, "new", [1, 1])
     await session_store.set_exposed(redis, sid, 42)
 
     out0 = await _answer(session, redis, user, sid, 42, 100, 1, 1, True)
@@ -82,7 +98,7 @@ async def test_acquisition_enters_fsrs_after_n_checkpoints(session):
 async def test_scheduled_review_clean_run_one_good(session):
     redis = get_redis()
     user = await _user(session)
-    sid = await _start(redis, user, 55, "due", [2, 2])
+    sid = await _start(session, redis, user, 55, "due", [2, 2])
     await _answer(session, redis, user, sid, 55, 200, 2, 2, True)
     out = await _answer(session, redis, user, sid, 55, 201, 2, 2, True)
     assert out.applied_grade == "good"
@@ -93,7 +109,7 @@ async def test_scheduled_review_clean_run_one_good(session):
 async def test_first_wrong_locks_again_repair_adds_no_second_fsrs(session):
     redis = get_redis()
     user = await _user(session)
-    sid = await _start(redis, user, 66, "due", [2, 2])
+    sid = await _start(session, redis, user, 66, "due", [2, 2])
     wrong = await _answer(session, redis, user, sid, 66, 300, 2, 2, False)
     assert wrong.applied_grade == "again" and wrong.state_action == "open_retry"
     assert wrong.reveal is None
@@ -110,7 +126,7 @@ async def test_first_wrong_locks_again_repair_adds_no_second_fsrs(session):
 async def test_fallback_locks_again(session):
     redis = get_redis()
     user = await _user(session)
-    sid = await _start(redis, user, 77, "due", [3, 3])
+    sid = await _start(session, redis, user, 77, "due", [3, 3])
     # Served level 1 below requested 3 -> fallback disqualifier, even if correct.
     out = await _answer(session, redis, user, sid, 77, 400, 3, 1, True)
     assert out.applied_grade == "again" and out.state_action == "complete"
@@ -121,7 +137,7 @@ async def test_fallback_locks_again(session):
 async def test_repeated_wrong_is_bounded(session):
     redis = get_redis()
     user = await _user(session)
-    sid = await _start(redis, user, 88, "due", [2, 2])
+    sid = await _start(session, redis, user, 88, "due", [2, 2])
     outcomes = []
     for qid in (500, 501, 502):
         outcomes.append(await _answer(session, redis, user, sid, 88, qid, 2, 2, False))
@@ -137,7 +153,7 @@ async def test_repeated_wrong_is_bounded(session):
 async def test_redis_projection_failure_does_not_undo_committed_grade(session, monkeypatch):
     redis = get_redis()
     user = await _user(session)
-    sid = await _start(redis, user, 99, "due", [2, 2])
+    sid = await _start(session, redis, user, 99, "due", [2, 2])
 
     async def fail_projection(*_args, **_kwargs):
         raise RedisError("redis unavailable after commit")
@@ -150,3 +166,103 @@ async def test_redis_projection_failure_does_not_undo_committed_grade(session, m
     assert response.grade_status == GradeStatus.graded
     assert response.render_format == "free_text"
     assert response.reveal == {"correct_index": 0, "correct_option": "answer"}
+
+
+async def test_review_log_records_the_deck_the_review_happened_in(session):
+    """B5. `ReviewLog.node_id` must carry the session's deck.
+
+    The column has existed since `models.py:63` and nothing wrote it, so every row
+    was NULL and the dashboard's "continue where you left off" query
+    (`ReviewLog.node_id.is_not(None)`) never matched. `Response` does not carry the
+    deck, so the value has to come from the session's Redis meta.
+    """
+    redis = get_redis()
+    user = await _user(session)
+    node_id = await _deck(session, user.id)
+    sid = uuid.uuid4().hex
+    await session_store.create(
+        redis, sid, owner_id=user.id, node_id=node_id, scope_generation=1,
+        target_words=1, max_per_round=4,
+        admitted=[AdmittedSense(77, "new", [1, 1])],
+    )
+    await session_store.set_exposed(redis, sid, 77)
+    await _answer(session, redis, user, sid, 77, 9001, 1, 1, True)
+    await _answer(session, redis, user, sid, 77, 9002, 1, 1, True)
+
+    logs = await _review_logs(session, user)
+    assert logs, "a completed checkpoint pair must produce a ReviewLog"
+    assert all(row.node_id == node_id for row in logs), (
+        f"every ReviewLog must name the session's deck, got {[r.node_id for r in logs]}"
+    )
+
+
+async def test_review_log_survives_an_expired_session_without_a_node(session):
+    """The write must not depend on Redis still holding the session meta.
+
+    An LLM settle can land long after the session key expires. `node_id` is
+    best-effort for exactly that reason: it degrades to NULL rather than failing a
+    grade the learner already paid for. Only the META key is dropped here — dropping
+    the whole database would also destroy the checkpoint progress and the grade would
+    never come due, which tests the wrong thing.
+    """
+    redis = get_redis()
+    user = await _user(session)
+    sid = await _start(session, redis, user, 88, "new", [1, 1])
+    await session_store.set_exposed(redis, sid, 88)
+    await _answer(session, redis, user, sid, 88, 9101, 1, 1, True)
+
+    assert await session_store.get_meta(redis, sid) is not None
+    await redis.delete(session_store._key(sid))
+    assert await session_store.get_meta(redis, sid) is None
+
+    await _answer(session, redis, user, sid, 88, 9102, 1, 1, True)
+
+    logs = await _review_logs(session, user)
+    assert logs, "the grade must still be recorded when the session meta is gone"
+    assert logs[-1].node_id is None, "a missing meta must degrade to NULL, not guess"
+
+
+async def test_a_hard_deleted_deck_releases_its_review_history(session):
+    """The FK is SET NULL, so erasing a deck must not erase or block the history.
+
+    Two properties at once, both previously broken by the NO ACTION default:
+    `DELETE FROM nodes` succeeds (account deletion hard-deletes nodes and only
+    clears `review_log WHERE user_id = :owner`, so another learner's rows used to
+    block it), and the review survives with `node_id` NULL rather than cascading
+    away — FSRS history belongs to the learner, not the deck.
+    """
+    from sqlalchemy import text as sql_text
+
+    redis = get_redis()
+    user = await _user(session)
+    sid = await _start(session, redis, user, 55, "new", [1, 1])
+    await session_store.set_exposed(redis, sid, 55)
+    await _answer(session, redis, user, sid, 55, 9201, 1, 1, True)
+    await _answer(session, redis, user, sid, 55, 9202, 1, 1, True)
+
+    logs = await _review_logs(session, user)
+    assert logs and logs[0].node_id is not None
+    doomed = logs[0].node_id
+
+    # `deck_attributes` also references `nodes` with no ON DELETE action — one of
+    # the FKs the wider integrity work still has to fix — so clear it first, the
+    # same order `account_lifecycle.service` uses. What is under test here is that
+    # `review_log` no longer needs that treatment.
+    await session.execute(
+        sql_text("DELETE FROM deck_attributes WHERE node_id = :id"), {"id": doomed}
+    )
+    await session.execute(sql_text("DELETE FROM nodes WHERE id = :id"), {"id": doomed})
+    await session.commit()
+
+    # Read the columns back directly: the ORM identity map still holds the old
+    # `node_id`, and SET NULL happened inside the database rather than through it.
+    rows = (
+        await session.execute(
+            sql_text(
+                "SELECT node_id FROM review_log WHERE user_id = :uid ORDER BY id"
+            ),
+            {"uid": user.id},
+        )
+    ).all()
+    assert len(rows) == len(logs), "the review must outlive its deck"
+    assert all(row.node_id is None for row in rows), f"the FK must SET NULL, got {rows}"

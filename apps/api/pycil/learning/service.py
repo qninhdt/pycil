@@ -103,6 +103,27 @@ async def apply_checkpoint_result(
     )
     is_retry = progress is not None and progress.open_checkpoint is not None
 
+    # Which deck this review happened in. `Response` does not carry it, so it comes
+    # from the session's Redis meta — the only place that knows.
+    #
+    # This is B5: `ReviewLog` has had a `node_id` column since `models.py:63`, but
+    # nothing ever populated it, so every row was NULL. The dashboard's
+    # "continue where you left off" query filters on
+    # `ReviewLog.node_id.is_not(None)` (`router.py:198`), so it matched nothing and
+    # silently fell through to "the caller's first deck, whichever that is" — a
+    # feature that looked implemented and never once worked. Measured before the
+    # fix: 160 of 160 rows NULL.
+    #
+    # Best-effort by design: the row must be written even when the session key has
+    # expired (an async LLM settle can land long after), so a missing meta leaves
+    # `node_id` NULL exactly as before rather than failing the grade. The dashboard
+    # already tolerates that via the same `is_not(None)` filter.
+    node_id: UUID | None = None
+    if session_id:
+        meta = await session_store.get_meta(redis, session_id)
+        if meta is not None:
+            node_id = meta.node_id
+
     # --- classify (spec attempt table) ---
     state_action = "complete" if (is_fallback or verdict) else "open_retry"
     disqualifier = is_fallback or (verdict is False and not is_retry)
@@ -170,6 +191,7 @@ async def apply_checkpoint_result(
                 ReviewLog(
                     user_id=user_id,
                     sense_id=sense_id,
+                    node_id=node_id,
                     stability_before=stability_before,
                     stability_after=stats.stability,
                     mastery_before=mastery_before,

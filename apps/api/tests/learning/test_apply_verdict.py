@@ -9,6 +9,8 @@ from sqlalchemy import select
 
 from pycil.auth.models import User
 from pycil.db.redis import get_redis
+from pycil.hierarchy import service as hierarchy_service
+from pycil.hierarchy.models import NodeType
 from pycil.learning import service, session_store
 from pycil.learning.models import GradeStatus, Response, ReviewLog
 from pycil.learning.session_store import AdmittedSense
@@ -42,11 +44,25 @@ async def _user(session) -> User:
     return user
 
 
+async def _deck(session, owner_id):
+    """A real deck row.
+
+    `ReviewLog.node_id` is a foreign key to `nodes.id` (SET NULL on delete), so a
+    session created with a fabricated `node_id` now fails the insert instead of
+    silently writing NULL. Tests that drive `apply_checkpoint_result` therefore need
+    a node that exists.
+    """
+    node = await hierarchy_service.create_node(
+        session, owner_id, node_type=NodeType.DECK, name=f"deck-{uuid.uuid4().hex[:6]}"
+    )
+    return node.id
+
+
 async def _pending(session, redis, user, sense_id=42, qid=1):
     sid = uuid.uuid4().hex
     await session_store.create(
-        redis, sid, owner_id=user.id, node_id=uuid.uuid4(), scope_generation=1,
-        target_words=1, max_per_round=4,
+        redis, sid, owner_id=user.id, node_id=await _deck(session, user.id),
+        scope_generation=1, target_words=1, max_per_round=4,
         admitted=[AdmittedSense(sense_id, "due", [3, 3])],
     )
     # Advance to the final checkpoint so a correct settle completes N -> Good.

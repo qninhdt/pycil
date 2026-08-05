@@ -9,7 +9,16 @@ from datetime import datetime
 from enum import Enum
 from uuid import UUID
 
-from sqlalchemy import BigInteger, Column, DateTime, Index, UniqueConstraint, text
+from sqlalchemy import (
+    BigInteger,
+    Column,
+    DateTime,
+    ForeignKey,
+    Index,
+    UniqueConstraint,
+    Uuid,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, SQLModel
 
@@ -60,7 +69,15 @@ class ReviewLog(SQLModel, table=True):
     id: int | None = Field(default=None, sa_column=Column(BigInteger, primary_key=True))
     user_id: UUID = Field(foreign_key="users.id")
     sense_id: int = Field(sa_column=Column(BigInteger, nullable=False))
-    node_id: UUID | None = Field(default=None, foreign_key="nodes.id")
+    # SET NULL, not the SQLModel default of no action: the FSRS history belongs to
+    # the learner, so a deleted deck must release these rows rather than block its
+    # own deletion. See migration 0020.
+    node_id: UUID | None = Field(
+        default=None,
+        sa_column=Column(
+            Uuid(), ForeignKey("nodes.id", ondelete="SET NULL"), nullable=True
+        ),
+    )
     stability_before: float
     stability_after: float
     mastery_before: int
@@ -207,7 +224,12 @@ class SessionSummary(SQLModel, table=True):
     )
     user_id: UUID = Field(foreign_key="users.id", index=True)
     session_id: str = Field(max_length=64)
-    node_id: UUID | None = Field(default=None, foreign_key="nodes.id")
+    node_id: UUID | None = Field(
+        default=None,
+        sa_column=Column(
+            Uuid(), ForeignKey("nodes.id", ondelete="SET NULL"), nullable=True
+        ),
+    )
     # Admitted senses and how they ended.
     senses_admitted: int = Field(default=0)
     senses_completed: int = Field(default=0)
