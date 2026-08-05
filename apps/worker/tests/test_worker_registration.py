@@ -67,3 +67,24 @@ async def test_outbox_notification_coalesces_concurrent_drains(monkeypatch):
     await first
 
     assert calls == 1
+
+
+def test_generate_word_task_accepts_the_owner_argument_as_optional():
+    """Deploy-order guard for the B1 fix.
+
+    The API now enqueues `generate_word_task` with a fourth `owner_id` argument. A
+    worker that predates it raises TypeError and the job dies, so the worker must be
+    deployed at or before the API. Conversely, a job already queued by the previous
+    API carries only three arguments, which is why the parameter is optional rather
+    than required — this asserts that direction, so a future change that makes it
+    required fails here instead of stranding queued rows.
+    """
+    import inspect
+
+    from pycil_worker.jobs.generate_word import generate_word_task
+
+    parameters = inspect.signature(generate_word_task).parameters
+    assert list(parameters) == ["ctx", "task_id", "query", "owner_uid"]
+    assert parameters["owner_uid"].default is None, (
+        "owner_uid must stay optional so jobs queued by the previous release settle"
+    )

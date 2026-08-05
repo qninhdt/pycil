@@ -137,7 +137,9 @@ async def test_generation_endpoint_returns_task_receipt_and_enqueues_once(
     )
     assert response.status_code == 202
     task_id = response.json()["taskId"]
-    assert pool.calls == [("generate_word_task", task_id, "example")]
+    # `owner_id` rides along so the worker can return the inflight slot this
+    # request was charged; without it the job cannot attribute the release.
+    assert pool.calls == [("generate_word_task", task_id, "example", str(owner.id))]
 
     duplicate = await client.post(
         "/v1/word-generations",

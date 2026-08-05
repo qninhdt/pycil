@@ -70,9 +70,33 @@ async def generate_word(ctx: dict, owner_uid: str, query: str, generation_id: st
     return {"status": "succeeded", **result}
 
 
-async def generate_word_task(ctx: dict, task_id: str, query: str) -> dict:
-    """Complete the SSE task resource while retaining the legacy handler above."""
+async def generate_word_task(
+    ctx: dict, task_id: str, query: str, owner_uid: str | None = None
+) -> dict:
+    """Complete the SSE task resource while retaining the legacy handler above.
+
+    ``owner_uid`` identifies who was charged the inflight generation slot at
+    submission. The route reserves two counters bounded by
+    ``word_generation_max_inflight_per_user``; this job is the one it enqueues, so
+    it is the only place that can return them. Without the release, ten successful
+    generations exhausted a learner's budget until the 900s TTL lapsed.
+
+    Optional so a job already queued by the previous release settles instead of
+    raising ``TypeError`` during a rolling deploy. Such a job cannot attribute a
+    slot, and the TTL remains the backstop for that window alone.
+    """
+    from pycil.jobs import service as jobs_service
+
     task_uuid = UUID(task_id)
+    owner_id = UUID(owner_uid) if owner_uid else None
+
+    async def release() -> None:
+        # Only a transition this worker actually won may return the slot: a
+        # rejected fence means another attempt owns the task and is still charged
+        # for it, so releasing here would let the learner exceed the bound.
+        if owner_id is not None:
+            await jobs_service.release_inflight_quota(ctx["redis"], owner_id)
+
     async with ctx["session_factory"]() as session:
         task = await task_service.claim_task(session, task_uuid, ctx.get("worker_id", "worker"))
     if task is None:
@@ -88,7 +112,10 @@ async def generate_word_task(ctx: dict, task_id: str, query: str) -> dict:
                 session, task_uuid, lease_token=task.lease_token, lease_fence=task.lease_fence,
                 status=AsyncTaskStatus.FAILED, error_code="word_generation_failed",
             )
-        return {"status": "failed" if updated else "stale"}
+        if updated is None:
+            return {"status": "stale"}
+        await release()
+        return {"status": "failed"}
     result = {
         "wordId": entry.word_id,
         "senseIds": [sense.sense_id for sense in entry.senses if sense.sense_id is not None],
@@ -98,4 +125,7 @@ async def generate_word_task(ctx: dict, task_id: str, query: str) -> dict:
             session, task_uuid, lease_token=task.lease_token, lease_fence=task.lease_fence,
             status=AsyncTaskStatus.SUCCEEDED, result=result,
         )
-    return {"status": "succeeded", **result} if updated else {"status": "stale"}
+    if updated is None:
+        return {"status": "stale"}
+    await release()
+    return {"status": "succeeded", **result}

@@ -30,6 +30,11 @@ def _context(reader, worker_engine):
     }
 
 
+async def _resolved(value):
+    """Await-able stand-in for a service call whose arguments are not asserted."""
+    return value
+
+
 async def test_generate_word_persists_terminal_result_and_publishes(monkeypatch):
     job_id = uuid4()
     calls: list[tuple[str, object]] = []
@@ -185,3 +190,169 @@ async def test_generate_word_returns_stale_when_failure_lease_was_reclaimed(monk
         _context(Reader(), object()), "owner", "term", str(job_id)
     )
     assert result == {"status": "stale"}
+
+
+async def test_generate_word_task_releases_the_inflight_slot_it_was_charged(monkeypatch):
+    """B1: the enqueued job must return the inflight slot the route charged.
+
+    `POST /word-generations` reserves two inflight counters bounded by
+    `word_generation_max_inflight_per_user` (10). The legacy `generate_word` handler
+    releases them on its terminal paths; `generate_word_task` — the job the route
+    actually enqueues — released neither. Ten successful generations therefore
+    exhausted a learner's budget until the 900s TTL lapsed, and the eleventh was
+    refused with 429 while nothing was in flight.
+
+    Driven through a Lua-capable fake Redis and asserted on the counter rather than
+    on a call count, because the counter is what bounds the next request.
+    """
+    import fakeredis.aioredis
+    from pycil.jobs import service as jobs_service
+
+    redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    owner_id, task_id = uuid4(), uuid4()
+    assert await jobs_service.reserve_quota(redis, owner_id) is True
+    user_key = f"word-generation:inflight:user:{owner_id}"
+    assert await redis.get(user_key) == "1"
+
+    class Reader:
+        async def search(self, _query):
+            return []
+
+    class WorkerEngine:
+        async def generate_fenced(self, _source):
+            return _entry("term", 44)
+
+    task = SimpleNamespace(id=task_id, lease_token="lease-token", lease_fence=1)
+
+    async def claim_task(_session, _seen_task_id, _worker_id):
+        return task
+
+    async def transition_task(_session, _seen_task_id, **_kwargs):
+        return task
+
+    monkeypatch.setattr(generate_word.task_service, "claim_task", claim_task)
+    monkeypatch.setattr(generate_word.task_service, "transition_task", transition_task)
+
+    ctx = _context(Reader(), WorkerEngine()) | {"redis": redis}
+    result = await generate_word.generate_word_task(ctx, str(task_id), "term", str(owner_id))
+
+    assert result["status"] == "succeeded"
+    assert await redis.get(user_key) is None, (
+        "generate_word_task must release the inflight slot the route charged"
+    )
+    assert await redis.get("word-generation:inflight:global") is None
+    await redis.flushall()
+
+
+async def test_generate_word_task_releases_the_slot_on_the_failure_path(monkeypatch):
+    """The failure path leaks the same slot, and it is the one most likely recharged.
+
+    A failed generation is precisely what a learner retries, so a slot held here is
+    charged again seconds later.
+    """
+    import fakeredis.aioredis
+    from pycil.jobs import service as jobs_service
+
+    redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    owner_id, task_id = uuid4(), uuid4()
+    assert await jobs_service.reserve_quota(redis, owner_id) is True
+    user_key = f"word-generation:inflight:user:{owner_id}"
+
+    class Reader:
+        async def search(self, _query):
+            raise RuntimeError("lexi unavailable")
+
+    task = SimpleNamespace(id=task_id, lease_token="lease-token", lease_fence=1)
+    monkeypatch.setattr(
+        generate_word.task_service, "claim_task", lambda *_a: _resolved(task)
+    )
+    monkeypatch.setattr(
+        generate_word.task_service, "transition_task", lambda *_a, **_k: _resolved(task)
+    )
+
+    ctx = _context(Reader(), object()) | {"redis": redis}
+    result = await generate_word.generate_word_task(ctx, str(task_id), "term", str(owner_id))
+
+    assert result["status"] == "failed"
+    assert await redis.get(user_key) is None, (
+        "a failed generation must not keep holding the inflight slot"
+    )
+    await redis.flushall()
+
+
+async def test_generate_word_task_keeps_the_slot_when_its_lease_was_reclaimed(monkeypatch):
+    """A stale worker must not release a slot another attempt now owns.
+
+    `transition_task` returns None when the lease token or fence no longer matches,
+    which is exactly the case where a second worker has taken over. Releasing here
+    would free a slot that the live attempt is still charged for, letting a learner
+    exceed the inflight bound — the mirror image of the leak.
+    """
+    import fakeredis.aioredis
+    from pycil.jobs import service as jobs_service
+
+    redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    owner_id, task_id = uuid4(), uuid4()
+    assert await jobs_service.reserve_quota(redis, owner_id) is True
+    user_key = f"word-generation:inflight:user:{owner_id}"
+
+    class Reader:
+        async def search(self, _query):
+            return []
+
+    class WorkerEngine:
+        async def generate_fenced(self, _source):
+            return _entry("term", 44)
+
+    task = SimpleNamespace(id=task_id, lease_token="lease-token", lease_fence=1)
+    monkeypatch.setattr(
+        generate_word.task_service, "claim_task", lambda *_a: _resolved(task)
+    )
+    # The fenced transition rejects this worker: another attempt owns the task.
+    monkeypatch.setattr(
+        generate_word.task_service, "transition_task", lambda *_a, **_k: _resolved(None)
+    )
+
+    ctx = _context(Reader(), WorkerEngine()) | {"redis": redis}
+    result = await generate_word.generate_word_task(ctx, str(task_id), "term", str(owner_id))
+
+    assert result == {"status": "stale"}
+    assert await redis.get(user_key) == "1", (
+        "a stale worker must leave the live attempt's slot charged"
+    )
+    await redis.flushall()
+
+
+async def test_generate_word_task_without_an_owner_settles_without_releasing(monkeypatch):
+    """An in-flight job enqueued by the previous release carries no owner.
+
+    The argument is optional so that a rolling deploy — new worker, jobs already
+    queued by the old API — settles the task instead of raising TypeError. Such a
+    job cannot release a slot it cannot attribute, and the 900s TTL remains the
+    backstop for that window only.
+    """
+    import fakeredis.aioredis
+
+    redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    task_id = uuid4()
+
+    class Reader:
+        async def search(self, _query):
+            return []
+
+    class WorkerEngine:
+        async def generate_fenced(self, _source):
+            return _entry("term", 44)
+
+    task = SimpleNamespace(id=task_id, lease_token="lease-token", lease_fence=1)
+    monkeypatch.setattr(
+        generate_word.task_service, "claim_task", lambda *_a: _resolved(task)
+    )
+    monkeypatch.setattr(
+        generate_word.task_service, "transition_task", lambda *_a, **_k: _resolved(task)
+    )
+
+    ctx = _context(Reader(), WorkerEngine()) | {"redis": redis}
+    result = await generate_word.generate_word_task(ctx, str(task_id), "term")
+    assert result == {"status": "succeeded", "wordId": 9, "senseIds": [44]}
+    await redis.flushall()

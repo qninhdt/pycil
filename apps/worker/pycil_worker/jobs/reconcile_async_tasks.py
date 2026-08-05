@@ -16,7 +16,12 @@ async def reconcile_async_tasks(ctx: dict) -> dict:
     for task in tasks:
         dispatch = task.result["dispatch"]
         if task.kind == "word":
-            await ctx["redis"].enqueue_job("generate_word_task", str(task.id), dispatch["query"])
+            # `owner_id` is absent on rows written by the previous release; the job
+            # treats it as optional and settles without releasing a slot it cannot
+            # attribute.
+            await ctx["redis"].enqueue_job(
+                "generate_word_task", str(task.id), dispatch["query"], dispatch.get("owner_id")
+            )
             reenqueued += 1
         elif task.kind == "grading":
             await ctx["redis"].enqueue_job(

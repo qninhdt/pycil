@@ -37,7 +37,11 @@ def _patch_tasks(monkeypatch, tasks):
 
 async def test_reconciliation_reenqueues_each_live_task_kind(monkeypatch):
     tasks = [
-        SimpleNamespace(id=uuid4(), kind="word", result={"dispatch": {"query": "run"}}),
+        SimpleNamespace(
+            id=uuid4(),
+            kind="word",
+            result={"dispatch": {"query": "run", "owner_id": "word-owner"}},
+        ),
         SimpleNamespace(
             id=uuid4(),
             kind="grading",
@@ -52,10 +56,31 @@ async def test_reconciliation_reenqueues_each_live_task_kind(monkeypatch):
     )
 
     assert result == {"status": "reconciled", "count": 2, "unhandled": 0}
+    # `owner_id` travels with the re-enqueue so the retried job can still return the
+    # inflight slot the original submission was charged.
     assert redis.enqueued == [
-        ("generate_word_task", str(tasks[0].id), "run"),
+        ("generate_word_task", str(tasks[0].id), "run", "word-owner"),
         ("grade_answer_task", str(tasks[1].id), "owner", "response"),
     ]
+
+
+async def test_a_word_row_from_the_previous_release_is_still_reenqueued(monkeypatch):
+    """A queued row written before `owner_id` was recorded must still recover.
+
+    Reconciliation is precisely what runs against rows created by the previous
+    release. Requiring `owner_id` here would strand them permanently, so the job
+    passes None and settles the task without releasing a slot it cannot attribute.
+    """
+    tasks = [SimpleNamespace(id=uuid4(), kind="word", result={"dispatch": {"query": "legacy"}})]
+    redis = _Redis()
+    _patch_tasks(monkeypatch, tasks)
+
+    result = await reconcile_async_tasks(
+        {"session_factory": _session_factory, "redis": redis}
+    )
+
+    assert result == {"status": "reconciled", "count": 1, "unhandled": 0}
+    assert redis.enqueued == [("generate_word_task", str(tasks[0].id), "legacy", None)]
 
 
 async def test_a_kind_with_no_handler_is_counted_and_not_enqueued(monkeypatch):
@@ -66,7 +91,9 @@ async def test_a_kind_with_no_handler_is_counted_and_not_enqueued(monkeypatch):
     enqueued for it.
     """
     tasks = [
-        SimpleNamespace(id=uuid4(), kind="word", result={"dispatch": {"query": "run"}}),
+        SimpleNamespace(
+            id=uuid4(), kind="word", result={"dispatch": {"query": "run", "owner_id": "o"}}
+        ),
         SimpleNamespace(id=uuid4(), kind="something_removed", result={"dispatch": {}}),
     ]
     redis = _Redis()
@@ -77,14 +104,16 @@ async def test_a_kind_with_no_handler_is_counted_and_not_enqueued(monkeypatch):
     )
 
     assert result == {"status": "reconciled", "count": 1, "unhandled": 1}
-    assert redis.enqueued == [("generate_word_task", str(tasks[0].id), "run")]
+    assert redis.enqueued == [("generate_word_task", str(tasks[0].id), "run", "o")]
 
 
 async def test_an_unhandled_kind_does_not_stop_the_rest_of_the_batch(monkeypatch):
     """One unrecoverable row must not strand the recoverable ones behind it."""
     tasks = [
         SimpleNamespace(id=uuid4(), kind="gone", result={"dispatch": {}}),
-        SimpleNamespace(id=uuid4(), kind="word", result={"dispatch": {"query": "after"}}),
+        SimpleNamespace(
+            id=uuid4(), kind="word", result={"dispatch": {"query": "after", "owner_id": "o"}}
+        ),
     ]
     redis = _Redis()
     _patch_tasks(monkeypatch, tasks)
@@ -94,7 +123,7 @@ async def test_an_unhandled_kind_does_not_stop_the_rest_of_the_batch(monkeypatch
     )
 
     assert result["count"] == 1
-    assert redis.enqueued == [("generate_word_task", str(tasks[1].id), "after")]
+    assert redis.enqueued == [("generate_word_task", str(tasks[1].id), "after", "o")]
 
 
 async def test_question_pool_is_gone_and_would_now_be_reported(monkeypatch):

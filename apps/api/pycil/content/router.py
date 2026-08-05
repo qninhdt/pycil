@@ -96,7 +96,7 @@ async def request_word(
             command_kind="word.generate",
             command_id=idempotency_key or f"word:{uuid4()}",
             provenance="word-search",
-            dispatch={"query": body.query},
+            dispatch={"query": body.query, "owner_id": str(user.id)},
         )
     except Exception:
         await jobs_service.release_inflight_quota(redis, user.id)
@@ -107,7 +107,9 @@ async def request_word(
         # The committed task is the source of truth for the subscriber receipt.
         try:
             pool = await get_arq_pool()
-            await pool.enqueue_job("generate_word_task", str(submission.task.id), body.query)
+            await pool.enqueue_job(
+                "generate_word_task", str(submission.task.id), body.query, str(user.id)
+            )
         except Exception:  # noqa: BLE001 - durable reconciliation handles enqueue outages
             pass
     return GenerationCreateRead(
