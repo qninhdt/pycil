@@ -89,6 +89,34 @@ async def delete_account(session: AsyncSession, user_id: UUID) -> int:
         "DELETE FROM responses WHERE user_id = :user_id",
         "DELETE FROM review_log WHERE user_id = :user_id",
         "DELETE FROM user_sense_stats WHERE user_id = :user_id",
+        "DELETE FROM user_learning_settings WHERE user_id = :user_id",
+        "DELETE FROM session_summaries WHERE user_id = :user_id",
+        # Async task rows. Every FK onto `users` is NO ACTION, so omitting these
+        # does not orphan a row — it aborts the whole deletion and the account
+        # survives. Both tables are per-requester, and no task is shared between
+        # users (`uq_task_interest_provenance` is per requester), so this erases
+        # only this account's participation.
+        #
+        # `async_tasks` itself is deliberately left in place: it is keyed by a
+        # server-derived work key, carries no `users` FK, and its `word` rows are
+        # reusable dictionary work that outlives any one requester. A `grading`
+        # task's `result` does hold that learner's own feedback text, so those are
+        # removed with their interests.
+        "DELETE FROM async_command_receipts WHERE requester_id = :user_id",
+        "DELETE FROM async_task_outbox WHERE event_id IN "
+        "(SELECT id FROM async_task_events WHERE task_id IN "
+        "(SELECT i.task_id FROM async_task_interests i JOIN async_tasks t ON t.id = i.task_id "
+        "WHERE i.requester_id = :user_id AND t.kind = 'grading'))",
+        "DELETE FROM async_task_events WHERE task_id IN "
+        "(SELECT i.task_id FROM async_task_interests i JOIN async_tasks t ON t.id = i.task_id "
+        "WHERE i.requester_id = :user_id AND t.kind = 'grading')",
+        "DELETE FROM async_task_interests WHERE requester_id = :user_id",
+        # The `NOT IN` guard, not the `kind` filter, is what keeps a task another
+        # reader still references. Both source columns are NOT NULL, so the
+        # `NOT IN`/NULL trap that would silently delete nothing cannot arise.
+        "DELETE FROM async_tasks WHERE kind = 'grading' AND id NOT IN "
+        "(SELECT task_id FROM async_task_interests "
+        "UNION SELECT task_id FROM async_command_receipts)",
         "DELETE FROM word_generations WHERE owner_id = :user_id",
         "DELETE FROM deck_senses WHERE node_id IN "
         "(SELECT id FROM nodes WHERE author_id = :user_id)",
