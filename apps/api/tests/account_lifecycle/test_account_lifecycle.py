@@ -1,8 +1,19 @@
 """Account export/deletion remain scoped to Pycil-owned data."""
 
+from uuid import uuid4
+
 import pytest
 from sqlalchemy import text
 
+from pycil.assistant.hitl import create_pending_action
+from pycil.assistant.models import (
+    AssistantActionAudit,
+    AssistantRun,
+    AssistantRunEvent,
+    AssistantThread,
+    RunStatus,
+)
+from pycil.assistant.persistence import retention_deadline
 from pycil.auth import tokens
 from pycil.auth.models import User
 from pycil.auth.refresh_sessions import issue
@@ -377,3 +388,194 @@ async def test_delete_keeps_a_grading_task_a_second_interest_still_references(cl
         )
     )
     assert remaining == [auditor.id]
+
+
+async def test_delete_reaches_assistant_runs_events_and_actions_through_the_cascade(
+    client, session
+):
+    """0024 moved three deletion steps into the database; this proves they still happen.
+
+    `delete_account` used to name `assistant_run_events`, `assistant_actions` and
+    `assistant_runs` explicitly. They now cascade from the thread, so the statements
+    were removed — which is only safe if the cascade is real. Measured before adding
+    it: all eight assistant foreign keys were NO ACTION, so the plan's premise that
+    `ondelete=` already covered this was wrong.
+
+    The audit row is asserted separately, because it must NOT cascade.
+    """
+    user = await _seed(session)
+    thread = AssistantThread(owner_id=user.id, title="T", retention_deadline=retention_deadline())
+    session.add(thread)
+    await session.flush()
+    run = AssistantRun(
+        thread_id=thread.id,
+        owner_id=user.id,
+        client_message_id=uuid4(),
+        status=RunStatus.SUCCEEDED,
+    )
+    session.add(run)
+    await session.flush()
+    session.add(
+        AssistantRunEvent(
+            run_id=run.id,
+            sequence=1,
+            event_type="token",
+            sanitized_payload={"t": "x"},
+            expires_at=retention_deadline(),
+        )
+    )
+    action = await create_pending_action(
+        session, run_id=run.id, owner_id=user.id, tool="add_sense", arguments={"senseId": 1}
+    )
+    raw_refresh, _ = await issue(session, user.id)
+    await session.commit()
+    access, _ = tokens.sign_access(user)
+    ids = {"thread": thread.id, "run": run.id, "action": action.id}
+
+    deleted = await client.request(
+        "DELETE",
+        "/v1/me",
+        headers=await _headers(access),
+        json={"refresh_token": raw_refresh, "confirmation": "DELETE"},
+    )
+    assert deleted.status_code == 204
+
+    for table, column, key in (
+        ("assistant_threads", "id", "thread"),
+        ("assistant_runs", "id", "run"),
+        ("assistant_run_events", "run_id", "run"),
+        ("assistant_actions", "id", "action"),
+    ):
+        remaining = await session.scalar(
+            text(f"SELECT count(*) FROM {table} WHERE {column} = :id"),  # noqa: S608
+            {"id": ids[key]},
+        )
+        assert remaining == 0, f"{table} survived account deletion"
+
+
+async def test_retention_keeps_the_audit_row_the_cascade_must_not_delete(session, engine):
+    """`action_id` is SET NULL, not CASCADE, and the difference is the audit trail.
+
+    `reconcile_assistant_retention` nulls `action_id` by hand before deleting actions
+    and its own test asserts the audit survives. Making that edge CASCADE would have
+    deleted the policy-required record instead — a silent data-retention regression
+    that the hand-written UPDATE was the only thing preventing.
+
+    Asserted at the database level so it holds regardless of which code path deletes
+    the action.
+    """
+    user = await _seed(session)
+    thread = AssistantThread(owner_id=user.id, title="T", retention_deadline=retention_deadline())
+    session.add(thread)
+    await session.flush()
+    run = AssistantRun(
+        thread_id=thread.id,
+        owner_id=user.id,
+        client_message_id=uuid4(),
+        status=RunStatus.SUCCEEDED,
+    )
+    session.add(run)
+    await session.flush()
+    # `create_pending_action` writes the action and its "proposed" audit together,
+    # which is the shape production actually produces.
+    action = await create_pending_action(
+        session, run_id=run.id, owner_id=user.id, tool="add_sense", arguments={"senseId": 1}
+    )
+    audit_id = await session.scalar(
+        text("SELECT id FROM assistant_action_audit WHERE action_id = :id"), {"id": action.id}
+    )
+    assert audit_id is not None
+
+    # Delete only the action, the way retention does after nulling the pointer.
+    await session.execute(text("DELETE FROM assistant_actions WHERE id = :id"), {"id": action.id})
+    await session.commit()
+    session.expire_all()
+
+    surviving = await session.get(AssistantActionAudit, audit_id)
+    assert surviving is not None, "the audit row must outlive the action it describes"
+    assert surviving.action_id is None
+
+
+_CHECKPOINT_DDL = (
+    "CREATE TABLE IF NOT EXISTS checkpoints (thread_id TEXT NOT NULL, "
+    "checkpoint_ns TEXT NOT NULL DEFAULT '', checkpoint_id TEXT NOT NULL, "
+    "parent_checkpoint_id TEXT, type TEXT, checkpoint JSONB NOT NULL, "
+    "metadata JSONB NOT NULL DEFAULT '{}', "
+    "PRIMARY KEY (thread_id, checkpoint_ns, checkpoint_id))",
+    "CREATE TABLE IF NOT EXISTS checkpoint_blobs (thread_id TEXT NOT NULL, "
+    "checkpoint_ns TEXT NOT NULL DEFAULT '', channel TEXT NOT NULL, version TEXT NOT NULL, "
+    "type TEXT NOT NULL, blob BYTEA, "
+    "PRIMARY KEY (thread_id, checkpoint_ns, channel, version))",
+    "CREATE TABLE IF NOT EXISTS checkpoint_writes (thread_id TEXT NOT NULL, "
+    "checkpoint_ns TEXT NOT NULL DEFAULT '', checkpoint_id TEXT NOT NULL, "
+    "task_id TEXT NOT NULL, idx INTEGER NOT NULL, channel TEXT NOT NULL, type TEXT, "
+    "blob BYTEA NOT NULL, task_path TEXT NOT NULL DEFAULT '', "
+    "PRIMARY KEY (thread_id, checkpoint_ns, checkpoint_id, task_id, idx))",
+)
+
+
+async def test_delete_erases_the_langgraph_checkpoint_rows(client, session):
+    """The deletions no cascade can ever cover.
+
+    `checkpoints`, `checkpoint_blobs` and `checkpoint_writes` are LangGraph-owned and
+    keyed by a `thread_id` string, not a foreign key, so nothing in the schema reaches
+    them. They hold the assistant conversation content, which makes losing these
+    statements a data-retention regression rather than a leak.
+
+    Nothing covered this before: the tables are created by raw SQL inside migration
+    0008, while the test database is built from ORM metadata via `create_all`, so they
+    simply did not exist here. Removing the deletion left every test green. The DDL is
+    created explicitly for that reason.
+    """
+    for statement in _CHECKPOINT_DDL:
+        await session.execute(text(statement))
+    user = await _seed(session)
+    thread_id = f"assistant:{user.id}:11111111-1111-4111-8111-111111111111"
+    other_thread_id = "assistant:00000000-0000-4000-8000-000000000000:deadbeef"
+    for owner in (thread_id, other_thread_id):
+        await session.execute(
+            text(
+                "INSERT INTO checkpoints (thread_id, checkpoint_id, checkpoint, metadata) "
+                "VALUES (:t, 'c1', '{}'::jsonb, '{}'::jsonb)"
+            ),
+            {"t": owner},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO checkpoint_blobs (thread_id, channel, version, type) "
+                "VALUES (:t, 'ch', 'v1', 'json')"
+            ),
+            {"t": owner},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO checkpoint_writes "
+                "(thread_id, checkpoint_id, task_id, idx, channel, blob) "
+                "VALUES (:t, 'c1', 'task', 0, 'ch', '\\x00'::bytea)"
+            ),
+            {"t": owner},
+        )
+    raw_refresh, _ = await issue(session, user.id)
+    await session.commit()
+    access, _ = tokens.sign_access(user)
+
+    deleted = await client.request(
+        "DELETE",
+        "/v1/me",
+        headers=await _headers(access),
+        json={"refresh_token": raw_refresh, "confirmation": "DELETE"},
+    )
+    assert deleted.status_code == 204
+
+    for table in ("checkpoints", "checkpoint_blobs", "checkpoint_writes"):
+        mine = await session.scalar(
+            text(f"SELECT count(*) FROM {table} WHERE thread_id = :t"),  # noqa: S608
+            {"t": thread_id},
+        )
+        assert mine == 0, f"{table} kept this account's assistant conversation content"
+        # And only this account's: the prefix match must not reach another learner.
+        theirs = await session.scalar(
+            text(f"SELECT count(*) FROM {table} WHERE thread_id = :t"),  # noqa: S608
+            {"t": other_thread_id},
+        )
+        assert theirs == 1, f"{table} lost another account's rows"

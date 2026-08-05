@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import Enum
 from uuid import UUID
 
-from sqlalchemy import DateTime, Index, UniqueConstraint, text
+from sqlalchemy import DateTime, ForeignKey, Index, UniqueConstraint, Uuid, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Column, Field, SQLModel
 
@@ -63,7 +63,12 @@ class AssistantRun(SQLModel, table=True):
         sa_column_kwargs={"server_default": text("gen_random_uuid()")},
         primary_key=True,
     )
-    thread_id: UUID = Field(foreign_key="assistant_threads.id", index=True)
+    thread_id: UUID = Field(
+        sa_column=Column(
+            Uuid(), ForeignKey("assistant_threads.id", ondelete="CASCADE"), nullable=False,
+            index=True,
+        )
+    )
     owner_id: UUID = Field(foreign_key="users.id", index=True)
     client_message_id: UUID
     status: RunStatus = Field(default=RunStatus.PENDING)
@@ -88,7 +93,12 @@ class AssistantRunEvent(SQLModel, table=True):
         sa_column_kwargs={"server_default": text("gen_random_uuid()")},
         primary_key=True,
     )
-    run_id: UUID = Field(foreign_key="assistant_runs.id", index=True)
+    run_id: UUID = Field(
+        sa_column=Column(
+            Uuid(), ForeignKey("assistant_runs.id", ondelete="CASCADE"), nullable=False,
+            index=True,
+        )
+    )
     sequence: int
     event_type: str = Field(max_length=40)
     sanitized_payload: dict = Field(default_factory=dict, sa_column=Column(JSONB, nullable=False))
@@ -107,7 +117,12 @@ class AssistantAction(SQLModel, table=True):
         sa_column_kwargs={"server_default": text("gen_random_uuid()")},
         primary_key=True,
     )
-    run_id: UUID = Field(foreign_key="assistant_runs.id", index=True)
+    run_id: UUID = Field(
+        sa_column=Column(
+            Uuid(), ForeignKey("assistant_runs.id", ondelete="CASCADE"), nullable=False,
+            index=True,
+        )
+    )
     owner_id: UUID = Field(foreign_key="users.id", index=True)
     tool: str = Field(max_length=80)
     args_digest: str = Field(max_length=64)
@@ -134,7 +149,17 @@ class AssistantActionAudit(SQLModel, table=True):
         sa_column_kwargs={"server_default": text("gen_random_uuid()")},
         primary_key=True,
     )
-    action_id: UUID | None = Field(default=None, foreign_key="assistant_actions.id", index=True)
+    # SET NULL, not CASCADE: the audit row is the policy-required record and must
+    # outlive the action it describes. `reconcile_assistant_retention` already does
+    # exactly this by hand before deleting actions, and its test asserts the audit
+    # survives with a null `action_id`.
+    action_id: UUID | None = Field(
+        default=None,
+        sa_column=Column(
+            Uuid(), ForeignKey("assistant_actions.id", ondelete="SET NULL"), nullable=True,
+            index=True,
+        ),
+    )
     actor_id: UUID = Field(foreign_key="users.id", index=True)
     decision: str = Field(max_length=40)
     sanitized_digest: str = Field(max_length=64)

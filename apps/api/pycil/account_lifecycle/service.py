@@ -7,6 +7,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from pycil.auth import refresh_sessions
 
+# (table to probe, statement). The prefix match is parameterized; only the table name
+# is fixed, and it is fixed here rather than interpolated at the call site.
+_CHECKPOINT_DELETES = (
+    ("checkpoint_writes", "DELETE FROM checkpoint_writes WHERE thread_id LIKE :checkpoint_prefix"),
+    ("checkpoint_blobs", "DELETE FROM checkpoint_blobs WHERE thread_id LIKE :checkpoint_prefix"),
+    ("checkpoints", "DELETE FROM checkpoints WHERE thread_id LIKE :checkpoint_prefix"),
+)
+
 
 async def export_account(session: AsyncSession, user_id: UUID) -> dict:
     """Return Pycil-owned records only; Lexi's dictionary is never queried."""
@@ -78,12 +86,15 @@ async def delete_account(session: AsyncSession, user_id: UUID) -> int:
         {"user_id": user_id},
     )
     statements = (
+        # The audit row survives the action it describes (`action_id` is SET NULL),
+        # so account deletion has to remove this account's audits explicitly —
+        # both the ones it is the actor of and the ones describing its own actions.
         "DELETE FROM assistant_action_audit WHERE actor_id = :user_id OR action_id IN "
         "(SELECT id FROM assistant_actions WHERE owner_id = :user_id)",
-        "DELETE FROM assistant_run_events WHERE run_id IN "
-        "(SELECT id FROM assistant_runs WHERE owner_id = :user_id)",
-        "DELETE FROM assistant_actions WHERE owner_id = :user_id",
-        "DELETE FROM assistant_runs WHERE owner_id = :user_id",
+        # Runs, their events and their actions cascade from the thread (0024), so only
+        # the root needs naming. `owner_id` is still NO ACTION on purpose: account
+        # deletion must fail loudly if a table is forgotten, which is exactly what
+        # surfaced the four missing statements here.
         "DELETE FROM assistant_threads WHERE owner_id = :user_id",
         "DELETE FROM session_sense_attempts WHERE user_id = :user_id",
         "DELETE FROM responses WHERE user_id = :user_id",
@@ -134,13 +145,15 @@ async def delete_account(session: AsyncSession, user_id: UUID) -> int:
     params = {"user_id": user_id, "checkpoint_prefix": f"assistant:{user_id}:%"}
     for statement in statements:
         await session.execute(text(statement), params)
-    # Checkpoint tables are migration-owned rather than ORM metadata. Old local
-    # databases may predate the assistant migration, so make deletion retry-safe.
-    for table in ("checkpoint_writes", "checkpoint_blobs", "checkpoints"):
-        exists = await session.scalar(text("SELECT to_regclass(:table)"), {"table": table})
-        if exists:
-            await session.execute(
-                text(f"DELETE FROM {table} WHERE thread_id LIKE :checkpoint_prefix"), params
-            )
+    # LangGraph owns the checkpoint tables and keys them by a `thread_id` string
+    # rather than a foreign key, so no cascade reaches them and these deletions have
+    # to stay. Written as literals rather than interpolated from a table list: the
+    # values were always parameterized, but nothing about an f-string says so.
+    #
+    # `to_regclass` first because the tables are migration-owned: an old local
+    # database may predate the assistant migration, and deletion must stay retry-safe.
+    for table, statement in _CHECKPOINT_DELETES:
+        if await session.scalar(text("SELECT to_regclass(:table)"), {"table": table}):
+            await session.execute(text(statement), params)
     await session.commit()
     return int(inflight_jobs or 0)

@@ -3,19 +3,30 @@
 from datetime import UTC, datetime, timedelta
 
 from psycopg import AsyncConnection
-from pycil.assistant.models import (
-    AssistantAction,
-    AssistantActionAudit,
-    AssistantRun,
-    AssistantRunEvent,
-    AssistantThread,
-)
+from pycil.assistant.models import AssistantActionAudit, AssistantThread
 from pycil.config import settings
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, select
+
+# LangGraph owns these and keys them by a `thread_id` string, not a foreign key, so
+# no database cascade reaches them. Written out as literals rather than interpolated
+# from a table list: the values were always parameterized, but a scanner cannot tell
+# that from an f-string, and psycopg's own typing wants a LiteralString here.
+_CHECKPOINT_DELETES = (
+    "DELETE FROM checkpoint_writes WHERE thread_id = %s",
+    "DELETE FROM checkpoint_blobs WHERE thread_id = %s",
+    "DELETE FROM checkpoints WHERE thread_id = %s",
+)
 
 
 async def reconcile_assistant_retention(ctx: dict) -> int:
-    """Delete inactive conversations/runs/events/actions and age out audits after 90 days."""
+    """Delete inactive conversations/runs/events/actions and age out audits after 90 days.
+
+    Runs, their events and their actions cascade from the thread (migration 0024), so
+    only the root is deleted here. `assistant_action_audit.action_id` is SET NULL
+    rather than CASCADE, which is what preserves the audit trail — that used to be a
+    hand-written UPDATE, and it was the only thing standing between a policy-required
+    record and deletion.
+    """
     async with ctx["session_factory"]() as session:
         threads = list(
             await session.scalars(
@@ -31,26 +42,9 @@ async def reconcile_assistant_retention(ctx: dict) -> int:
             ) as conn:
                 async with conn.cursor() as cursor:
                     for checkpoint_thread_id in checkpoint_thread_ids:
-                        for table in ("checkpoint_writes", "checkpoint_blobs", "checkpoints"):
-                            await cursor.execute(
-                                f"DELETE FROM {table} WHERE thread_id = %s",
-                                (checkpoint_thread_id,),
-                            )
+                        for statement in _CHECKPOINT_DELETES:
+                            await cursor.execute(statement, (checkpoint_thread_id,))
         for thread in threads:
-            run_ids = select(AssistantRun.id).where(AssistantRun.thread_id == thread.id)
-            action_ids = select(AssistantAction.id).where(AssistantAction.run_id.in_(run_ids))
-            await session.execute(
-                update(AssistantActionAudit)
-                .where(AssistantActionAudit.action_id.in_(action_ids))
-                .values(action_id=None)
-            )
-            await session.execute(
-                delete(AssistantAction).where(AssistantAction.run_id.in_(run_ids))
-            )
-            await session.execute(
-                delete(AssistantRunEvent).where(AssistantRunEvent.run_id.in_(run_ids))
-            )
-            await session.execute(delete(AssistantRun).where(AssistantRun.thread_id == thread.id))
             await session.delete(thread)
         audit_deadline = datetime.now(UTC) - timedelta(days=settings.assistant_audit_retention_days)
         await session.execute(
