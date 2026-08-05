@@ -30,8 +30,49 @@ import { expect, test } from "../fixtures/test"
  */
 const WCAG = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]
 
+/**
+ * Waits until every *finite* animation has finished.
+ *
+ * Axe computes `color-contrast` from *rendered* colour, so scanning during a fade
+ * measures a blend of the element and whatever is behind it. The command palette
+ * made this concrete: `dialog.tsx` opens with `duration-100 fade-in-0 zoom-in-95`,
+ * and at the instant the input becomes visible the dialog was measured at
+ * `opacity: 0.710065` in WebKit. Axe then reported 70 serious contrast
+ * violations — `#7f7c76` on `#fbfbfb` at 4.02:1 — against a palette that is
+ * WCAG-AA compliant once opaque. It failed 2 of 3 WebKit runs and passed in
+ * Chromium, i.e. exactly the shape of a race.
+ *
+ * Infinite animations are skipped rather than waited on: `animate-spin`
+ * (`components/ui/spinner.tsx`) and `animate-pulse`
+ * (`components/ui/skeleton.tsx`) are `iterations: Infinity` and never reach
+ * `finished`, so waiting for *all* animations would hang on any screen showing a
+ * spinner or a skeleton. Enter/exit transitions — the ones that actually distort
+ * contrast — are finite, and those are what this waits for.
+ *
+ * Waiting on `getAnimations()` rather than a fixed sleep: a timeout long enough
+ * for a slow machine is dead time on every scan, and one tuned to a fast machine
+ * reintroduces the flake.
+ */
+async function settleAnimations(page: Page) {
+  await page.waitForFunction(
+    () =>
+      document
+        .getAnimations()
+        .filter((animation) => {
+          const iterations = (animation.effect?.getComputedTiming().iterations ?? 1) as number
+          return Number.isFinite(iterations)
+        })
+        .every((animation) => animation.playState === "finished" || animation.playState === "idle"),
+    undefined,
+    // Generous: this is a guard, and a genuine hang should fail on the assertion
+    // that follows rather than here.
+    { timeout: 5_000 },
+  )
+}
+
 /** Scans the current page and returns the violations, most serious first. */
 async function scan(page: Page) {
+  await settleAnimations(page)
   const { violations } = await new AxeBuilder({ page }).withTags(WCAG).analyze()
   return violations
 }

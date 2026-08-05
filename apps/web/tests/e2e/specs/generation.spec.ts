@@ -22,7 +22,23 @@ function llmConfigured(): boolean {
 /**
  * Headwords the reference dataset knows but has not generated senses for.
  *
- * More than one, because a successful run removes its own word from the pool.
+ * The pool is self-consuming: a successful run generates senses for its word and
+ * so removes it from the pool for every later run. Eight was not enough — the
+ * pool drained completely against a long-lived database and the spec failed in
+ * all three projects with "every candidate already has generated senses", which
+ * reads like a product regression but is only an exhausted fixture.
+ *
+ * Every entry below is verified against the reference dataset (`cambridge.db`) as
+ * a single-word headword with `display_form == word`, `entry_type = 'word'`,
+ * `status = 'done'`, at least one entry to generate from, and no multiword variant
+ * that could outrank it in search. Both properties are load-bearing, for the
+ * reasons in `firstUngeneratedWord` below: a non-exact headword resolves to its
+ * nearest neighbour, never gains senses under its own name, and is then picked on
+ * every run forever.
+ *
+ * A drained pool is now a clear signal rather than a puzzle — see the assertion's
+ * message. If it drains again, add more verified headwords here; do not relax the
+ * exact-match rule.
  */
 const CANDIDATES = [
   "quotidian",
@@ -33,6 +49,26 @@ const CANDIDATES = [
   "perfunctory",
   "sanguine",
   "intrepid",
+  "pellucid",
+  "obdurate",
+  "fastidious",
+  "lugubrious",
+  "recalcitrant",
+  "soporific",
+  "garrulous",
+  "taciturn",
+  "mellifluous",
+  "pugnacious",
+  "erudite",
+  "indolent",
+  "magnanimous",
+  "obstreperous",
+  "parsimonious",
+  "fractious",
+  "trenchant",
+  "vociferous",
+  "winsome",
+  "zealous",
 ]
 
 /** Only the two fields this spec reads off a search hit. */
@@ -94,9 +130,14 @@ test.describe("the generation tier", () => {
     const word = await firstUngeneratedWord(learner.token)
     expect(
       word,
-      `every candidate (${CANDIDATES.join(", ")}) already has generated senses, so ` +
-        "this spec would join a finished task and assert nothing. Add more " +
-        "headwords to CANDIDATES.",
+      `all ${CANDIDATES.length} candidates already have generated senses, so this ` +
+        "spec would join a finished task and assert nothing.\n" +
+        "This is an exhausted fixture pool, NOT a product regression: the pool is " +
+        "self-consuming, one word per successful run.\n" +
+        "Fix by adding more headwords to CANDIDATES that are verified in the " +
+        "reference dataset as single-word, exact-match entries (see the comment " +
+        "there), or by wiping the database.\n" +
+        `Pool: ${CANDIDATES.join(", ")}`,
     ).not.toBeNull()
 
     await learnerPage.goto("/library")
