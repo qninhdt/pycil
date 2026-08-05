@@ -22,12 +22,12 @@ async def _user(session, email: str) -> User:
 async def _task(session, user: User):
     return await service.submit_or_join(
         session,
-        kind="question_pool",
-        server_work_key="question-pool:41:definition_mcq:v1:0",
+        kind="grading",
+        server_work_key="grading:response-1",
         requester_id=user.id,
-        command_kind="learning.question",
+        command_kind="grading.submit",
         command_id="command-1",
-        provenance="session:session-1",
+        provenance="response-owner",
     )
 
 
@@ -53,7 +53,7 @@ async def test_subscribe_returns_current_persisted_snapshot(session):
         "schema": "async-task.v1",
         "eventId": result["result"]["data"]["eventId"],
         "taskId": str(submission.task.id),
-        "kind": "question_pool",
+        "kind": "grading",
         "status": "queued",
         "version": 1,
         "result": None,

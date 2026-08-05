@@ -28,7 +28,6 @@ from pycil.learning.models import (  # noqa: F401
 from pycil.tasks.models import (  # noqa: F401
     AsyncCommandReceipt,
     AsyncTask,
-    AsyncTaskDelivery,
     AsyncTaskEvent,
     AsyncTaskInterest,
     AsyncTaskOutbox,

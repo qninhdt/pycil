@@ -15,12 +15,6 @@ def word_work_key(match_key: str, dataset_fingerprint: str) -> str:
     return f"word:{match_key}:{dataset_fingerprint}"
 
 
-def question_pool_work_key(
-    sense_id: int, question_format: str, generator_revision: str, pool_generation: int
-) -> str:
-    return f"question-pool:{sense_id}:{question_format}:{generator_revision}:{pool_generation}"
-
-
 def translation_work_key(
     source_identity: str, content_hmac: str, locale: str, revision: str
 ) -> str:

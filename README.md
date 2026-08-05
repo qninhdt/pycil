@@ -22,7 +22,7 @@ GitHub-pinned `lexi-ai` domain library, plus a folder/deck/reference hierarchy.
               (public + `lexi` schemas)           (owner-scoped channels)
                      ▲
                      │ single writer
-              apps/worker (arq: generate_word, generate_question, grade_answer_v1,
+              apps/worker (arq: generate_word, prepare_questions, grade_answer_v1,
               reconcile_pending_grades)
                      │
                      ▼

@@ -93,30 +93,6 @@ class AsyncTaskInterest(SQLModel, table=True):
     )
 
 
-class AsyncTaskDelivery(SQLModel, table=True):
-    """Private session projection of a shareable task's terminal result."""
-
-    __tablename__ = "async_task_deliveries"
-    __table_args__ = (
-        UniqueConstraint("task_id", "session_id", name="uq_task_delivery_session"),
-        Index("ix_async_task_deliveries_owner_session", "owner_id", "session_id"),
-    )
-
-    id: UUID = Field(default_factory=uuid4, primary_key=True)
-    task_id: UUID = Field(foreign_key="async_tasks.id", index=True)
-    session_id: str = Field(max_length=128)
-    owner_id: UUID = Field(foreign_key="users.id", index=True)
-    sense_id: int
-    question_format: str = Field(max_length=80)
-    snapshot: dict | None = Field(default=None, sa_column=Column(JSONB, nullable=True))
-    resolved_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
-    created_at: datetime | None = Field(
-        default=None,
-        sa_type=DateTime(timezone=True),
-        sa_column_kwargs={"server_default": text("NOW()")},
-    )
-
-
 class AsyncTaskEvent(SQLModel, table=True):
     __tablename__ = "async_task_events"
     __table_args__ = (UniqueConstraint("task_id", "version", name="uq_task_event_version"),)
@@ -178,7 +154,6 @@ class AsyncCommandReceipt(SQLModel, table=True):
     command_kind: str = Field(max_length=80)
     command_id: str = Field(max_length=128)
     task_id: UUID = Field(foreign_key="async_tasks.id", index=True)
-    delivery_id: UUID | None = Field(default=None, index=True)
     created_at: datetime | None = Field(
         default=None,
         sa_type=DateTime(timezone=True),

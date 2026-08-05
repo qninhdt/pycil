@@ -12,7 +12,6 @@ from pycil.common.retry import next_attempt_delay
 from pycil.tasks.models import (
     AsyncCommandReceipt,
     AsyncTask,
-    AsyncTaskDelivery,
     AsyncTaskEvent,
     AsyncTaskInterest,
     AsyncTaskOutbox,
@@ -34,13 +33,6 @@ class TaskSubmission:
     task: AsyncTask
     interest: AsyncTaskInterest
     receipt: AsyncCommandReceipt
-    task_created: bool
-
-
-@dataclass(frozen=True)
-class QuestionDeliverySubmission:
-    task: AsyncTask
-    delivery: AsyncTaskDelivery
     task_created: bool
 
 
@@ -209,130 +201,6 @@ async def submit_or_join(
     await session.refresh(interest)
     await session.refresh(receipt)
     return TaskSubmission(task, interest, receipt, task_created)
-
-
-def _delivery_snapshot(task: AsyncTask, delivery: AsyncTaskDelivery) -> dict | None:
-    """Select the private question variant without exposing the shared work key."""
-    if task.status != AsyncTaskStatus.SUCCEEDED or not task.result:
-        return None
-    for question in task.result.get("questions", []):
-        if (
-            question.get("sense_id") == delivery.sense_id
-            and question.get("format") == delivery.question_format
-            and question.get("id") is not None
-        ):
-            return {
-                "taskId": str(task.id),
-                "questionId": question["id"],
-                "senseId": delivery.sense_id,
-                "format": delivery.question_format,
-            }
-    return None
-
-
-async def submit_question_delivery(
-    session: AsyncSession,
-    *,
-    server_work_key: str,
-    owner_id: UUID,
-    session_id: str,
-    sense_id: int,
-    question_format: str,
-    command_id: str,
-    dispatch: dict,
-) -> QuestionDeliverySubmission:
-    """Join shared question work and persist this session's private projection."""
-    submission = await submit_or_join(
-        session,
-        kind="question_pool",
-        server_work_key=server_work_key,
-        requester_id=owner_id,
-        command_kind="learning.question",
-        command_id=command_id,
-        provenance=f"session:{session_id}",
-        dispatch=dispatch,
-    )
-    delivery = None
-    if submission.receipt.delivery_id is not None:
-        delivery = await session.get(AsyncTaskDelivery, submission.receipt.delivery_id)
-    if delivery is None:
-        delivery = await session.scalar(
-            select(AsyncTaskDelivery).where(
-                AsyncTaskDelivery.task_id == submission.task.id,
-                AsyncTaskDelivery.session_id == session_id,
-            )
-        )
-    if delivery is None:
-        delivery = AsyncTaskDelivery(
-            task_id=submission.task.id,
-            session_id=session_id,
-            owner_id=owner_id,
-            sense_id=sense_id,
-            question_format=question_format,
-        )
-        session.add(delivery)
-        await session.flush()
-    if delivery.snapshot is None:
-        delivery.snapshot = _delivery_snapshot(submission.task, delivery)
-        if delivery.snapshot is not None:
-            delivery.resolved_at = _now()
-    submission.receipt.delivery_id = delivery.id
-    await session.commit()
-    await session.refresh(delivery)
-    return QuestionDeliverySubmission(submission.task, delivery, submission.task_created)
-
-
-async def get_question_delivery(
-    session: AsyncSession, delivery_id: UUID, *, session_id: str, owner_id: UUID
-) -> AsyncTaskDelivery | None:
-    """Return only the delivery authorized for its owning learning session."""
-    return await session.scalar(
-        select(AsyncTaskDelivery).where(
-            AsyncTaskDelivery.id == delivery_id,
-            AsyncTaskDelivery.session_id == session_id,
-            AsyncTaskDelivery.owner_id == owner_id,
-        )
-    )
-
-
-async def complete_question_task(
-    session: AsyncSession,
-    task_id: UUID,
-    *,
-    lease_token: str,
-    lease_fence: int,
-    result: dict,
-) -> AsyncTask | None:
-    """Atomically publish a shared result and resolve every private delivery."""
-    task = await session.scalar(select(AsyncTask).where(AsyncTask.id == task_id).with_for_update())
-    if (
-        task is None
-        or task.status != AsyncTaskStatus.RUNNING
-        or task.lease_token != lease_token
-        or task.lease_fence != lease_fence
-    ):
-        return None
-    task.status = AsyncTaskStatus.SUCCEEDED
-    task.result = result
-    task.error_code = None
-    task.lease_owner = task.lease_token = None
-    task.lease_expires_at = None
-    task.version += 1
-    deliveries = list(
-        (await session.execute(
-            select(AsyncTaskDelivery)
-            .where(AsyncTaskDelivery.task_id == task.id, AsyncTaskDelivery.snapshot.is_(None))
-            .with_for_update()
-        )).scalars()
-    )
-    for delivery in deliveries:
-        delivery.snapshot = _delivery_snapshot(task, delivery)
-        if delivery.snapshot is not None:
-            delivery.resolved_at = _now()
-    await _record_event_and_outbox(session, task)
-    await session.commit()
-    await session.refresh(task)
-    return task
 
 
 async def claim_task(

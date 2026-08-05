@@ -112,20 +112,23 @@ async def test_the_delay_is_jittered_not_fixed():
     """Two writers that collided are running in step by definition, so a deterministic
     delay makes them collide again on the next tick. Sampling from [0, delay] is what
     breaks the lockstep."""
+
+    class _Record(random.Random):
+        """Records what was sampled, and sleeps zero so the test stays fast."""
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.drawn: list[float] = []
+
+        def uniform(self, a: float, b: float) -> float:
+            self.drawn.append(super().uniform(a, b))
+            return 0.0
+
     samples = set()
-
     for _ in range(40):
-        rng = random.Random()
-        drawn: list[float] = []
-
-        class _Record(random.Random):
-            def uniform(self, a: float, b: float) -> float:
-                value = rng.uniform(a, b)
-                drawn.append(value)
-                return 0.0
-
-        await cas_backoff(5, rng=_Record())
-        samples.add(drawn[0])
+        recorder = _Record()
+        await cas_backoff(5, rng=recorder)
+        samples.add(recorder.drawn[0])
 
     # Fixed delays would collapse to a single value.
     assert len(samples) > 1

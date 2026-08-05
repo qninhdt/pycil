@@ -18,10 +18,3 @@ class AsyncTaskSnapshot(BaseModel):
     version: int
     result: dict | None = None
     error_code: str | None = Field(default=None, alias="errorCode")
-
-
-class CommandReceiptRead(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
-    task_id: UUID = Field(alias="taskId")
-    delivery_id: UUID | None = Field(default=None, alias="deliveryId")

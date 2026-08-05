@@ -28,7 +28,7 @@ from pycil.content.lexi_port import LexiReader, LexiWorkerEngine
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from pycil_worker.jobs.dispatch_task_outbox import dispatch_task_outbox
-from pycil_worker.jobs.generate_question import generate_question, prepare_questions
+from pycil_worker.jobs.generate_question import prepare_questions
 from pycil_worker.jobs.generate_word import generate_word, generate_word_task
 from pycil_worker.jobs.grade_answer import grade_answer, grade_answer_task, grade_answer_v1
 from pycil_worker.jobs.heartbeat import heartbeat
@@ -115,7 +115,6 @@ class WorkerSettings:
     functions = [
         generate_word,
         generate_word_task,
-        generate_question,
         prepare_questions,
         grade_answer,
         grade_answer_v1,

@@ -34,7 +34,7 @@ def test_worker_startup_registers_every_referenced_table(module, model):
 def test_pending_grade_reconciliation_is_registered():
     assert {function.__name__ for function in WorkerSettings.functions} >= {
         "generate_word",
-        "generate_question",
+        "prepare_questions",
         "heartbeat",
         "grade_answer",
         "grade_answer_v1",

@@ -2,7 +2,6 @@
 
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
-from uuid import uuid4
 
 import pytest
 from arq import Retry
@@ -71,37 +70,6 @@ async def test_prepare_questions_best_effort_skips_unresolvable_sense():
         _context(Engine(), Reader()), "owner", [[41, 1, 2]]
     )
     assert result == {"status": "done", "prepared": 0}
-
-
-async def test_legacy_generate_question_task_prepares_and_completes(monkeypatch):
-    task_id = uuid4()
-    calls = []
-
-    class Engine:
-        async def prepare_questions(self, word_id, demands):
-            assert word_id == 7
-            assert demands[0].sense_id == "41" and demands[0].difficulty_level == 1
-            return SimpleNamespace(produced={(41, 1): 1})
-
-    async def claim_task(_session, seen_task_id, worker_id):
-        assert (seen_task_id, worker_id) == (task_id, "worker-a")
-        return SimpleNamespace(lease_token="token", lease_fence=3)
-
-    async def complete_question_task(_session, seen_task_id, **kwargs):
-        calls.append((seen_task_id, kwargs))
-        return object()
-
-    monkeypatch.setattr(generate_question.task_service, "claim_task", claim_task)
-    monkeypatch.setattr(
-        generate_question.task_service, "complete_question_task", complete_question_task
-    )
-
-    result = await generate_question.generate_question(
-        _context(Engine()), str(task_id), 7, ["cloze"], 1, None, 41
-    )
-    assert result == {"status": "done", "prepared": 1}
-    assert calls[0][1]["result"] == {"prepared": 1}
-
 
 
 async def test_prepare_questions_retries_transient_provider_failure():
