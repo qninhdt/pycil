@@ -89,6 +89,13 @@ vendor/
 # Git worktrees (local development only)
 worktrees/
 
+# Database backups. These contain real user emails, so a stray `git add -A` must
+# never be able to stage one. Prefer writing dumps outside the tree entirely
+# (`/tmp`); this is the backstop for when a tool insists on the repo root.
+*.dump
+*.sql.gz
+backup-manifest-*.json
+
 # Node.js
 node_modules/
 .pnpm-debug.log*

@@ -1,7 +1,7 @@
 ---
 title: "Python Greenfield Migration — lexi-ai + FSRS + Hierarchy"
 description: ""
-status: partial
+status: completed
 priority: P2
 branch: "go-migration"
 tags: []
@@ -35,7 +35,7 @@ Rebuild the pycil backend as a **greenfield Python service** (FastAPI + SQLModel
 | 7 | [Hierarchy & Stats](./phase-07-hierarchy-stats.md) | Complete |
 | 8 | [Realtime Centrifugo](./phase-08-realtime-centrifugo.md) | Complete |
 | 9 | [Worker Redesign](./phase-09-worker-redesign.md) | Complete |
-| 10 | [Frontend Auth & Rename](./phase-10-frontend-auth-rename.md) | Partial (contract migration done; auth/Centrifugo browser-pending) |
+| 10 | [Frontend Auth & Rename](./phase-10-frontend-auth-rename.md) | Complete (closed 2026-08-05: the browser-pending auth/Centrifugo remainder shipped in `260727-1332-web-frontend-rebuild` — `apps/web/lib/auth/session.ts`, `apps/web/lib/realtime/provider.tsx`, covered by `auth.spec.ts` + `realtime-recovery.spec.ts` in the green E2E suite) |
 | 11 | [Integration Wiring](./phase-11-integration-wiring.md) | Complete |
 | 12 | [Tests & Docs](./phase-12-tests-docs.md) | Complete |
 
