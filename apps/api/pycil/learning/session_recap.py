@@ -26,9 +26,15 @@ async def answer_counts(
 ) -> tuple[int, int]:
     """Answered and correct counts from the durable rows, never from Redis.
 
-    ``is_correct`` is nullable while a grade is pending, and a pending grade counts
-    as answered but not yet correct — the CASE keeps NULL out of the sum instead of
-    poisoning it.
+    ``is_correct`` is nullable while a grade is pending, and a pending answer counts
+    as answered but not yet correct.
+
+    The ``COALESCE`` is the load-bearing part, not the ``CASE``: ``SUM`` already skips
+    NULLs, but it returns NULL rather than 0 over a set with no non-NULL values — so a
+    learner who starts a session and leaves, or whose only answer is still being
+    graded, would reach ``int(None)`` and get a 500 instead of a recap. The ``CASE``
+    is kept because it states the intent at the point of the query: only a verdict of
+    exactly ``true`` counts as correct.
     """
     row = (
         await session.execute(
