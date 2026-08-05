@@ -303,6 +303,11 @@ async def apply_verdict(
     if response is None:
         raise NotFoundError("response_not_found")
     if response.grade_status != GradeStatus.pending:
+        # Terminal is terminal. `expired` in particular is reachable through the
+        # reconciler's purge, and a worker arriving afterwards must stop quietly
+        # rather than raise: the answer is gone by policy, not by malfunction, and
+        # an exception here only turns an orderly expiry into a failed job that
+        # retries forever.
         return None
     if (
         response.grading_lease_expires_at is not None
@@ -319,7 +324,19 @@ async def apply_verdict(
     await session.commit()
 
     if raw_answer is None:
-        raise NotFoundError("response_raw_answer_missing")
+        # The purge nulls `raw_answer` when it expires a row, so a worker that
+        # raced it finds nothing to grade. There is no retry that can recover — the
+        # text is gone — so raising `response_raw_answer_missing` only converted a
+        # lost answer into a permanently failing job. Mark the row terminal and stop.
+        #
+        # The purge is now lease-aware, which makes this path rare rather than
+        # routine; it stays because the 48h hard ceiling can still reach a row whose
+        # lease is being renewed by a crash-looping worker.
+        response.grade_status = GradeStatus.expired
+        response.grading_lease_owner = None
+        response.grading_lease_expires_at = None
+        await session.commit()
+        return None
     evaluation = await grader.evaluate_answer(
         question_id,
         AnswerSubmission(
