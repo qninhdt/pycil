@@ -31,7 +31,8 @@ import { expect, test } from "../fixtures/test"
 const WCAG = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]
 
 /**
- * Waits until every *finite* animation has finished.
+ * Waits until every *finite* animation has finished AND the elements it animated
+ * are fully opaque.
  *
  * Axe computes `color-contrast` from *rendered* colour, so scanning during a fade
  * measures a blend of the element and whatever is behind it. The command palette
@@ -42,6 +43,18 @@ const WCAG = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]
  * WCAG-AA compliant once opaque. It failed 2 of 3 WebKit runs and passed in
  * Chromium, i.e. exactly the shape of a race.
  *
+ * `getAnimations()` alone is not enough, which is the second half of this fix.
+ * Measured in WebKit: with every finite animation already reporting
+ * `playState: "finished"`, the dialog's computed `opacity` was still `0.78177` and
+ * its transform still `scale(0.989)`. Polling from that point showed opacity
+ * plateauing at `0.993077` for several frames before reaching `1`. So WebKit
+ * settles the animation object before it commits the rendered style, and a scan
+ * between the two still measures a blend — a 4.02:1 reading on a palette that is
+ * 4.5:1+ when opaque.
+ *
+ * Waiting on the rendered value closes that gap, because the rendered value is
+ * exactly what axe reads.
+ *
  * Infinite animations are skipped rather than waited on: `animate-spin`
  * (`components/ui/spinner.tsx`) and `animate-pulse`
  * (`components/ui/skeleton.tsx`) are `iterations: Infinity` and never reach
@@ -49,20 +62,36 @@ const WCAG = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]
  * spinner or a skeleton. Enter/exit transitions — the ones that actually distort
  * contrast — are finite, and those are what this waits for.
  *
- * Waiting on `getAnimations()` rather than a fixed sleep: a timeout long enough
- * for a slow machine is dead time on every scan, and one tuned to a fast machine
- * reintroduces the flake.
+ * Waiting on state rather than a fixed sleep: a timeout long enough for a slow
+ * machine is dead time on every scan, and one tuned to a fast machine reintroduces
+ * the flake.
  */
 async function settleAnimations(page: Page) {
   await page.waitForFunction(
-    () =>
-      document
+    () => {
+      const finiteDone = document
         .getAnimations()
         .filter((animation) => {
           const iterations = (animation.effect?.getComputedTiming().iterations ?? 1) as number
           return Number.isFinite(iterations)
         })
-        .every((animation) => animation.playState === "finished" || animation.playState === "idle"),
+        .every((animation) => animation.playState === "finished" || animation.playState === "idle")
+      if (!finiteDone) return false
+
+      // Then the rendered result. Only containers that fade in are checked — a
+      // deliberately translucent element (an overlay, a muted hint) must not hang
+      // this, so the selector names the surfaces whose opacity is transitional.
+      const fading = Array.from(
+        document.querySelectorAll<HTMLElement>(
+          '[data-slot="dialog-content"], [data-slot="popup"], [role="dialog"]',
+        ),
+      )
+      return fading.every((element) => {
+        const style = getComputedStyle(element)
+        if (style.display === "none" || style.visibility === "hidden") return true
+        return Number.parseFloat(style.opacity) >= 1
+      })
+    },
     undefined,
     // Generous: this is a guard, and a genuine hang should fail on the assertion
     // that follows rather than here.
