@@ -91,7 +91,12 @@ services:
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-redis-dev-only}
     ports:
-      - "6379:6379"
+      # Parameterised and loopback-bound, matching POSTGRES_HOST_PORT /
+      # API_HOST_PORT / WEB_HOST_PORT. It was "6379:6379", which bound every
+      # interface and made scripts/rehearse-fresh-schema.sh unable to run beside
+      # the live stack — the rehearsal is a second compose project on one host,
+      # so a hardcoded host port made the two mutually exclusive.
+      - "${REDIS_HOST_PORT:-127.0.0.1:6379}:6379"
     volumes:
       - redisdata:/data
     healthcheck:
