@@ -10,7 +10,7 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pycil.auth.deps import current_user, optional_current_user
@@ -37,11 +37,17 @@ from pycil.hierarchy.schemas import (
     WeakSenseRead,
 )
 from pycil.hierarchy.viewer_stats import get_folder_stats_for_viewer
-from pycil.learning.history import MasteryObservation, daily_history
+from pycil.learning.history import DailyHistoryBucket
 from pycil.learning.models import UserSenseStats
-from pycil.learning.policy import MASTERED_FLOOR
 
 router = APIRouter(tags=["hierarchy"])
+
+# Ceiling on the ids `/me/cefr` pulls into memory. That endpoint is the only
+# remaining caller of `_tracked_sense_ids`, because CEFR level is Lexi-side data
+# that a pycil query cannot group by. Far above any real learner's tracked set, so
+# in practice it truncates nothing — it exists so one pathological account cannot
+# turn a request into an unbounded scan.
+_TRACKED_SENSE_CEILING = 20_000
 
 
 async def _defset(session: AsyncSession, node_id: UUID, viewer_id: UUID | None) -> list[int]:
@@ -68,30 +74,6 @@ async def _defset(session: AsyncSession, node_id: UUID, viewer_id: UUID | None) 
     return await subtree.resolve_sense_ids(session, node_id, viewer_id)
 
 
-async def _deck_item_counts(session: AsyncSession, node_ids: list[UUID]) -> dict[UUID, int]:
-    """Sense counts for the given decks in ONE grouped aggregate.
-
-    Deliberately not `_defset`: that does two generation SELECTs, a Redis GET, and
-    on a miss two recursive CTEs plus a membership SELECT, all bound to a single
-    root. Looping it over a 50-row page is ~250 round trips. Folder aggregates and
-    due counts are therefore not served on the list response at all — they belong
-    on the opened node, where `_defset`'s cache applies.
-    """
-    if not node_ids:
-        return {}
-    rows = await session.execute(
-        text(
-            """
-            SELECT node_id, count(*) AS items FROM deck_senses
-            WHERE node_id = ANY(CAST(:node_ids AS uuid[]))
-            GROUP BY node_id
-            """
-        ),
-        {"node_ids": [str(node_id) for node_id in node_ids]},
-    )
-    return {row.node_id: int(row.items) for row in rows}
-
-
 async def _readable_path(
     session: AsyncSession, node: Node, viewer_id: UUID | None
 ) -> list[NodeAncestorRead]:
@@ -105,7 +87,13 @@ async def _readable_path(
     Truncation, not omission: an unreadable ancestor removes itself AND everything
     above it, so a private folder's name never reaches a caller who cannot open it.
     The node itself is always present, because `require_node_access` already
-    authorized it.
+    authorized it and the `IN` fetch is unfiltered, so its row is always in `by_id`.
+    Everything below depends on that — the `chain[start:]` slice, the
+    `_readable(start - 1)` walk, and the "last hop needs no check" argument all
+    assume `chain` ends at `node`. `ancestor_chain` upholds it even on a cyclic
+    tree, because the walk starts AT the node and stops on a repeat, so the node is
+    always the first element appended and therefore the last after the reverse.
+    `test_breadcrumb_still_names_the_node_on_a_cyclic_tree` pins it.
     """
     chain_ids = await ancestor_chain(session, node.id)
     if len(chain_ids) <= 1:
@@ -171,7 +159,7 @@ async def list_nodes(
     nodes = list(rows.scalars())
     page = nodes[:limit]
     # One grouped aggregate for the whole page, never one query per row.
-    counts = await _deck_item_counts(
+    counts = await stats.deck_item_counts(
         session, [node.id for node in page if node.type == NodeType.DECK]
     )
     items: list[NodeRead] = []
@@ -276,7 +264,7 @@ async def get_node(
     viewer_id = user.id if user is not None else None
     read.path = await _readable_path(session, node, viewer_id)
     if node.type == NodeType.DECK:
-        read.item_count = (await _deck_item_counts(session, [node.id])).get(node.id, 0)
+        read.item_count = (await stats.deck_item_counts(session, [node.id])).get(node.id, 0)
     return read
 
 
@@ -293,19 +281,15 @@ async def folder_stats(
     )
 
 
-async def _weakest_rows(
-    session: AsyncSession,
-    client: LexiReader,
-    user_id: UUID,
-    sense_ids: list[int],
-    limit: int,
+async def _hydrate_weakest(
+    client: LexiReader, weak: list[stats.WeakSense]
 ) -> list[WeakSenseRead]:
-    """Weakest senses, hydrated with the content needed to render a row.
+    """Attach the content needed to render each weakest-sense row.
 
-    One `get_senses` call for the whole page. Shared by the folder and global
-    variants so the two cannot drift into different shapes.
+    One `get_senses` call for the whole page. Split out from `_weakest_rows` so the
+    global variant can select its rows with a different query while sharing this
+    shape — the two must not drift.
     """
-    weak = await stats.weakest_senses(session, user_id, sense_ids, limit=limit)
     if not weak:
         return []
     views = {
@@ -329,6 +313,18 @@ async def _weakest_rows(
             )
         )
     return rows
+
+
+async def _weakest_rows(
+    session: AsyncSession,
+    client: LexiReader,
+    user_id: UUID,
+    sense_ids: list[int],
+    limit: int,
+) -> list[WeakSenseRead]:
+    """Weakest senses within an explicit sense set (the folder scope)."""
+    weak = await stats.weakest_senses(session, user_id, sense_ids, limit=limit)
+    return await _hydrate_weakest(client, weak)
 
 
 @router.get("/folders/{node_id}/weakest", response_model=list[WeakSenseRead])
@@ -382,6 +378,16 @@ async def folder_items(
     ]
 
 
+def _history_read(buckets: list[DailyHistoryBucket]) -> list[HistoryBucketRead]:
+    """Serialise the service's day buckets. The wire uses an ISO string key."""
+    return [
+        HistoryBucketRead(
+            bucket=item.day.isoformat(), reviewed=item.reviewed, avg_mastery=item.avg_mastery
+        )
+        for item in buckets
+    ]
+
+
 def _history_window(from_date: date | None, to_date: date | None) -> tuple[date, date]:
     """Resolve and validate a day-bucket window. Shared by folder and global reads
     so the two cannot diverge on the 365-day cap or the inverted-range rejection."""
@@ -392,73 +398,29 @@ def _history_window(from_date: date | None, to_date: date | None) -> tuple[date,
     return start, end
 
 
-async def _history_buckets(
-    session: AsyncSession, user_id: UUID, sense_ids: list[int], start: date, end: date
-) -> list[HistoryBucketRead]:
-    """Day-bucketed review history over a sense set, carrying the pre-window
-    baseline forward so an untouched day reports the mastery it inherited."""
-    if not sense_ids:
-        return [
-            HistoryBucketRead(bucket=day.isoformat(), reviewed=0, avg_mastery=0.0)
-            for day in (start + timedelta(days=offset) for offset in range((end - start).days + 1))
-        ]
-    start_at = datetime.combine(start, datetime.min.time(), tzinfo=UTC)
-    end_at = datetime.combine(end + timedelta(days=1), datetime.min.time(), tzinfo=UTC)
-    baseline_rows = await session.execute(
-        text(
-            """
-            SELECT DISTINCT ON (sense_id) sense_id, mastery_after
-            FROM review_log
-            WHERE user_id = :user_id
-              AND sense_id = ANY(CAST(:sense_ids AS bigint[]))
-              AND reviewed_at < :start_at
-            ORDER BY sense_id, reviewed_at DESC, id DESC
-            """
-        ),
-        {"user_id": str(user_id), "sense_ids": sense_ids, "start_at": start_at},
-    )
-    event_rows = await session.execute(
-        text(
-            """
-            SELECT sense_id, reviewed_at, mastery_after
-            FROM review_log
-            WHERE user_id = :user_id
-              AND sense_id = ANY(CAST(:sense_ids AS bigint[]))
-              AND reviewed_at >= :start_at AND reviewed_at < :end_at
-            ORDER BY reviewed_at, id
-            """
-        ),
-        {
-            "user_id": str(user_id),
-            "sense_ids": sense_ids,
-            "start_at": start_at,
-            "end_at": end_at,
-        },
-    )
-    baseline = {int(row.sense_id): int(row.mastery_after) for row in baseline_rows}
-    events = [
-        MasteryObservation(int(row.sense_id), row.reviewed_at, int(row.mastery_after))
-        for row in event_rows
-    ]
-    return [
-        HistoryBucketRead(
-            bucket=item.day.isoformat(), reviewed=item.reviewed, avg_mastery=item.avg_mastery
-        )
-        for item in daily_history(start, end, baseline, events)
-    ]
-
-
 async def _tracked_sense_ids(session: AsyncSession, user_id: UUID) -> list[int]:
-    """Every sense this caller has learning state for.
+    """Every sense this caller has learning state for, up to a hard ceiling.
 
     This is the global scope. Aggregating over `user_sense_stats` rows rather than
     fanning out over roots is what keeps a sense held in two decks from
     double-counting — the same reason `resolve_sense_ids` uses SELECT DISTINCT —
     and it skips subtree resolution entirely, so it is cheaper than the folder path
     rather than a sum of it.
+
+    Only `/me/cefr` still needs the ids themselves, because `cefr_level` lives in
+    Lexi and cannot be reached from a pycil `GROUP BY`. `/me/history` and
+    `/me/weakest` moved to SQL-side scoping and no longer call this at all.
+
+    The LIMIT is the point: this was an unbounded `SELECT sense_id`, so a heavy
+    account materialised its whole tracked set per request. `ORDER BY sense_id`
+    makes the truncation deterministic rather than dependent on physical row
+    order, so a distribution built from it is stable across calls.
     """
     rows = await session.execute(
-        select(UserSenseStats.sense_id).where(UserSenseStats.user_id == user_id)
+        select(UserSenseStats.sense_id)
+        .where(UserSenseStats.user_id == user_id)
+        .order_by(UserSenseStats.sense_id)
+        .limit(_TRACKED_SENSE_CEILING)
     )
     return [int(sense_id) for sense_id in rows.scalars()]
 
@@ -476,7 +438,7 @@ async def folder_history(
     start, end = _history_window(from_date, to_date)
     await require_node_access(session, node_id, user, write=False)
     sense_ids = await _defset(session, node_id, user.id)
-    return await _history_buckets(session, user.id, sense_ids, start, end)
+    return _history_read(await stats.history_buckets(session, user.id, sense_ids, start, end))
 
 
 @router.get("/me/stats", response_model=FolderStatsRead)
@@ -484,35 +446,13 @@ async def global_stats(
     user: Annotated[CurrentUser, Depends(current_user)],
     session: AsyncSession = Depends(get_session),
 ) -> FolderStatsRead:
-    from sqlalchemy import case, func
-
-    row = (
-        await session.execute(
-            select(
-                func.count(),
-                func.coalesce(func.sum(case((UserSenseStats.review_count > 0, 1), else_=0)), 0),
-                func.coalesce(
-                    func.sum(
-                        case(
-                            (
-                                (UserSenseStats.review_count > 0)
-                                & (UserSenseStats.mastery >= MASTERED_FLOOR),
-                                1,
-                            ),
-                            else_=0,
-                        )
-                    ),
-                    0,
-                ),
-                func.coalesce(
-                    func.avg(UserSenseStats.mastery).filter(UserSenseStats.review_count > 0),
-                    0.0,
-                ),
-            ).where(UserSenseStats.user_id == user.id)
-        )
-    ).one()
+    """`folder_stats` over every sense the caller has state for."""
+    result = await stats.tracked_stats(session, user.id)
     return FolderStatsRead(
-        total=int(row[0]), learned=int(row[1]), mastered=int(row[2]), avg_mastery=float(row[3])
+        total=result.total,
+        learned=result.learned,
+        mastered=result.mastered,
+        avg_mastery=result.avg_mastery,
     )
 
 
@@ -524,11 +464,15 @@ async def global_history(
     to_date: date | None = Query(default=None, alias="to"),
     bucket: Literal["day"] = "day",
 ) -> list[HistoryBucketRead]:
-    """`folder_history` over every sense the caller has state for."""
+    """`folder_history` over every sense the caller has state for.
+
+    `sense_ids=None` selects the whole tracked set inside SQL; see
+    `stats.history_buckets`. Listing the ids first was an unbounded query whose result
+    was sent straight back to the same database.
+    """
     del bucket
     start, end = _history_window(from_date, to_date)
-    sense_ids = await _tracked_sense_ids(session, user.id)
-    return await _history_buckets(session, user.id, sense_ids, start, end)
+    return _history_read(await stats.history_buckets(session, user.id, None, start, end))
 
 
 @router.get("/me/cefr", response_model=dict[str, int])
@@ -548,6 +492,12 @@ async def global_weakest(
     client: LexiReader = Depends(get_lexi_client),
     limit: int = Query(default=10, ge=1, le=100),
 ) -> list[WeakSenseRead]:
-    """`folder_weakest` over every sense the caller has state for."""
-    sense_ids = await _tracked_sense_ids(session, user.id)
-    return await _weakest_rows(session, client, user.id, sense_ids, limit)
+    """`folder_weakest` over every sense the caller has state for.
+
+    Bounded in SQL rather than in Python: the global scope is every
+    `user_sense_stats` row for this caller, which is the query's own `WHERE
+    user_id`, so listing those ids first only to pass them straight back was a
+    whole-table round trip to answer a `LIMIT 10`.
+    """
+    weak = await stats.weakest_tracked_senses(session, user.id, limit=limit)
+    return await _hydrate_weakest(client, weak)

@@ -104,7 +104,7 @@ async def test_list_nodes_statement_count_is_independent_of_page_size(session, e
 
 async def test_deck_item_counts_are_one_statement_for_the_whole_page(session, engine):
     """Pins the mechanism, not just the symptom: one grouped aggregate."""
-    from pycil.hierarchy.router import _deck_item_counts
+    from pycil.hierarchy.stats import deck_item_counts
 
     owner = await _owner(session, "budget-agg@example.com")
     folder = await _folder_of_decks(session, owner.id, _PAGE)
@@ -122,15 +122,15 @@ async def test_deck_item_counts_are_one_statement_for_the_whole_page(session, en
     ]
 
     with StatementCounter(engine) as counter:
-        counts = await _deck_item_counts(session, deck_ids)
+        counts = await deck_item_counts(session, deck_ids)
 
     assert len(counts) == _PAGE
     assert len(counter) == 1, counter.statements
 
 
 async def test_empty_page_costs_no_aggregate(session, engine):
-    from pycil.hierarchy.router import _deck_item_counts
+    from pycil.hierarchy.stats import deck_item_counts
 
     with StatementCounter(engine) as counter:
-        assert await _deck_item_counts(session, []) == {}
+        assert await deck_item_counts(session, []) == {}
     assert len(counter) == 0
