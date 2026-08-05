@@ -51,7 +51,7 @@ async def create_node(
     prior = await cache.bump_generations(session, [node.id, parent_node_id])
     await session.commit()
     await session.refresh(node)
-    await _delete_prior_defsets(prior)
+    await cache.delete_prior_defsets_quietly(prior)
     return node
 
 
@@ -74,7 +74,7 @@ async def move_node(
     if commit:
         await session.commit()
         await session.refresh(current)
-        await _delete_prior_defsets(prior)
+        await cache.delete_prior_defsets_quietly(prior)
     else:
         await session.flush()
     return current
@@ -91,7 +91,7 @@ async def soft_delete_node(session: AsyncSession, node: Node, *, commit: bool = 
     prior = await cache.bump_generations(session, affected)
     if commit:
         await session.commit()
-        await _delete_prior_defsets(prior)
+        await cache.delete_prior_defsets_quietly(prior)
     else:
         await session.flush()
 
@@ -119,7 +119,7 @@ async def set_visibility(
     if commit:
         await session.commit()
         await session.refresh(current)
-        await _delete_prior_defsets(prior)
+        await cache.delete_prior_defsets_quietly(prior)
     else:
         await session.flush()
     return current
@@ -195,17 +195,27 @@ async def _descendant_ids(session: AsyncSession, root_id: UUID) -> set[UUID | No
     return descendants
 
 
+def _advisory_key(node_id: UUID) -> int:
+    """A 64-bit advisory-lock key taken straight from the UUID.
+
+    `hashtext()` returns `integer`, so it folded a 128-bit UUID into 32 bits and
+    two unrelated nodes collided roughly once per 65k pairs (birthday bound) —
+    every collision serialising two mutations that touch nothing in common. Postgres
+    advisory locks are keyed by `bigint`, so half the UUID fits natively and no hash
+    is needed.
+
+    Signed, because `pg_advisory_xact_lock` takes a signed `bigint`: the top 64 bits
+    are reinterpreted as two's complement rather than shifted, which keeps the
+    mapping injective. Correctness never depended on the key anyway — the unique
+    constraints do — so this only widens the space and removes needless contention.
+    """
+    return int.from_bytes(node_id.bytes[:8], "big", signed=True)
+
+
 async def _lock_nodes(session: AsyncSession, node_ids: list[UUID | None]) -> None:
     for node_id in sorted({node_id for node_id in node_ids if node_id is not None}, key=str):
         await session.execute(
-            text("SELECT pg_advisory_xact_lock(hashtext(:node_key))"),
-            {"node_key": str(node_id)},
+            text("SELECT pg_advisory_xact_lock(:node_key)"),
+            {"node_key": _advisory_key(node_id)},
         )
 
-
-async def _delete_prior_defsets(prior: dict[UUID, int]) -> None:
-    try:
-        await cache.delete_prior_defsets(prior)
-    except Exception:
-        # Redis is a cache; a post-commit cleanup failure cannot undo a DB write.
-        pass

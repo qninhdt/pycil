@@ -83,11 +83,51 @@ async def bump_generations(
 
 
 async def delete_prior_defsets(prior_generations: dict[UUID, int]) -> None:
-    """Best-effort cleanup after commit; correctness does not depend on Redis."""
-    if prior_generations:
-        await get_redis().delete(
-            *[
-                _defset_key(node_id, generation)
-                for node_id, generation in prior_generations.items()
-            ]
-        )
+    """Best-effort cleanup after commit; correctness does not depend on Redis.
+
+    Deletes the anonymous key *and* every per-viewer variant. It used to build only
+    `_defset_key(node_id, generation)` — with no `viewer_id` — while every writer
+    (`hierarchy/router.py:62`, `hierarchy/viewer_stats.py:28`) sets the key *with*
+    `viewer_id=`. So cleanup reached the one key nobody writes and left the real
+    ones to expire on their own. Correctness held, because the generation is part
+    of the key and a bumped generation makes the old value unreachable — but the
+    leak is nodes x viewers x mutations, all of it retained for the full hour of
+    `_TTL`.
+
+    A SCAN per node rather than a KEYS over the whole database: SCAN is cursored
+    and non-blocking, and the prefix is exact up to the viewer suffix, so each pass
+    touches only the keys for one (node, generation).
+    """
+    if not prior_generations:
+        return
+
+    redis = get_redis()
+    doomed: list[str] = []
+    for node_id, generation in prior_generations.items():
+        anonymous = _defset_key(node_id, generation)
+        doomed.append(anonymous)
+        # `_defset_key` appends ":viewer:<uuid>", so the anonymous key is a strict
+        # prefix of every per-viewer key for the same node and generation.
+        async for key in redis.scan_iter(match=f"{anonymous}:viewer:*", count=100):
+            doomed.append(key)
+
+    if doomed:
+        await redis.delete(*doomed)
+
+
+async def delete_prior_defsets_quietly(prior_generations: dict[UUID, int]) -> None:
+    """`delete_prior_defsets`, with Redis failures swallowed.
+
+    Callers run this *after* the database commit, so a Redis outage must not
+    surface as a failed mutation the caller would retry — the write already
+    happened, and the generation bump already made the stale values unreachable.
+
+    Lives here rather than in each service: `hierarchy/service.py` and
+    `content/service.py` each carried a byte-identical private copy, and only one
+    of them kept the comment explaining why the exception is swallowed.
+    """
+    try:
+        await delete_prior_defsets(prior_generations)
+    except Exception:
+        # Redis is a cache; a post-commit cleanup failure cannot undo a DB write.
+        pass

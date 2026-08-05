@@ -60,7 +60,7 @@ async def add_sense(session: AsyncSession, node_id: UUID, sense_id: int) -> Deck
     prior = await cache.bump_generations(session, [node_id])
     await session.commit()
     await session.refresh(row)
-    await _delete_prior_defsets(prior)
+    await cache.delete_prior_defsets_quietly(prior)
     return row
 
 
@@ -74,7 +74,7 @@ async def remove_sense(
     prior = await cache.bump_generations(session, [node_id])
     if commit:
         await session.commit()
-        await _delete_prior_defsets(prior)
+        await cache.delete_prior_defsets_quietly(prior)
     else:
         await session.flush()
 
@@ -147,9 +147,3 @@ async def _require_live_deck(session: AsyncSession, node_id: UUID) -> Node:
         raise ConflictError("deck_senses_require_deck")
     return node
 
-
-async def _delete_prior_defsets(prior: dict[UUID, int]) -> None:
-    try:
-        await cache.delete_prior_defsets(prior)
-    except Exception:
-        pass
