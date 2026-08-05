@@ -223,3 +223,28 @@ async def test_ancestor_chain_terminates_on_a_cycle_without_raising(session):
 
     assert set(chain) == {a.id, b.id}
     assert len(chain) == 2
+
+
+async def test_breadcrumb_still_names_the_node_on_a_cyclic_tree(session):
+    # B11. The breadcrumb tells the user which screen they are on, so the one entry
+    # it must never lose is the node itself. `_readable_path` reasons over a chain it
+    # assumes ends at that node — the truncation walk, the `chain[start:]` slice and
+    # the "last hop is already authorized" argument all rest on it. A corrupted
+    # parent pointer must degrade to "just this node", never to a trail whose final
+    # entry is some ancestor, which would read as "you are looking at that folder".
+    owner = await _user(session, "breadcrumb-cycle@example.com")
+    a = await service.create_node(session, owner.id, node_type=NodeType.FOLDER, name="a")
+    b = await service.create_node(
+        session, owner.id, node_type=NodeType.FOLDER, name="b", parent_node_id=a.id
+    )
+    a.parent_node_id = b.id
+    session.add(a)
+    await session.commit()
+
+    for node in (a, b):
+        read = await get_node(node.id, _cu(owner), session)
+        assert read.path, f"{node.name}: breadcrumb must never be empty"
+        assert read.path[-1].id == node.id, (
+            f"{node.name}: the breadcrumb's last entry must be the node itself, "
+            f"got {read.path[-1].name!r}"
+        )
