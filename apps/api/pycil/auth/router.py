@@ -4,6 +4,7 @@ The API is bearer-only: /auth/callback returns the signed JWT for the frontend
 to seal into its iron-session. No server-side session is created here.
 """
 
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
@@ -17,6 +18,8 @@ from pycil.auth.schemas import CurrentUser, LoginStart, LogoutRequest, RefreshRe
 from pycil.common.errors import AppError, UnauthorizedError
 from pycil.db.session import get_session
 from pycil.realtime.client import disconnect_user
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -39,14 +42,20 @@ async def callback(
     try:
         userinfo = await oauth.exchange_code(code, state)
     except Exception as exc:
-        import logging
-        logging.error("OAuth exchange_code failed: %s", exc, exc_info=True)
-        raise UnauthorizedError(f"oauth_exchange_failed: {exc}") from exc
+        # The diagnosis belongs in the log, not on the wire: the provider's message
+        # can carry internal hostnames, URLs or token fragments.
+        logger.error("OAuth exchange_code failed", exc_info=True)
+        raise UnauthorizedError("oauth_exchange_failed") from exc
 
     email = userinfo.get("email")
     if not email or userinfo.get("email_verified") is not True:
-        import logging
-        logging.error("OAuth email not verified or missing: %s", userinfo)
+        # Deliberately not the whole payload: `userinfo` carries the name and photo
+        # URL as well, and an unverified email is an expected outcome rather than an
+        # incident that justifies putting third-party personal data in the logs.
+        logger.warning(
+            "OAuth rejected: email missing or unverified",
+            extra={"email_present": bool(email), "email_verified": userinfo.get("email_verified")},
+        )
         raise UnauthorizedError("oauth_email_not_verified")
 
     # Upsert user in the same transaction, then issue the JWT.
@@ -107,7 +116,7 @@ async def logout(
     # Idempotent even for a token already rotated, expired, or unknown.
     user_id = user.id if user is not None else None
     if body is not None:
-        digest = refresh_sessions._digest(body.refresh_token)
+        digest = refresh_sessions.token_digest(body.refresh_token)
         row = (
             await session.execute(
                 select(RefreshSession)
@@ -120,5 +129,12 @@ async def logout(
         await refresh_sessions.revoke_user_sessions(session, user_id)
         await session.commit()
         # Revocation is authoritative; closing sockets shortens the exposure
-        # window for an already connected realtime client.
-        await disconnect_user(user_id)
+        # window for an already connected realtime client. Best-effort by design —
+        # logout must still succeed — but a failure is logged rather than dropped,
+        # because it is the only signal that sockets outlived a revocation. The
+        # connection token has no revocation list, so that window is up to 900s.
+        if not await disconnect_user(user_id):
+            logger.warning(
+                "realtime disconnect failed after logout; sockets may outlive revocation",
+                extra={"user_id": str(user_id)},
+            )

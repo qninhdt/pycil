@@ -49,14 +49,19 @@ async def authorize_subscription(session: AsyncSession, body: SubscribeProxyRequ
         return _DENIED
 
     now = datetime.now(UTC)
-    interest = await session.scalar(
-        select(AsyncTaskInterest.id).where(
-            AsyncTaskInterest.task_id == task_id,
-            AsyncTaskInterest.requester_id == user_id,
-            AsyncTaskInterest.revoked_at.is_(None),
-            or_(AsyncTaskInterest.expires_at.is_(None), AsyncTaskInterest.expires_at > now),
+    # Both columns are read in one row, because `expires_at` is nullable: selecting
+    # it alone makes "no live interest" and "a live interest with no deadline"
+    # indistinguishable, and treating the second as the first denies valid readers.
+    interest = (
+        await session.execute(
+            select(AsyncTaskInterest.id, AsyncTaskInterest.expires_at).where(
+                AsyncTaskInterest.task_id == task_id,
+                AsyncTaskInterest.requester_id == user_id,
+                AsyncTaskInterest.revoked_at.is_(None),
+                or_(AsyncTaskInterest.expires_at.is_(None), AsyncTaskInterest.expires_at > now),
+            )
         )
-    )
+    ).first()
     if interest is None:
         return _DENIED
 
@@ -68,6 +73,12 @@ async def authorize_subscription(session: AsyncSession, body: SubscribeProxyRequ
     )
     if snapshot is None:
         return _DENIED
+    # Centrifugo enforces `expire_at` on its own clock, so returning the token's
+    # value let a subscription authorized one second before its interest lapsed run
+    # on for the token's remaining 900s. The connection token carries no revocation
+    # list, which makes this clamp the only bound on an established subscription.
+    if interest.expires_at is not None:
+        expires_at = min(expires_at, int(interest.expires_at.timestamp()))
     # `data` is the same versioned DTO sent by the transactional outbox. Redis
     # history recovers the narrow read/activation race; this snapshot heals any
     # longer disconnect or history eviction.

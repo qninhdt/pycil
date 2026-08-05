@@ -21,11 +21,23 @@ def refresh_ttl_seconds() -> int:
     return int(getattr(settings, "refresh_token_ttl_seconds", 60 * 60 * 24 * 30))
 
 
-def _digest(token: str) -> str:
+def token_digest(token: str) -> str:
+    """Peppered digest of a raw refresh token — the form stored and compared.
+
+    Public because two callers outside this module need it to look a session up by
+    raw token: the logout route and account deletion's ownership check. Both were
+    reaching into `_digest`, whose underscore says this module reserves the right
+    to change it.
+    """
     pepper = getattr(settings, "refresh_token_pepper", "")
     if not pepper:
         raise RuntimeError("refresh_token_pepper is not configured")
     return hmac.new(pepper.encode(), token.encode(), hashlib.sha256).hexdigest()
+
+
+# Retained as an alias: this module's own call sites read better unprefixed, and
+# removing it would be a rename for no gain.
+_digest = token_digest
 
 
 def _new_token() -> str:

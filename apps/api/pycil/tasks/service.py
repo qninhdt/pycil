@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
-from sqlalchemy import or_, select, text
+from sqlalchemy import or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,10 +21,35 @@ from pycil.tasks.models import (
 
 TASK_LEASE_SECONDS = 120
 OUTBOX_LEASE_SECONDS = 30
+# How long an interest authorizes its channel, measured from creation.
+#
+# Not a guess. A task's worst case is `max_attempts` (4) leases of
+# TASK_LEASE_SECONDS each, plus the retry backoff between them, plus up to one
+# minute per attempt waiting for the reconciler cron to notice an expired lease:
+# 4*(120+60) + 1 + 5 + 30 = 756s. The window has to outlive that, or an interest
+# lapses while its own task is still running. Doubled to 30 minutes so a slower
+# dependency does not silently start denying live work.
+#
+# Both production callers previously omitted this, and `authorize_subscription`
+# reads NULL as "never expires", which is how 103 of 103 interests on the live
+# database ended up authorizing terminal tasks forever.
+INTEREST_TTL_SECONDS = 1_800
+# Retained after a task settles. Subscribing *is* the read — there is no REST route
+# that returns a task — and the client persists only unsettled ids, so a tab closed
+# when the task finished re-subscribes on its next mount to collect the outcome.
+# Revoking on the terminal transition answers that with code 103, which the activity
+# store records via `markStale` with no recovery path. This hands the result over,
+# then lapses.
+TERMINAL_GRACE_SECONDS = 900
 _REUSABLE_TASK_STATUSES = (
     AsyncTaskStatus.QUEUED,
     AsyncTaskStatus.RUNNING,
     AsyncTaskStatus.SUCCEEDED,
+)
+_TERMINAL_TASK_STATUSES = (
+    AsyncTaskStatus.SUCCEEDED,
+    AsyncTaskStatus.FAILED,
+    AsyncTaskStatus.EXPIRED,
 )
 
 
@@ -103,7 +128,13 @@ async def submit_or_join(
 
     Callers must have already authorized the source and derived the work key;
     this intentionally accepts neither a client task ID nor an untrusted key.
+
+    ``expires_at`` defaults to ``INTEREST_TTL_SECONDS`` from now rather than to
+    None. A None expiry authorizes the channel forever, which is what both
+    production callers were silently getting.
     """
+    if expires_at is None:
+        expires_at = _now() + timedelta(seconds=INTEREST_TTL_SECONDS)
     existing_receipt = await session.scalar(
         select(AsyncCommandReceipt).where(
             AsyncCommandReceipt.requester_id == requester_id,
@@ -282,6 +313,33 @@ async def list_reenqueueable_tasks(session: AsyncSession) -> list[AsyncTask]:
     return [task for task in tasks if task.result and isinstance(task.result.get("dispatch"), dict)]
 
 
+async def _clamp_interests_to_grace(session: AsyncSession, task_id: UUID) -> None:
+    """Shorten a settled task's interests to the grace window.
+
+    Revoking outright is what the obvious fix does, and it destroys the result:
+    subscribing *is* the read, the client persists only unsettled ids, so a tab
+    that was closed when the task finished re-subscribes on its next mount and
+    would be answered with code 103 — recorded by `markStale`, which has no
+    recovery path.
+
+    Only shortens, never extends: an interest already expiring sooner keeps its
+    own deadline, so this cannot resurrect one that has lapsed.
+    """
+    deadline = _now() + timedelta(seconds=TERMINAL_GRACE_SECONDS)
+    await session.execute(
+        update(AsyncTaskInterest)
+        .where(
+            AsyncTaskInterest.task_id == task_id,
+            AsyncTaskInterest.revoked_at.is_(None),
+            or_(
+                AsyncTaskInterest.expires_at.is_(None),
+                AsyncTaskInterest.expires_at > deadline,
+            ),
+        )
+        .values(expires_at=deadline)
+    )
+
+
 async def transition_task(
     session: AsyncSession,
     task_id: UUID,
@@ -311,6 +369,8 @@ async def transition_task(
             seconds=next_attempt_delay(task.attempt)
         )
     task.version += 1
+    if status in _TERMINAL_TASK_STATUSES:
+        await _clamp_interests_to_grace(session, task_id)
     await _record_event_and_outbox(session, task)
     await session.commit()
     await session.refresh(task)

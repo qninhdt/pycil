@@ -83,3 +83,35 @@ async def test_logout_is_idempotent_and_revokes_access(client, session):
     assert first.status_code == 204
     assert second.status_code == 204
     assert (await client.get("/v1/me", headers=await _bearer(access))).status_code == 401
+
+
+async def test_logout_logs_a_failed_disconnect_instead_of_discarding_it(
+    client, session, monkeypatch, caplog
+):
+    """B2: `disconnect_user` returns a bool that both callers threw away.
+
+    The call is best-effort by design — revocation is already durable, so logout
+    must still succeed — but silently dropping the result means an operator has no
+    signal that sockets stayed open after a revocation. That is the window an
+    already-issued 900s connection token keeps working in.
+    """
+    import logging
+
+    from pycil.auth import router as auth_router
+
+    user = await _seed(session, email="logout-disconnect@x.co")
+    raw_refresh, _ = await issue(session, user.id)
+    await session.commit()
+
+    async def failing_disconnect(_user_id):
+        return False
+
+    monkeypatch.setattr(auth_router, "disconnect_user", failing_disconnect)
+    with caplog.at_level(logging.WARNING, logger="pycil.auth.router"):
+        response = await client.post("/v1/auth/logout", json={"refresh_token": raw_refresh})
+
+    # Logout still succeeds: local revocation is authoritative.
+    assert response.status_code == 204
+    assert any("disconnect" in record.message.lower() for record in caplog.records), (
+        "a failed realtime disconnect must be logged, not discarded"
+    )

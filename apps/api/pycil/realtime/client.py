@@ -63,6 +63,32 @@ async def disconnect_user(user_id: UUID | str) -> bool:
     return isinstance(payload, dict) and not payload.get("error")
 
 
+async def unsubscribe_channel(user_id: UUID | str, channel: str) -> bool:
+    """End one user's subscription to one channel immediately.
+
+    ``expire_at`` bounds a subscription, but Centrifugo evaluates it on its own
+    clock, so shortening it does not cut a subscription that is already
+    established. This does, which is what makes a terminal task or a logout take
+    effect now rather than at the next expiry check.
+
+    Verified against Centrifugo v6.8.3: ``POST /api/unsubscribe`` accepts a
+    user/channel pair and answers ``{"result": {}}``. Command-level errors arrive
+    inside a 200, so both they and transport failures count as unsuccessful.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as http_client:
+            response = await http_client.post(
+                f"{settings.centrifugo_url}/api/unsubscribe",
+                json={"user": str(user_id), "channel": channel},
+                headers={"X-API-Key": settings.centrifugo_api_key},
+            )
+            response.raise_for_status()
+            payload = response.json()
+    except (httpx.HTTPError, ValueError):
+        return False
+    return isinstance(payload, dict) and not payload.get("error")
+
+
 async def publish(channel: str, data: dict) -> None:
     """Compatibility publisher for legacy producers pending task-registry cutover.
 

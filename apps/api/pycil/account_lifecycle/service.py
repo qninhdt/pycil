@@ -54,7 +54,7 @@ async def export_account(session: AsyncSession, user_id: UUID) -> dict:
 
 
 async def owns_active_refresh_token(session: AsyncSession, user_id: UUID, raw_token: str) -> bool:
-    digest = refresh_sessions._digest(raw_token)
+    digest = refresh_sessions.token_digest(raw_token)
     row = await session.scalar(
         text(
             "SELECT 1 FROM refresh_sessions WHERE user_id = :user_id AND token_digest = :digest "

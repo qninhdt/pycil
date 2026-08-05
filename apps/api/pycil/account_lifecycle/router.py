@@ -1,5 +1,6 @@
 """Authenticated account export and deletion routes."""
 
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Response
@@ -14,6 +15,8 @@ from pycil.db.redis import get_redis
 from pycil.db.session import get_session
 from pycil.jobs.service import release_inflight_quota
 from pycil.realtime.client import disconnect_user
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["account"])
 
@@ -40,5 +43,12 @@ async def delete_me(
     redis = get_redis()
     for _ in range(inflight_jobs):
         await release_inflight_quota(redis, user.id)
-    await disconnect_user(user.id)
+    # The account rows are gone either way; a socket that outlives them can only
+    # observe channels whose interests were deleted with it. Logged rather than
+    # discarded so an operator can see when that cleanup did not land.
+    if not await disconnect_user(user.id):
+        logger.warning(
+            "realtime disconnect failed after account deletion",
+            extra={"user_id": str(user.id)},
+        )
     return Response(status_code=204)
