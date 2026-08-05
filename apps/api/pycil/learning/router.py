@@ -242,16 +242,25 @@ async def start_session(
     # rather than per node kind. A folder session and a deck session now get the
     # same shape, which is what the learner configured.
     settings = await planning.settings_for_user(session, user.id)
-    plan = None
+    # B14. `node` and `plan` are read after this loop, which is only sound because
+    # the `else` clause raises when no iteration breaks — so reaching the code below
+    # proves both were assigned. That was an incidental property of `for ... else`
+    # plus `range(2)`, held together by a `plan = None` initialiser that would have
+    # let a `None` plan reach the session had the control flow ever changed. Binding
+    # the successful attempt explicitly makes the invariant the code's own statement
+    # rather than something a reader has to reconstruct.
+    resolved: tuple[Node, planning.PlanResult] | None = None
     for _ in range(2):
         node = await require_node_access(session, body.node_id, user, write=False)
         generation = node.structural_generation
         plan = await planning.plan_session(session, user.id, body.node_id, now, settings, rng)
         node = await require_node_access(session, body.node_id, user, write=False)
         if node.structural_generation == generation:
+            resolved = (node, plan)
             break
-    else:
+    if resolved is None:
         raise ConflictError("session_scope_changed")
+    node, plan = resolved
 
     redis = get_redis()
     meta = await session_store.create(

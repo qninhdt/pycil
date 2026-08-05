@@ -231,3 +231,44 @@ async def test_releasing_a_slot_never_raises():
             raise RuntimeError("redis is down")
 
     await session_store.release_grading_slot(Broken(), uuid.uuid4())
+
+
+async def test_advancing_a_dead_session_does_not_resurrect_it():
+    """B15. `advance_round` must not recreate a session that has expired.
+
+    `HSET` creates a missing key, so an expired session was silently reborn as a hash
+    holding only `round_index` — no owner, no node. `get_meta` then indexed straight
+    into `raw["owner"]` and raised `KeyError`, turning an expired session into a 500
+    instead of the `session_not_found` the caller expects.
+    """
+    redis = fake_aioredis.FakeRedis(decode_responses=True)
+    gone = uuid.uuid4().hex
+
+    assert await session_store.advance_round(redis, gone, expected_round=0) == 0
+    assert [key async for key in redis.scan_iter(match="*")] == [], (
+        "no key may be created for a session that no longer exists"
+    )
+    assert await session_store.get_meta(redis, gone) is None
+
+
+async def test_get_meta_treats_a_partial_hash_as_absent():
+    """Defence in depth for the same shape, whatever produced it."""
+    redis = fake_aioredis.FakeRedis(decode_responses=True)
+    sid = uuid.uuid4().hex
+    await redis.hset(f"session:{sid}", mapping={"round_index": "3", "round_count": "0"})
+
+    assert await session_store.get_meta(redis, sid) is None
+
+
+async def test_advancing_a_live_session_still_increments():
+    """The guard must not break the ordinary path."""
+    redis, sid = await _make_session([AdmittedSense(1, "new", [1, 1])])
+
+    assert await session_store.current_round(redis, sid) == 0
+    assert await session_store.advance_round(redis, sid, expected_round=0) == 1
+    assert await session_store.advance_round(redis, sid, expected_round=1) == 2
+    meta = await session_store.get_meta(redis, sid)
+    assert meta is not None and meta.round_index == 2
+
+    # A mismatched expectation is still a no-op that reports the truth.
+    assert await session_store.advance_round(redis, sid, expected_round=99) == 2

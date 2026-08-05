@@ -184,6 +184,15 @@ async def get_meta(redis: Redis, session_id: str) -> SessionMeta | None:
     raw = await redis.hgetall(_key(session_id))
     if not raw:
         return None
+    # A hash that exists but lacks the identity fields is not a session. That state
+    # is reachable: `advance_round` writes `round_index` with HSET, which CREATES the
+    # key if the session has expired between the caller's read and its own write, so
+    # a partially-populated "zombie" can outlive the session it came from. Treating
+    # it as absent is the honest reading — `session_not_found` is exactly what the
+    # caller should see — whereas indexing straight into `raw` raised
+    # `KeyError: 'owner'`, i.e. a 500 for an expired session.
+    if "owner" not in raw or "node" not in raw:
+        return None
     return SessionMeta(
         owner_id=UUID(raw["owner"]),
         node_id=UUID(raw["node"]),
@@ -383,12 +392,24 @@ async def current_round(redis: Redis, session_id: str) -> int:
 async def advance_round(
     redis: Redis, session_id: str, *, expected_round: int | None = None
 ) -> int:
-    """Atomically advance once from ``expected_round`` and reset round count."""
+    """Atomically advance once from ``expected_round`` and reset round count.
+
+    Returns 0 for a session that no longer exists. HSET creates a missing key, so
+    without this guard an expired session was silently resurrected as a hash holding
+    nothing but `round_index` — a shape `get_meta` then choked on. The session is
+    gone; the honest answer is "no rounds", and the caller's own
+    `session_not_found` path handles it.
+    """
     key = _key(session_id)
     while True:
         async with redis.pipeline(transaction=True) as pipe:
             try:
                 await pipe.watch(key)
+                # `owner` rather than `round_index`: identity is what makes this a
+                # session, and it is written once at creation and never removed.
+                if not await pipe.hexists(key, "owner"):
+                    await pipe.unwatch()
+                    return 0
                 raw = await pipe.hget(key, "round_index")
                 current = int(raw) if raw is not None else 0
                 if expected_round is not None and current != expected_round:
