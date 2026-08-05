@@ -8,6 +8,7 @@ from sqlalchemy import or_, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from pycil.common.retry import next_attempt_delay
 from pycil.tasks.models import (
     AsyncCommandReceipt,
     AsyncTask,
@@ -21,7 +22,6 @@ from pycil.tasks.models import (
 
 TASK_LEASE_SECONDS = 120
 OUTBOX_LEASE_SECONDS = 30
-OUTBOX_RETRY_DELAYS_SECONDS = (1, 5, 30, 120, 300)
 _REUSABLE_TASK_STATUSES = (
     AsyncTaskStatus.QUEUED,
     AsyncTaskStatus.RUNNING,
@@ -439,8 +439,9 @@ async def transition_task(
     task.lease_owner = task.lease_token = None
     task.lease_expires_at = None
     if status == AsyncTaskStatus.QUEUED:
-        retry_index = min(max(task.attempt - 1, 0), len(OUTBOX_RETRY_DELAYS_SECONDS) - 1)
-        task.next_attempt_at = _now() + timedelta(seconds=OUTBOX_RETRY_DELAYS_SECONDS[retry_index])
+        task.next_attempt_at = _now() + timedelta(
+            seconds=next_attempt_delay(task.attempt)
+        )
     task.version += 1
     await _record_event_and_outbox(session, task)
     await session.commit()
@@ -511,9 +512,12 @@ async def retry_outbox(
     if row.attempt >= row.max_attempts:
         row.status = OutboxStatus.DEAD_LETTER
     else:
-        retry_index = min(row.attempt - 1, len(OUTBOX_RETRY_DELAYS_SECONDS) - 1)
         row.status = OutboxStatus.PENDING
-        row.next_attempt_at = _now() + timedelta(seconds=OUTBOX_RETRY_DELAYS_SECONDS[retry_index])
+        # Previously `min(attempt - 1, len - 1)` with no lower clamp, so an attempt of
+        # 0 indexed [-1] and waited the LONGEST delay (300s) instead of the shortest.
+        row.next_attempt_at = _now() + timedelta(
+            seconds=next_attempt_delay(row.attempt)
+        )
     await session.commit()
     await session.refresh(row)
     return row

@@ -25,6 +25,7 @@ from uuid import UUID
 from redis.asyncio import Redis
 from redis.exceptions import WatchError
 
+from pycil.common.retry import cas_backoff
 from pycil.learning.policy import MAX_RETRIES_PER_CHECKPOINT, REQUIRED_CHECKPOINTS
 
 # TTL >= the pending-grade reconcile horizon (24h) so Redis expiry only ends an
@@ -282,6 +283,7 @@ async def consume_delivered(
     delivered question is rejected (F5).
     """
     key = _sense_key(session_id, sense_id)
+    attempt = 0
     while True:
         async with redis.pipeline(transaction=True) as pipe:
             try:
@@ -296,6 +298,11 @@ async def consume_delivered(
                 await pipe.execute()
                 return True
             except WatchError:
+                # Lost the WATCH: another writer committed first. Back off with jitter
+                # before re-reading, so two writers that collided do not collide again
+                # on the very next tick.
+                attempt += 1
+                await cas_backoff(attempt)
                 continue
 
 
@@ -331,6 +338,7 @@ async def restore_delivered(
     meta_key = _key(session_id)
     sense_key = _sense_key(session_id, sense_id)
     excluded_key = _excluded_key(session_id, sense_id)
+    attempt = 0
     while True:
         async with redis.pipeline(transaction=True) as pipe:
             try:
@@ -355,6 +363,11 @@ async def restore_delivered(
                 await pipe.execute()
                 return
             except WatchError:
+                # Lost the WATCH: another writer committed first. Back off with jitter
+                # before re-reading, so two writers that collided do not collide again
+                # on the very next tick.
+                attempt += 1
+                await cas_backoff(attempt)
                 continue
 
 
@@ -401,6 +414,7 @@ async def advance_round(
     `session_not_found` path handles it.
     """
     key = _key(session_id)
+    attempt = 0
     while True:
         async with redis.pipeline(transaction=True) as pipe:
             try:
@@ -422,6 +436,11 @@ async def advance_round(
                 await pipe.execute()
                 return new_index
             except WatchError:
+                # Lost the WATCH: another writer committed first. Back off with jitter
+                # before re-reading, so two writers that collided do not collide again
+                # on the very next tick.
+                attempt += 1
+                await cas_backoff(attempt)
                 continue
 
 
@@ -475,6 +494,7 @@ async def apply_checkpoint_projection(
     key = _sense_key(session_id, sense_id)
     projected_key = _projected_key(session_id, sense_id)
     projection_id = str(response_id)
+    attempt = 0
     while True:
         async with redis.pipeline(transaction=True) as pipe:
             try:
@@ -519,6 +539,11 @@ async def apply_checkpoint_projection(
                 await pipe.execute()
                 return True
             except WatchError:
+                # Lost the WATCH: another writer committed first. Back off with jitter
+                # before re-reading, so two writers that collided do not collide again
+                # on the very next tick.
+                attempt += 1
+                await cas_backoff(attempt)
                 continue
 
 
@@ -534,6 +559,7 @@ async def reserve_round_delivery(
     meta_key = _key(session_id)
     sense_key = _sense_key(session_id, sense_id)
     excluded_key = _excluded_key(session_id, sense_id)
+    attempt = 0
     while True:
         async with redis.pipeline(transaction=True) as pipe:
             try:
@@ -570,6 +596,11 @@ async def reserve_round_delivery(
                 await pipe.execute()
                 return True
             except WatchError:
+                # Lost the WATCH: another writer committed first. Back off with jitter
+                # before re-reading, so two writers that collided do not collide again
+                # on the very next tick.
+                attempt += 1
+                await cas_backoff(attempt)
                 continue
 
 
@@ -588,6 +619,7 @@ async def claim_prepare_attempt(
     """
     key = _key(session_id)
     now = datetime.now(UTC).timestamp() if now_timestamp is None else now_timestamp
+    attempt = 0
     while True:
         async with redis.pipeline(transaction=True) as pipe:
             try:
@@ -616,6 +648,11 @@ async def claim_prepare_attempt(
                 await pipe.execute()
                 return "claimed"
             except WatchError:
+                # Lost the WATCH: another writer committed first. Back off with jitter
+                # before re-reading, so two writers that collided do not collide again
+                # on the very next tick.
+                attempt += 1
+                await cas_backoff(attempt)
                 continue
 
 
@@ -627,6 +664,7 @@ async def lock_score(redis: Redis, session_id: str, sense_id: int, grade: str) -
     won the lock, else ``None`` (already locked or state gone).
     """
     key = _sense_key(session_id, sense_id)
+    attempt = 0
     while True:
         async with redis.pipeline(transaction=True) as pipe:
             try:
@@ -641,6 +679,11 @@ async def lock_score(redis: Redis, session_id: str, sense_id: int, grade: str) -
                 await pipe.execute()
                 return grade
             except WatchError:
+                # Lost the WATCH: another writer committed first. Back off with jitter
+                # before re-reading, so two writers that collided do not collide again
+                # on the very next tick.
+                attempt += 1
+                await cas_backoff(attempt)
                 continue
 
 
@@ -657,6 +700,7 @@ async def pass_checkpoint(
     passed count, or ``None`` when the sense state is gone.
     """
     key = _sense_key(session_id, sense_id)
+    attempt = 0
     while True:
         async with redis.pipeline(transaction=True) as pipe:
             try:
@@ -682,6 +726,11 @@ async def pass_checkpoint(
                 await pipe.execute()
                 return new_passed
             except WatchError:
+                # Lost the WATCH: another writer committed first. Back off with jitter
+                # before re-reading, so two writers that collided do not collide again
+                # on the very next tick.
+                attempt += 1
+                await cas_backoff(attempt)
                 continue
 
 
@@ -701,6 +750,7 @@ async def open_retry(
     (``retries_exhausted``) when it exceeds ``max_retries``.
     """
     key = _sense_key(session_id, sense_id)
+    attempt = 0
     while True:
         async with redis.pipeline(transaction=True) as pipe:
             try:
@@ -724,6 +774,11 @@ async def open_retry(
                 await pipe.execute()
                 return
             except WatchError:
+                # Lost the WATCH: another writer committed first. Back off with jitter
+                # before re-reading, so two writers that collided do not collide again
+                # on the very next tick.
+                attempt += 1
+                await cas_backoff(attempt)
                 continue
 
 

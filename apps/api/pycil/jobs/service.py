@@ -9,10 +9,10 @@ from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from pycil.common.retry import next_attempt_delay
 from pycil.jobs.models import JobStatus, WordGeneration
 
 LEASE_SECONDS = 120
-RETRY_DELAYS_SECONDS = (5, 30, 120)
 
 _RESERVE_QUOTA = """
 local limits = {tonumber(ARGV[1]), tonumber(ARGV[2]), tonumber(ARGV[3]), tonumber(ARGV[4])}
@@ -288,7 +288,7 @@ async def fail_generation(
     record.lease_expires_at = None
     if not terminal:
         record.next_attempt_at = _now() + timedelta(
-            seconds=RETRY_DELAYS_SECONDS[record.attempt - 1]
+            seconds=next_attempt_delay(record.attempt)
         )
     await session.commit()
     await session.refresh(record)
