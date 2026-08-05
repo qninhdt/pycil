@@ -26,8 +26,36 @@ SHIPPED_TYPES = [
     QuestionTypeInfo("use_in_sentence", RenderKind.FREE_TEXT, "assessment", frozenset({3, 4})),
 ]
 SHIPPED_DESCRIPTORS = SHIPPED_TYPES
+
+# A rubric-graded type declared across the whole assessment ladder.
+#
+# The shipped set cannot reach the deferred/LLM branch of `submit_answer` at the
+# level a session actually requests: `use_in_sentence` is the only free-text type
+# and it declares levels {3, 4}, while acquisition always requests
+# `ASSESSMENT_FLOOR` (1) and the resolver only ever walks *down* from the requested
+# level. So every question the suite could obtain graded synchronously, and 143
+# lines of `submit_answer` were unreachable from a test.
+#
+# Registered as a separate descriptor set rather than by widening
+# `use_in_sentence`, so the default fake keeps describing the shipped contract
+# exactly and only tests that opt in see a rubric type at level 1.
+RUBRIC_AT_EVERY_LEVEL = [
+    QuestionTypeInfo("flashcard", RenderKind.FLASHCARD, "exposure", frozenset({0})),
+    QuestionTypeInfo(
+        "rubric_free_text",
+        RenderKind.FREE_TEXT,
+        "assessment",
+        frozenset({1, 2, 3, 4}),
+    ),
+]
+
 _RENDER_BY_TYPE = {item.type_id: item.render_kind for item in SHIPPED_TYPES}
-_LLM_TYPES = {"use_in_sentence"}
+_RENDER_BY_TYPE.update(
+    {item.type_id: item.render_kind for item in RUBRIC_AT_EVERY_LEVEL}
+)
+# Types whose verdict comes from a model rather than a rule, so `evaluate_answer`
+# reports `pending` and the route must defer to the worker.
+_LLM_TYPES = {"use_in_sentence", "rubric_free_text"}
 
 
 @dataclass(frozen=True)
@@ -55,8 +83,11 @@ def _answer_text(submission: AnswerSubmission) -> str:
 
 
 class FakeLexiReader:
-    def __init__(self, word_id: int = 7) -> None:
+    def __init__(self, word_id: int = 7, types: list[QuestionTypeInfo] | None = None) -> None:
         self.word_id = word_id
+        # Defaults to the shipped contract; a test that needs a rubric type at a
+        # level a session actually requests passes `RUBRIC_AT_EVERY_LEVEL`.
+        self._types = list(types) if types is not None else list(SHIPPED_TYPES)
         self._next_qid = 1000
         self._supply: dict[tuple[int, int, str], list[int]] = {}
         self._questions: dict[int, PresentedQuestion] = {}
@@ -84,7 +115,7 @@ class FakeLexiReader:
         return ids
 
     def question_types(self) -> list[QuestionTypeInfo]:
-        return list(SHIPPED_TYPES)
+        return list(self._types)
 
     async def get_question(self, question_id: int) -> PresentedQuestion | None:
         return self._questions.get(question_id)
