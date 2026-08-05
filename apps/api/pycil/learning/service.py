@@ -354,10 +354,27 @@ async def create_pending_response(
 async def _lock_stats(
     session: AsyncSession, user_id: UUID, sense_id: int
 ) -> UserSenseStats | None:
-    """Serialize both existing and absent stats rows before FSRS mutation."""
+    """Serialize both existing and absent stats rows before FSRS mutation.
+
+    Two-argument advisory lock rather than `hashtext('fsrs:<user>:<sense>')`. That
+    built a string per call and folded it into `integer`, so the whole 32-bit space
+    covered every (user, sense) pair in the system and unrelated learners collided
+    — each collision serialising two FSRS updates with nothing in common.
+
+    The two-arg form gives one `int4` per axis: half the user's UUID and the sense
+    id. A collision now needs both halves to match, and within a single user the
+    sense axis is exact. Correctness rests on the `SessionSenseAttempt` unique claim
+    and the `with_for_update()` below, not on this key, so widening it only reduces
+    contention.
+    """
     await session.execute(
-        text("SELECT pg_advisory_xact_lock(hashtext(:lock_key))"),
-        {"lock_key": f"fsrs:{user_id}:{sense_id}"},
+        text("SELECT pg_advisory_xact_lock(:user_key, :sense_key)"),
+        {
+            "user_key": int.from_bytes(user_id.bytes[:4], "big", signed=True),
+            # Sense ids are bigint upstream; fold to int4 explicitly rather than
+            # letting the driver reject a wide value.
+            "sense_key": sense_id % 2**31,
+        },
     )
     result = await session.execute(
         select(UserSenseStats)
