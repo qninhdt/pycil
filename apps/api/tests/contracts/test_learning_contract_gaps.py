@@ -64,7 +64,9 @@ async def learning_client(engine, monkeypatch):
     async def _fake_arq_pool():
         return fake_pool
 
-    monkeypatch.setattr("pycil.learning.router.get_arq_pool", _fake_arq_pool)
+    # Both modules enqueue: session_flow for supply warm-up, answering for grading.
+    monkeypatch.setattr("pycil.learning.session_flow.get_arq_pool", _fake_arq_pool)
+    monkeypatch.setattr("pycil.learning.answering.get_arq_pool", _fake_arq_pool)
 
     async def override_session():
         async with factory() as s:

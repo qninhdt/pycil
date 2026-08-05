@@ -18,10 +18,11 @@ from __future__ import annotations
 import random
 from collections import Counter
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import UUID
 
 from lexi_ai.contracts import PrepareDemand
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pycil.learning import session_queue
@@ -76,6 +77,52 @@ async def settings_for_user(session: AsyncSession, user_id: UUID) -> SessionSett
     return SessionSettings(
         target_words_per_session=max(1, row.target_words_per_session),
         max_questions_per_round=max(1, row.max_questions_per_round),
+    )
+
+
+async def save_settings(
+    session: AsyncSession,
+    user_id: UUID,
+    *,
+    target_words_per_session: int,
+    max_questions_per_round: int,
+    now: datetime | None = None,
+) -> SessionSettings:
+    """Persist the learner's session shape, creating the row on first write.
+
+    A real upsert rather than a read-then-branch. The row is absent until someone
+    saves, and a SELECT finding nothing locks nothing — so two tabs saving at once
+    would both take the insert branch and the second would fail on the primary key.
+    ``ON CONFLICT`` makes the first write idempotent for the same reason the session
+    recap needs it.
+
+    A live session is unaffected: it carries the plan it was created with, so a change
+    here applies from the next session, which is what the settings form promises.
+    """
+    moment = now if now is not None else datetime.now(UTC)
+    statement = pg_insert(UserLearningSettings).values(
+        user_id=user_id,
+        target_words_per_session=target_words_per_session,
+        max_questions_per_round=max_questions_per_round,
+        updated_at=moment,
+    )
+    await session.execute(
+        statement.on_conflict_do_update(
+            # Named as a string rather than as the model attribute: SQLModel's
+            # annotation resolves to the Python type, not to a Column, so passing the
+            # attribute here does not describe an index target.
+            index_elements=["user_id"],
+            set_={
+                "target_words_per_session": statement.excluded.target_words_per_session,
+                "max_questions_per_round": statement.excluded.max_questions_per_round,
+                "updated_at": statement.excluded.updated_at,
+            },
+        )
+    )
+    await session.commit()
+    return SessionSettings(
+        target_words_per_session=target_words_per_session,
+        max_questions_per_round=max_questions_per_round,
     )
 
 

@@ -94,7 +94,9 @@ async def llm_client(engine, monkeypatch):
     async def _fake_pool():
         return pool
 
-    monkeypatch.setattr("pycil.learning.router.get_arq_pool", _fake_pool)
+    # Supply warm-up enqueues from session_flow; grading from answering.
+    monkeypatch.setattr("pycil.learning.session_flow.get_arq_pool", _fake_pool)
+    monkeypatch.setattr("pycil.learning.answering.get_arq_pool", _fake_pool)
 
     async def override_session():
         async with factory() as s:
@@ -258,7 +260,7 @@ async def test_a_failed_enqueue_still_returns_pending(llm_client, monkeypatch):
 
     session_id = await _start(client, deck)
     checkpoint = await _ready_checkpoint(client, session_id)
-    monkeypatch.setattr("pycil.learning.router.get_arq_pool", _fail_pool)
+    monkeypatch.setattr("pycil.learning.answering.get_arq_pool", _fail_pool)
 
     answered = await client.post(
         "/v1/answers",
