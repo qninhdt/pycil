@@ -168,3 +168,66 @@ async def test_advance_round_expected_value_prevents_double_advance():
     )
     assert rounds == [1] * 8
     assert await session_store.current_round(redis, sid) == 1
+
+
+async def test_a_taken_slot_always_carries_a_ttl():
+    """B10. The quota key must never be left without an expiry.
+
+    `INCR` then `EXPIRE` as two round trips means a process that dies between them
+    leaves a counter that never decays — so a 5-minute window becomes a permanent
+    lockout from LLM grading. One Lua script makes the pair atomic.
+    """
+    redis = fake_aioredis.FakeRedis(decode_responses=True)
+    owner = uuid.uuid4()
+
+    assert await session_store.take_grading_slot(redis, owner, limit=2) is True
+
+    ttl = await redis.ttl(f"session:grading-quota:{owner}")
+    assert ttl > 0, f"the key must expire on its own, got ttl={ttl}"
+
+    # A second increment must not re-arm the window, or a steady stream of requests
+    # would hold the key open indefinitely.
+    assert await session_store.take_grading_slot(redis, owner, limit=2) is True
+    assert await redis.ttl(f"session:grading-quota:{owner}") <= ttl
+
+
+async def test_the_slot_limit_still_rejects_past_the_budget():
+    redis = fake_aioredis.FakeRedis(decode_responses=True)
+    owner = uuid.uuid4()
+    verdicts = [
+        await session_store.take_grading_slot(redis, owner, limit=3) for _ in range(5)
+    ]
+    assert verdicts == [True, True, True, False, False]
+
+
+async def test_releasing_an_unspent_slot_gives_the_budget_back():
+    """A slot charged before a durable write that then failed must be returned.
+
+    Without this the learner has paid for a grade that never happened and cannot
+    retry until the window rolls.
+    """
+    redis = fake_aioredis.FakeRedis(decode_responses=True)
+    owner = uuid.uuid4()
+    key = f"session:grading-quota:{owner}"
+
+    await session_store.take_grading_slot(redis, owner, limit=1)
+    await session_store.take_grading_slot(redis, owner, limit=1)
+    assert int(await redis.get(key)) == 2
+
+    await session_store.release_grading_slot(redis, owner)
+    assert int(await redis.get(key)) == 1
+
+    # The last release removes the key rather than leaving a 0 with a TTL.
+    await session_store.release_grading_slot(redis, owner)
+    assert await redis.get(key) is None
+    assert await session_store.take_grading_slot(redis, owner, limit=1) is True
+
+
+async def test_releasing_a_slot_never_raises():
+    """It runs on an error path, so it must not replace the caller's exception."""
+
+    class Broken:
+        async def eval(self, *_args):
+            raise RuntimeError("redis is down")
+
+    await session_store.release_grading_slot(Broken(), uuid.uuid4())

@@ -635,18 +635,28 @@ async def submit_answer(
             )
             bind_held = True
             raise ConflictError("answer_grading_quota_exceeded")
-        response = await service.create_pending_response(
-            session,
-            user_id=user.id,
-            session_id=body.session_id,
-            sense_id=sense_id,
-            question_id=body.question_id,
-            raw_answer=body.answer,
-            idempotency_key=f"{body.session_id}:{body.question_id}",
-            requested_level=requested_level,
-            served_level=served_level,
-            render_format=format_name,
-        )
+        # The slot is charged before this write, because the write is what commits
+        # the learner to an LLM call. If the write itself fails, the charge has to be
+        # undone: otherwise the learner paid for a grade that never happened and
+        # cannot retry until the 5-minute window rolls. Only this one statement is
+        # guarded — once the pending row is durable the slot is legitimately spent,
+        # and `reconcile_pending_grades` owns the settle from there.
+        try:
+            response = await service.create_pending_response(
+                session,
+                user_id=user.id,
+                session_id=body.session_id,
+                sense_id=sense_id,
+                question_id=body.question_id,
+                raw_answer=body.answer,
+                idempotency_key=f"{body.session_id}:{body.question_id}",
+                requested_level=requested_level,
+                served_level=served_level,
+                render_format=format_name,
+            )
+        except Exception:
+            await session_store.release_grading_slot(redis, user.id)
+            raise
         # The pending row is durable (reconcile owns its settle); do not re-arm the
         # consume-once bind on a later failure in this request.
         committed = True

@@ -724,19 +724,58 @@ async def end_session(redis: Redis, session_id: str) -> None:
 # --- quotas (unchanged) ---------------------------------------------------------
 
 
+# INCR and EXPIRE in one round trip. Done separately, a process that died between
+# them left a counter with NO TTL, so the learner's quota key never decayed and they
+# were locked out of LLM grading permanently — a durable consequence from a window
+# meant to be 5 minutes wide. `jobs/service.py:17-28` already reserves its quota
+# through a Lua script for exactly this reason; this brings the learning-side slots
+# onto the same footing.
+#
+# EXPIRE is refreshed on the first increment only, which keeps the window rolling
+# from first use rather than sliding forward on every call. Re-arming it every time
+# would let a steady stream of requests hold the key open forever.
+_TAKE_SLOT = """
+local count = redis.call('INCR', KEYS[1])
+if count == 1 then redis.call('EXPIRE', KEYS[1], tonumber(ARGV[1])) end
+return count
+"""
+
+# The compensating release for a slot that was taken and then not used. DEL at 1
+# rather than DECR to 0, so an unused key disappears instead of lingering with a TTL.
+_RELEASE_SLOT = """
+local value = tonumber(redis.call('GET', KEYS[1]) or '0')
+if value <= 1 then redis.call('DEL', KEYS[1]) else redis.call('DECR', KEYS[1]) end
+return 1
+"""
+
+
+async def _take_slot(redis: Redis, key: str, limit: int) -> bool:
+    count = await redis.eval(_TAKE_SLOT, 1, key, _GENERATION_QUOTA_WINDOW_SECONDS)
+    return int(count) <= limit
+
+
 async def take_generation_slot(redis: Redis, owner_id: UUID, *, limit: int = 5) -> bool:
     """Bound costly generation scheduling per learner over a short window."""
-    key = f"session:generation-quota:{owner_id}"
-    count = await redis.incr(key)
-    if count == 1:
-        await redis.expire(key, _GENERATION_QUOTA_WINDOW_SECONDS)
-    return count <= limit
+    return await _take_slot(redis, f"session:generation-quota:{owner_id}", limit)
 
 
 async def take_grading_slot(redis: Redis, owner_id: UUID, *, limit: int = 20) -> bool:
     """Bound expensive LLM grading per learner over the same short window."""
-    key = f"session:grading-quota:{owner_id}"
-    count = await redis.incr(key)
-    if count == 1:
-        await redis.expire(key, _GENERATION_QUOTA_WINDOW_SECONDS)
-    return count <= limit
+    return await _take_slot(redis, f"session:grading-quota:{owner_id}", limit)
+
+
+async def release_grading_slot(redis: Redis, owner_id: UUID) -> None:
+    """Give back a grading slot that was taken but never spent.
+
+    The slot is charged before the durable pending row is written, because the
+    write is what commits the learner to an LLM call. If that write then fails, the
+    learner has paid for a grade that will never happen and cannot retry until the
+    window rolls — so the charge has to be undone.
+
+    Best-effort: this runs on an error path, and failing to return a slot must not
+    replace the caller's real exception with a Redis one.
+    """
+    try:
+        await redis.eval(_RELEASE_SLOT, 1, f"session:grading-quota:{owner_id}")
+    except Exception:
+        pass
