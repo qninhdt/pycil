@@ -4,7 +4,9 @@ import { useCallback, useEffect, useReducer, useRef, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
-import { advanceSession, readSession, submitAnswer } from "@/lib/actions/study"
+import { useSessionKeyboard } from "@/hooks/use-session-keyboard"
+import { useSessionRecap } from "@/hooks/use-session-recap"
+import { advanceSession, submitAnswer } from "@/lib/actions/study"
 import type { SessionState } from "@/lib/api/types"
 import { useTaskSnapshot } from "@/lib/realtime/use-task-snapshot"
 import { useActivityActions, useActivityStore, useUiStore } from "@/lib/stores/store-provider"
@@ -24,7 +26,6 @@ import { ExposureCard } from "./exposure-card"
 import { PendingGradePanel } from "./pending-grade-panel"
 import { PreparingPanel, SettlingPanel, StalledPanel } from "./polling-panel"
 import { QuestionBody } from "./question-body"
-import { choiceCount } from "./single-choice-question"
 import { QuestionStage } from "./question-stage"
 import { RoundBreakPanel } from "./round-break-panel"
 import { RoundIndicator } from "./round-indicator"
@@ -223,13 +224,19 @@ export function SessionRunner({
       : null
 
   const onAdvance = useCallback(() => dispatch({ type: "advance" }), [])
+  const onExit = useCallback(() => setExiting(true), [])
+  // The keyboard path wants a fire-and-forget submit; the button awaits nothing
+  // either, so discarding the promise here rather than at both call sites keeps the
+  // hook's dependencies stable across renders.
+  const submitFromKeyboard = useCallback(() => void onSubmit(), [onSubmit])
 
   // --- keyboard operation -------------------------------------------------------
   //
   // The whole session is reachable without a pointer: digits pick a choice, Enter
-  // commits or moves on, Escape asks to leave. Bound at the document rather than on
-  // each control because the key that matters most (Enter to submit) has to work
-  // while focus sits in the answer input, which is not inside the footer button.
+  // commits or moves on, Escape asks to leave. The bindings themselves live in
+  // `useSessionKeyboard`; what stays here is the one decision that spans more than
+  // the phase.
+  //
   // Every screen whose only action is "carry on": a graded question, a grade that
   // will not arrive, an exposure card, and a round break. Enter means the same thing
   // on all four, so they share one branch rather than each growing a special case.
@@ -239,78 +246,25 @@ export function SessionRunner({
     phase.kind === "break" ||
     (phase.kind === "asking" && phase.question.renderFormat === "flashcard")
 
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.metaKey || event.altKey) return
-
-      // While the exit dialog is open it owns the keyboard entirely. Without this
-      // the two fight over the same event: Escape would reach the dialog's own
-      // dismiss *and* this handler, which would immediately reopen what was just
-      // closed, and Enter would advance the session behind a modal asking whether
-      // to leave it.
-      if (exiting) return
-
-      if (event.key === "Escape") {
-        event.preventDefault()
-        setExiting(true)
-        return
-      }
-
-      if (event.key === "Enter" && advanceOnEnter) {
-        event.preventDefault()
-        onAdvance()
-        return
-      }
-
-      if (phase.kind !== "asking") return
-
-      // In a textarea Enter is a newline, so committing free text needs a modifier.
-      // Anywhere else a bare Enter submits.
-      const inTextarea =
-        event.target instanceof HTMLElement && event.target.tagName === "TEXTAREA"
-      if (event.key === "Enter" && (!inTextarea || event.ctrlKey)) {
-        if (!canSubmit(phase) || answer.trim().length === 0) return
-        event.preventDefault()
-        void onSubmit()
-        return
-      }
-
-      // Digits select an option, but only where digits are not themselves an answer:
-      // typing "1" into a free-text box must stay a character.
-      if (
-        phase.question.renderFormat === "single_choice" &&
-        canSubmit(phase) &&
-        /^[1-9]$/.test(event.key)
-      ) {
-        const index = Number(event.key) - 1
-        if (index >= choiceCount(phase.question)) return
-        event.preventDefault()
-        setAnswer(String(index))
-      }
-    }
-
-    document.addEventListener("keydown", onKeyDown)
-    return () => document.removeEventListener("keydown", onKeyDown)
-  }, [phase, answer, exiting, advanceOnEnter, onAdvance, onSubmit, setAnswer])
+  useSessionKeyboard({
+    phase,
+    answer,
+    exiting,
+    advanceOnEnter,
+    onAdvance,
+    onSubmit: submitFromKeyboard,
+    onAnswer: setAnswer,
+    onExit,
+  })
 
   // --- the recap ----------------------------------------------------------------
-  //
-  // Read from the server rather than accumulated here. Reaching `exhausted` deletes
-  // the live namespace, so only the persisted summary is left, and reading it is what
-  // makes this screen survive a reload.
-  const [recap, setRecap] = useState<SessionState | null>(
-    initialSession.status === "completed" ? initialSession : null,
-  )
-  useEffect(() => {
-    if (phase.kind !== "finished" || recap) return
-    let active = true
-    void readSession(sessionId).then((result) => {
-      if (active && result.success) setRecap(result.data)
-    })
-    return () => {
-      active = false
-    }
-  }, [phase.kind, recap, sessionId])
+
+  const recap = useSessionRecap({
+    sessionId,
+    finished: phase.kind === "finished",
+    // A session already complete on load carries its summary, so nothing is fetched.
+    initial: initialSession.status === "completed" ? initialSession : null,
+  })
 
   // --- surfaces -----------------------------------------------------------------
 
@@ -328,7 +282,7 @@ export function SessionRunner({
       <Button
         variant="ghost"
         size="icon-sm"
-        onClick={() => setExiting(true)}
+        onClick={onExit}
         aria-label="Leave this session"
       >
         <XIcon />
@@ -365,7 +319,7 @@ export function SessionRunner({
       <StalledPanel
         message={phase.message}
         onRetry={onAdvance}
-        onLeave={() => setExiting(true)}
+        onLeave={onExit}
         retrying={false}
       />,
     )
