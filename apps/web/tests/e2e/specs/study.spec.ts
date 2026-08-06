@@ -4,6 +4,7 @@ import {
   expectRecapFigure,
   showing,
   startSession,
+  TERMINAL_HEADING,
   waitForSettled,
   walkSession,
 } from "../fixtures/study-runner"
@@ -262,5 +263,92 @@ test.describe("the study loop", () => {
       .first()
       .click()
     await expect(learnerPage).toHaveURL(/\/study\/[0-9a-f]{32}/)
+  })
+
+  test("two rapid Enters submit one answer, not two", async ({
+    learnerPage,
+    learner,
+    fixture,
+  }) => {
+    test.skip(!fixture.supplyWarmed, "Needs a retrievable assessment to answer.")
+    test.setTimeout(600_000)
+
+    // `canSubmit` is read from the phase captured by the current render, and
+    // `dispatch` does not update that synchronously — so two Enters landing inside
+    // one frame both saw `submitting: false` and both posted.
+    //
+    // The server is not the thing at risk: `consume_delivered` is a CAS, so exactly
+    // one submission wins and the loser is refused `question_not_issued_for_session`.
+    // The learner is. The reducer correctly reads that refusal as a desync and
+    // re-polls `/next`, which wipes the winner's verdict off the screen before it can
+    // be read — the answer counted, the feedback did not arrive, and the question is
+    // behind them. So this asserts the verdict *stays*, which is the consequence, and
+    // the server-side count, which is the cause.
+    await startSession(learnerPage, learner.deckId)
+
+    // Walk to the first question that takes a typed or chosen answer. Exposure cards
+    // carry no submit control and are not what this is about.
+    for (let step = 0; step < 20; step += 1) {
+      await waitForSettled(learnerPage)
+      if (await showing(learnerPage, /^submit$/i, "button")) break
+      if (await showing(learnerPage, TERMINAL_HEADING, "heading")) break
+
+      const advance = learnerPage.getByRole("button", {
+        name: /^(continue|next round|got it)$/i,
+      })
+      if (!(await advance.first().isVisible().catch(() => false))) break
+      await advance.first().click()
+    }
+    test.skip(
+      !(await showing(learnerPage, /^submit$/i, "button")),
+      "This session served no assessment before running out of steps.",
+    )
+
+    // Single choice is the format a keyboard can answer deterministically: the digit
+    // shortcuts pick an option, so the answer is in place before Enter is pressed.
+    const options = learnerPage.getByRole("radio")
+    test.skip(
+      (await options.count()) === 0,
+      "The first assessment was not single-choice, which this spec needs to " +
+        "answer from the keyboard alone.",
+    )
+    await options.first().click()
+
+    // Both keydowns dispatched from inside the page, so they reach the handler before
+    // React can re-render between them. Two `keyboard.press` calls would not:
+    // Playwright awaits each, and the second lands on whatever the first produced.
+    await learnerPage.evaluate(() => {
+      const press = () =>
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+        )
+      press()
+      press()
+    })
+
+    // A verdict, and it stays. A second submission's refusal would send the reducer
+    // back to `advancing` and replace this with the next question.
+    const carryOn = learnerPage.getByRole("button", { name: /^continue$/i })
+    await expect(
+      carryOn,
+      "no verdict settled, so the answer never landed at all",
+    ).toBeVisible({ timeout: 240_000 })
+    await learnerPage.waitForTimeout(2_000)
+    await expect(
+      carryOn,
+      "the verdict was replaced by the next question, which is what a second " +
+        "submission's `question_not_issued_for_session` refusal does to the screen",
+    ).toBeVisible()
+
+    // And the server agrees only one answer was recorded. This is the assertion that
+    // would fail on a doubled submit even if the screen happened to settle.
+    const sessionId = learnerPage.url().match(/\/study\/([0-9a-f]{32})/)?.[1]
+    expect(sessionId, `not on a session URL: ${learnerPage.url()}`).toBeTruthy()
+    const state = await readSessionState(learner.token, sessionId!)
+    expect(
+      state.answersTotal,
+      "two Enters recorded two answers, spending a second grading slot on a " +
+        "question the learner answered once",
+    ).toBe(1)
   })
 })

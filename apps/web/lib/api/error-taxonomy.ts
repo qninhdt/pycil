@@ -47,23 +47,6 @@ export interface ErrorTaxonomyEntry {
   message: string
 }
 
-/**
- * The codes the study screen branches on individually.
- *
- * These four are why the API-side error work mattered: they used to arrive as a
- * single generic `conflict`, so the screen could not tell "your deck changed
- * under you" from "that question was never yours to answer". Kept as a named set
- * so the study surface can assert it handles each one.
- */
-export const SESSION_INTERRUPTION_CODES = [
-  "session_scope_changed",
-  "question_not_assessable",
-  "question_not_issued_for_session",
-  "question_not_available",
-] as const
-
-export type SessionInterruptionCode = (typeof SESSION_INTERRUPTION_CODES)[number]
-
 export const ERROR_TAXONOMY: Record<ApiErrorCode, ErrorTaxonomyEntry> = {
   // --- Authentication and identity -----------------------------------------
   missing_token: {
@@ -210,10 +193,6 @@ export const ERROR_TAXONOMY: Record<ApiErrorCode, ErrorTaxonomyEntry> = {
     category: "not_found",
     message: "That answer is no longer on record.",
   },
-  response_raw_answer_missing: {
-    category: "not_found",
-    message: "That answer is no longer on record.",
-  },
   answer_grading_quota_exceeded: {
     category: "quota",
     message: "You have reached today's limit for graded answers.",
@@ -302,6 +281,27 @@ export const ERROR_TAXONOMY: Record<ApiErrorCode, ErrorTaxonomyEntry> = {
     category: "retryable",
     message: "The service is temporarily unavailable. Try again in a moment.",
   },
+  // The catch-all envelope. The API deliberately does not send the underlying
+  // exception text, so there is nothing more specific to show — but it is a real
+  // server fault, not a user mistake, and saying so is what stops someone
+  // re-editing correct input.
+  internal_error: {
+    category: "retryable",
+    message: "Something went wrong on our side. Try again in a moment.",
+  },
+  // Two writers raced on the same command id. The other one won and its result is
+  // authoritative, so a retry of the same command is the wrong move — reloading
+  // shows what actually landed.
+  async_command_conflict: {
+    category: "conflict",
+    message: "That request was already handled. Refresh to see the result.",
+  },
+  // The provider rejected the authorization code exchange. Restarting sign-in is
+  // the only recovery; retrying the same callback URL cannot succeed.
+  oauth_exchange_failed: {
+    category: "unauthorized",
+    message: "Sign-in could not be completed. Try signing in again.",
+  },
   too_many_requests: {
     category: "quota",
     message: "Too many requests. Wait a moment and try again.",
@@ -354,11 +354,7 @@ export function classifyErrorCode(code: string): ErrorTaxonomyEntry {
   return ERROR_TAXONOMY[code] ?? UNKNOWN
 }
 
+/** Whether retrying the same request could plausibly succeed. */
 export function isRetryable(code: string): boolean {
   return classifyErrorCode(code).category === "retryable"
-}
-
-/** Whether the code means the study session itself is finished. */
-export function endsSession(code: string): boolean {
-  return classifyErrorCode(code).category === "session_invalidated"
 }

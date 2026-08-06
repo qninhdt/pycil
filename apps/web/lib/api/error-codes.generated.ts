@@ -1,13 +1,13 @@
 /**
  * Generated from apps/api by scripts/extract-error-codes.py. Do not edit.
  *
- * Source revision: 1b6d535
+ * Source revision: 8b0178a
  *
  * Every error code the API can put on the wire, with the HTTP statuses it can
  * arrive with. A code appears under more than one status when it is raised from
  * more than one error class.
  *
- * Regenerate with:  cd apps/api && uv run python scripts/extract-error-codes.py
+ * Regenerate with:  cd apps/api && uv run python ../../scripts/extract-error-codes.py
  */
 
 export const API_ERROR_STATUS = {
@@ -28,6 +28,7 @@ export const API_ERROR_STATUS = {
   "assistant_run_not_found": [404, 409],
   "assistant_thread_not_found": [404],
   "assistant_thread_run_active": [409],
+  "async_command_conflict": [409],
   "bad_request": [400],
   "centrifugo_unavailable": [503],
   "client_message_id_reused": [409],
@@ -39,7 +40,8 @@ export const API_ERROR_STATUS = {
   "folder_publication_requires_confirmation": [409],
   "forbidden": [403],
   "history_window_invalid": [409],
-  "http_error": [400],
+  "http_error": [500],
+  "internal_error": [500],
   "invalid_redirect_uri": [400],
   "invalid_refresh_token": [401],
   "invalid_token": [401],
@@ -53,9 +55,10 @@ export const API_ERROR_STATUS = {
   "node_not_found": [404],
   "not_found": [404],
   "oauth_email_not_verified": [401],
+  "oauth_exchange_failed": [401],
   "parent_must_be_owned_folder": [409],
   "parent_node_not_found": [404],
-  "payload_too_large": [413],
+  "payload_too_large": [413, 500],
   "question_not_assessable": [409],
   "question_not_available": [409],
   "question_not_issued_for_session": [409],
@@ -64,7 +67,6 @@ export const API_ERROR_STATUS = {
   "reference_requires_target": [409],
   "reference_target_not_found": [404],
   "response_not_found": [404],
-  "response_raw_answer_missing": [404],
   "sense_not_found": [404],
   "service_unavailable": [503],
   "session_not_found": [404],
@@ -81,7 +83,6 @@ export type ApiErrorCode = keyof typeof API_ERROR_STATUS
 
 export const API_ERROR_CODES = Object.keys(API_ERROR_STATUS) as ApiErrorCode[]
 
-/** Whether a code from a response is one this build knows about. */
 export function isKnownApiErrorCode(code: string): code is ApiErrorCode {
   return code in API_ERROR_STATUS
 }

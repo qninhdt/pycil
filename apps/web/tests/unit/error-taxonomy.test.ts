@@ -2,9 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import {
   ERROR_TAXONOMY,
-  SESSION_INTERRUPTION_CODES,
   classifyErrorCode,
-  endsSession,
   isRetryable,
 } from "@/lib/api/error-taxonomy"
 import { API_ERROR_STATUS } from "@/lib/api/error-codes.generated"
@@ -53,18 +51,38 @@ describe("category helpers", () => {
     expect(isRetryable("a_code_from_the_future")).toBe(false)
   })
 
-  it("endsSession is true only for the session_invalidated category", () => {
-    expect(endsSession("session_not_found")).toBe(true)
-    expect(endsSession("session_scope_changed")).toBe(true)
-    expect(endsSession("question_not_available")).toBe(true)
+  it("marks as session_invalidated exactly the codes that end a session", () => {
+    // Asserted through the category rather than through a helper, because the
+    // category is what the study reducer branches on. A code moved into or out of
+    // `session_invalidated` changes whether the learner is told their session is
+    // over, which is the single most consequential classification in the table.
+    expect(classifyErrorCode("session_not_found").category).toBe("session_invalidated")
+    expect(classifyErrorCode("session_scope_changed").category).toBe("session_invalidated")
+    expect(classifyErrorCode("question_not_available").category).toBe("session_invalidated")
     // A conflict is not a session end: question_not_assessable is answerable-elsewhere,
     // not session-over.
-    expect(endsSession("question_not_assessable")).toBe(false)
-    expect(endsSession("word_generation_quota_exceeded")).toBe(false)
+    expect(classifyErrorCode("question_not_assessable").category).toBe("conflict")
+    expect(classifyErrorCode("word_generation_quota_exceeded").category).not.toBe(
+      "session_invalidated",
+    )
   })
 })
 
-describe("SESSION_INTERRUPTION_CODES", () => {
+/**
+ * The four codes that used to arrive as one generic conflict.
+ *
+ * Listed here rather than exported from the module under test: nothing in the app
+ * reads them as a set, and an export existing only so a test can import it is an
+ * export that outlives whatever made it worth having.
+ */
+const SESSION_INTERRUPTION_CODES = [
+  "session_scope_changed",
+  "question_not_assessable",
+  "question_not_issued_for_session",
+  "question_not_available",
+] as const
+
+describe("session interruption codes", () => {
   it("every interruption code has a taxonomy entry", () => {
     for (const code of SESSION_INTERRUPTION_CODES) {
       expect(ERROR_TAXONOMY[code]).toBeDefined()

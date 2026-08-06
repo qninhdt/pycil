@@ -1,5 +1,6 @@
 import "server-only"
 
+import { isRefreshExpired } from "@/lib/auth/session-validity"
 import type { SessionData } from "@/lib/auth/types"
 
 import { ApiError, type ApiErrorEnvelope } from "./errors"
@@ -35,10 +36,17 @@ function isObject(value: unknown): value is Record<string, unknown> {
  * Returns a usable access token, refreshing it in place when it is about to
  * expire.
  *
- * The refreshed values are written back onto the session object the caller
- * passed in. Persisting them is the caller's business: a read during render
- * cannot save a cookie, so the new token is used for this request and sealed
- * only when a route handler or action saves the session.
+ * A refresh rotates the pair on the server, so the old refresh token stops
+ * working the moment the new one is issued. Writing the new values only onto the
+ * in-memory object would leave the sealed cookie holding a token the API has
+ * already invalidated: the session keeps presenting as signed in while every
+ * request it makes comes back 401. So the session is re-sealed here.
+ *
+ * Sealing can legitimately fail. A cookie cannot be written while a server
+ * component renders, and Next.js throws if you try. That is not an error worth
+ * failing the request over — the fresh token is already in hand and serves this
+ * request; the next mutating action or route handler will seal it. So a failed
+ * save is swallowed, and only a genuinely unexpected one is surfaced in logs.
  */
 async function ensureAccessToken(session: SessionData): Promise<string | undefined> {
   if (!session.accessToken) return undefined
@@ -49,6 +57,12 @@ async function ensureAccessToken(session: SessionData): Promise<string | undefin
   if (expiresAt - now >= REFRESH_WINDOW_SECONDS || !session.refreshToken) {
     return session.accessToken
   }
+
+  // An expired refresh token cannot produce anything. Asking anyway costs a round
+  // trip to be told so, on every request, for as long as the cookie survives — and
+  // the login gate reads the same field, so a learner in this state is on their way
+  // to `/login` rather than waiting on this call.
+  if (isRefreshExpired(session, now)) return session.accessToken
 
   try {
     const response = await fetch(`${apiBaseUrl()}/v1/auth/refresh`, {
@@ -68,6 +82,8 @@ async function ensureAccessToken(session: SessionData): Promise<string | undefin
     session.refreshToken = tokens.refreshToken
     session.expiresAt = now + tokens.expiresIn
     session.refreshExpiresAt = now + tokens.refreshExpiresIn
+
+    await persistSession(session)
   } catch (error) {
     // A failed refresh is not a failed request. The current token may still have
     // seconds left on it, and the API will say so if it does not.
@@ -75,6 +91,27 @@ async function ensureAccessToken(session: SessionData): Promise<string | undefin
   }
 
   return session.accessToken
+}
+
+/**
+ * Re-seal the session cookie, tolerating the render-context refusal.
+ *
+ * `getSession` returns an iron-session object carrying `save`, but the shared
+ * `SessionData` shape describes only the payload — the callback route is the one
+ * place that names the method today. Rather than widen the payload type, the
+ * capability is probed for, which also covers plain-object sessions in tests.
+ */
+async function persistSession(session: SessionData): Promise<void> {
+  const save = (session as SessionData & { save?: () => Promise<void> }).save
+  if (typeof save !== "function") return
+
+  try {
+    await save.call(session)
+  } catch (error) {
+    // Expected during render: "Cookies can only be modified in a Server Action
+    // or Route Handler". The token still serves this request.
+    console.debug("Could not persist the refreshed session in this context:", error)
+  }
 }
 
 export function createFetcher(session: SessionData): Fetcher {

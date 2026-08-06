@@ -9,6 +9,7 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart"
 import type { HistoryBucket } from "@/lib/api/types"
+import { shortDate } from "@/lib/format/date"
 
 /**
  * Reviews per day, with the average mastery those reviews left behind.
@@ -29,12 +30,10 @@ const config = {
 
 /** `YYYY-MM-DD` to a short day label. */
 function dayLabel(bucket: string): string {
-  // Parsed at UTC noon: a midnight UTC date shifts to the previous day for anyone
-  // west of UTC, which would put every label one day off.
-  return new Date(`${bucket}T12:00:00Z`).toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-  })
+  // The shared formatter anchors a bare date at UTC noon and formats in UTC, so a
+  // midnight-UTC date cannot shift to the previous day west of UTC and the label is
+  // the same on the server as after hydration.
+  return shortDate(bucket)
 }
 
 export function ReviewHistoryChart({ history }: { history: HistoryBucket[] }) {

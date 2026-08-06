@@ -152,15 +152,39 @@ export function SessionRunner({
 
   const { register } = useActivityActions()
 
+  // The near guard against a second submission of the same question, and the
+  // counterpart to `advancing` above.
+  //
+  // `canSubmit` reads the phase captured by *this* render, and `dispatch` does not
+  // update it synchronously — so two Enters landing before React commits both see
+  // `submitting: false` and both post. Only one can win the server's consume-once
+  // bind; the loser comes back `question_not_issued_for_session`, which the reducer
+  // correctly reads as a desync and re-polls `/next`. The cost is the winner's
+  // verdict: it is wiped off the screen before the learner sees it, and the question
+  // it belonged to is behind them.
+  //
+  // Keyed by the question rather than held as a boolean, for the same reason the
+  // draft above is keyed: a boolean has to be released, and the window between
+  // releasing it and React committing the new phase is exactly the window this
+  // exists to close. A new question carries a new key, so nothing is released at all.
+  const submitted = useRef<string | null>(null)
+
   const onSubmit = useCallback(async () => {
     if (phase.kind !== "asking" || !canSubmit(phase)) return
     const id = phase.question.questionId
     if (id == null) return
 
+    const key = `${phase.question.senseId}:${id}`
+    if (submitted.current === key) return
+    submitted.current = key
     dispatch({ type: "answer_started" })
     const result = await submitAnswer(sessionId, id, answer)
 
     if (!result.success) {
+      // A failure may leave the question on screen and answerable — a spent grading
+      // quota does exactly that — so the guard reopens. The codes that do not leave
+      // it answerable move the phase on, which changes the key anyway.
+      submitted.current = null
       dispatch({ type: "answer_failed", code: result.code })
       return
     }

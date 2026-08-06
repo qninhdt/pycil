@@ -1,6 +1,7 @@
 import { getIronSession } from "iron-session";
 import { type NextRequest, NextResponse } from "next/server";
 import { sessionOptions } from "@/lib/auth/session";
+import { isUsableSession } from "@/lib/auth/session-validity";
 import type { SessionData } from "@/lib/auth/types";
 
 /**
@@ -38,7 +39,11 @@ export async function proxy(request: NextRequest) {
   const response = NextResponse.next();
 
   const session = await getIronSession<SessionData>(request, response, sessionOptions);
-  const isSignedIn = Boolean(session.isLoggedIn && session.accessToken);
+  // A present access token is not the same as a usable session: the refresh token
+  // expires on its own schedule, and once it has, nothing in the cookie can be
+  // revived. Gating on the token alone left the learner permanently "signed in" and
+  // 401ing on every request, with nothing offering them a way to sign in again.
+  const isSignedIn = isUsableSession(session);
 
   if (matches(pathname, AUTH_ONLY)) {
     return isSignedIn ? NextResponse.redirect(new URL("/", request.url)) : response;

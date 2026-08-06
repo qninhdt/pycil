@@ -3,6 +3,7 @@ import Link from "next/link"
 import { CefrChip } from "@/components/vocabulary/cefr-chip"
 import { MasteryStage } from "@/components/vocabulary/mastery-stage"
 import type { SenseContent } from "@/lib/api/types"
+import { shortDate } from "@/lib/format/date"
 
 /**
  * One sense in a deck.
@@ -112,7 +113,7 @@ function ReviewSchedule({
 
   return (
     <span className="font-mono text-xs text-muted-foreground">
-      {due.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+      {shortDate(due)}
     </span>
   )
 }

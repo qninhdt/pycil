@@ -12,91 +12,57 @@
  * ends its stream, and posting the decision returns a fresh stream that continues the
  * same run. So this hook accumulates events across streams and never assumes the
  * connection it opened will carry the run to completion.
+ *
+ * None of that state is held here. It lives in the assistant store, because the two
+ * surfaces rendering this conversation are mutually exclusive by viewport: crossing
+ * 1024px unmounts one and mounts the other, and a `useState` in this hook would go
+ * with it mid-turn. The hook is the behaviour; the store is the conversation.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect } from "react"
 
 import { getThreadMessages, recoverRun } from "@/lib/actions/assistant"
-import type { ActionDecision, RunEvent } from "@/lib/api/types"
+import type { ActionDecision } from "@/lib/api/types"
 import { SseFrameReader, toRunEvent } from "@/lib/assistant/sse-frames"
 import { buildTranscript } from "@/lib/assistant/transcript"
+import {
+  claimTurnKey,
+  emptyRunSession,
+  releaseTurnKey,
+  type RunPhase,
+} from "@/lib/stores/assistant-store"
+import { useAssistantStore, useAssistantStoreApi } from "@/lib/stores/store-provider"
 
-/** Why the composer is unavailable, when it is. */
-export type RunPhase =
-  | "idle"
-  /** A stream is open and events are arriving. */
-  | "streaming"
-  /** The stream closed with no terminal event: the run was abandoned server-side. */
-  | "abandoned"
-
-/**
- * One thread's conversation state, tagged with the thread it belongs to.
- *
- * The tag is what makes this safe. Every write goes through `update`, which drops the
- * write if the thread has moved on — so a `getThreadMessages` that resolves after the
- * learner switched conversations cannot pour thread A's transcript into thread B. It
- * also means a thread change needs no reset effect: a mismatched tag already reads as
- * empty, which is both correct and one fewer render.
- */
-interface Session {
-  threadId: string | null
-  events: RunEvent[]
-  phase: RunPhase
-  /** A wire error code from a failed submission, not from a failed run. */
-  problem: string | null
-}
-
-function emptySession(threadId: string | null): Session {
-  return { threadId, events: [], phase: "idle", problem: null }
-}
+export type { RunPhase }
 
 export function useAssistantRun(threadId: string | null) {
-  const [session, setSession] = useState<Session>(() => emptySession(null))
-  // True while a recovery read is outstanding, so the button that started it can say
-  // so. Separate from `phase`, because recovering does not change what the run is: a
-  // run that was abandoned is still abandoned while its transcript is being re-read.
-  const [recovering, setRecovering] = useState(false)
-
-  // The reader is aborted on unmount and on thread change. Without this, closing the
-  // drawer mid-stream leaves a reader holding an open response body.
-  const abort = useRef<AbortController | null>(null)
-  // The turn's idempotency key, minted once and reused across transport retries: the
-  // API returns the existing run's events for a repeated id rather than starting a
-  // second run.
-  const clientMessageId = useRef<string | null>(null)
+  const store = useAssistantStoreApi()
+  const session = useAssistantStore((state) => state.session)
+  const recovering = useAssistantStore((state) => state.recovering)
 
   // The session for the thread being asked about, which is empty whenever the held one
   // belongs to a different conversation.
-  const active = session.threadId === threadId ? session : emptySession(threadId)
+  const active = session.threadId === threadId ? session : emptyRunSession(threadId)
   const transcript = buildTranscript(active.events)
 
-  /** Applies a patch, unless the thread it was computed for is no longer open. */
-  const update = useCallback(
-    (forThreadId: string | null, patch: (current: Session) => Partial<Session>) => {
-      setSession((current) => {
-        const base =
-          current.threadId === forThreadId ? current : emptySession(forThreadId)
-        return { ...base, ...patch(base) }
-      })
-    },
-    [],
-  )
-
-  useEffect(() => {
-    return () => {
-      abort.current?.abort()
-      abort.current = null
-    }
-  }, [])
-
+  // The open stream is cancelled when the *provider* goes away, not when a surface
+  // does. A surface unmounting is the breakpoint crossing this store exists to
+  // survive, and aborting there would tear down the very stream being preserved —
+  // so there is deliberately no unmount cleanup in this hook.
+  //
   // A thread change is a different conversation, so the previous stream is cancelled
-  // and this one's transcript is read from the server. Only the abort and the fetch
-  // happen here: the state itself is derived above rather than reset, which is why
-  // there is no synchronous write in this effect.
+  // and this one's transcript is read from the server. `loadedThreadId` is what makes
+  // that happen once per thread rather than once per mount: a remount mid-turn must
+  // not abort the open stream and overwrite its events with the server's copy.
   useEffect(() => {
-    abort.current?.abort()
-    abort.current = null
-    clientMessageId.current = null
+    const state = store.getState()
+    const { transport } = state
+    if (transport.loadedThreadId === threadId) return
+
+    transport.abort?.abort()
+    transport.abort = null
+    releaseTurnKey(transport)
+    transport.loadedThreadId = threadId
 
     if (!threadId) return
 
@@ -105,7 +71,7 @@ export function useAssistantRun(threadId: string | null) {
     void (async () => {
       const result = await getThreadMessages(threadId)
       if (!active || !result.success) return
-      update(threadId, () => ({ events: result.data }))
+      state.updateSession(threadId, () => ({ events: result.data }))
 
       // Whether the newest run is still unfinished. Without this a reload was a dead
       // end: the fold leaves the last assistant turn `streaming` because no terminal
@@ -125,14 +91,14 @@ export function useAssistantRun(threadId: string | null) {
       // connection dropped would be false, and would offer a resend in place of the
       // approve/reject they actually owe.
       if (run.data.status === "running") {
-        update(threadId, () => ({ phase: "abandoned" }))
+        state.updateSession(threadId, () => ({ phase: "abandoned" }))
       }
     })()
 
     return () => {
       active = false
     }
-  }, [threadId, update])
+  }, [threadId, store])
 
   /**
    * Reads one stream to completion, appending events as they arrive.
@@ -168,7 +134,7 @@ export function useAssistantRun(threadId: string | null) {
         ) {
           terminal = true
         }
-        update(forThreadId, (current) => ({
+        store.getState().updateSession(forThreadId, (current) => ({
           events: [...current.events, ...incoming],
         }))
       }
@@ -186,32 +152,27 @@ export function useAssistantRun(threadId: string | null) {
 
       return terminal
     },
-    [update],
+    [store],
   )
 
   /** Posts a turn and streams the reply. */
   const send = useCallback(
     async (content: string) => {
       if (!threadId) return
+      const state = store.getState()
+      const { transport } = state
 
-      // Minted once per turn: a retry of the same turn reuses it so the server joins
-      // the existing run instead of starting a duplicate.
-      //
-      // "The same turn" is the load-bearing part. The key is only reused while the
-      // turn it belongs to is still unresolved, which is why `abandoned` clears it
-      // here: after a dropped stream the server holds a run under that key, and
-      // sending *new* content with it takes the API's `not created` branch, which
-      // replays the old run's events and discards what was just typed. The learner's
-      // message would vanish with no error and the previous reply would appear in its
-      // place. A new turn therefore always gets a new key.
-      if (active.phase === "abandoned") clientMessageId.current = null
-      clientMessageId.current ??= crypto.randomUUID()
-      const turnId = clientMessageId.current
+      // A turn following an abandoned one is a *new* turn, so it gets a new key: the
+      // server still holds a run under the old one, and reusing it would replay that
+      // run and discard what was just typed. `claimTurnKey` states the rule.
+      const turnId = claimTurnKey(transport, {
+        fresh: state.session.threadId === threadId && state.session.phase === "abandoned",
+      })
 
       const controller = new AbortController()
-      abort.current?.abort()
-      abort.current = controller
-      update(threadId, () => ({ phase: "streaming", problem: null }))
+      transport.abort?.abort()
+      transport.abort = controller
+      state.updateSession(threadId, () => ({ phase: "streaming", problem: null }))
 
       try {
         const response = await fetch(`/api/assistant/threads/${threadId}/messages`, {
@@ -222,31 +183,30 @@ export function useAssistantRun(threadId: string | null) {
         })
 
         if (!response.ok) {
-          // The key is spent. Reuse is only safe while the outcome is *unknown* — a
-          // dropped request that may or may not have been accepted. A refusal is a
-          // known outcome, and on the capacity path the server has already marked the
-          // run `FAILED` (`router.py:258-261`), so retrying with the same key takes the
-          // `not created` branch and replays a run holding nothing but the original
-          // `user_message`: no reply, no error, no explanation.
-          clientMessageId.current = null
+          // A refusal is a *known* outcome, so the key is spent. On the capacity path
+          // the server has already marked the run `FAILED`, so retrying with the same
+          // key replays a run holding nothing but the original `user_message`: no
+          // reply, no error, no explanation.
+          releaseTurnKey(transport)
           const code = await readErrorCode(response)
-          update(threadId, () => ({ phase: "idle", problem: code }))
+          state.updateSession(threadId, () => ({ phase: "idle", problem: code }))
           return
         }
 
         // The turn's own id stands in for the run id, which the wire format omits.
         const terminal = await consume(response, threadId, turnId)
-        // A completed turn releases the key. Keeping it would make the learner's next
-        // message join the finished run and return its replay instead of answering.
-        if (terminal) clientMessageId.current = null
-        update(threadId, () => ({ phase: terminal ? "idle" : "abandoned" }))
+        if (terminal) releaseTurnKey(transport)
+        state.updateSession(threadId, () => ({ phase: terminal ? "idle" : "abandoned" }))
       } catch {
         // An abort is this hook cancelling itself, not a failure to report.
         if (controller.signal.aborted) return
-        update(threadId, () => ({ phase: "abandoned", problem: "stream_failed" }))
+        state.updateSession(threadId, () => ({
+          phase: "abandoned",
+          problem: "stream_failed",
+        }))
       }
     },
-    [threadId, active.phase, consume, update],
+    [threadId, consume, store],
   )
 
   /**
@@ -259,11 +219,13 @@ export function useAssistantRun(threadId: string | null) {
   const decide = useCallback(
     async (runId: string, actionId: string, decision: ActionDecision) => {
       if (!threadId) return
+      const state = store.getState()
+      const { transport } = state
 
       const controller = new AbortController()
-      abort.current?.abort()
-      abort.current = controller
-      update(threadId, () => ({ phase: "streaming", problem: null }))
+      transport.abort?.abort()
+      transport.abort = controller
+      state.updateSession(threadId, () => ({ phase: "streaming", problem: null }))
 
       try {
         const response = await fetch(
@@ -281,19 +243,22 @@ export function useAssistantRun(threadId: string | null) {
           // approval the learner believes they just granted, and the code carries which
           // way it failed — expired, already resolved, or the resource moved on.
           const code = await readErrorCode(response)
-          update(threadId, () => ({ phase: "idle", problem: code }))
+          state.updateSession(threadId, () => ({ phase: "idle", problem: code }))
           return
         }
 
         const terminal = await consume(response, threadId, runId)
-        if (terminal) clientMessageId.current = null
-        update(threadId, () => ({ phase: terminal ? "idle" : "abandoned" }))
+        if (terminal) releaseTurnKey(transport)
+        state.updateSession(threadId, () => ({ phase: terminal ? "idle" : "abandoned" }))
       } catch {
         if (controller.signal.aborted) return
-        update(threadId, () => ({ phase: "abandoned", problem: "stream_failed" }))
+        state.updateSession(threadId, () => ({
+          phase: "abandoned",
+          problem: "stream_failed",
+        }))
       }
     },
-    [threadId, consume, update],
+    [threadId, consume, store],
   )
 
   /**
@@ -304,33 +269,34 @@ export function useAssistantRun(threadId: string | null) {
    * already recorded — never finish work that was abandoned.
    *
    * It takes no run id, and deliberately so. A streamed frame is `id: <sequence>` with
-   * no run identity, so a live turn's events are stamped with the turn's
-   * `clientMessageId` as a stand-in. That stand-in is not a run UUID: passing it to the
-   * run query endpoint would 404 as `assistant_run_not_found`, which is exactly the
-   * failure a recovery path must not have. The thread read needs no id, returns every
-   * run's events, and carries the server's real `runId` on each one — so it both
-   * recovers the transcript and replaces the synthetic ids with true ones.
+   * no run identity, so a live turn's events are stamped with the turn's key as a
+   * stand-in. That stand-in is not a run UUID: passing it to the run query endpoint
+   * would 404 as `assistant_run_not_found`, which is exactly the failure a recovery
+   * path must not have. The thread read needs no id, returns every run's events, and
+   * carries the server's real `runId` on each one — so it both recovers the transcript
+   * and replaces the synthetic ids with true ones.
    */
   const recover = useCallback(async () => {
     if (!threadId) return
+    const state = store.getState()
 
-    setRecovering(true)
+    state.setRecovering(true)
     try {
       const refreshed = await getThreadMessages(threadId)
       if (!refreshed.success) {
-        update(threadId, () => ({ problem: refreshed.code }))
+        state.updateSession(threadId, () => ({ problem: refreshed.code }))
         return
       }
 
       // Replaced rather than appended: the same events are already held under
       // synthetic ids, and merging the two identities would render the turn twice.
-      update(threadId, () => ({ events: refreshed.data }))
+      state.updateSession(threadId, () => ({ events: refreshed.data }))
 
       // The thread read carries events, not run status, so whether the run is still
       // unfinished is asked of the run itself — now that a real id is known.
       const runId = buildTranscript(refreshed.data).activeRunId
       if (!runId) {
-        update(threadId, () => ({ phase: "idle" }))
+        state.updateSession(threadId, () => ({ phase: "idle" }))
         return
       }
 
@@ -342,17 +308,18 @@ export function useAssistantRun(threadId: string | null) {
 
       const unfinished =
         run.data.status === "running" || run.data.status === "interrupted"
-      update(threadId, () => ({ phase: unfinished ? "abandoned" : "idle" }))
+      state.updateSession(threadId, () => ({ phase: unfinished ? "abandoned" : "idle" }))
     } finally {
-      setRecovering(false)
+      store.getState().setRecovering(false)
     }
-  }, [threadId, update])
+  }, [threadId, store])
 
   /** Discards the turn key so the next send starts a fresh run. */
   const resetTurn = useCallback(() => {
-    clientMessageId.current = null
-    update(threadId, () => ({ phase: "idle", problem: null }))
-  }, [threadId, update])
+    const state = store.getState()
+    releaseTurnKey(state.transport)
+    state.updateSession(threadId, () => ({ phase: "idle", problem: null }))
+  }, [threadId, store])
 
   return {
     transcript,

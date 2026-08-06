@@ -12,10 +12,14 @@
  * escapes and the content sits over the page at every width. The sidebar, by contrast,
  * must be *in* the layout flow so it can shrink the content column, which a portal
  * cannot do. One cannot be the other with CSS.
+ *
+ * Which is exactly why neither owns the conversation. They are mutually exclusive by
+ * viewport, so crossing 1024px unmounts one and mounts the other; state held in either
+ * would be lost mid-turn by a rotated tablet or a dragged window. The conversation
+ * lives in the assistant store and these render it.
  */
 
-import { useState } from "react"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useEffect } from "react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -27,9 +31,9 @@ import {
 import { useIsBelowDesktop } from "@/hooks/use-mobile"
 import { useAssistantRun } from "@/hooks/use-assistant-run"
 import { listThreads } from "@/lib/actions/assistant"
-import { queryKeys } from "@/lib/query/keys"
 import { XIcon } from "@/lib/icons"
-import { useUiStore } from "@/lib/stores/store-provider"
+import type { AssistantStore } from "@/lib/stores/assistant-store"
+import { useAssistantStore, useAssistantStoreApi, useUiStore } from "@/lib/stores/store-provider"
 import { cn } from "@/lib/utils"
 
 import { AssistantComposer } from "./assistant-composer"
@@ -45,28 +49,22 @@ import { ThreadTranscript } from "./thread-transcript"
  * conversation, its transport, and its failure states are identical.
  */
 function AssistantBody() {
-  const [threadId, setThreadId] = useState<string | null>(null)
-  const queryClient = useQueryClient()
+  const store = useAssistantStoreApi()
+  const threads = useAssistantStore((state) => state.threads)
+  const listProblem = useAssistantStore((state) => state.listProblem)
+  const threadId = useAssistantStore((state) => state.openThreadId)
+  const lastSent = useAssistantStore((state) => state.lastSent)
 
-  // The list is a plain read, so it belongs in the query cache rather than in state
-  // fetched by an effect. That is not only the lint rule's preference: an effect that
-  // seeds state re-runs on every mount, so reopening the drawer refetched from scratch
-  // and showed an empty list until it landed.
-  const threadsQuery = useQuery({
-    queryKey: queryKeys.assistant.threads(),
-    queryFn: listThreads,
-  })
-
-  const threads =
-    threadsQuery.data?.success === true ? threadsQuery.data.data : []
-  // A failed *action* returns a code rather than throwing, so the failure is inside
-  // the resolved value; a thrown one is transport. Both have to surface.
-  const listProblem =
-    threadsQuery.data?.success === false
-      ? threadsQuery.data.code
-      : threadsQuery.error
-        ? "unexpected"
-        : null
+  // A plain read behind an explicit "have I read it yet" flag, rather than a query
+  // cache. It was a `useQuery` when this component owned its own state, which the
+  // cache made survivable across the drawer being reopened; now the state outlives
+  // the component itself, so the cache was providing only its own provider. The flag
+  // is what keeps a remount from refetching — which is the property that mattered.
+  useEffect(() => {
+    if (store.getState().transport.listLoaded) return
+    store.getState().transport.listLoaded = true
+    void refreshThreads(store)
+  }, [store])
 
   // A deleted thread must not stay open behind a transcript it no longer owns. Derived
   // from the list rather than corrected inside the refetch, so it cannot be missed on
@@ -77,14 +75,8 @@ function AssistantBody() {
   const { transcript, phase, problem, recovering, send, decide, recover, resetTurn } =
     useAssistantRun(openThreadId)
 
-  // The last thing submitted, kept so "Send again" can actually send it again. The
-  // composer clears its draft on submit, so without this the offer to resend meant
-  // "retype the message you just lost from memory" — which for a paragraph-long
-  // instruction is not a recovery at all.
-  const [lastSent, setLastSent] = useState("")
-
   const submit = (content: string) => {
-    setLastSent(content)
+    store.getState().setLastSent(content)
     void send(content)
   }
 
@@ -107,12 +99,8 @@ function AssistantBody() {
       <ThreadList
         threads={threads}
         activeThreadId={openThreadId}
-        onOpen={setThreadId}
-        onChanged={() => {
-          void queryClient.invalidateQueries({
-            queryKey: queryKeys.assistant.threads(),
-          })
-        }}
+        onOpen={(id) => store.getState().openThread(id)}
+        onChanged={() => void refreshThreads(store)}
       />
 
       {openThreadId ? (
@@ -160,6 +148,24 @@ function AssistantBody() {
       ) : null}
     </div>
   )
+}
+
+/**
+ * Reads the thread list into the store.
+ *
+ * A failed *action* returns a code rather than throwing, so the failure is inside the
+ * resolved value; a thrown one is transport. Both have to surface, and neither may
+ * clear a list already on screen — a failed refresh after a delete should say so
+ * beside the conversations, not replace them with nothing.
+ */
+async function refreshThreads(store: AssistantStore): Promise<void> {
+  const result = await listThreads()
+  const state = store.getState()
+  if (result.success) {
+    state.setThreads(result.data, null)
+    return
+  }
+  state.setThreads(state.threads, result.code)
 }
 
 /**

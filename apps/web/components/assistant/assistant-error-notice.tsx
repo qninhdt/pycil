@@ -21,7 +21,7 @@
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { classifyErrorCode } from "@/lib/api/error-taxonomy"
+import { classifyErrorCode, isRetryable } from "@/lib/api/error-taxonomy"
 import { WarningCircleIcon } from "@/lib/icons"
 
 /** Codes the generated wire taxonomy cannot reach. See the note above. */
@@ -53,8 +53,7 @@ export function AssistantErrorNotice({
   onRetry?: () => void
 }) {
   const local = LOCAL_MESSAGES[code]
-  const entry = classifyErrorCode(code)
-  const message = local ?? entry.message
+  const message = local ?? classifyErrorCode(code).message
 
   // Retry is offered only where it can help. A `quota` or `conflict` refusal is a
   // decision the server already made, and a button that re-provokes it teaches the
@@ -62,8 +61,7 @@ export function AssistantErrorNotice({
   // codes are judged by their own set rather than by being local: `execution_failed`
   // is local and emphatically not retryable.
   const retryable =
-    Boolean(onRetry) &&
-    (local ? LOCAL_RETRYABLE.has(code) : entry.category === "retryable")
+    Boolean(onRetry) && (local ? LOCAL_RETRYABLE.has(code) : isRetryable(code))
 
   return (
     <Alert variant="destructive">

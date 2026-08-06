@@ -4,14 +4,20 @@ import { createContext, useContext, useEffect, useState } from "react"
 import { useStore } from "zustand"
 
 import { createActivityStore, type ActivityState, type ActivityStore } from "./activity-store"
+import { createAssistantStore, type AssistantState, type AssistantStore } from "./assistant-store"
 import { createUiStore, type UiState, type UiStore } from "./ui-store"
 
 /**
- * Both stores are created once per provider mount. The provider is mounted in
+ * Every store is created once per provider mount. The provider is mounted in
  * the root layout only: a second mount anywhere would fork every store, so the
  * command palette could register a task the study screen never sees.
+ *
+ * The assistant store is here for a sharper version of the same reason. Its two
+ * surfaces are mutually exclusive by viewport, so crossing 1024px unmounts one and
+ * mounts the other — state owned any lower than this would not survive that.
  */
 const ActivityStoreContext = createContext<ActivityStore | null>(null)
+const AssistantStoreContext = createContext<AssistantStore | null>(null)
 const UiStoreContext = createContext<UiStore | null>(null)
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
@@ -19,6 +25,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // but a ref's `current` is not a render-time value, and reading one to build
   // the context value is exactly the pattern that silently fails to update.
   const [activityStore] = useState(createActivityStore)
+  const [assistantStore] = useState(createAssistantStore)
   const [uiStore] = useState(createUiStore)
 
   // Outstanding task ids are read back after mount, not during render: the
@@ -30,7 +37,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <ActivityStoreContext.Provider value={activityStore}>
-      <UiStoreContext.Provider value={uiStore}>{children}</UiStoreContext.Provider>
+      <AssistantStoreContext.Provider value={assistantStore}>
+        <UiStoreContext.Provider value={uiStore}>{children}</UiStoreContext.Provider>
+      </AssistantStoreContext.Provider>
     </ActivityStoreContext.Provider>
   )
 }
@@ -49,6 +58,26 @@ export function useActivityActions() {
   const store = useContext(ActivityStoreContext)
   if (!store) throw new Error("useActivityActions must be used inside StoreProvider")
   return store.getState()
+}
+
+export function useAssistantStore<T>(selector: (state: AssistantState) => T): T {
+  const store = useContext(AssistantStoreContext)
+  if (!store) throw new Error("useAssistantStore must be used inside StoreProvider")
+  return useStore(store, selector)
+}
+
+/**
+ * The assistant store itself, for the hook that drives the conversation.
+ *
+ * That hook reads and mutates the transport — the open stream, the turn key — from
+ * inside callbacks rather than during render, so it needs the store rather than a
+ * subscription to a slice of it. Subscribing would re-run the callbacks on every
+ * event that arrives, which for a streaming transcript is every frame.
+ */
+export function useAssistantStoreApi(): AssistantStore {
+  const store = useContext(AssistantStoreContext)
+  if (!store) throw new Error("useAssistantStoreApi must be used inside StoreProvider")
+  return store
 }
 
 export function useUiStore<T>(selector: (state: UiState) => T): T {
