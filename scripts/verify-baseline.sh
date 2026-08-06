@@ -30,7 +30,7 @@ FLOOR_API="${FLOOR_API:-497}"
 FLOOR_WORKER="${FLOOR_WORKER:-50}"
 FLOOR_SHARED="${FLOOR_SHARED:-13}"
 FLOOR_WEB_UNIT="${FLOOR_WEB_UNIT:-114}"
-FLOOR_LEXI="${FLOOR_LEXI:-628}"
+FLOOR_LEXI="${FLOOR_LEXI:-636}"
 
 # Coverage floors, applied only to a whole-suite run. They live here rather than in
 # each package's `addopts` because a threshold there also judges a single-file run,
@@ -218,7 +218,13 @@ if [[ -n "$LEXI_ROOT" && -d "$LEXI_ROOT" ]]; then
   lexi_count="$(extract_count "$lexi_out" '[0-9]+ passed')"
   lexi_count="${lexi_count:-0}"
   if (( lexi_status != 0 )); then
-    record "lexi" "FAIL" "pytest exit $lexi_status ($lexi_count passed)"
+    # A crash writes its diagnosis to stdout and then the summary throws it away,
+    # which is how the same interpreter-shutdown SIGSEGV cost two investigations:
+    # `tail -3` of a faulthandler dump is the module list, never the frame. Keep
+    # the whole thing when the tier fails, and say where it went.
+    _lexi_log="${TMPDIR:-/tmp}/verify-baseline-lexi.log"
+    printf '%s\n' "$lexi_out" > "$_lexi_log"
+    record "lexi" "FAIL" "pytest exit $lexi_status ($lexi_count passed) — full output: $_lexi_log"
   elif (( lexi_count < FLOOR_LEXI )); then
     record "lexi" "FAIL" "$lexi_count passed, floor $FLOOR_LEXI"
   else
