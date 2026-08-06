@@ -356,3 +356,57 @@ async def test_generate_word_task_without_an_owner_settles_without_releasing(mon
     result = await generate_word.generate_word_task(ctx, str(task_id), "term")
     assert result == {"status": "succeeded", "wordId": 9, "senseIds": [44]}
     await redis.flushall()
+
+
+async def test_a_failed_generation_logs_the_cause_it_discards(monkeypatch, caplog):
+    """The failure path records a code and drops the exception; it must log first.
+
+    `fail_generation` stores `generation_failed` and nothing else, so a swallowed
+    exception left no evidence anywhere of *why* a word failed to generate. A live
+    failure had to be diagnosed by reproducing the call inside the container by
+    hand — the worker log said only that the job returned `failed`.
+
+    Asserted on the log record rather than on the return value, because the return
+    value was never the problem.
+    """
+    import logging
+
+    from pycil.jobs import service as jobs_service
+
+    class ExplodingReader:
+        async def search(self, query):
+            raise RuntimeError("the provider returned an empty payload")
+
+    recorded: dict[str, object] = {}
+
+    async def claim_generation(_session, _job_id, _worker_id, **_kwargs):
+        return SimpleNamespace(lease_token="token", lease_fence=1, owner_id=uuid4())
+
+    async def fail_generation(_session, _job_id, _token, _fence, code):
+        recorded["code"] = code
+        return SimpleNamespace(status="failed", owner_id=uuid4())
+
+    monkeypatch.setattr(jobs_service, "claim_generation", claim_generation)
+    monkeypatch.setattr(jobs_service, "fail_generation", fail_generation)
+    monkeypatch.setattr(
+        jobs_service, "release_inflight_quota", lambda *a, **k: _resolved(None)
+    )
+    monkeypatch.setattr(
+        generate_word.realtime, "publish_job", lambda *a, **k: _resolved(None)
+    )
+
+    # `_context` predates the quota release, which reads ctx["redis"].
+    context = _context(ExplodingReader(), object()) | {"redis": object()}
+    with caplog.at_level(logging.ERROR, logger=generate_word.logger.name):
+        result = await generate_word.generate_word(
+            context, str(uuid4()), "truculent", str(uuid4())
+        )
+
+    assert result["status"] == "failed"
+    assert recorded["code"] == "generation_failed"
+    # The cause, not just the fact. A record with no traceback would leave the
+    # operator exactly where they were.
+    assert any(
+        record.exc_info is not None and "truculent" in record.getMessage()
+        for record in caplog.records
+    ), f"the cause was not logged; records: {[r.getMessage() for r in caplog.records]}"

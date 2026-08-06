@@ -5,12 +5,15 @@ stores no dictionary content. Guards an empty search by falling back to the
 custom-string generate path.
 """
 
+import logging
 from uuid import UUID
 
 from pycil.tasks.application import service as task_service
 from pycil.tasks.infra.models import AsyncTaskStatus
 
 from pycil_worker import realtime
+
+logger = logging.getLogger(__name__)
 
 
 async def generate_word(ctx: dict, owner_uid: str, query: str, generation_id: str) -> dict:
@@ -38,6 +41,14 @@ async def generate_word(ctx: dict, owner_uid: str, query: str, generation_id: st
         source = results[0] if results else query
         entry = await worker_engine.generate_fenced(source)
     except Exception:
+        # Logged before it is recorded, because recording it loses it. The row
+        # keeps a code (`generation_failed`) and nothing else, so without this the
+        # only evidence of *why* a generation failed was gone — diagnosing one
+        # meant reproducing the call inside the container by hand. The learner
+        # still sees the code; the operator now sees the cause.
+        logger.exception(
+            "generate_word failed for %r (generation %s)", query, generation_id
+        )
         async with session_factory() as session:
             completed = await jobs_service.fail_generation(
                 session,

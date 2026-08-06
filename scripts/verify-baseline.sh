@@ -27,10 +27,10 @@ LEXI_ROOT="${LEXI_ROOT:-$(cd "$REPO_ROOT/../lexi-ai" 2>/dev/null && pwd || true)
 # permanently; never lower one without recording why. Overridable by environment
 # so CI can tighten a floor, and so the gate itself can be probed for falsifiability.
 FLOOR_API="${FLOOR_API:-470}"
-FLOOR_WORKER="${FLOOR_WORKER:-44}"
+FLOOR_WORKER="${FLOOR_WORKER:-45}"
 FLOOR_SHARED="${FLOOR_SHARED:-13}"
 FLOOR_WEB_UNIT="${FLOOR_WEB_UNIT:-110}"
-FLOOR_LEXI="${FLOOR_LEXI:-625}"
+FLOOR_LEXI="${FLOOR_LEXI:-628}"
 
 # Coverage floors, applied only to a whole-suite run. They live here rather than in
 # each package's `addopts` because a threshold there also judges a single-file run,
