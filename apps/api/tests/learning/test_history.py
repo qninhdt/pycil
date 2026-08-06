@@ -2,7 +2,7 @@
 
 from datetime import UTC, date, datetime
 
-from pycil.learning.history import MasteryObservation, daily_history
+from pycil.policy.history import MasteryObservation, daily_history
 
 
 def test_daily_history_carries_a_pre_window_baseline_through_sparse_days():

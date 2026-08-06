@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import text
 
 from pycil.auth.models import User
-from pycil.hierarchy import stats
+from pycil.hierarchy.application import stats
 
 pytestmark = pytest.mark.performance
 

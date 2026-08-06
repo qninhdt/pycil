@@ -3,7 +3,7 @@
 from typing import cast
 
 from lexi_ai import Lexicon
-from pycil.content.lexi_port import LexiWorkerEngine
+from pycil.ports.lexi import LexiWorkerEngine
 
 
 def create_lexicon_worker_engine(lexicon: Lexicon) -> LexiWorkerEngine:

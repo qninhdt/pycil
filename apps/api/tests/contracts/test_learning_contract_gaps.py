@@ -14,13 +14,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from pycil.auth.deps import current_user
 from pycil.auth.models import User
 from pycil.auth.schemas import CurrentUser
-from pycil.content.deps import get_lexi_client
-from pycil.content.models import DeckSense
+from pycil.content.infra.models import DeckSense
 from pycil.db.session import get_session
-from pycil.hierarchy import service as hierarchy_service
-from pycil.hierarchy.models import NodeType
-from pycil.learning.models import Response, UserSenseStats
+from pycil.hierarchy.application import service as hierarchy_service
+from pycil.hierarchy.infra.models import NodeType
+from pycil.learning.infra.models import Response, UserSenseStats
 from pycil.main import create_app
+from pycil.ports.lexi_provider import get_lexi_client
 from tests.learning.fakes import FakeLexiReader
 
 pytestmark = pytest.mark.asyncio
@@ -65,8 +65,8 @@ async def learning_client(engine, monkeypatch):
         return fake_pool
 
     # Both modules enqueue: session_flow for supply warm-up, answering for grading.
-    monkeypatch.setattr("pycil.learning.session_flow.get_arq_pool", _fake_arq_pool)
-    monkeypatch.setattr("pycil.learning.answering.get_arq_pool", _fake_arq_pool)
+    monkeypatch.setattr("pycil.learning.application.session_flow.get_arq_pool", _fake_arq_pool)
+    monkeypatch.setattr("pycil.learning.application.answering.get_arq_pool", _fake_arq_pool)
 
     async def override_session():
         async with factory() as s:
@@ -161,7 +161,7 @@ def _deck_id(learning_client):
 
 
 async def test_first_attempt_has_a_database_uniqueness_claim():
-    from pycil.learning import models
+    from pycil.learning.infra import models
 
     unique_sets = {
         tuple(column.name for column in constraint.columns)

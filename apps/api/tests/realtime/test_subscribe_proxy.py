@@ -5,11 +5,18 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from pycil.auth.models import User
-from pycil.realtime.subscriptions import SubscribeProxyRequest, authorize_subscription
-from pycil.tasks import service
-from pycil.tasks.models import AsyncTaskStatus
+from pycil.realtime.application.subscriptions import SubscribeProxyRequest, authorize_subscription
+from pycil.realtime.router import _current_token_version
+from pycil.tasks.application import service
+from pycil.tasks.infra.models import AsyncTaskStatus
 
 pytestmark = pytest.mark.asyncio
+
+# The production token-version lookup. `authorize_subscription` takes it as a
+# parameter rather than importing `auth`, which is what keeps `realtime` off the
+# `auth <-> realtime` cycle; passing the real one here means these tests cover the
+# wiring too, not just the authorizer in isolation.
+_lookup = _current_token_version
 
 
 async def _user(session, email: str) -> User:
@@ -48,7 +55,7 @@ async def test_subscribe_returns_current_persisted_snapshot(session):
     user = await _user(session, "snapshot-subscribe@example.com")
     submission = await _task(session, user)
 
-    result = await authorize_subscription(session, _request(user, submission.task.id))
+    result = await authorize_subscription(session, _request(user, submission.task.id), _lookup)
 
     assert result["result"]["data"] == {
         "schema": "async-task.v1",
@@ -67,12 +74,13 @@ async def test_subscribe_rejects_foreign_or_revoked_interest(session):
     outsider = await _user(session, "outsider-subscribe@example.com")
     submission = await _task(session, owner)
 
-    assert await authorize_subscription(session, _request(outsider, submission.task.id)) == {
+    outsider_request = _request(outsider, submission.task.id)
+    assert await authorize_subscription(session, outsider_request, _lookup) == {
         "error": {"code": 103, "message": "permission denied"}
     }
     submission.interest.revoked_at = datetime.now(UTC)
     await session.commit()
-    assert await authorize_subscription(session, _request(owner, submission.task.id)) == {
+    assert await authorize_subscription(session, _request(owner, submission.task.id), _lookup) == {
         "error": {"code": 103, "message": "permission denied"}
     }
 
@@ -81,9 +89,8 @@ async def test_subscribe_rejects_bad_channel_token_version_and_expiry(session):
     user = await _user(session, "invalid-subscribe@example.com")
     submission = await _task(session, user)
 
-    result = await authorize_subscription(
-        session, _request(user, submission.task.id, tokenVersion=99)
-    )
+    stale = _request(user, submission.task.id, tokenVersion=99)
+    result = await authorize_subscription(session, stale, _lookup)
     assert result == {
         "error": {"code": 103, "message": "permission denied"}
     }
@@ -92,6 +99,7 @@ async def test_subscribe_rejects_bad_channel_token_version_and_expiry(session):
         SubscribeProxyRequest(
             user=str(user.id), channel="async:not-a-uuid", meta={"tokenVersion": 0, "expiresAt": 1}
         ),
+        _lookup,
     ) == {"error": {"code": 103, "message": "permission denied"}}
 
 
@@ -124,7 +132,7 @@ async def test_a_lapsed_interest_is_denied(session):
     submission.interest.expires_at = datetime.now(UTC) - timedelta(seconds=1)
     await session.commit()
 
-    assert await authorize_subscription(session, _request(user, submission.task.id)) == {
+    assert await authorize_subscription(session, _request(user, submission.task.id), _lookup) == {
         "error": {"code": 103, "message": "permission denied"}
     }
 
@@ -162,13 +170,13 @@ async def test_a_terminal_task_keeps_a_grace_window_then_lapses(session):
         "a terminal task must shorten its interest window"
     )
     # The result is still readable, which is the whole point of the grace window.
-    authorized = await authorize_subscription(session, _request(user, submission.task.id))
+    authorized = await authorize_subscription(session, _request(user, submission.task.id), _lookup)
     assert authorized["result"]["data"]["status"] == "succeeded"
 
     # And it does lapse.
     submission.interest.expires_at = datetime.now(UTC) - timedelta(seconds=1)
     await session.commit()
-    assert await authorize_subscription(session, _request(user, submission.task.id)) == {
+    assert await authorize_subscription(session, _request(user, submission.task.id), _lookup) == {
         "error": {"code": 103, "message": "permission denied"}
     }
 
@@ -187,9 +195,8 @@ async def test_subscribe_expiry_is_clamped_to_the_interest_not_the_token(session
     await session.commit()
 
     token_expiry = int(datetime.now(UTC).timestamp()) + 900
-    result = await authorize_subscription(
-        session, _request(user, submission.task.id, expiresAt=token_expiry)
-    )
+    long_lived = _request(user, submission.task.id, expiresAt=token_expiry)
+    result = await authorize_subscription(session, long_lived, _lookup)
 
     assert result["result"]["expire_at"] == int(interest_deadline.timestamp()), (
         "expire_at must be clamped to the interest when it lapses first"
@@ -211,7 +218,7 @@ async def test_the_terminal_transition_does_not_unsubscribe_from_centrifugo(sess
     So the window is closed by the clamped expiry instead, and this pins that
     choice: a future change that adds the call back fails here.
     """
-    from pycil.realtime import client as realtime_client
+    from pycil.ports import centrifugo as realtime_client
 
     calls: list[tuple] = []
 
@@ -271,6 +278,6 @@ async def test_the_terminal_clamp_only_shortens_never_extends(session):
         "settling a task must not extend an interest that expires sooner"
     )
     # And it stays denied, rather than being revived by its own task finishing.
-    assert await authorize_subscription(session, _request(user, submission.task.id)) == {
+    assert await authorize_subscription(session, _request(user, submission.task.id), _lookup) == {
         "error": {"code": 103, "message": "permission denied"}
     }

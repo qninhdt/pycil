@@ -55,3 +55,98 @@ jobs:
         with:
           name: nightly-coverage-api
           path: apps/api/coverage.xml
+
+  e2e:
+    # Real-LLM Playwright against the real compose stack. Nightly only: a run costs
+    # provider tokens and takes ~11 minutes, which is why it is not on the PR gate.
+    #
+    # Skipped rather than failed when the LLM key is absent — a fork, or a repo
+    # without the secret configured, should not carry a permanent red X for a job
+    # it structurally cannot run. A secret cannot be read in a job-level `if:`, so
+    # the gate is the first step and every later step keys on its output; the
+    # warning it emits makes the skip visible in the run summary.
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check the LLM credential is present
+        id: creds
+        env:
+          LEXI_LLM_API_KEY: ${{ secrets.LEXI_LLM_API_KEY }}
+        run: |
+          if [ -z "$LEXI_LLM_API_KEY" ]; then
+            echo "::warning::LEXI_LLM_API_KEY not configured — skipping real-LLM E2E"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Compose an .env for the stack
+        if: steps.creds.outputs.ready == 'true'
+        env:
+          LEXI_LLM_API_KEY: ${{ secrets.LEXI_LLM_API_KEY }}
+          ASSISTANT_API_KEY: ${{ secrets.ASSISTANT_API_KEY }}
+        run: |
+          # Start from the tracked example so a newly added required variable
+          # fails here loudly rather than at container start.
+          cp .env.example .env
+          # Secrets are appended, never echoed. `set -x` is deliberately not used.
+          {
+            echo "LEXI_LLM_API_KEY=${LEXI_LLM_API_KEY}"
+            echo "ASSISTANT_API_KEY=${ASSISTANT_API_KEY}"
+            echo "SESSION_PASSWORD=$(openssl rand -base64 32)"
+            echo "JWT_SECRET=$(openssl rand -base64 32)"
+            echo "INTERNAL_SECRET=$(openssl rand -base64 32)"
+            echo "CENTRIFUGO_API_KEY=$(openssl rand -hex 16)"
+            echo "CENTRIFUGO_TOKEN_HMAC_SECRET=$(openssl rand -base64 32)"
+            echo "POSTGRES_PASSWORD=$(openssl rand -hex 16)"
+          } >> .env
+
+      - name: Start the stack
+        if: steps.creds.outputs.ready == 'true'
+        run: |
+          docker compose up -d --build
+          # `migrate` gates api/worker startup, so a healthy api proves both schemas
+          # migrated and the Lexi migration-head assertion passed. Waiting on the
+          # health state rather than a fixed sleep keeps a slow build from flaking.
+          for _ in $(seq 1 120); do
+            state=$(docker inspect -f '{{.State.Health.Status}}' pycil-api-1 2>/dev/null || echo starting)
+            [ "$state" = "healthy" ] && break
+            sleep 5
+          done
+          docker compose ps
+          docker inspect -f '{{.State.Health.Status}}' pycil-api-1 | grep -qx healthy
+
+      - uses: pnpm/action-setup@v4
+        if: steps.creds.outputs.ready == 'true'
+      - uses: actions/setup-node@v5
+        if: steps.creds.outputs.ready == 'true'
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install web deps and browsers
+        if: steps.creds.outputs.ready == 'true'
+        working-directory: apps/web
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm exec playwright install --with-deps chromium webkit
+
+      - name: Run the E2E manifest gate
+        if: steps.creds.outputs.ready == 'true'
+        working-directory: apps/web
+        run: pnpm test:e2e
+
+      # Deliberately NO artifact upload. Playwright traces and DOM snapshots embed
+      # the sealed `pycil-session` cookie and internal proxy headers — real
+      # credentials, which `apps/web/.gitignore:11-16` already documents as unsafe
+      # to persist. An uploaded report is world-readable for anyone who can read
+      # the run, so the failure output is the log, not the trace bundle.
+      - name: Stack logs on failure
+        if: failure() && steps.creds.outputs.ready == 'true'
+        run: docker compose logs --tail=200 api worker migrate
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v || true

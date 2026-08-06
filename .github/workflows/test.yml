@@ -34,6 +34,45 @@ jobs:
         working-directory: ${{ matrix.dir }}
         run: uv run ruff check .
 
+      # Import boundaries. Only api and worker declare contracts; shared-py is a
+      # single pure-logic package with no internal boundary to enforce, so it is
+      # skipped rather than given an empty config that would always pass.
+      #
+      # Every contract in those two packages was observed FAILING against a
+      # deliberate violation before being committed. That matters here: this repo
+      # previously carried two import-linter contracts that had rotted into naming
+      # deleted modules while missing every added one, and both still reported
+      # KEPT. A contract nobody has watched fail proves nothing.
+      - name: Import boundaries
+        if: matrix.name != 'shared'
+        working-directory: ${{ matrix.dir }}
+        run: uv run lint-imports
+
+      # The web client's ERROR_TAXONOMY is `Record<ApiErrorCode, ...>`, keyed off
+      # the generated file. So a new API error code does not fail typecheck — the
+      # key set simply never grew, and the UI falls through to a generic message
+      # for a case someone deliberately named. Nothing regenerated or verified the
+      # file before this step; measured at the time it was added, three raised
+      # codes were missing from it.
+      #
+      # Regenerating and failing on a dirty tree makes the omission a red build in
+      # the phase that introduced it, rather than a surprise for whoever next
+      # touches the frontend.
+      # A doc that names a file makes a checkable claim, and this repo had
+      # accumulated false ones from three superseded eras. Historical documents
+      # are exempt; the rest must cite paths that exist.
+      - name: Documentation cites real paths
+        if: matrix.name == 'api'
+        run: python3 ../../scripts/check-doc-paths.py
+
+      - name: Error codes are regenerated
+        if: matrix.name == 'api'
+        working-directory: apps/api
+        run: |
+          uv run python ../../scripts/extract-error-codes.py
+          git diff --exit-code ../../apps/web/lib/api/error-codes.generated.ts \
+            || { echo "::error::error-codes.generated.ts is stale — run scripts/extract-error-codes.py and commit"; exit 1; }
+
   test-shared:
     # Pure-logic tests (FSRS math, packages/shared-py/shared/fsrs) — no DB, no I/O.
     runs-on: ubuntu-latest
@@ -99,6 +138,9 @@ jobs:
           uv run pytest --collect-only -q >/dev/null \
             || { echo "no tests collected (or collection error)"; exit 1; }
 
+      # Floor raised 70 -> 81 on 2026-08-06 against a measured 82%. A gate 12
+      # points below actual lets coverage rot silently; set at the measured value
+      # it cannot be met by deleting tests, and it moves up deliberately.
       - name: Run pytest with coverage
         working-directory: apps/api
         env:
@@ -106,7 +148,7 @@ jobs:
           # must match the service container above.
           TEST_DB_URL: postgresql+asyncpg://pycil:pycil@localhost:5432/pycil_test
         run: |
-          uv run pytest --cov=pycil --cov-fail-under=70 \
+          uv run pytest --cov=pycil --cov-fail-under=81 \
             --cov-report=xml -q --maxfail=5
 
       - name: Upload coverage XML

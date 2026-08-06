@@ -2,8 +2,8 @@
 
 from datetime import UTC, datetime, timedelta
 
-from pycil.assistant.models import AssistantRun, AssistantThread, RunStatus
-from pycil.assistant.persistence import retention_deadline
+from pycil.assistant.application.persistence import retention_deadline
+from pycil.assistant.infra.models import AssistantRun, AssistantThread, RunStatus
 from pycil.auth.models import User
 
 

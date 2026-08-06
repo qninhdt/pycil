@@ -5,10 +5,10 @@ import pytest
 from pycil.auth.models import User
 from pycil.auth.schemas import CurrentUser
 from pycil.common.errors import ConflictError, ForbiddenError
-from pycil.content import service as content_service
-from pycil.hierarchy import cache, router, service, subtree
-from pycil.hierarchy.access import require_node_access
-from pycil.hierarchy.models import NodeType, Visibility
+from pycil.content.application import service as content_service
+from pycil.hierarchy.application import cache, service, subtree
+from pycil.hierarchy.application.access import require_node_access
+from pycil.hierarchy.infra.models import NodeType, Visibility
 
 pytestmark = pytest.mark.asyncio
 
@@ -173,4 +173,4 @@ async def test_subtree_read_falls_back_to_database_when_redis_fails(session, mon
     monkeypatch.setattr(cache, "get_defset", unavailable)
     monkeypatch.setattr(cache, "set_defset", unavailable)
 
-    assert await router._defset(session, deck.id, owner.id) == [74]
+    assert await subtree.cached_sense_ids(session, deck.id, owner.id) == [74]

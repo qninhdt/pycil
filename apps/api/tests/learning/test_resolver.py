@@ -5,7 +5,7 @@ import random
 import pytest
 from lexi_ai.contracts import Flashcard
 
-from pycil.learning import resolver
+from pycil.learning.domain import resolver
 from tests.learning.fakes import FakeLexiReader
 
 pytestmark = pytest.mark.asyncio

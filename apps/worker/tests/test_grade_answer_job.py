@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
-from pycil.learning.models import GradeStatus
+from pycil.learning.infra.models import GradeStatus
 
 from pycil_worker.jobs import grade_answer
 

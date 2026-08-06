@@ -12,11 +12,11 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from pycil.db.redis import get_redis
-from pycil.learning import service
-from pycil.learning.models import GradeStatus, Response
-from pycil.tasks import service as task_service
-from pycil.tasks.models import AsyncTaskStatus
-from pycil.tasks.work_keys import grading_work_key
+from pycil.learning.application import service
+from pycil.learning.infra.models import GradeStatus, Response
+from pycil.tasks.application import service as task_service
+from pycil.tasks.infra.models import AsyncTaskStatus
+from pycil.tasks.domain.work_keys import grading_work_key
 from shared.realtime.payloads import GradingResult
 
 from pycil_worker import realtime

@@ -24,12 +24,12 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from pycil.auth.models import User
-from pycil.content import service as content_service
-from pycil.hierarchy import service as hierarchy_service
-from pycil.hierarchy.models import NodeType
-from pycil.learning import planning, session_queue
-from pycil.learning.models import SenseStatus, UserSenseStats
-from pycil.learning.policy import (
+from pycil.content.application import service as content_service
+from pycil.hierarchy.application import service as hierarchy_service
+from pycil.hierarchy.infra.models import NodeType
+from pycil.learning.application import planning, session_queue
+from pycil.learning.infra.models import SenseStatus, UserSenseStats
+from pycil.policy.policy import (
     ASSESSMENT_FLOOR,
     NEW_WORD_FLOOR,
     REQUIRED_CHECKPOINTS,

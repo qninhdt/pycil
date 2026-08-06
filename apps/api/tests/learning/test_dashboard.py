@@ -6,7 +6,7 @@ import pytest
 
 from pycil.auth.models import User
 from pycil.auth.tokens import sign_access
-from pycil.learning.models import UserSenseStats
+from pycil.learning.infra.models import UserSenseStats
 
 pytestmark = pytest.mark.asyncio
 
@@ -60,9 +60,9 @@ async def test_recent_session_points_at_the_deck_actually_reviewed(client, sessi
     and the correct answer are different values and the assertion can tell them
     apart.
     """
-    from pycil.hierarchy import service as hierarchy_service
-    from pycil.hierarchy.models import NodeType
-    from pycil.learning.models import ReviewLog
+    from pycil.hierarchy.application import service as hierarchy_service
+    from pycil.hierarchy.infra.models import NodeType
+    from pycil.learning.infra.models import ReviewLog
 
     user = User(email="recent-session@test.co")
     session.add(user)

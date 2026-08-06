@@ -3,7 +3,7 @@
 from datetime import UTC, datetime, timedelta
 
 from psycopg import AsyncConnection
-from pycil.assistant.models import AssistantActionAudit, AssistantThread
+from pycil.assistant.infra.models import AssistantActionAudit, AssistantThread
 from pycil.config import settings
 from sqlalchemy import delete, select
 

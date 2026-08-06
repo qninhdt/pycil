@@ -9,8 +9,8 @@ from sqlalchemy import text
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from pycil.account_lifecycle.router import router as account_lifecycle_router
-from pycil.assistant.checkpointer import open_checkpointer
-from pycil.assistant.graph import build_graph
+from pycil.assistant.application.graph import build_graph
+from pycil.assistant.infra.checkpointer import open_checkpointer
 from pycil.assistant.router import router as assistant_router
 from pycil.auth.deps import current_user
 from pycil.auth.router import router as auth_router
@@ -20,18 +20,19 @@ from pycil.common.errors import (
     ServiceUnavailableError,
     app_error_handler,
     http_error_handler,
+    unhandled_error_handler,
     validation_error_handler,
 )
 from pycil.common.middleware import install_middleware
 from pycil.config import settings, validate_production_settings
-from pycil.content.deps import close_lexi_client, get_lexi_client
 from pycil.content.router import router as content_router
 from pycil.db.redis import get_redis
 from pycil.db.session import engine
 from pycil.hierarchy.router import router as hierarchy_router
 from pycil.learning.router import router as learning_router
 from pycil.observability import metrics
-from pycil.realtime.client import readiness as centrifugo_readiness
+from pycil.ports.centrifugo import readiness as centrifugo_readiness
+from pycil.ports.lexi_provider import close_lexi_client, get_lexi_client
 from pycil.realtime.router import router as realtime_router
 from pycil.realtime.router import subscribe_proxy_router
 
@@ -65,6 +66,11 @@ def create_app() -> FastAPI:
     app.add_exception_handler(RequestValidationError, validation_error_handler)
     app.add_exception_handler(HTTPException, http_error_handler)
     app.add_exception_handler(StarletteHTTPException, http_error_handler)
+    # Registered LAST and broadest. Starlette dispatches by the most specific
+    # registered class, so the four above still win for the types they name; this
+    # catches everything else, which would otherwise return a bare 500 with no
+    # code and no requestId for a client whose error parser keys on `error.code`.
+    app.add_exception_handler(Exception, unhandled_error_handler)
     app.include_router(auth_router, prefix="/v1")
     app.include_router(account_lifecycle_router, prefix="/v1")
     app.include_router(assistant_router, prefix="/v1")

@@ -27,7 +27,7 @@ class _Redis:
 
 
 def _patch_tasks(monkeypatch, tasks):
-    from pycil.tasks import service as task_service
+    from pycil.tasks.application import service as task_service
 
     async def list_reenqueueable(_session):
         return tasks

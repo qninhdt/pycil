@@ -6,7 +6,7 @@ logger = logging.getLogger(__name__)
 
 
 async def reconcile_async_tasks(ctx: dict) -> dict:
-    from pycil.tasks import service as task_service
+    from pycil.tasks.application import service as task_service
 
     async with ctx["session_factory"]() as session:
         tasks = await task_service.list_reenqueueable_tasks(session)

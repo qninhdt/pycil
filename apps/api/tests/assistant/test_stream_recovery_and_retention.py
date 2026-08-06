@@ -11,10 +11,11 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from pycil.assistant import router, run_service
-from pycil.assistant.context import AssistantContext
-from pycil.assistant.hitl import claim_decision, create_pending_action
-from pycil.assistant.models import AssistantActionAudit, AssistantRunEvent, RunStatus
+from pycil.assistant import router
+from pycil.assistant.application import run_service
+from pycil.assistant.application.hitl import claim_decision, create_pending_action
+from pycil.assistant.domain.context import AssistantContext
+from pycil.assistant.infra.models import AssistantActionAudit, AssistantRunEvent, RunStatus
 from pycil.common.errors import ConflictError
 
 from .conftest import create_run, create_thread, create_user

@@ -6,19 +6,24 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from pycil.assistant import hierarchy_facade
-from pycil.assistant import tools as assistant_tools
-from pycil.assistant.context import AssistantContext
-from pycil.assistant.hitl import (
+from pycil.assistant.application import hierarchy_facade
+from pycil.assistant.application import tools as assistant_tools
+from pycil.assistant.application.hitl import (
     claim_decision,
     create_pending_action,
     expire_pending_actions,
     validate_action_freshness,
 )
-from pycil.assistant.models import ActionStatus, AssistantAction, AssistantActionAudit, RunStatus
-from pycil.assistant.persistence import create_or_load_run, require_owned_thread
+from pycil.assistant.application.persistence import create_or_load_run, require_owned_thread
+from pycil.assistant.domain.context import AssistantContext
+from pycil.assistant.infra.models import (
+    ActionStatus,
+    AssistantAction,
+    AssistantActionAudit,
+    RunStatus,
+)
 from pycil.common.errors import ConflictError, NotFoundError
-from pycil.hierarchy.models import Node, NodeType
+from pycil.hierarchy.infra.models import Node, NodeType
 
 from .conftest import create_run, create_thread, create_user, expired_at
 

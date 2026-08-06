@@ -2,7 +2,7 @@
 
 import pytest
 
-from pycil.hierarchy import subtree
+from pycil.hierarchy.application import subtree
 from pycil.main import create_app
 
 

@@ -18,7 +18,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from pycil.assistant import router as assistant_router
-from pycil.assistant import run_service
+from pycil.assistant.application import run_service
 from pycil.auth.deps import current_user
 from pycil.auth.models import User
 from pycil.auth.schemas import CurrentUser

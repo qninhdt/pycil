@@ -43,29 +43,29 @@ Planning admits a bounded set of senses; delivery walks them through per-sense
 checkpoints inside variable-length rounds.
 
 - **Planning admits senses, due-first.** `plan_session`
-  (`learning/planning.py:147`) fills the learner's `target_words_per_session`
+  (`learning/application/planning.py:147`) fills the learner's `target_words_per_session`
   budget from due candidates first, then backfills with new senses, always
   reserving a `NEW_WORD_FLOOR` of new words even under a large due backlog
-  (`_slot_split`, `learning/planning.py:82`). Session shape is the **learner's**,
-  not the deck's: `settings_for_user` (`learning/planning.py:58`) reads their
+  (`_slot_split`, `learning/application/planning.py:82`). Session shape is the **learner's**,
+  not the deck's: `settings_for_user` (`learning/application/planning.py:58`) reads their
   `UserLearningSettings` row and falls back to `DEFAULT_TARGET_WORDS_PER_SESSION`
-  / `DEFAULT_MAX_QUESTIONS_PER_ROUND` (`learning/policy.py:25-26`) when absent.
+  / `DEFAULT_MAX_QUESTIONS_PER_ROUND` (`policy/policy.py:25-26`) when absent.
 
 - **Requirements are per-sense checkpoints.** A sense must pass
-  `REQUIRED_CHECKPOINTS` clean checkpoints (`learning/policy.py:17`) to earn its
+  `REQUIRED_CHECKPOINTS` clean checkpoints (`policy/policy.py:17`) to earn its
   Good this session, with `MAX_RETRIES_PER_CHECKPOINT` retries after a wrong
-  first attempt (`learning/policy.py:19`). Progress is tracked per sense, not per
+  first attempt (`policy/policy.py:19`). Progress is tracked per sense, not per
   session, so the same sense recurs across rounds until satisfied.
 
 - **Rounds bound the per-round question count; breaks are first-class.** The
-  round scheduler (`learning/round_scheduler.py`) caps a round at
+  round scheduler (`learning/application/round_scheduler.py`) caps a round at
   `max_per_round` and closes it, and the API returns a `break` state naming the
   round being **entered** (`learning/router.py:431`) rather than counting client
   side. A break is a real `/next` state the client renders, not a toast.
 
 - **Difficulty is sampled from the mastery band.** `sample_requested_level`
   draws an assessment level (1..4) from the mastery band's probability profile
-  (`LEVEL_PROFILES`, `learning/policy.py:50`); level 0 is exposure. These bands
+  (`LEVEL_PROFILES`, `policy/policy.py:50`); level 0 is exposure. These bands
   are the single source the UI mastery ramp must mirror.
 
 - **A served-below-requested fallback is surfaced, not hidden.** When supply
@@ -80,6 +80,6 @@ checkpoints inside variable-length rounds.
   returns in a later round rather than being lost. Recovery is re-polling
   `/next`, never resubmitting the consumed claim.
 
-The recap reads a **durable** `SessionSummary` (`learning/models.py:185`), so it
+The recap reads a **durable** `SessionSummary` (`learning/infra/models.py:185`), so it
 survives a reload after the ephemeral Redis state is gone: a `session_not_found`
 on `/next` after completion is treated as finished, not as an error.

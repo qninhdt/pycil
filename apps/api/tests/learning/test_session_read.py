@@ -19,12 +19,13 @@ from pycil.auth.models import User
 from pycil.auth.schemas import CurrentUser
 from pycil.common.errors import NotFoundError
 from pycil.db import redis as redis_module
-from pycil.hierarchy import service as hierarchy_service
-from pycil.hierarchy.models import NodeType
-from pycil.learning import session_recap, session_store
-from pycil.learning.models import Response
+from pycil.hierarchy.application import service as hierarchy_service
+from pycil.hierarchy.infra.models import NodeType
+from pycil.learning.application import session_recap
+from pycil.learning.infra import session_store
+from pycil.learning.infra.models import Response
+from pycil.learning.infra.session_store import AdmittedSense
 from pycil.learning.router import read_session
-from pycil.learning.session_store import AdmittedSense
 
 pytestmark = pytest.mark.asyncio
 

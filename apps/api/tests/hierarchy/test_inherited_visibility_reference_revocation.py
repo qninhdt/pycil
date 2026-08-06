@@ -3,9 +3,9 @@
 import pytest
 
 from pycil.auth.models import User
-from pycil.content import service as content_service
-from pycil.hierarchy import router, service
-from pycil.hierarchy.models import NodeType, Visibility
+from pycil.content.application import service as content_service
+from pycil.hierarchy.application import service, subtree
+from pycil.hierarchy.infra.models import NodeType, Visibility
 
 pytestmark = pytest.mark.asyncio
 
@@ -54,14 +54,14 @@ async def test_hiding_public_ancestor_invalidates_descendant_reference_root(sess
         target_node_id=descendant_deck.id,
     )
 
-    assert await router._defset(session, reference_root.id, reader.id) == [81]
+    assert await subtree.cached_sense_ids(session, reference_root.id, reader.id) == [81]
     old_generation = reference_root.structural_generation
 
     await service.set_visibility(session, public_ancestor, Visibility.PRIVATE)
     await session.refresh(reference_root)
 
     assert reference_root.structural_generation > old_generation
-    assert await router._defset(session, reference_root.id, reader.id) == []
+    assert await subtree.cached_sense_ids(session, reference_root.id, reader.id) == []
 
 
 async def test_deleted_ancestor_makes_descendant_reference_target_unavailable(session):
@@ -89,10 +89,10 @@ async def test_deleted_ancestor_makes_descendant_reference_target_unavailable(se
         target_node_id=descendant_deck.id,
     )
 
-    assert await router._defset(session, reference_root.id, owner.id) == [82]
+    assert await subtree.cached_sense_ids(session, reference_root.id, owner.id) == [82]
     await service.soft_delete_node(session, source_folder)
 
-    assert await router._defset(session, reference_root.id, owner.id) == []
+    assert await subtree.cached_sense_ids(session, reference_root.id, owner.id) == []
 
 
 
@@ -129,10 +129,10 @@ async def test_anonymous_viewer_is_not_privileged_over_a_signed_in_one(session):
         target_node_id=private_deck.id,
     )
 
-    assert await router._defset(session, public_root.id, reader.id) == []
-    assert await router._defset(session, public_root.id, None) == []
+    assert await subtree.cached_sense_ids(session, public_root.id, reader.id) == []
+    assert await subtree.cached_sense_ids(session, public_root.id, None) == []
     # The owner still reaches their own deck through the reference.
-    assert await router._defset(session, public_root.id, owner.id) == [4242]
+    assert await subtree.cached_sense_ids(session, public_root.id, owner.id) == [4242]
 
 
 async def test_anonymous_still_reaches_a_genuinely_public_reference_target(session):
@@ -163,4 +163,4 @@ async def test_anonymous_still_reaches_a_genuinely_public_reference_target(sessi
         target_node_id=public_deck.id,
     )
 
-    assert await router._defset(session, reference_root.id, None) == [4343]
+    assert await subtree.cached_sense_ids(session, reference_root.id, None) == [4343]

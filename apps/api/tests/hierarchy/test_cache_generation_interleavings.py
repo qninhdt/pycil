@@ -3,9 +3,9 @@
 import pytest
 
 from pycil.auth.models import User
-from pycil.content import service as content_service
-from pycil.hierarchy import cache, router, service, subtree
-from pycil.hierarchy.models import NodeType
+from pycil.content.application import service as content_service
+from pycil.hierarchy.application import cache, service, subtree
+from pycil.hierarchy.infra.models import NodeType
 
 pytestmark = pytest.mark.asyncio
 
@@ -35,7 +35,7 @@ async def test_cache_miss_retries_after_interleaved_membership_change(session, m
 
     monkeypatch.setattr(subtree, "resolve_sense_ids", resolve_with_interleaved_write)
 
-    assert await router._defset(session, deck.id, owner.id) == [91, 92]
+    assert await subtree.cached_sense_ids(session, deck.id, owner.id) == [91, 92]
     await session.refresh(deck)
     cached = await cache.get_defset(
         deck.id, deck.structural_generation, viewer_id=owner.id

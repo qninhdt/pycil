@@ -175,7 +175,7 @@ def test_installed_sense_view_satisfies_the_pycil_port():
 
     from lexi_ai.read_models import SenseView as InstalledSenseView
 
-    from pycil.content.lexi_port import SenseView as PortSenseView
+    from pycil.ports.lexi import SenseView as PortSenseView
 
     declared = set(PortSenseView.__annotations__)
     installed = {field.name for field in fields(InstalledSenseView)}
@@ -192,11 +192,11 @@ def test_installed_nested_sense_views_satisfy_the_pycil_ports():
 
     from lexi_ai.read_models import FormView, ReferenceView, SenseRelationView
 
-    from pycil.content.lexi_port import (
+    from pycil.ports.lexi import (
         SenseFormView,
         SenseReferenceView,
     )
-    from pycil.content.lexi_port import (
+    from pycil.ports.lexi import (
         SenseRelationView as PortSenseRelationView,
     )
 

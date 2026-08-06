@@ -17,9 +17,9 @@ from sqlalchemy import event
 
 from pycil.auth.models import User
 from pycil.auth.schemas import CurrentUser
-from pycil.content import service as content_service
-from pycil.hierarchy import service
-from pycil.hierarchy.models import NodeType
+from pycil.content.application import service as content_service
+from pycil.hierarchy.application import service
+from pycil.hierarchy.infra.models import NodeType
 from pycil.hierarchy.router import list_nodes
 
 pytestmark = pytest.mark.asyncio
@@ -104,7 +104,7 @@ async def test_list_nodes_statement_count_is_independent_of_page_size(session, e
 
 async def test_deck_item_counts_are_one_statement_for_the_whole_page(session, engine):
     """Pins the mechanism, not just the symptom: one grouped aggregate."""
-    from pycil.hierarchy.stats import deck_item_counts
+    from pycil.hierarchy.application.stats import deck_item_counts
 
     owner = await _owner(session, "budget-agg@example.com")
     folder = await _folder_of_decks(session, owner.id, _PAGE)
@@ -129,7 +129,7 @@ async def test_deck_item_counts_are_one_statement_for_the_whole_page(session, en
 
 
 async def test_empty_page_costs_no_aggregate(session, engine):
-    from pycil.hierarchy.stats import deck_item_counts
+    from pycil.hierarchy.application.stats import deck_item_counts
 
     with StatementCounter(engine) as counter:
         assert await deck_item_counts(session, []) == {}

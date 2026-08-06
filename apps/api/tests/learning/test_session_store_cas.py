@@ -6,8 +6,8 @@ import uuid
 import fakeredis.aioredis as fake_aioredis
 import pytest
 
-from pycil.learning import session_store
-from pycil.learning.session_store import AdmittedSense
+from pycil.learning.infra import session_store
+from pycil.learning.infra.session_store import AdmittedSense
 
 pytestmark = pytest.mark.asyncio
 

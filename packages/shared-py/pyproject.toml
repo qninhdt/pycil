@@ -8,6 +8,7 @@ dependencies = []
 [project.optional-dependencies]
 dev = [
     "pytest>=8.3,<9.0",
+    "pytest-cov>=6.0,<7.0",
     "ruff>=0.8,<0.9",
 ]
 
@@ -21,6 +22,14 @@ include = ["shared*"]
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["shared/fsrs/tests"]
+# Floor set to the value measured 2026-08-06, not to an aspiration. A gate above
+# the current level blocks every unrelated change; a gate below it can be met by
+# deleting tests. Raise it deliberately when coverage genuinely improves.
+#
+# The 78% (78.72 measured) is honest about a real gap rather than hiding it: shared/realtime/
+# (channels.py, payloads.py) sits at 0% because testpaths only reaches
+# shared/fsrs/tests. That is a test gap to close, not a number to tune away.
+addopts = "--cov=shared --cov-fail-under=78"
 
 [tool.ruff]
 line-length = 100

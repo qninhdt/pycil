@@ -12,10 +12,10 @@ from pycil_worker.main import WorkerSettings
 @pytest.mark.parametrize(
     "module, model",
     [
-        ("pycil.learning.models", "ReviewLog"),
-        ("pycil.learning.models", "Response"),
+        ("pycil.learning.infra.models", "ReviewLog"),
+        ("pycil.learning.infra.models", "Response"),
         ("pycil.jobs.models", "WordGeneration"),
-        ("pycil.tasks.models", "AsyncTask"),
+        ("pycil.tasks.infra.models", "AsyncTask"),
     ],
 )
 def test_worker_startup_registers_every_referenced_table(module, model):
@@ -28,7 +28,11 @@ def test_worker_startup_registers_every_referenced_table(module, model):
     Importing ``pycil_worker.main`` must leave every referenced table present.
     """
     imported = __import__(module, fromlist=[model])
-    inspect(getattr(imported, model)).base_mapper._sorted_tables
+    # The access IS the assertion: sorting the mapper's tables is what forces every
+    # foreign-key target to resolve, and an unregistered one raises here. Bound to a
+    # name so it reads as a deliberate check rather than a statement with no effect.
+    sorted_tables = inspect(getattr(imported, model)).base_mapper._sorted_tables
+    assert sorted_tables, f"{module}.{model} resolved no tables"
 
 
 def test_pending_grade_reconciliation_is_registered():

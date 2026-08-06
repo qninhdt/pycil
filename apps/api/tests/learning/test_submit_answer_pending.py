@@ -36,15 +36,15 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from pycil.auth.deps import current_user
 from pycil.auth.models import User
 from pycil.auth.schemas import CurrentUser
-from pycil.content.deps import get_lexi_client
-from pycil.content.models import DeckSense
+from pycil.content.infra.models import DeckSense
 from pycil.db import redis as redis_module
 from pycil.db.session import get_session
-from pycil.hierarchy import service as hierarchy_service
-from pycil.hierarchy.models import NodeType
-from pycil.learning import session_store
-from pycil.learning.models import Response
+from pycil.hierarchy.application import service as hierarchy_service
+from pycil.hierarchy.infra.models import NodeType
+from pycil.learning.infra import session_store
+from pycil.learning.infra.models import Response
 from pycil.main import create_app
+from pycil.ports.lexi_provider import get_lexi_client
 from tests.learning.fakes import RUBRIC_AT_EVERY_LEVEL, FakeLexiReader
 
 # A free-text sense: `use_in_sentence` is the fake's LLM type, so evaluating it
@@ -95,8 +95,8 @@ async def llm_client(engine, monkeypatch):
         return pool
 
     # Supply warm-up enqueues from session_flow; grading from answering.
-    monkeypatch.setattr("pycil.learning.session_flow.get_arq_pool", _fake_pool)
-    monkeypatch.setattr("pycil.learning.answering.get_arq_pool", _fake_pool)
+    monkeypatch.setattr("pycil.learning.application.session_flow.get_arq_pool", _fake_pool)
+    monkeypatch.setattr("pycil.learning.application.answering.get_arq_pool", _fake_pool)
 
     async def override_session():
         async with factory() as s:
@@ -260,7 +260,7 @@ async def test_a_failed_enqueue_still_returns_pending(llm_client, monkeypatch):
 
     session_id = await _start(client, deck)
     checkpoint = await _ready_checkpoint(client, session_id)
-    monkeypatch.setattr("pycil.learning.answering.get_arq_pool", _fail_pool)
+    monkeypatch.setattr("pycil.learning.application.answering.get_arq_pool", _fail_pool)
 
     answered = await client.post(
         "/v1/answers",
@@ -392,7 +392,7 @@ async def test_a_failed_durable_write_refunds_the_grading_slot(llm_client, monke
     session_id = await _start(client, deck)
     checkpoint = await _ready_checkpoint(client, session_id)
 
-    from pycil.learning import service as learning_service
+    from pycil.learning.application import service as learning_service
 
     async def _explode(*_args, **_kwargs):
         raise RuntimeError("durable_write_failed")
@@ -425,7 +425,7 @@ async def test_an_aborted_answer_releases_the_claim(llm_client, monkeypatch):
     checkpoint = await _ready_checkpoint(client, session_id)
     qid = checkpoint["questionId"]
 
-    from pycil.learning import service as learning_service
+    from pycil.learning.application import service as learning_service
 
     async def _explode(*_args, **_kwargs):
         raise RuntimeError("durable_write_failed")
@@ -454,7 +454,7 @@ async def test_a_committed_answer_is_not_reopened_by_a_later_failure(
     checkpoint = await _ready_checkpoint(client, session_id)
     qid = checkpoint["questionId"]
 
-    from pycil.tasks import service as task_service
+    from pycil.tasks.application import service as task_service
 
     async def _explode(*_args, **_kwargs):
         raise RuntimeError("task_submission_failed")
@@ -604,7 +604,7 @@ async def test_a_committed_answer_keeps_its_exclusion_and_awaiting_flag(
     checkpoint = await _ready_checkpoint(client, session_id)
     qid = checkpoint["questionId"]
 
-    from pycil.tasks import service as task_service
+    from pycil.tasks.application import service as task_service
 
     async def _explode(*_args, **_kwargs):
         raise RuntimeError("task_submission_failed")

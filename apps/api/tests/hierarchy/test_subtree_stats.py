@@ -5,10 +5,10 @@ from types import SimpleNamespace
 import pytest
 
 from pycil.auth.models import User
-from pycil.content.models import DeckSense
-from pycil.hierarchy import service, stats, subtree
-from pycil.hierarchy.models import NodeType
-from pycil.learning.models import UserSenseStats as USS
+from pycil.content.infra.models import DeckSense
+from pycil.hierarchy.application import service, stats, subtree
+from pycil.hierarchy.infra.models import NodeType
+from pycil.learning.infra.models import UserSenseStats as USS
 
 pytestmark = pytest.mark.asyncio
 

@@ -4,9 +4,9 @@ import uuid
 
 import fakeredis.aioredis as fake_aioredis
 
-from pycil.learning import round_scheduler as sch
-from pycil.learning import session_store
-from pycil.learning.session_store import AdmittedSense, SenseProgress
+from pycil.learning.application import round_scheduler as sch
+from pycil.learning.infra import session_store
+from pycil.learning.infra.session_store import AdmittedSense, SenseProgress
 
 
 def _progress(**overrides) -> SenseProgress:

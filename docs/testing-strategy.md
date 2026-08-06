@@ -20,7 +20,7 @@ instance pointed at via `TEST_DB_URL`, schema create/drop via
 (autouse fixture). Lexi is faked at the port boundary in tests that need it —
 `FakeLexiReader` and `FakeLexiWorkerEngine` in `apps/api/tests/learning/fakes.py`
 stand in for the `LexiReader` / `LexiWorkerEngine` protocols in
-`apps/api/pycil/content/lexi_port.py` — never the LLM itself, since the port is
+`apps/api/pycil/ports/lexi.py` — never the LLM itself, since the port is
 the intended seam.
 
 Run: `cd apps/api && uv run pytest`.

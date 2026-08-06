@@ -17,7 +17,7 @@ from pycil.auth.models import RefreshSession, User
 from pycil.auth.schemas import CurrentUser, LoginStart, LogoutRequest, RefreshRequest, TokenResponse
 from pycil.common.errors import AppError, UnauthorizedError
 from pycil.db.session import get_session
-from pycil.realtime.client import disconnect_user
+from pycil.ports.centrifugo import disconnect_user
 
 logger = logging.getLogger(__name__)
 

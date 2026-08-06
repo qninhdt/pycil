@@ -8,9 +8,9 @@ import pytest
 from pycil.auth.models import User
 from pycil.auth.schemas import CurrentUser
 from pycil.common.errors import ForbiddenError, NotFoundError
-from pycil.content import service
-from pycil.hierarchy.access import require_node_access
-from pycil.hierarchy.models import Node, NodeType, Visibility
+from pycil.content.application import service
+from pycil.hierarchy.application.access import require_node_access
+from pycil.hierarchy.infra.models import Node, NodeType, Visibility
 
 pytestmark = pytest.mark.asyncio
 
@@ -168,7 +168,7 @@ async def test_deck_items_listing_stays_lean(session):
     only by ``deck_items``, from a single query for the whole deck, and stay None on
     the search path so its payload and query count are unchanged.
     """
-    from pycil.content.schemas import SenseContent
+    from pycil.content.domain.schemas import SenseContent
 
     lexical = {"sense_id", "definition", "tier", "pos", "cefr_level", "examples", "word", "word_id"}
     learning_state = {
@@ -210,7 +210,7 @@ async def test_deck_items_carry_the_callers_learning_state(session):
     from datetime import UTC, datetime
 
     from pycil.content.router import deck_items
-    from pycil.learning.models import SenseStatus, UserSenseStats
+    from pycil.learning.infra.models import SenseStatus, UserSenseStats
 
     owner = await _seed_user(session, "deck-state@x.co")
     deck = await service.create_deck(session, owner.id, "Deck")
@@ -250,8 +250,8 @@ async def test_deck_items_carry_the_callers_learning_state(session):
 
 async def test_deck_items_expose_no_learning_state_to_anonymous(session):
     from pycil.content.router import deck_items
-    from pycil.hierarchy.models import Visibility
-    from pycil.learning.models import SenseStatus, UserSenseStats
+    from pycil.hierarchy.infra.models import Visibility
+    from pycil.learning.infra.models import SenseStatus, UserSenseStats
 
     owner = await _seed_user(session, "deck-anon@x.co")
     deck = await service.create_deck(session, owner.id, "Deck")

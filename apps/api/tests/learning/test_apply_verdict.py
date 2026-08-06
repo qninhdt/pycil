@@ -9,11 +9,12 @@ from sqlalchemy import select
 
 from pycil.auth.models import User
 from pycil.db.redis import get_redis
-from pycil.hierarchy import service as hierarchy_service
-from pycil.hierarchy.models import NodeType
-from pycil.learning import service, session_store
-from pycil.learning.models import GradeStatus, Response, ReviewLog
-from pycil.learning.session_store import AdmittedSense
+from pycil.hierarchy.application import service as hierarchy_service
+from pycil.hierarchy.infra.models import NodeType
+from pycil.learning.application import service
+from pycil.learning.infra import session_store
+from pycil.learning.infra.models import GradeStatus, Response, ReviewLog
+from pycil.learning.infra.session_store import AdmittedSense
 
 pytestmark = pytest.mark.asyncio
 

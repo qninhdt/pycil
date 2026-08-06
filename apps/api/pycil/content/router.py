@@ -15,10 +15,8 @@ from pycil.auth.deps import current_user, optional_current_user
 from pycil.auth.schemas import CurrentUser
 from pycil.common.errors import NotFoundError, TooManyRequestsError
 from pycil.config import settings
-from pycil.content import service
-from pycil.content.deps import get_lexi_client
-from pycil.content.lexi_port import LexiReader, SenseView
-from pycil.content.schemas import (
+from pycil.content.application import service
+from pycil.content.domain.schemas import (
     SenseAddRequest,
     SenseContent,
     SenseDetailRead,
@@ -30,14 +28,16 @@ from pycil.content.schemas import (
 )
 from pycil.db.redis import get_arq_pool, get_redis
 from pycil.db.session import get_session
-from pycil.hierarchy import subtree
-from pycil.hierarchy.access import require_node_access
+from pycil.hierarchy.application import subtree
+from pycil.hierarchy.application.access import require_node_access
 from pycil.jobs import service as jobs_service
 from pycil.jobs.schemas import GenerationCreateRead
-from pycil.learning.models import UserSenseStats
-from pycil.learning.policy import mastery_stage, mastery_stage_name
-from pycil.tasks import service as task_service
-from pycil.tasks.work_keys import word_work_key
+from pycil.policy.policy import mastery_stage, mastery_stage_name
+from pycil.policy.sense_state import UserSenseStats
+from pycil.ports.lexi import LexiReader, SenseView
+from pycil.ports.lexi_provider import get_lexi_client
+from pycil.tasks.application import service as task_service
+from pycil.tasks.domain.work_keys import word_work_key
 
 router = APIRouter(tags=["content"])
 

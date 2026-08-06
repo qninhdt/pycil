@@ -3,7 +3,7 @@
 import random
 from collections import Counter
 
-from pycil.learning.policy import LEVEL_PROFILES, mastery_band, sample_requested_level
+from pycil.policy.policy import LEVEL_PROFILES, mastery_band, sample_requested_level
 
 
 def test_every_profile_sums_to_one():

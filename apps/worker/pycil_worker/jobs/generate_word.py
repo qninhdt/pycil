@@ -7,8 +7,8 @@ custom-string generate path.
 
 from uuid import UUID
 
-from pycil.tasks import service as task_service
-from pycil.tasks.models import AsyncTaskStatus
+from pycil.tasks.application import service as task_service
+from pycil.tasks.infra.models import AsyncTaskStatus
 
 from pycil_worker import realtime
 

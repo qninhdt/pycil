@@ -7,8 +7,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from pycil.assistant import graph
-from pycil.assistant.tools import ALL_TOOLS
+from pycil.assistant.application import graph
+from pycil.assistant.application.tools import ALL_TOOLS
 
 
 def test_assistant_provider_uses_only_dedicated_openai_compatible_settings(monkeypatch):

@@ -4,6 +4,7 @@ Domains raise these; handlers translate to JSON responses so route code stays
 free of HTTP plumbing.
 """
 
+import logging
 import re
 from typing import Any
 
@@ -16,6 +17,8 @@ from pydantic import BaseModel, ConfigDict, Field
 # by single underscores. Human prose fails this — it has spaces, punctuation, or
 # interpolated values.
 _CODE_SHAPED = re.compile(r"[a-z][a-z0-9]*(?:_[a-z0-9]+)*")
+
+logger = logging.getLogger(__name__)
 
 
 class ErrorDetail(BaseModel):
@@ -156,5 +159,33 @@ async def http_error_handler(request: Request, exc: HTTPException) -> JSONRespon
         status_code=exc.status_code,
         content=error_envelope(
             request, code=codes.get(exc.status_code, "http_error"), message=str(exc.detail)
+        ).model_dump(by_alias=True),
+    )
+
+
+async def unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Last resort: an exception nothing else claimed still leaves as an envelope.
+
+    Without this, an unexpected type falls through to Starlette's default and the
+    client receives a bare `Internal Server Error` — no `code`, no `requestId`,
+    and not the JSON shape its error parser expects. The web taxonomy keys off
+    `error.code`, so such a response is unparseable rather than merely untidy, and
+    surfaces to the user as a network failure instead of a server error.
+
+    The exception's own message is deliberately NOT returned. It was written by
+    whichever library raised it and can carry a connection string, a query, or a
+    row of user data; the caller can do nothing with it either way. It is logged
+    with the request id so the two can be matched.
+    """
+    logger.exception(
+        "unhandled exception",
+        extra={"request_id": getattr(request.state, "request_id", None)},
+    )
+    return JSONResponse(
+        status_code=500,
+        content=error_envelope(
+            request,
+            code="internal_error",
+            message="An unexpected error occurred.",
         ).model_dump(by_alias=True),
     )

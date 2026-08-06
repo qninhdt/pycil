@@ -6,8 +6,8 @@ import pytest
 from sqlalchemy import select
 
 from pycil.auth.models import User
-from pycil.tasks import service
-from pycil.tasks.models import (
+from pycil.tasks.application import service
+from pycil.tasks.infra.models import (
     AsyncTaskEvent,
     AsyncTaskOutbox,
     AsyncTaskStatus,

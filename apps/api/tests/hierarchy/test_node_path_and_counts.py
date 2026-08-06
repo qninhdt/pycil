@@ -9,10 +9,10 @@ import pytest
 
 from pycil.auth.models import User
 from pycil.auth.schemas import CurrentUser
-from pycil.content import service as content_service
-from pycil.hierarchy import service
-from pycil.hierarchy.ancestry import ancestor_chain
-from pycil.hierarchy.models import NodeType, Visibility
+from pycil.content.application import service as content_service
+from pycil.hierarchy.application import service
+from pycil.hierarchy.application.ancestry import ancestor_chain
+from pycil.hierarchy.infra.models import NodeType, Visibility
 from pycil.hierarchy.router import get_node, list_nodes
 
 pytestmark = pytest.mark.asyncio
@@ -171,13 +171,13 @@ async def test_mutation_responses_omit_path_and_count(session):
     silent — both fields are optional, so a producer that forgets them still
     compiles and still serialises.
     """
-    from pycil.hierarchy.router import create_node, move_node, update_node, update_visibility
-    from pycil.hierarchy.schemas import (
+    from pycil.hierarchy.domain.schemas import (
         NodeCreate,
         NodeMove,
         NodeUpdate,
         NodeVisibilityUpdate,
     )
+    from pycil.hierarchy.router import create_node, move_node, update_node, update_visibility
 
     owner = await _user(session, "mutation-owner@example.com")
     folder = await service.create_node(

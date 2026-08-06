@@ -9,7 +9,7 @@ import logging
 
 import httpx
 from pycil.config import settings
-from pycil.tasks import service
+from pycil.tasks.application import service
 
 logger = logging.getLogger(__name__)
 

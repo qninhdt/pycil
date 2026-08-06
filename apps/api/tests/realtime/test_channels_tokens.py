@@ -11,7 +11,7 @@ from shared.realtime import channels
 from shared.realtime.payloads import GradingResult, JobUpdate
 
 from pycil.config import Settings, settings
-from pycil.realtime import client
+from pycil.ports import centrifugo as client
 from pycil.realtime.router import realtime_token
 
 

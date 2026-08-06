@@ -25,16 +25,17 @@ import pytest
 
 from pycil.auth.models import User
 from pycil.auth.schemas import CurrentUser
-from pycil.content import service as content_service
-from pycil.hierarchy import service as hierarchy_service
-from pycil.hierarchy.models import NodeType
-from pycil.learning import planning, session_store
-from pycil.learning.policy import (
+from pycil.content.application import service as content_service
+from pycil.hierarchy.application import service as hierarchy_service
+from pycil.hierarchy.infra.models import NodeType
+from pycil.learning.application import planning
+from pycil.learning.domain.schemas import LearningSettingsUpdate
+from pycil.learning.infra import session_store
+from pycil.learning.router import get_learning_settings, update_learning_settings
+from pycil.policy.policy import (
     DEFAULT_MAX_QUESTIONS_PER_ROUND,
     DEFAULT_TARGET_WORDS_PER_SESSION,
 )
-from pycil.learning.router import get_learning_settings, update_learning_settings
-from pycil.learning.schemas import LearningSettingsUpdate
 
 pytestmark = pytest.mark.asyncio
 

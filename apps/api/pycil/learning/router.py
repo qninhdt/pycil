@@ -15,19 +15,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from pycil.auth.deps import current_user
 from pycil.auth.schemas import CurrentUser
 from pycil.common.errors import NotFoundError
-from pycil.content.deps import get_lexi_client
-from pycil.content.lexi_port import LexiReader
 from pycil.db.redis import get_redis
 from pycil.db.session import get_session
-from pycil.learning import (
+from pycil.learning.application import (
     answering,
     dashboard,
     planning,
     session_flow,
     session_recap,
 )
-from pycil.learning.question_delivery import ready_question
-from pycil.learning.schemas import (
+from pycil.learning.application.question_delivery import ready_question
+from pycil.learning.domain.schemas import (
     AnswerRequest,
     DashboardStatsRead,
     FSRSForecastDay,
@@ -45,6 +43,8 @@ from pycil.learning.schemas import (
     SessionStart,
     SessionStateRead,
 )
+from pycil.ports.lexi import LexiReader
+from pycil.ports.lexi_provider import get_lexi_client
 
 router = APIRouter(tags=["learning"])
 

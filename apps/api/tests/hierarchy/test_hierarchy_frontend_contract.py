@@ -9,8 +9,8 @@ from pycil.auth.deps import current_user
 from pycil.auth.models import User
 from pycil.auth.schemas import CurrentUser
 from pycil.db.session import get_session
-from pycil.hierarchy import service
-from pycil.hierarchy.models import NodeType
+from pycil.hierarchy.application import service
+from pycil.hierarchy.infra.models import NodeType
 from pycil.main import create_app
 
 pytestmark = pytest.mark.asyncio

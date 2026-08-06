@@ -14,7 +14,7 @@ from pycil.common.errors import UnauthorizedError
 from pycil.db.redis import get_redis
 from pycil.db.session import get_session
 from pycil.jobs.service import release_inflight_quota
-from pycil.realtime.client import disconnect_user
+from pycil.ports.centrifugo import disconnect_user
 
 logger = logging.getLogger(__name__)
 

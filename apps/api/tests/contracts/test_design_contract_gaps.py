@@ -8,10 +8,10 @@ import pytest
 
 from pycil.auth.models import User
 from pycil.common.errors import ConflictError, NotFoundError
-from pycil.content import service as content_service
-from pycil.content.models import DeckSense
-from pycil.hierarchy import cache, service, subtree
-from pycil.hierarchy.models import NodeType
+from pycil.content.application import service as content_service
+from pycil.content.infra.models import DeckSense
+from pycil.hierarchy.application import cache, service, subtree
+from pycil.hierarchy.infra.models import NodeType
 
 pytestmark = pytest.mark.asyncio
 
@@ -167,7 +167,7 @@ async def test_target_membership_invalidates_reference_root(session):
 async def test_cache_writes_are_bound_to_durable_structural_generations():
     import inspect
 
-    from pycil.hierarchy.models import Node
+    from pycil.hierarchy.infra.models import Node
 
     assert "structural_generation" in Node.model_fields
     assert "generation" in inspect.signature(cache.set_defset).parameters

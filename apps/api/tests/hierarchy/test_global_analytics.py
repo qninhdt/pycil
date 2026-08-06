@@ -16,16 +16,16 @@ import pytest
 from pycil.auth.models import User
 from pycil.auth.schemas import CurrentUser
 from pycil.common.errors import ConflictError
-from pycil.content import service as content_service
-from pycil.hierarchy import service as hierarchy_service
-from pycil.hierarchy.models import NodeType
+from pycil.content.application import service as content_service
+from pycil.hierarchy.application import service as hierarchy_service
+from pycil.hierarchy.infra.models import NodeType
 from pycil.hierarchy.router import (
     global_cefr,
     global_history,
     global_stats,
     global_weakest,
 )
-from pycil.learning.models import ReviewLog, SenseStatus, UserSenseStats
+from pycil.learning.infra.models import ReviewLog, SenseStatus, UserSenseStats
 
 pytestmark = pytest.mark.asyncio
 
@@ -221,7 +221,7 @@ async def test_mastered_uses_the_top_stage_floor_not_a_literal_80(session):
     It used to be counted as mastered by two separate literal 80s while the ramp
     displayed it one stage lower, and a single screen could show both figures.
     """
-    from pycil.learning.policy import LEVEL_PROFILES, MASTERED_FLOOR
+    from pycil.policy.policy import LEVEL_PROFILES, MASTERED_FLOOR
 
     assert MASTERED_FLOOR == LEVEL_PROFILES[-1].lo == 81
 
@@ -237,7 +237,7 @@ async def test_mastered_uses_the_top_stage_floor_not_a_literal_80(session):
 
 
 async def test_mastery_bands_tile_zero_to_one_hundred(session):
-    from pycil.learning.policy import LEVEL_PROFILES, STAGE_NAMES, mastery_stage
+    from pycil.policy.policy import LEVEL_PROFILES, STAGE_NAMES, mastery_stage
 
     assert LEVEL_PROFILES[0].lo == 0
     assert LEVEL_PROFILES[-1].hi == 100

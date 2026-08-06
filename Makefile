@@ -20,7 +20,7 @@ test: test-api test-shared test-worker
 
 test-api:
 	cd apps/api && uv run pytest \
-		--cov=pycil --cov-fail-under=70 -q --maxfail=5
+		--cov=pycil --cov-fail-under=81 -q --maxfail=5
 
 # Pure-logic tests (FSRS math) — no DB, no I/O.
 test-shared:

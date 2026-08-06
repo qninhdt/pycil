@@ -19,7 +19,7 @@ import pytest
 import pytest_asyncio
 from pycil.auth.models import User
 from pycil.db.models import target_metadata
-from pycil.learning.models import GradeStatus, Response
+from pycil.learning.infra.models import GradeStatus, Response
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from pycil_worker.jobs.reconcile_pending_grades import (

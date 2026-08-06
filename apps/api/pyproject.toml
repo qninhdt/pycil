@@ -40,6 +40,7 @@ dev = [
     "pytest-mock>=3.14,<4.0",
     "pytest-cov>=6.0,<7.0",
     "ruff>=0.8,<0.9",
+    "import-linter>=2.1,<3.0",
 ]
 
 [tool.pytest.ini_options]
@@ -70,3 +71,169 @@ select = ["E", "F", "I", "UP", "B"]
 [tool.ruff.lint.flake8-bugbear]
 # FastAPI's Depends()/Query()/Path() in argument defaults is the intended pattern.
 extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path"]
+
+# --- import boundaries -------------------------------------------------------
+#
+# Two earlier contracts in this repo were DELETED because both had rotted: each
+# enumerated modules by name, so as modules were added and removed the contracts
+# drifted into naming things that no longer existed while missing everything new
+# — and both still passed. `tests/test_lexi_boundary.py` records that history.
+#
+# So these are whole-package `forbidden` and `independence` contracts, which
+# cannot go stale the same way: a new module inside a named package is covered
+# the moment it exists. Each one below was observed FAILING against a deliberate
+# violation before being trusted; a contract nobody has seen fail is a comment.
+
+[tool.importlinter]
+root_package = "pycil"
+# Needed so contracts can forbid external packages (fastapi, sqlalchemy) and not
+# just internal ones — that is how `domain` is kept free of a web framework.
+include_external_packages = true
+
+# `ports` and `policy` exist to be importable from anywhere without creating an
+# edge back. The instant one imports a domain, it stops being safe for the other
+# domains that depend on it, and the cycles it was carved out to break return.
+[[tool.importlinter.contracts]]
+name = "shared ports and policy import no domain"
+type = "forbidden"
+source_modules = ["pycil.ports", "pycil.policy"]
+forbidden_modules = [
+    "pycil.account_lifecycle",
+    "pycil.assistant",
+    "pycil.auth",
+    "pycil.content",
+    "pycil.hierarchy",
+    "pycil.jobs",
+    "pycil.learning",
+    "pycil.realtime",
+    "pycil.tasks",
+    "pycil.db",
+]
+
+# The pilot cycle break. `realtime.subscriptions` read one integer off
+# `auth.models.User` while `auth.router` called `realtime.client.disconnect_user`
+# — a two-module cycle over one field and one function. The client moved to
+# `pycil.ports.centrifugo`, and the integer is now supplied by `realtime.router`.
+#
+# One direction, not `independence`. `realtime -> auth` is exactly how the cycle
+# was broken: the router already authenticates, so it owns the token-version
+# lookup and passes it down to `subscriptions`, which no longer knows `auth`
+# exists. What must never come back is the return edge — `auth` reaching into
+# `realtime` — because that is what closed the loop.
+[[tool.importlinter.contracts]]
+name = "auth does not import realtime"
+type = "forbidden"
+source_modules = ["pycil.auth"]
+forbidden_modules = ["pycil.realtime"]
+
+# `subscriptions` is the module that was on the cycle. Keeping it free of `auth`
+# is what the injected token-version lookup buys, and a future edit that reaches
+# for `auth.models.User` again would silently restore the loop.
+[[tool.importlinter.contracts]]
+name = "subscribe-proxy authorization does not import auth"
+type = "forbidden"
+source_modules = ["pycil.realtime.application.subscriptions"]
+forbidden_modules = ["pycil.auth"]
+
+# `common` is the leaf every domain already depends on (errors, middleware,
+# pagination). An import back into a domain would put all of them in one cycle.
+[[tool.importlinter.contracts]]
+name = "common utilities import no domain"
+type = "forbidden"
+source_modules = ["pycil.common"]
+forbidden_modules = [
+    "pycil.account_lifecycle",
+    "pycil.assistant",
+    "pycil.auth",
+    "pycil.content",
+    "pycil.hierarchy",
+    "pycil.jobs",
+    "pycil.learning",
+    "pycil.realtime",
+    "pycil.tasks",
+]
+
+# The committed cycle baseline is now empty. Phases 5 and 6 got it there by moving
+# what more than one domain reads out of the domain that happened to write it:
+# `UserSenseStats` -> `pycil.policy` (content and hierarchy both read it), the
+# embedded Lexi provider -> `pycil.ports` (five modules across four domains
+# construct it), the realtime client likewise.
+#
+# NOT `independence` over all nine. That was tried and correctly failed: 44
+# one-directional edges remain, and they are not defects — every router imports
+# `auth.deps`, `content` reaches `hierarchy.access` to authorize a deck write.
+# One-way coupling between layered domains is the design. What was wrong was the
+# *cycles*, and a contract that forbids all coupling would have to be suppressed
+# everywhere, which is how the two contracts this repo deleted became decoration.
+#
+# So the cycles are pinned by direction instead. Each of these was a real cycle
+# before Phases 5-6; the reverse edge is what must never come back.
+[[tool.importlinter.contracts]]
+name = "content and hierarchy do not import learning"
+type = "forbidden"
+source_modules = ["pycil.content", "pycil.hierarchy"]
+forbidden_modules = ["pycil.learning"]
+
+# `hierarchy -> content` was the return edge of the last two-module cycle, closed
+# by moving the Lexi provider to `pycil.ports`. `content -> hierarchy` stays: a
+# deck write has to authorize against the tree.
+[[tool.importlinter.contracts]]
+name = "hierarchy does not import content"
+type = "forbidden"
+source_modules = ["pycil.hierarchy"]
+forbidden_modules = ["pycil.content"]
+
+# Layered hexagons. `content` and `hierarchy` are split domain/application/infra
+# with `router.py` at the root as the entrypoint.
+#
+# The split is only real if the direction is enforced; otherwise it is three
+# folders. `domain` holds pure types and rules, so it must stay importable without
+# a database — that is what makes it testable without one, and what stops business
+# rules acquiring a session by accident.
+[[tool.importlinter.contracts]]
+name = "domain layers stay free of persistence and HTTP"
+type = "forbidden"
+source_modules = [
+    "pycil.content.domain",
+    "pycil.hierarchy.domain",
+    "pycil.tasks.domain",
+    "pycil.assistant.domain",
+    "pycil.learning.domain",
+]
+forbidden_modules = [
+    "pycil.content.infra",
+    "pycil.content.application",
+    "pycil.hierarchy.infra",
+    "pycil.hierarchy.application",
+    "pycil.tasks.infra",
+    "pycil.tasks.application",
+    "pycil.assistant.infra",
+    "pycil.assistant.application",
+    "pycil.learning.infra",
+    "pycil.learning.application",
+    "pycil.db",
+    "fastapi",
+    "sqlalchemy",
+]
+
+# Persistence knows about tables, not about use cases. An infra module importing
+# its own application layer is the inversion that makes a repository impossible to
+# reuse and reintroduces a cycle inside the package.
+[[tool.importlinter.contracts]]
+name = "infra layers do not import their application layer"
+type = "forbidden"
+source_modules = [
+    "pycil.content.infra",
+    "pycil.hierarchy.infra",
+    "pycil.tasks.infra",
+    "pycil.assistant.infra",
+    "pycil.learning.infra",
+]
+forbidden_modules = [
+    "pycil.content.application",
+    "pycil.hierarchy.application",
+    "pycil.tasks.application",
+    "pycil.assistant.application",
+    "pycil.learning.application",
+    "fastapi",
+]

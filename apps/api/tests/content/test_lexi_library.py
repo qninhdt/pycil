@@ -2,7 +2,7 @@
 
 from lexi_ai.contracts import PresentedQuestion, RenderKind, SingleChoice
 
-from pycil.content import lexi_library
+from pycil.ports import lexi_embedded as lexi_library
 
 
 def _question() -> PresentedQuestion:

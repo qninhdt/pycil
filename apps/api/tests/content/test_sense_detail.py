@@ -23,10 +23,10 @@ import pytest
 from pycil.auth.models import User
 from pycil.auth.schemas import CurrentUser
 from pycil.common.errors import NotFoundError
-from pycil.content import service as content_service
+from pycil.content.application import service as content_service
 from pycil.content.router import sense_detail
-from pycil.hierarchy import service as hierarchy_service
-from pycil.hierarchy.models import NodeType, Visibility
+from pycil.hierarchy.application import service as hierarchy_service
+from pycil.hierarchy.infra.models import NodeType, Visibility
 
 pytestmark = pytest.mark.asyncio
 

@@ -36,11 +36,16 @@ dev = [
     "pytest-mock>=3.14,<4.0",
     "pytest-cov>=6.0,<7.0",
     "ruff>=0.8,<0.9",
+    "import-linter>=2.1,<3.0",
 ]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# Floor set to the value measured 2026-08-06, not to an aspiration. Above the
+# current level it blocks unrelated work; below it, the gate can be satisfied by
+# deleting tests. Raise it when coverage genuinely improves.
+addopts = "--cov=pycil_worker --cov-fail-under=81"
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]
@@ -61,3 +66,26 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.ruff.lint.flake8-bugbear]
 extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path"]
+
+# --- import boundaries -------------------------------------------------------
+#
+# The worker is thin by design: jobs delegate to the api package and to lexi-ai.
+# The contract that matters is the direction of that dependency — the api must
+# never reach back into the worker, or a request-path import would drag arq and
+# the job registry into the web process.
+#
+# Whole-package `forbidden`, and observed failing on a deliberate violation
+# before being trusted. The two contracts this repo deleted had both rotted while
+# still passing, which is the failure mode to design against.
+
+[tool.importlinter]
+root_package = "pycil_worker"
+include_external_packages = true
+
+# Jobs are the only place allowed to touch arq. Everything else is library code
+# that must stay callable from a test without a broker.
+[[tool.importlinter.contracts]]
+name = "only the worker entrypoint and jobs know about arq"
+type = "forbidden"
+source_modules = ["pycil_worker.lexi_library", "pycil_worker.realtime", "pycil_worker.config"]
+forbidden_modules = ["arq"]

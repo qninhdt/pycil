@@ -49,7 +49,11 @@ def _raise_through_handler(error: AppError) -> tuple[int, dict]:
         (ConflictError("question_not_available"), 409, "question_not_available"),
         (NotFoundError("session_not_found"), 404, "session_not_found"),
         (NotFoundError("sense_not_found"), 404, "sense_not_found"),
-        (ServiceUnavailableError("question_preparation_exhausted"), 503, "question_preparation_exhausted"),
+        (
+            ServiceUnavailableError("question_preparation_exhausted"),
+            503,
+            "question_preparation_exhausted",
+        ),
         (UnauthorizedError("invalid_refresh_token"), 401, "invalid_refresh_token"),
         (ForbiddenError("assistant_actor_revoked"), 403, "assistant_actor_revoked"),
     ],

@@ -5,22 +5,22 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import text
 
-from pycil.assistant.hitl import create_pending_action
-from pycil.assistant.models import (
+from pycil.assistant.application.hitl import create_pending_action
+from pycil.assistant.application.persistence import retention_deadline
+from pycil.assistant.infra.models import (
     AssistantActionAudit,
     AssistantRun,
     AssistantRunEvent,
     AssistantThread,
     RunStatus,
 )
-from pycil.assistant.persistence import retention_deadline
 from pycil.auth import tokens
 from pycil.auth.models import User
 from pycil.auth.refresh_sessions import issue
-from pycil.hierarchy.models import Node, NodeType, Visibility
-from pycil.learning.models import SessionSummary, UserLearningSettings
-from pycil.tasks import service as task_service
-from pycil.tasks.work_keys import grading_work_key, word_work_key
+from pycil.hierarchy.infra.models import Node, NodeType, Visibility
+from pycil.learning.infra.models import SessionSummary, UserLearningSettings
+from pycil.tasks.application import service as task_service
+from pycil.tasks.domain.work_keys import grading_work_key, word_work_key
 
 pytestmark = pytest.mark.asyncio
 

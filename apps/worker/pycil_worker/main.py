@@ -23,8 +23,8 @@ from arq.connections import RedisSettings
 from arq.cron import cron
 from lexi_ai import Lexicon
 from pycil.config import settings
-from pycil.content.lexi_library import create_lexicon_reader
-from pycil.content.lexi_port import LexiReader, LexiWorkerEngine
+from pycil.ports.lexi_embedded import create_lexicon_reader
+from pycil.ports.lexi import LexiReader, LexiWorkerEngine
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from pycil_worker.jobs.dispatch_task_outbox import dispatch_task_outbox

@@ -11,29 +11,19 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pycil.assistant.context import AssistantContext
-from pycil.assistant.hitl import (
+from pycil.assistant.application.hitl import (
     claim_decision,
     finish_action,
     mark_executing,
     validate_action_freshness,
 )
-from pycil.assistant.models import (
-    ActionStatus,
-    AssistantAction,
-    AssistantActionAudit,
-    AssistantRun,
-    AssistantRunEvent,
-    AssistantThread,
-    RunStatus,
-)
-from pycil.assistant.persistence import (
+from pycil.assistant.application.persistence import (
     create_or_load_run,
     require_owned_thread,
     retention_deadline,
     revalidate_actor,
 )
-from pycil.assistant.run_service import (
+from pycil.assistant.application.run_service import (
     acquire_lease,
     append_event,
     checkpoint_thread_id,
@@ -41,7 +31,8 @@ from pycil.assistant.run_service import (
     set_run_status,
     stream_run,
 )
-from pycil.assistant.schemas import (
+from pycil.assistant.domain.context import AssistantContext
+from pycil.assistant.domain.schemas import (
     ActionDecision,
     MessageCreate,
     RunEventRead,
@@ -49,6 +40,15 @@ from pycil.assistant.schemas import (
     RunRecoveryRead,
     ThreadCreate,
     ThreadRead,
+)
+from pycil.assistant.infra.models import (
+    ActionStatus,
+    AssistantAction,
+    AssistantActionAudit,
+    AssistantRun,
+    AssistantRunEvent,
+    AssistantThread,
+    RunStatus,
 )
 from pycil.auth.deps import current_user
 from pycil.auth.schemas import CurrentUser

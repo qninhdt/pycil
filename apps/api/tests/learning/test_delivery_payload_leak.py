@@ -6,7 +6,7 @@ import pytest
 from lexi_ai.contracts import Flashcard, FreeText, PresentedQuestion, SingleChoice, TextSpan
 
 from pycil.common.errors import ServiceUnavailableError
-from pycil.learning.question_delivery import presentation_payload, render_format
+from pycil.learning.application.question_delivery import presentation_payload, render_format
 
 _GRADING_KEYS = {"correct_index", "answer_norm", "accepted_forms", "rubric", "target_norm"}
 

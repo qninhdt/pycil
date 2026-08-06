@@ -12,9 +12,9 @@ nothing else from the tool arguments is.
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from pycil.assistant import run_service
-from pycil.assistant.context import AssistantContext
-from pycil.hierarchy.models import Node, NodeType
+from pycil.assistant.application import run_service
+from pycil.assistant.domain.context import AssistantContext
+from pycil.hierarchy.infra.models import Node, NodeType
 
 from .conftest import create_run, create_thread, create_user
 

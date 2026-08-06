@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime, timedelta
 
-from pycil.learning.models import GradeStatus, Response
+from pycil.learning.infra.models import GradeStatus, Response
 from sqlalchemy import or_, select, update
 
 # A pending answer is abandoned after this long and its text is discarded.

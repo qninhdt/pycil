@@ -4,7 +4,7 @@ Reuses the API's Centrifugo client (publish is HTTP + API key, no DB) so the
 worker and API publish identical payloads to the same owner-scoped channels.
 """
 
-from pycil.realtime import client
+from pycil.ports import centrifugo as client
 from shared.realtime import channels
 from shared.realtime.payloads import GradingResult, JobUpdate
 

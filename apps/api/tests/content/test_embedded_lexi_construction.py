@@ -1,6 +1,6 @@
 """Embedded-Lexi API composition seam tests."""
 
-from pycil.content import deps
+from pycil.ports import lexi_provider as deps
 
 
 class FakeLexicon:

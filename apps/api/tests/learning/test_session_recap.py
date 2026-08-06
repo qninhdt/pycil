@@ -21,11 +21,12 @@ import uuid
 import fakeredis.aioredis as fake_aioredis
 
 from pycil.auth.models import User
-from pycil.hierarchy import service as hierarchy_service
-from pycil.hierarchy.models import NodeType
-from pycil.learning import session_recap, session_store
-from pycil.learning.models import Response
-from pycil.learning.session_store import AdmittedSense
+from pycil.hierarchy.application import service as hierarchy_service
+from pycil.hierarchy.infra.models import NodeType
+from pycil.learning.application import session_recap
+from pycil.learning.infra import session_store
+from pycil.learning.infra.models import Response
+from pycil.learning.infra.session_store import AdmittedSense
 
 
 async def _user(session, email: str) -> User:
@@ -147,7 +148,7 @@ async def test_persisting_repeatedly_never_duplicates_the_row(session):
 
     from sqlalchemy import func, select
 
-    from pycil.learning.models import SessionSummary
+    from pycil.learning.infra.models import SessionSummary
 
     count = (
         await session.execute(

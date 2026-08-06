@@ -6,7 +6,7 @@ Next.js 16 App Router + React 19 + Tailwind v4 (`apps/web`), shared Python
 commit SHA).
 
 `lexi_ai` is embedded, transport-free, and owns its `lexi` PostgreSQL schema.
-Pycil application code uses the `content/lexi_library.py` adapter and never
+Pycil application code uses the `ports/lexi_embedded.py` adapter and never
 imports Lexi ORM models directly.
 
 ## Backend (`apps/api`)

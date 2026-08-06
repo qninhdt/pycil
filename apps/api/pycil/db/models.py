@@ -3,7 +3,7 @@
 Import this module (not individual domain models) in ``alembic/env.py``.
 """
 
-from pycil.assistant.models import (  # noqa: F401
+from pycil.assistant.infra.models import (  # noqa: F401
     AssistantAction,
     AssistantActionAudit,
     AssistantRun,
@@ -11,21 +11,21 @@ from pycil.assistant.models import (  # noqa: F401
     AssistantThread,
 )
 from pycil.auth.models import RefreshSession, User  # noqa: F401
-from pycil.content.models import DeckSense  # noqa: F401
+from pycil.content.infra.models import DeckSense  # noqa: F401
 from pycil.db.base import SQLModel
-from pycil.hierarchy.models import (  # noqa: F401
+from pycil.hierarchy.infra.models import (  # noqa: F401
     DeckAttributes,
     Node,
 )
 from pycil.jobs.models import WordGeneration  # noqa: F401
-from pycil.learning.models import (  # noqa: F401
+from pycil.learning.infra.models import (  # noqa: F401
     Response,
     ReviewLog,
     SessionSummary,
     UserLearningSettings,
     UserSenseStats,
 )
-from pycil.tasks.models import (  # noqa: F401
+from pycil.tasks.infra.models import (  # noqa: F401
     AsyncCommandReceipt,
     AsyncTask,
     AsyncTaskEvent,

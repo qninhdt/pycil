@@ -1,6 +1,6 @@
 """Expire pending assistant approvals without racing a user confirmation."""
 
-from pycil.assistant.hitl import expire_pending_actions
+from pycil.assistant.application.hitl import expire_pending_actions
 
 
 async def reconcile_expired_assistant_actions(ctx: dict) -> int:
