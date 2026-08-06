@@ -23,11 +23,17 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from sqlalchemy import update
+
 from pycil.auth.models import User
+from pycil.auth.schemas import CurrentUser
+from pycil.common.errors import ConflictError
 from pycil.content.application import service as content_service
+from pycil.db.redis import get_redis
 from pycil.hierarchy.application import service as hierarchy_service
 from pycil.hierarchy.infra.models import NodeType
-from pycil.learning.application import planning, session_queue
+from pycil.hierarchy.infra.models import Node
+from pycil.learning.application import planning, session_flow, session_queue
 from pycil.learning.infra.models import SenseStatus, UserSenseStats
 from pycil.policy.policy import (
     ASSESSMENT_FLOOR,
@@ -536,3 +542,57 @@ async def test_plan_session_does_not_see_another_learners_progress(session):
 
     # Still a new word to me, despite being long-scheduled for them.
     assert [(i.sense_id, i.purpose) for i in plan.admitted] == [(700, "new")]
+
+
+async def test_session_start_gives_up_when_the_scope_keeps_moving(session, monkeypatch):
+    """The bound on re-planning, which nothing else reaches.
+
+    A structural mutation can move senses in or out of the subtree while a plan is
+    being built, so the generation is read before and after and the plan discarded
+    if it moved. That retry needs a ceiling: without one, a node under sustained
+    mutation re-plans forever, holding a request open and paying for the planning
+    query each pass.
+
+    Unreachable by any ordinary test, which is why it went unasserted — the
+    generation only moves if something mutates the node mid-plan, and no test does.
+    So planning is made to bump it on every call, which is the pathological case
+    stated directly.
+    """
+    owner = await _user(session, "scope-churn@example.com")
+    deck = await _deck(session, owner.id, [4101, 4102])
+
+    calls = 0
+    real_plan_session = planning.plan_session
+
+    async def churning_plan(db, *args, **kwargs):
+        # Mutating the scope from inside the plan is exactly the interleaving the
+        # generation check exists to catch: the "after" read can never match.
+        nonlocal calls
+        calls += 1
+        result = await real_plan_session(db, *args, **kwargs)
+        await db.execute(
+            update(Node)
+            .where(Node.id == deck.id)
+            .values(structural_generation=Node.structural_generation + 1)
+        )
+        await db.commit()
+        return result
+
+    monkeypatch.setattr(session_flow.planning, "plan_session", churning_plan)
+
+    with pytest.raises(ConflictError) as raised:
+        await session_flow.start(
+            session,
+            get_redis(),
+            user=CurrentUser(id=owner.id, email=owner.email),
+            node_id=deck.id,
+        )
+
+    assert raised.value.code == "session_scope_changed"
+    # Bounded, and bounded at the stated number: a loop that gave up after one
+    # attempt would never tolerate the single concurrent mutation this exists to
+    # absorb, and one that never gave up would not reach this assertion at all.
+    assert calls == session_flow._PLAN_ATTEMPTS, (
+        f"planning ran {calls} times against a ceiling of "
+        f"{session_flow._PLAN_ATTEMPTS}"
+    )

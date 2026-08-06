@@ -17,7 +17,7 @@ from pycil.auth.models import User
 from pycil.auth.schemas import CurrentUser
 from pycil.common.errors import ConflictError
 from pycil.content.application import service as content_service
-from pycil.hierarchy.application import service as hierarchy_service
+from pycil.hierarchy.application import reads, service as hierarchy_service
 from pycil.hierarchy.infra.models import NodeType
 from pycil.hierarchy.router import (
     global_cefr,
@@ -247,3 +247,41 @@ async def test_mastery_bands_tile_zero_to_one_hundred(session):
     assert {mastery_stage(value) for value in range(0, 101)} == set(
         range(1, len(STAGE_NAMES) + 1)
     )
+
+
+async def test_the_tracked_sense_read_is_bounded_and_truncates_deterministically(
+    session, monkeypatch,
+):
+    """One pathological account cannot turn `/me/cefr` into an unbounded scan.
+
+    The read used to pull every tracked sense id into memory. `/me/cefr` is its
+    only caller — CEFR level is Lexi-side data a pycil query cannot group by — so
+    the whole set crosses the process boundary on every request.
+
+    The ceiling is far above any real learner's tracked set, so the real one is
+    lowered here rather than seeding 20,001 rows: the assertion is that the LIMIT
+    exists and that truncation is stable, and neither depends on the number.
+    Deleting the `.limit()` makes this return every row and fail.
+
+    Stability matters as much as the bound. The ORDER BY is what makes the
+    truncated set the *same* set on every call, so a distribution built from it
+    does not shuffle between requests — a bounded query without one would return
+    whichever rows the plan happened to reach.
+    """
+    monkeypatch.setattr(reads, "TRACKED_SENSE_CEILING", 5)
+
+    user = await _user(session, "bounded-cefr@example.com")
+    # Inserted out of order, so passing cannot be an artefact of insertion order.
+    for sense_id in (907, 901, 905, 903, 909, 902, 908, 904, 906):
+        await _stat(session, user.id, sense_id, mastery=50)
+
+    tracked = await reads.tracked_sense_ids(session, user.id)
+
+    assert len(tracked) == 5, (
+        f"the read returned {len(tracked)} ids with a ceiling of 5, so the LIMIT "
+        "is not being applied"
+    )
+    # The numerically smallest, which is what the ORDER BY promises.
+    assert tracked == [901, 902, 903, 904, 905]
+    # And the same answer twice, since an unordered LIMIT may not repeat itself.
+    assert await reads.tracked_sense_ids(session, user.id) == tracked

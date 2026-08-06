@@ -160,6 +160,52 @@ async def test_visibility_change_invalidates_reverse_reference_roots(session):
     )
 
 
+async def test_cleanup_deletes_the_per_viewer_keys_and_not_only_the_anonymous_one(
+    session,
+):
+    """The leak, asserted directly rather than through reachability.
+
+    `delete_prior_defsets` used to build only `_defset_key(node_id, generation)` —
+    with no viewer suffix — while every writer sets the key *with* one. So cleanup
+    reached the single key nobody writes and left the real ones to expire on their
+    own, at nodes x viewers x mutations retained for the full hour of the TTL.
+
+    Correctness was never at stake, and that is exactly why this needs asserting on
+    its own terms: the generation is part of the key, so a bumped generation makes
+    every stale value unreachable whether or not it was deleted. A test that writes
+    at the old generation and reads at the new one therefore passes against the
+    unfixed code — it is measuring the generation bump, not the cleanup.
+
+    So this reads back at the *same* generation it wrote, which is the only way to
+    tell a deleted key from an unreachable one.
+    """
+    owner = await _user(session, "cleanup-owner@example.com")
+    viewer_one = await _user(session, "cleanup-viewer-1@example.com")
+    viewer_two = await _user(session, "cleanup-viewer-2@example.com")
+    deck = await service.create_node(
+        session, owner.id, node_type=NodeType.DECK, name="cleanup deck"
+    )
+    generation = deck.structural_generation
+
+    await cache.set_defset(deck.id, [81], generation=generation)
+    await cache.set_defset(deck.id, [81], generation=generation, viewer_id=viewer_one.id)
+    await cache.set_defset(deck.id, [81], generation=generation, viewer_id=viewer_two.id)
+
+    # Present before the sweep, so a test that asserted absence would be asserting
+    # its own failure to write.
+    assert await cache.get_defset(deck.id, generation, viewer_id=viewer_one.id) == [81]
+    assert await cache.get_defset(deck.id, generation, viewer_id=viewer_two.id) == [81]
+
+    await cache.delete_prior_defsets({deck.id: generation})
+
+    assert await cache.get_defset(deck.id, generation) is None
+    assert await cache.get_defset(deck.id, generation, viewer_id=viewer_one.id) is None, (
+        "the per-viewer key survived the sweep, so cleanup reached only the "
+        "anonymous key that nothing writes"
+    )
+    assert await cache.get_defset(deck.id, generation, viewer_id=viewer_two.id) is None
+
+
 async def test_subtree_read_falls_back_to_database_when_redis_fails(session, monkeypatch):
     owner = await _user(session, "redis-fallback-owner@example.com")
     deck = await service.create_node(
