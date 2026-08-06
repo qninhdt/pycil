@@ -260,6 +260,20 @@ jobs:
           test "$current" = "$heads" \
             || { echo "database at '$current', expected '$heads'"; exit 1; }
 
+      # The only place a *migrated* schema exists. `tests/conftest.py` builds its
+      # schema from the ORM with `create_all`, so a delete rule that differs
+      # between a migration and the model is invisible to every test — including
+      # the account-deletion test, which reads whatever the ORM declares.
+      #
+      # `NO ACTION` is the deliberate default here (see the script), so this pins
+      # the rules rather than demanding cascades: a migration that quietly turns
+      # one into CASCADE removes the loud failure account deletion depends on.
+      - name: Assert no foreign-key delete rule changed silently
+        working-directory: apps/api
+        run: |
+          uv run --with 'psycopg[binary]' python ../../scripts/extract-fk-delete-rules.py \
+            "postgresql://pycil:pycil@localhost:5432/pycil_test"
+
   build-images:
     # Ensure both runtime images build from the pinned Lexi VCS dependency.
     runs-on: ubuntu-latest

@@ -152,6 +152,31 @@ for _pkg in api worker; do
   fi
 done
 
+# ---- Foreign-key delete rules against a migrated schema ---------------------
+# The test suite cannot see these: conftest builds its schema from the ORM with
+# `create_all`, so a rule that differs between a migration and the model is
+# invisible to every test. `NO ACTION` is the deliberate default here — account
+# deletion's hand-maintained order depends on a forgotten table aborting the
+# delete rather than cascading — so this pins the rules rather than demanding
+# cascades.
+printf '\n\033[1m── fk delete rules ──\033[0m\n'
+if [[ -n "${WORKER_TEST_DB_URL:-}" ]]; then
+  # The same compose database, addressed synchronously: psycopg, not asyncpg.
+  _fk_dsn="${LEXI_TEST_PG_URL/postgresql+asyncpg/postgresql}"
+  _fk_out="$(cd "$REPO_ROOT/apps/api" && uv run --with 'psycopg[binary]' python \
+      "$REPO_ROOT/scripts/extract-fk-delete-rules.py" "$_fk_dsn" 2>&1)"
+  _fk_status=$?
+  tail -4 <<<"$_fk_out"
+  if (( _fk_status == 0 )); then
+    record "fk delete rules" "PASS" "$(grep -oE '[0-9]+ foreign keys' <<<"$_fk_out" | head -1) unchanged"
+  else
+    record "fk delete rules" "FAIL" "a delete rule changed, appeared or vanished"
+  fi
+else
+  record "fk delete rules" "SKIP" "no database reachable (is the stack up?)"
+  printf '  skipped (no database)\n'
+fi
+
 # ---- Documentation truth ----------------------------------------------------
 # A doc that names a file is making a checkable claim. This repo had accumulated
 # false ones from three superseded eras, and a reader cannot tell a stale path
