@@ -14,7 +14,20 @@ from pycil.db.session import async_session_factory
 
 
 def assert_dev_identity_allowed(config: Settings) -> None:
-    if config.is_production or not config.dev_identity_enabled:
+    """Refuse unless this is a named development environment and the flag is on.
+
+    Both halves are required, and the environment half is an allowlist rather than
+    "not production". Those are not the same test: this command seeds a user and
+    issues it a full token pair for any email passed on the command line, so under
+    a denylist `ENVIRONMENT=staging` — or a typo — was enough to become any learner
+    on a box holding real data. The token is not a lesser one either; it is minted
+    through `refresh_sessions.issue`, so it can refresh itself indefinitely.
+
+    `DEV_IDENTITY_ENABLED` stays as the second half because it defaults to false:
+    an environment being named `development` is not on its own a decision to allow
+    this.
+    """
+    if not config.is_development or not config.dev_identity_enabled:
         raise RuntimeError("dev identity is disabled outside explicit development mode")
 
 

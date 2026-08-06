@@ -410,3 +410,56 @@ async def test_a_failed_generation_logs_the_cause_it_discards(monkeypatch, caplo
         record.exc_info is not None and "truculent" in record.getMessage()
         for record in caplog.records
     ), f"the cause was not logged; records: {[r.getMessage() for r in caplog.records]}"
+
+
+async def test_the_task_path_logs_the_cause_it_discards(monkeypatch, caplog):
+    """The live path's silent catch, which the legacy handler's fix did not cover.
+
+    Both functions in this module swallow the provider exception and record a code.
+    The legacy `generate_word` was fixed first, but `generate_word_task` is the one
+    the route enqueues — so a real failure still recorded `word_generation_failed`
+    and discarded the reason. That gap was found the hard way: an E2E generation
+    failed, the log said only that the job returned `failed`, and the cause had to
+    be reproduced inside the container by hand.
+
+    `word_generation_failed` is the error code only this branch writes, which is how
+    the E2E failure was attributed here rather than to the legacy handler.
+    """
+    import logging
+
+    task_id, owner_id = uuid4(), uuid4()
+
+    class Reader:
+        async def search(self, _query):
+            raise RuntimeError("the provider returned an empty payload")
+
+    recorded: dict[str, object] = {}
+
+    async def transition(_session, _task_id, **kwargs):
+        recorded["error_code"] = kwargs.get("error_code")
+        return SimpleNamespace(id=task_id)
+
+    task = SimpleNamespace(id=task_id, lease_token="lease-token", lease_fence=1)
+    monkeypatch.setattr(
+        generate_word.task_service, "claim_task", lambda *_a: _resolved(task)
+    )
+    monkeypatch.setattr(generate_word.task_service, "transition_task", transition)
+
+    import fakeredis.aioredis
+
+    redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    ctx = _context(Reader(), object()) | {"redis": redis}
+    with caplog.at_level(logging.ERROR, logger=generate_word.logger.name):
+        result = await generate_word.generate_word_task(
+            ctx, str(task_id), "truculent", str(owner_id)
+        )
+
+    assert result["status"] == "failed"
+    assert recorded["error_code"] == "word_generation_failed"
+    # The traceback, not just the fact. A record without `exc_info` leaves the
+    # operator exactly where the E2E failure left me.
+    assert any(
+        record.exc_info is not None and "truculent" in record.getMessage()
+        for record in caplog.records
+    ), f"the cause was not logged; records: {[r.getMessage() for r in caplog.records]}"
+    await redis.flushall()

@@ -81,3 +81,43 @@ async def test_dev_identity_is_refused_for_a_padded_production_name(value):
     """
     with pytest.raises(RuntimeError, match="dev identity is disabled"):
         assert_dev_identity_allowed(_config(environment=value))
+
+
+@pytest.mark.parametrize("value", ["staging", "preview", "qa", "uat", "developmnet", ""])
+async def test_dev_identity_is_refused_for_any_unrecognised_environment(value):
+    """The guard is an allowlist: only named development environments may seed.
+
+    This used to be the negation of the production check, so every name neither
+    set mentioned got development's latitude. `ENVIRONMENT=staging` therefore
+    minted a bearer token for any email supplied on the command line, with no
+    credential — on a box that may hold real learners' data, and that answers
+    "no" to the separate question of whether its secrets must be real.
+
+    A typo is in this list on purpose. `developmnet` is the case a denylist
+    handles worst: it reads as development to a human skimming an env file, and
+    under the old rule it *was* treated as development, so the misspelling was
+    invisible. Now it is refused, which is how the typo announces itself.
+    """
+    with pytest.raises(RuntimeError, match="dev identity is disabled"):
+        assert_dev_identity_allowed(_config(environment=value))
+
+
+@pytest.mark.parametrize("value", ["development", "dev", "local", "test", " DEV \n"])
+async def test_dev_identity_still_works_for_the_named_development_environments(value):
+    """The allowlist must not break the workflow it exists for.
+
+    Tightening a guard until it refuses everything is not a fix, and the E2E suite
+    authenticates through this command — so a name that legitimately means "local
+    development" has to keep working, padding and case included.
+    """
+    assert_dev_identity_allowed(_config(environment=value))
+
+
+async def test_the_flag_is_still_required_inside_a_development_environment():
+    """Two independent conditions, so the allowlist is not the only thing standing.
+
+    `DEV_IDENTITY_ENABLED` defaults to false. Even on a machine that passes the
+    environment check, the seed stays off until someone opts in deliberately.
+    """
+    with pytest.raises(RuntimeError, match="dev identity is disabled"):
+        assert_dev_identity_allowed(_config(dev_identity_enabled=False))

@@ -26,8 +26,8 @@ LEXI_ROOT="${LEXI_ROOT:-$(cd "$REPO_ROOT/../lexi-ai" 2>/dev/null && pwd || true)
 # Floors measured 2026-08-06 against a green tree. Raise them when a tier grows
 # permanently; never lower one without recording why. Overridable by environment
 # so CI can tighten a floor, and so the gate itself can be probed for falsifiability.
-FLOOR_API="${FLOOR_API:-485}"
-FLOOR_WORKER="${FLOOR_WORKER:-49}"
+FLOOR_API="${FLOOR_API:-497}"
+FLOOR_WORKER="${FLOOR_WORKER:-50}"
 FLOOR_SHARED="${FLOOR_SHARED:-13}"
 FLOOR_WEB_UNIT="${FLOOR_WEB_UNIT:-114}"
 FLOOR_LEXI="${FLOOR_LEXI:-628}"

@@ -102,12 +102,32 @@ class Settings(BaseSettings):
         and having one property means a future third guard cannot disagree with
         these two.
 
-        Still a denylist: anything that is not one of these names is treated as
-        not-production, so `ENVIRONMENT=staging` gets development's latitude. That
-        is the existing behaviour and a deliberate policy question, left as it is
-        rather than tightened in a whitespace fix.
+        Deliberately still a denylist, and `is_development` below is the allowlist
+        counterpart. The asymmetry is the point: this guard decides whether to
+        *demand* real secrets, and demanding them from an unrecognised environment
+        name would refuse to boot a deployment nobody meant to harden. The guard
+        that hands out credentials cannot afford that latitude, so it asks the
+        other question.
         """
         return self.environment.strip().lower() in {"production", "prod"}
+
+    @property
+    def is_development(self) -> bool:
+        """Whether this process may mint a credential out of thin air.
+
+        An allowlist, not the negation of `is_production`. Those differ for every
+        name neither set mentions — `staging`, `preview`, `qa`, a typo — and the
+        difference is that `is_production` answers "must secrets be real?" while
+        this answers "may anyone with shell access become any learner?". A staging
+        box holding real learners' data would answer no to the first and, under a
+        denylist, yes to the second.
+
+        So an unrecognised name gets development's *restrictions* rather than its
+        latitude. Adding an environment is then a deliberate edit here, which is
+        the failure mode worth having: a new name that cannot seed a local identity
+        announces itself immediately, while one that silently can does not.
+        """
+        return self.environment.strip().lower() in {"development", "dev", "local", "test"}
 
 
 def validate_production_settings(config: Settings) -> None:

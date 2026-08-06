@@ -118,6 +118,15 @@ async def generate_word_task(
             results[0] if results else query
         )
     except Exception:
+        # The same reason the legacy handler above logs: `transition_task` stores
+        # `word_generation_failed` and nothing else, so the exception is the only
+        # account of *why* and it ends here. This is the path production actually
+        # takes — the route enqueues `generate_word_task`, not `generate_word` —
+        # which is why instrumenting only the other one left a live failure still
+        # needing a hand reproduction inside the container to explain.
+        logger.exception(
+            "generate_word_task failed for %r (task %s)", query, task_id
+        )
         async with ctx["session_factory"]() as session:
             updated = await task_service.transition_task(
                 session, task_uuid, lease_token=task.lease_token, lease_fence=task.lease_fence,

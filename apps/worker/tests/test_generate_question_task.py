@@ -112,12 +112,21 @@ async def test_prepare_questions_reports_terminal_retry_exhaustion():
 # no longer re-calls `/next`, so a task left un-transitioned is not a slow session
 # but a stopped one — which is why both outcomes below settle.
 
+_UNCLAIMED = object()
+
+
+def _default_claim() -> SimpleNamespace:
+    """A won lease. Built per call so no two recorders share one object."""
+    return SimpleNamespace(lease_token="token", lease_fence=3)
+
 
 class _Recorder:
     """Stands in for the task service, recording the transition rather than the row."""
 
-    def __init__(self, claim=SimpleNamespace(lease_token="token", lease_fence=3)):
-        self.claim = claim
+    def __init__(self, claim: object | None = _UNCLAIMED):
+        # `_UNCLAIMED` distinguishes "caller wants the default lease" from an
+        # explicit `claim=None`, which is the lost-claim case one test needs.
+        self.claim = _default_claim() if claim is _UNCLAIMED else claim
         self.transitions: list[dict] = []
 
     async def claim_task(self, _session, _task_id, _owner):
