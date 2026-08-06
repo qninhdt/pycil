@@ -14,7 +14,7 @@ from pycil.db.session import async_session_factory
 
 
 def assert_dev_identity_allowed(config: Settings) -> None:
-    if config.environment.lower() in {"production", "prod"} or not config.dev_identity_enabled:
+    if config.is_production or not config.dev_identity_enabled:
         raise RuntimeError("dev identity is disabled outside explicit development mode")
 
 

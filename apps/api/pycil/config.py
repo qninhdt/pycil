@@ -89,6 +89,26 @@ class Settings(BaseSettings):
     def allowed_oauth_redirect_uris(self) -> set[str]:
         return {uri.strip() for uri in self.oauth_redirect_uris.split(",") if uri.strip()}
 
+    @property
+    def is_production(self) -> bool:
+        """Whether this process is deployed, decided in exactly one place.
+
+        Two guards turn on here — the deploy-time placeholder check and the refusal
+        to mint a dev identity — and both used to compare `environment.lower()`
+        against a set of their own. That made `ENVIRONMENT="production "`, an
+        ordinary trailing space in an env file or a copied CI secret, silently
+        *unset* production: placeholder secrets passed validation and the dev
+        identity CLI would mint a token for any email. Stripping here fixes both,
+        and having one property means a future third guard cannot disagree with
+        these two.
+
+        Still a denylist: anything that is not one of these names is treated as
+        not-production, so `ENVIRONMENT=staging` gets development's latitude. That
+        is the existing behaviour and a deliberate policy question, left as it is
+        rather than tightened in a whitespace fix.
+        """
+        return self.environment.strip().lower() in {"production", "prod"}
+
 
 def validate_production_settings(config: Settings) -> None:
     """Fail closed for deploy-time placeholders without impairing local tests.
@@ -96,7 +116,7 @@ def validate_production_settings(config: Settings) -> None:
     Development intentionally has convenient defaults; production must provide
     real secrets, exact browser origins, and an explicit OAuth callback allowlist.
     """
-    if config.environment.lower() not in {"production", "prod"}:
+    if not config.is_production:
         return
 
     required = {

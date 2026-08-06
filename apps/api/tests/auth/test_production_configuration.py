@@ -32,6 +32,22 @@ def test_production_configuration_accepts_exact_values():
     validate_production_settings(_production_settings())
 
 
+@pytest.mark.parametrize("value", ["production ", " production", "\tprod\n", "Production"])
+def test_a_padded_environment_name_is_still_production(value):
+    """Whitespace around the value must not switch the deploy guard off.
+
+    `ENVIRONMENT=production ` is one trailing space in an env file or a copied CI
+    secret, and it used to make this function return before checking anything:
+    placeholder secrets, a wildcard origin and an empty OAuth allowlist would all
+    boot. Silence is the whole problem — nothing distinguishes "validated and
+    safe" from "never ran".
+    """
+    with pytest.raises(RuntimeError, match="JWT_SECRET"):
+        validate_production_settings(
+            _production_settings(environment=value, jwt_secret="changeme")
+        )
+
+
 @pytest.mark.parametrize(
     "overrides, expected",
     [

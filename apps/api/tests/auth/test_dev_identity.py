@@ -68,3 +68,16 @@ async def test_dev_identity_issues_a_usable_refresh_token(session):
 async def test_dev_identity_fails_closed(config):
     with pytest.raises(RuntimeError, match="dev identity is disabled"):
         assert_dev_identity_allowed(config)
+
+
+@pytest.mark.parametrize("value", ["production ", " production", "\tprod\n", "PRODUCTION"])
+async def test_dev_identity_is_refused_for_a_padded_production_name(value):
+    """A trailing space must not re-enable the seed on a deployed instance.
+
+    This command mints a bearer token for whatever email it is handed, with no
+    credential of any kind. `ENVIRONMENT=production ` used to fall outside the
+    refusal — one stray character in an env file or a copied CI secret, and the
+    guard is off while every other production check reads as passing.
+    """
+    with pytest.raises(RuntimeError, match="dev identity is disabled"):
+        assert_dev_identity_allowed(_config(environment=value))
