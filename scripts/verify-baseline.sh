@@ -30,7 +30,7 @@ FLOOR_API="${FLOOR_API:-470}"
 FLOOR_WORKER="${FLOOR_WORKER:-44}"
 FLOOR_SHARED="${FLOOR_SHARED:-13}"
 FLOOR_WEB_UNIT="${FLOOR_WEB_UNIT:-110}"
-FLOOR_LEXI="${FLOOR_LEXI:-624}"
+FLOOR_LEXI="${FLOOR_LEXI:-625}"
 
 # Coverage floors, applied only to a whole-suite run. They live here rather than in
 # each package's `addopts` because a threshold there also judges a single-file run,
