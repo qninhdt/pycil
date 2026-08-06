@@ -6,12 +6,13 @@
 # so a branch SHA proves Pycil green before anything lands on a public OSS main.
 # Pushing first makes the redesign unrollbackable.
 #
-# This exists so the release is a command rather than seven remembered steps. Every
+# This exists so the release is a command rather than eight remembered steps. Every
 # one of them is checkable, and the order matters:
 #
 #   1. Lexi green on its own, including its Postgres tier — nothing downstream can
 #      recover from a broken dictionary.
-#   2. Push the branch to `main`.
+#   2. Push the BRANCH to origin. Reversible, and it gives Pycil a fetchable SHA
+#      to pin without committing anyone to it.
 #   3. Re-pin the SHA in apps/api/pyproject.toml.
 #   4. Relock BOTH apps/api/uv.lock and apps/worker/uv.lock. The worker embeds Lexi
 #      too, and a half-relocked pair means the api and the worker disagree about
@@ -22,6 +23,12 @@
 #      and a stack that will not boot.
 #   6. Rebuild the api and worker images.
 #   7. Full baseline, then E2E.
+#   8. Only now, push to `main`.
+#
+# Steps 2 and 8 used to be one step, run second — which contradicted the paragraph
+# above: it put the redesign on a public main and *then* checked whether Pycil was
+# green against it. Splitting them is the whole point of the ordering, and `set -e`
+# makes a failure anywhere in 1-7 stop before `main` moves.
 #
 # Usage:
 #   scripts/release-lexi.sh            # dry run: prints what it would do
@@ -67,8 +74,12 @@ else
   printf '  would run: uv run pytest -q && uv run lint-imports (in %s)\n' "$LEXI_ROOT"
 fi
 
-say "2. push to lexi main"
-run git -C "$LEXI_ROOT" push origin "HEAD:main"
+say "2. push the branch to origin (NOT main)"
+# Reversible on purpose, and this is the step the old version got wrong: it pushed
+# straight to `main` here and verified at the end, so a red baseline left the
+# redesign already public. A branch ref carries the same SHA for Pycil to pin
+# without committing anyone to it.
+run git -C "$LEXI_ROOT" push -u origin "HEAD:refs/heads/$LEXI_BRANCH"
 
 say "3. re-pin the SHA"
 if (( CONFIRMED )); then
@@ -101,9 +112,16 @@ fi
 say "6. rebuild the images"
 run docker compose -f "$REPO_ROOT/docker-compose.yml" up -d --build api worker
 
-say "7. verify"
+say "7. verify — everything must be green BEFORE main moves"
 run bash "$REPO_ROOT/scripts/verify-baseline.sh"
 run bash -c "cd '$REPO_ROOT/apps/web' && npx playwright test --project=chromium"
+
+# The one irreversible step, and it is last on purpose. Everything above is either
+# local or a branch ref, so a red tier at step 7 costs a `git reset` rather than a
+# public `main` carrying an unproven redesign. `set -e` means a failure above never
+# reaches this line.
+say "8. push to lexi main"
+run git -C "$LEXI_ROOT" push origin "HEAD:main"
 
 if (( CONFIRMED )); then
   printf '\n\033[1mReleased.\033[0m Commit the pin and the lockfiles.\n'
