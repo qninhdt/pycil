@@ -38,7 +38,11 @@ export type { RunPhase }
 export function useAssistantRun(threadId: string | null) {
   const store = useAssistantStoreApi()
   const session = useAssistantStore((state) => state.session)
-  const recovering = useAssistantStore((state) => state.recovering)
+  // Narrowed to this thread, so a recovery running on another conversation neither
+  // spins this one's button nor disables it.
+  const recovering = useAssistantStore(
+    (state) => state.recovering !== null && state.recovering === threadId,
+  )
 
   // The session for the thread being asked about, which is empty whenever the held one
   // belongs to a different conversation.
@@ -70,7 +74,15 @@ export function useAssistantRun(threadId: string | null) {
 
     void (async () => {
       const result = await getThreadMessages(threadId)
-      if (!active || !result.success) return
+      if (!active) return
+      if (!result.success) {
+        // Released so reopening the thread reads it again, and stated so the learner
+        // is not left looking at a blank transcript that claims nothing is wrong.
+        // Holding the marker would make one blocked read permanent for the page.
+        if (transport.loadedThreadId === threadId) transport.loadedThreadId = null
+        state.updateSession(threadId, () => ({ problem: result.code }))
+        return
+      }
       state.updateSession(threadId, () => ({ events: result.data }))
 
       // Whether the newest run is still unfinished. Without this a reload was a dead
@@ -280,7 +292,7 @@ export function useAssistantRun(threadId: string | null) {
     if (!threadId) return
     const state = store.getState()
 
-    state.setRecovering(true)
+    state.setRecovering(threadId)
     try {
       const refreshed = await getThreadMessages(threadId)
       if (!refreshed.success) {
@@ -310,7 +322,12 @@ export function useAssistantRun(threadId: string | null) {
         run.data.status === "running" || run.data.status === "interrupted"
       state.updateSession(threadId, () => ({ phase: unfinished ? "abandoned" : "idle" }))
     } finally {
-      store.getState().setRecovering(false)
+      // Cleared only if this thread's own recovery is still the outstanding one. A
+      // recovery started on another conversation while this was in flight owns the
+      // marker now, and clearing it here would re-enable that thread's controls
+      // mid-read.
+      const current = store.getState()
+      if (current.recovering === threadId) current.setRecovering(null)
     }
   }, [threadId, store])
 

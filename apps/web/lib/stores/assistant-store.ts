@@ -126,21 +126,35 @@ export interface AssistantState {
    */
   lastSent: string
   /**
-   * True while a recovery read is outstanding, so the button that started it can say
-   * so. Separate from `phase`, because recovering does not change what the run is: a
-   * run that was abandoned is still abandoned while its transcript is being re-read.
+   * The thread whose recovery read is outstanding, or null.
+   *
+   * A thread id rather than a boolean, and for the same reason `RunSession` carries
+   * one: this store deliberately outlives the components that read it, so a flag
+   * shared across conversations reports thread A's recovery as thread B's. It would
+   * disable B's buttons for work that is not B's, and A's completion would clear
+   * B's spinner while B's own read was still in flight — re-enabling the control and
+   * permitting a second concurrent recovery.
    */
-  recovering: boolean
+  recovering: string | null
   transport: AssistantTransport
 
   openThread: (threadId: string | null) => void
-  setThreads: (threads: Thread[], problem: string | null) => void
+  /**
+   * Records a listing.
+   *
+   * `read` is false for a failed one, and that is not bookkeeping: `listRead` gates
+   * whether an empty list means "no conversations" or "no answer yet", and a failed
+   * read has not answered. Marking it read would let one blocked request close the
+   * open conversation.
+   */
+  setThreads: (threads: Thread[], problem: string | null, read?: boolean) => void
   setLastSent: (content: string) => void
   updateSession: (
     forThreadId: string | null,
     patch: (current: RunSession) => Partial<RunSession>,
   ) => void
-  setRecovering: (recovering: boolean) => void
+  /** Marks a thread's recovery read as outstanding, or clears it with null. */
+  setRecovering: (threadId: string | null) => void
 }
 
 export type AssistantStore = ReturnType<typeof createAssistantStore>
@@ -153,13 +167,20 @@ export function createAssistantStore() {
     openThreadId: null,
     session: emptyRunSession(null),
     lastSent: "",
-    recovering: false,
+    recovering: null,
     transport: { abort: null, turnKey: null, loadedThreadId: null, listLoaded: false },
 
     openThread: (threadId) => set({ openThreadId: threadId }),
-    setThreads: (threads, problem) => set({ threads, listProblem: problem, listRead: true }),
+    setThreads: (threads, problem, read = true) =>
+      // `listRead` only ever moves forward: a failed refresh after a successful read
+      // must not take the list back to "no answer yet".
+      set((state) => ({
+        threads,
+        listProblem: problem,
+        listRead: state.listRead || read,
+      })),
     setLastSent: (content) => set({ lastSent: content }),
-    setRecovering: (recovering) => set({ recovering }),
+    setRecovering: (threadId) => set({ recovering: threadId }),
 
     /** Applies a patch, unless the thread it was computed for is no longer open. */
     updateSession: (forThreadId, patch) =>

@@ -60,10 +60,18 @@ function AssistantBody() {
   // cache made survivable across the drawer being reopened; now the state outlives
   // the component itself, so the cache was providing only its own provider. The flag
   // is what keeps a remount from refetching — which is the property that mattered.
+  //
+  // The flag is *released on failure*, which is the other half the cache used to
+  // provide. Holding it either way would make one blocked request permanent: the
+  // list would stay empty for the page's lifetime, and since a thread not in the
+  // list cannot be opened, the assistant would be unusable until a full reload.
   useEffect(() => {
-    if (store.getState().transport.listLoaded) return
-    store.getState().transport.listLoaded = true
-    void refreshThreads(store)
+    const { transport } = store.getState()
+    if (transport.listLoaded) return
+    transport.listLoaded = true
+    void refreshThreads(store).then((ok) => {
+      if (!ok) transport.listLoaded = false
+    })
   }, [store])
 
   // A deleted thread must not stay open behind a transcript it no longer owns.
@@ -162,21 +170,26 @@ function AssistantBody() {
 }
 
 /**
- * Reads the thread list into the store.
+ * Reads the thread list into the store. Returns whether it succeeded.
  *
  * A failed *action* returns a code rather than throwing, so the failure is inside the
  * resolved value; a thrown one is transport. Both have to surface, and neither may
  * clear a list already on screen — a failed refresh after a delete should say so
  * beside the conversations, not replace them with nothing.
+ *
+ * The boolean is what lets the caller retry. A failed first read that recorded
+ * itself as done would leave the list permanently empty, and an empty list means no
+ * thread can be opened at all.
  */
-async function refreshThreads(store: AssistantStore): Promise<void> {
+async function refreshThreads(store: AssistantStore): Promise<boolean> {
   const result = await listThreads()
   const state = store.getState()
   if (result.success) {
     state.setThreads(result.data, null)
-    return
+    return true
   }
-  state.setThreads(state.threads, result.code)
+  state.setThreads(state.threads, result.code, false)
+  return false
 }
 
 /**

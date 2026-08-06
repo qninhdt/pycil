@@ -164,28 +164,40 @@ export function SessionRunner({
   // verdict: it is wiped off the screen before the learner sees it, and the question
   // it belonged to is behind them.
   //
-  // Keyed by the question rather than held as a boolean, for the same reason the
-  // draft above is keyed: a boolean has to be released, and the window between
-  // releasing it and React committing the new phase is exactly the window this
-  // exists to close. A new question carries a new key, so nothing is released at all.
+  // Keyed rather than held as a boolean, for the same reason the draft above is
+  // keyed: a boolean has to be released, and the window between releasing it and
+  // React committing the new phase is exactly the window this exists to close.
+  //
+  // The key carries the reducer's delivery ordinal, not just the question, because
+  // the question alone is not unique — `restore_delivered` un-excludes an id so an
+  // aborted checkpoint can be re-served, and a key naming only the question would
+  // match the spent one and silently refuse the first submit of a question the
+  // learner is being asked afresh.
   const submitted = useRef<string | null>(null)
+  const deliveryKey = questionKey === null ? null : `${state.delivered}:${questionKey}`
 
   const onSubmit = useCallback(async () => {
     if (phase.kind !== "asking" || !canSubmit(phase)) return
     const id = phase.question.questionId
-    if (id == null) return
+    if (id == null || deliveryKey === null) return
 
-    const key = `${phase.question.senseId}:${id}`
-    if (submitted.current === key) return
-    submitted.current = key
+    if (submitted.current === deliveryKey) return
+    submitted.current = deliveryKey
     dispatch({ type: "answer_started" })
     const result = await submitAnswer(sessionId, id, answer)
 
     if (!result.success) {
-      // A failure may leave the question on screen and answerable — a spent grading
-      // quota does exactly that — so the guard reopens. The codes that do not leave
-      // it answerable move the phase on, which changes the key anyway.
-      submitted.current = null
+      // Released only for the one code that provably re-arms the server's bind.
+      //
+      // `answer_grading_quota_exceeded` calls `set_delivered` before raising,
+      // precisely so the learner still looking at the question can submit it again.
+      // Every other failure either moves the phase on — which is a new delivery, so
+      // nothing needs releasing — or leaves the question on screen with the delivery
+      // already consumed. Releasing there would reopen the very window this guard
+      // exists to close: the second submit fails the consume-once CAS, the reducer
+      // reads that as a desync and re-polls `/next`, and the question the learner
+      // was looking at disappears with an answer that may already have been graded.
+      if (result.code === "answer_grading_quota_exceeded") submitted.current = null
       dispatch({ type: "answer_failed", code: result.code })
       return
     }
@@ -198,7 +210,7 @@ export function SessionRunner({
     }
 
     dispatch({ type: "answer_graded", grade: result.data })
-  }, [phase, sessionId, answer, register])
+  }, [phase, sessionId, answer, register, deliveryKey])
 
   // --- an asynchronous grade ----------------------------------------------------
   //

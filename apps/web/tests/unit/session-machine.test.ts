@@ -55,6 +55,7 @@ describe("initialSessionState", () => {
     expect(state.roundServed).toBe(0)
     expect(state.answered).toBe(0)
     expect(state.correct).toBe(0)
+    expect(state.delivered).toBe(0)
   })
 
   it("seeds the round position from a resumed session", () => {
@@ -93,6 +94,32 @@ describe("next_received", () => {
     if (state.phase.kind === "break") expect(state.phase.roundIndex).toBe(1)
     expect(state.roundIndex).toBe(1)
     expect(state.roundServed).toBe(0)
+  })
+
+  it("counts every delivery, so a re-served question is distinguishable", () => {
+    // `delivered` is an identity, not a statistic: the runner's submit guard is
+    // keyed on it. A question is not unique within a session — `restore_delivered`
+    // un-excludes an id so an aborted checkpoint can come back — so the same sense
+    // and question can be served twice, and a guard keyed only on those would refuse
+    // the second delivery's first submit with no notice and no way out.
+    let state = asking()
+    expect(state.delivered).toBe(1)
+
+    // A round boundary restarts `roundServed` and must NOT restart this.
+    state = sessionReducer(state, {
+      type: "next_received",
+      next: { state: "break", roundIndex: 1 },
+    })
+    expect(state.roundServed).toBe(0)
+    expect(state.delivered).toBe(1)
+
+    // The same question again, exactly as a restored checkpoint arrives.
+    state = sessionReducer(state, { type: "next_received", next: ready() })
+    expect(state.roundServed).toBe(1)
+    expect(
+      state.delivered,
+      "the second delivery of one question is indistinguishable from the first",
+    ).toBe(2)
   })
 
   it("finishes on exhausted", () => {

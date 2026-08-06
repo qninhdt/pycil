@@ -63,6 +63,18 @@ export interface SessionMachineState {
   roundIndex: number
   /** Questions delivered in the current round, for the round indicator. */
   roundServed: number
+  /**
+   * Every delivery this session has made, never reset.
+   *
+   * Distinct from `roundServed`, which restarts each round, and it exists to be an
+   * *identity* rather than a statistic. A question is not unique within a session:
+   * `restore_delivered` drops an id from the exclusion set so an aborted checkpoint
+   * can be re-served, so the same sense and question can legitimately come back in
+   * a later round. Anything guarding "have I already submitted this one" therefore
+   * needs a counter, because the pair alone cannot tell the second delivery from
+   * the first.
+   */
+  delivered: number
   /** Submissions made, whether or not their grade has settled. */
   answered: number
   correct: number
@@ -94,6 +106,7 @@ export function initialSessionState(seed?: {
     pollAttempt: 0,
     roundIndex: seed?.roundIndex ?? 0,
     roundServed: seed?.roundServed ?? 0,
+    delivered: 0,
     answered: 0,
     correct: 0,
   }
@@ -143,6 +156,7 @@ function applyNext(state: SessionMachineState, next: NextQuestion): SessionMachi
         ...state,
         pollAttempt: 0,
         roundServed: state.roundServed + 1,
+        delivered: state.delivered + 1,
         phase: {
           kind: "asking",
           question: next,
