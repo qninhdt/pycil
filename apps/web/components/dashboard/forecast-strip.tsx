@@ -1,11 +1,28 @@
 import type { ForecastDay } from "@/lib/api/types"
 
-/** Weekday initial for a `YYYY-MM-DD` date, in the viewer's locale. */
+/**
+ * Two-letter weekday labels, indexed by `Date.getUTCDay()`.
+ *
+ * Hardcoded rather than derived from `toLocaleDateString`. This component
+ * renders on the server, where the locale is the container's ICU default, and
+ * hydrates in a browser using the visitor's. Those disagree for anyone not on
+ * en-US: the server ships "Mo", the client expects "Lu", and React replaces the
+ * text after hydration — a visible flash, and a mismatch the existing hydration
+ * test cannot catch because CI runs both sides in the same locale.
+ *
+ * The rest of the interface is not translated, so a localised weekday would be
+ * the only translated string on the page. When that changes, this should move
+ * behind the same i18n mechanism as everything else rather than back to reading
+ * the ambient locale.
+ */
+const WEEKDAY_INITIALS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"] as const
+
+/** Weekday initials for a `YYYY-MM-DD` date. Identical on server and client. */
 function weekday(date: string): string {
   // Parsed as UTC noon rather than midnight: a midnight UTC date shifts to the
   // previous day for anyone west of UTC, so every label would be off by one.
   const parsed = new Date(`${date}T12:00:00Z`)
-  return parsed.toLocaleDateString(undefined, { weekday: "short" }).slice(0, 2)
+  return WEEKDAY_INITIALS[parsed.getUTCDay()] ?? ""
 }
 
 /**
