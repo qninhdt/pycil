@@ -27,7 +27,7 @@ LEXI_ROOT="${LEXI_ROOT:-$(cd "$REPO_ROOT/../lexi-ai" 2>/dev/null && pwd || true)
 # permanently; never lower one without recording why. Overridable by environment
 # so CI can tighten a floor, and so the gate itself can be probed for falsifiability.
 FLOOR_API="${FLOOR_API:-467}"
-FLOOR_WORKER="${FLOOR_WORKER:-38}"
+FLOOR_WORKER="${FLOOR_WORKER:-44}"
 FLOOR_SHARED="${FLOOR_SHARED:-13}"
 FLOOR_WEB_UNIT="${FLOOR_WEB_UNIT:-110}"
 FLOOR_LEXI="${FLOOR_LEXI:-623}"
@@ -52,18 +52,36 @@ for arg in "$@"; do
   esac
 done
 
-# Lexi's Postgres tier skips itself when LEXI_TEST_PG_URL is unset, which silently
-# shrinks the suite by 10 tests and proves nothing about the schema. Point it at
-# the compose database when the caller has not chosen one, and set LEXI_REQUIRE_PG
-# so a broken connection is a loud error rather than a quiet skip.
-if [[ -z "${LEXI_TEST_PG_URL:-}" && -f "$REPO_ROOT/.env" ]]; then
+# Two tiers skip themselves when a Postgres DSN is absent, and a skipped tier
+# proves nothing while reporting the same green as a passing one.
+#
+# Lexi's Postgres tier silently shrinks the suite by 10 tests. The worker's
+# reconciler tests are worse: those six stand between the 24h purge and a
+# learner's answer text, and they had never run locally or in CI.
+#
+# Both are pointed at the compose database when the caller has not chosen one,
+# and Lexi's REQUIRE flag makes a broken connection loud rather than quiet.
+if [[ -f "$REPO_ROOT/.env" ]]; then
   _pg_password="$(grep -m1 '^POSTGRES_PASSWORD=' "$REPO_ROOT/.env" | cut -d= -f2- || true)"
   _pg_user="$(grep -m1 '^POSTGRES_USER=' "$REPO_ROOT/.env" | cut -d= -f2- || true)"
   _pg_db="$(grep -m1 '^POSTGRES_DB=' "$REPO_ROOT/.env" | cut -d= -f2- || true)"
   _pg_port="$(docker compose -f "$REPO_ROOT/docker-compose.yml" port postgres 5432 2>/dev/null | sed 's/.*://' || true)"
   if [[ -n "$_pg_password" && -n "$_pg_port" ]]; then
-    export LEXI_TEST_PG_URL="postgresql+asyncpg://${_pg_user:-pycil}:${_pg_password}@127.0.0.1:${_pg_port}/${_pg_db:-pycil}"
-    export LEXI_REQUIRE_PG=1
+    _pg_dsn="postgresql+asyncpg://${_pg_user:-pycil}:${_pg_password}@127.0.0.1:${_pg_port}"
+    if [[ -z "${LEXI_TEST_PG_URL:-}" ]]; then
+      export LEXI_TEST_PG_URL="${_pg_dsn}/${_pg_db:-pycil}"
+      export LEXI_REQUIRE_PG=1
+    fi
+    # A database of its own, because these tests `drop_all`/`create_all`: pointing
+    # them at the live compose database would erase it.
+    if [[ -z "${WORKER_TEST_DB_URL:-}" ]]; then
+      _compose=("docker" "compose" "-f" "$REPO_ROOT/docker-compose.yml" "exec" "-T" "postgres")
+      "${_compose[@]}" createdb -U "${_pg_user:-pycil}" pycil_worker_test >/dev/null 2>&1 || true
+      if [[ "$("${_compose[@]}" psql -U "${_pg_user:-pycil}" -d "${_pg_db:-pycil}" -tAc \
+                "SELECT 1 FROM pg_database WHERE datname='pycil_worker_test'" 2>/dev/null | tr -d '[:space:]')" == "1" ]]; then
+        export WORKER_TEST_DB_URL="${_pg_dsn}/pycil_worker_test"
+      fi
+    fi
   fi
 fi
 

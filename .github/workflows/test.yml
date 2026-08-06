@@ -166,6 +166,26 @@ jobs:
     # Execute worker behaviour tests separately; lint alone cannot catch an
     # unregistered job or an API-package import failure in the worker image.
     runs-on: ubuntu-latest
+    # Postgres because the reconciler tests need one. Without it they call
+    # `pytest.skip`, and the six tests standing between the 24h purge and a
+    # learner's answer text — the purge nulls `raw_answer`, and the bug was that
+    # it did so under a live grading lease — never ran here at all. A job that
+    # skips its most consequential tests reports the same green as one that
+    # passes them.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: pycil
+          POSTGRES_PASSWORD: pycil
+          POSTGRES_DB: pycil_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v7
       - name: Install uv
@@ -182,9 +202,16 @@ jobs:
         run: uv run pytest --collect-only -q >/dev/null
       - name: Run worker tests
         working-directory: apps/worker
+        env:
+          # The reconciler tests skip themselves without this, silently.
+          TEST_DB_URL: postgresql+asyncpg://pycil:pycil@localhost:5432/pycil_test
         # See the shared-py job: the threshold belongs at the whole-suite
         # invocation. Matches COV_WORKER in scripts/verify-baseline.sh.
-        run: uv run pytest -q --cov-fail-under=81
+        #
+        # `-rs` prints the skip reasons: this job's whole point is that a skip
+        # here is a coverage hole, so it must be visible in the log rather than
+        # summarised as a number.
+        run: uv run pytest -q -rs --cov-fail-under=81
 
   migration-head:
     # A metadata create_all test does not prove Alembic's actual upgrade path.
