@@ -13,6 +13,24 @@
  *
  * Run: `node scripts/design-system-audit.mjs` (wired as `pnpm --filter web audit:design`).
  * Exit code is non-zero on any violation, so CI can gate on it.
+ *
+ * **What this does not catch**, stated because a green gate reads as "the design
+ * system holds" and it means something narrower than that:
+ *
+ * - **Contrast.** Nothing here computes a ratio, so a token pair that fails WCAG AA
+ *   passes every rule below. The a11y spec's axe run is what covers that, on the
+ *   routes it visits.
+ * - **Anything outside `app/` and `components/`.** A raw hex in `lib/`, in a chart
+ *   config, or in `globals.css` is unseen.
+ * - **Classes composed through `cn()` or a variable.** The greps read source text,
+ *   so `cn("p-4", condition && "shadow-lg")` is caught but
+ *   `` cn(`shadow-${size}`) `` is not.
+ * - **Semantic token misuse.** Using `bg-destructive` for a neutral surface goes
+ *   through the semantic layer and is therefore correct by these rules and wrong by
+ *   the design system.
+ * - **Dark-mode token parity.** A token defined for light and not dark passes: the
+ *   `dark:` rule forbids call-site overrides, it does not check the palette is
+ *   complete.
  */
 import { readFileSync, readdirSync, statSync } from "node:fs"
 import { dirname, extname, join, relative, resolve } from "node:path"
