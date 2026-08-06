@@ -133,7 +133,7 @@ describe("next_received", () => {
   it("polls on preparing, incrementing the attempt without leaving advancing", () => {
     const state = sessionReducer(initialSessionState(), {
       type: "next_received",
-      next: { state: "preparing" },
+      next: { state: "preparing", taskId: null },
     })
     expect(state.phase.kind).toBe("preparing")
     expect(state.pollAttempt).toBe(1)
@@ -151,10 +151,21 @@ describe("next_received", () => {
   it("stalls once the poll budget is spent rather than polling forever", () => {
     let state = initialSessionState()
     for (let i = 0; i < MAX_POLL_ATTEMPTS; i++) {
-      state = sessionReducer(state, { type: "next_received", next: { state: "preparing" } })
+      state = sessionReducer(state, { type: "next_received", next: { state: "preparing", taskId: null } })
     }
     expect(state.pollAttempt).toBe(MAX_POLL_ATTEMPTS)
     expect(state.phase.kind).toBe("stalled")
+  })
+
+  it("carries the supply task id onto the preparing surface", () => {
+    // The id is what the runner subscribes to. Dropping it here is not a cosmetic
+    // loss: the screen falls back to re-calling `/next`, which is the mutating
+    // poll the subscription exists to remove.
+    const state = sessionReducer(initialSessionState(), {
+      type: "next_received",
+      next: { state: "preparing", taskId: "task-1" },
+    })
+    expect(state.phase).toEqual({ kind: "preparing", taskId: "task-1" })
   })
 
   it("carries the isFallback flag through onto the asked question", () => {
@@ -170,7 +181,7 @@ describe("poll_again vs advance", () => {
   it("advance resets the poll counter so a retry from a stall gets a fresh budget", () => {
     let state = sessionReducer(initialSessionState(), {
       type: "next_received",
-      next: { state: "preparing" },
+      next: { state: "preparing", taskId: null },
     })
     expect(state.pollAttempt).toBe(1)
     state = sessionReducer(state, { type: "advance" })
@@ -181,12 +192,53 @@ describe("poll_again vs advance", () => {
   it("poll_again preserves the counter so the budget is actually spent", () => {
     let state = sessionReducer(initialSessionState(), {
       type: "next_received",
-      next: { state: "preparing" },
+      next: { state: "preparing", taskId: null },
     })
     expect(state.pollAttempt).toBe(1)
     state = sessionReducer(state, { type: "poll_again" })
     expect(state.phase.kind).toBe("advancing")
     expect(state.pollAttempt).toBe(1)
+  })
+})
+
+describe("supply announced by event", () => {
+  it("a settled supply task advances without spending the poll budget", () => {
+    let state = sessionReducer(initialSessionState(), {
+      type: "next_received",
+      next: { state: "preparing", taskId: "task-1" },
+    })
+    expect(state.pollAttempt).toBe(1)
+
+    state = sessionReducer(state, { type: "supply_settled" })
+
+    expect(state.phase.kind).toBe("advancing")
+    // Preserved rather than reset, for the same reason `poll_again` preserves it.
+    // A supply task can settle without producing a deliverable question, which puts
+    // `/next` straight back into `preparing`; resetting here would let those two
+    // trade forever and the screen would never reach a stall.
+    expect(state.pollAttempt).toBe(1)
+  })
+
+  it("ignores a supply event that arrives after the screen has moved on", () => {
+    // The learner retried from a stall, or a question arrived by another route.
+    // Acting on a late event would yank them out of whatever they moved on to.
+    const asked = asking()
+    const state = sessionReducer(asked, { type: "supply_settled" })
+    expect(state).toBe(asked)
+  })
+
+  it("still stalls when no task is ever issued, so a refused slot cannot hang", () => {
+    // `taskId: null` means the generation slot refused or the cooldown has not
+    // elapsed. There is nothing to subscribe to, so the bounded backoff must still
+    // reach its terminal state rather than waiting on an event that never comes.
+    let state = initialSessionState()
+    for (let i = 0; i < MAX_POLL_ATTEMPTS; i++) {
+      state = sessionReducer(state, {
+        type: "next_received",
+        next: { state: "preparing", taskId: null },
+      })
+    }
+    expect(state.phase.kind).toBe("stalled")
   })
 })
 

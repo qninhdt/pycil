@@ -23,12 +23,12 @@ from arq.connections import RedisSettings
 from arq.cron import cron
 from lexi_ai import Lexicon
 from pycil.config import settings
-from pycil.ports.lexi_embedded import create_lexicon_reader
 from pycil.ports.lexi import LexiReader, LexiWorkerEngine
+from pycil.ports.lexi_embedded import create_lexicon_reader
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from pycil_worker.jobs.dispatch_task_outbox import dispatch_task_outbox
-from pycil_worker.jobs.generate_question import prepare_questions
+from pycil_worker.jobs.generate_question import prepare_questions, prepare_questions_task
 from pycil_worker.jobs.generate_word import generate_word, generate_word_task
 from pycil_worker.jobs.grade_answer import grade_answer, grade_answer_task, grade_answer_v1
 from pycil_worker.jobs.heartbeat import heartbeat
@@ -116,6 +116,7 @@ class WorkerSettings:
         generate_word,
         generate_word_task,
         prepare_questions,
+        prepare_questions_task,
         grade_answer,
         grade_answer_v1,
         grade_answer_task,

@@ -41,6 +41,8 @@ from pycil.learning.domain import resolver
 from pycil.learning.domain.resolver import ResolvedQuestion
 from pycil.learning.infra import session_store
 from pycil.ports.lexi import LexiReader
+from pycil.tasks.application import service as task_service
+from pycil.tasks.domain.work_keys import supply_work_key
 
 # How many times session creation re-plans when a structural mutation lands mid-flight.
 _PLAN_ATTEMPTS = 2
@@ -76,9 +78,17 @@ class NoQuestionYet:
     ``preparing``  supply was requested, or another request took the candidate.
     ``waiting``    open work exists but nothing is servable this instant.
     ``exhausted``  the session is complete; the recap is written and Redis is gone.
+
+    ``supply_task_id`` is the durable task the client subscribes to instead of
+    asking again, and it is set only on ``preparing`` — and not always even then.
+    A request refused by the per-learner slot or still inside its cooldown starts
+    no task, so there is nothing to subscribe to and the client keeps its bounded
+    fallback for exactly that case. `None` therefore means "ask again shortly",
+    not "no supply is coming".
     """
 
     reason: Literal["preparing", "waiting", "exhausted"]
+    supply_task_id: UUID | None = None
 
 
 DeliveryOutcome = Delivered | RoundBreak | NoQuestionYet
@@ -119,10 +129,17 @@ async def start(
     )
 
     if plan.demands:
+        # Round 0: the session exists but no round has been entered yet, and
+        # `next_question` advances 0 -> 1 on the first call. Keying the warm-up at 0
+        # means the first `/next` requests supply for round 1 under its own key
+        # rather than joining this one, which is correct — they are different
+        # demands, computed before and after admission.
         await request_supply(
+            session,
             redis,
             session_id=session_id,
             owner_id=user.id,
+            round_index=0,
             demands=[
                 (int(d.sense_id), d.difficulty_level, d.expected_count)
                 for d in plan.demands
@@ -168,13 +185,28 @@ async def _plan_under_stable_scope(
     raise ConflictError("session_scope_changed")
 
 
+@dataclass(frozen=True)
+class SupplyRequest:
+    """What a supply request produced: its disposition, and a task to watch.
+
+    ``task_id`` is set only for ``requested``, and is what makes the client's wait
+    an event rather than a poll. The other three states start no work — there is
+    nothing to announce, so there is nothing to subscribe to.
+    """
+
+    state: Literal["requested", "cooling", "no_slot", "exhausted"]
+    task_id: UUID | None = None
+
+
 async def request_supply(
+    session: AsyncSession,
     redis: Redis,
     *,
     session_id: str,
     owner_id: UUID,
+    round_index: int,
     demands: list[tuple[int, int, int]],
-) -> Literal["requested", "cooling", "no_slot", "exhausted"]:
+) -> SupplyRequest:
     """Ask the worker to generate questions, under a per-learner slot and a budget.
 
     Two independent bounds, both load-bearing and both easy to mistake for each
@@ -186,24 +218,68 @@ async def request_supply(
       ``question_preparation_exhausted`` — it caps how many supply jobs a single
       session can ever enqueue.
 
-    The enqueue itself is best-effort: the attempt is already consumed, so a failed
-    enqueue enters cooldown and the next ``/next`` retries rather than failing the
-    learner's request.
+    The work is submitted through the task registry rather than enqueued directly,
+    which is what gives the client something to subscribe to: the channel the
+    subscribe proxy admits is ``async:{task_id}`` backed by a live interest, so
+    without a task row there is no channel and the only way to learn that supply
+    landed is to call ``/next`` again. That call mutates — it advances rounds and
+    reserves deliveries — which is why asking repeatedly is the thing worth
+    removing.
+
+    The enqueue stays best-effort, and for a sharper reason than before: the task
+    row is committed, so `reconcile_async_tasks` re-enqueues anything whose ARQ
+    submission was lost. A failure here costs latency, not the work.
     """
+    work_key = supply_work_key(session_id, round_index)
+
+    # An already-running task for this round is reported before the bounds are
+    # consulted. Both bounds guard *starting* generation, and neither has anything
+    # to say about work already paid for — but reaching them first would answer
+    # `cooling` with no task id, and the client reads a null id as "nothing to
+    # subscribe to" and falls back to asking again. That is the exact case a reload
+    # produces: the wait is re-established, the task is mid-flight, and the learner
+    # would poll until the budget stalls while their questions were being written.
+    live = await task_service.find_live_task(session, kind="question_supply", work_key=work_key)
+    if live is not None:
+        return SupplyRequest("requested", live.id)
+
     if not await session_store.take_generation_slot(redis, owner_id):
-        return "no_slot"
+        return SupplyRequest("no_slot")
     state = await session_store.claim_prepare_attempt(redis, session_id)
     if state == "waiting":
-        return "cooling"
+        return SupplyRequest("cooling")
     if state != "claimed":
-        return "exhausted"
-    try:
-        pool = await get_arq_pool()
-        await pool.enqueue_job("prepare_questions", str(owner_id), demands)
-    except Exception:
-        # The consumed attempt enters cooldown; /next retries after it.
-        pass
-    return "requested"
+        return SupplyRequest("exhausted")
+
+    submission = await task_service.submit_or_join(
+        session,
+        kind="question_supply",
+        server_work_key=work_key,
+        requester_id=owner_id,
+        command_kind="question_supply.request",
+        # One command per session-round, so a retried request joins the task it
+        # already started instead of receipting a second one.
+        command_id=f"{session_id}:{round_index}",
+        provenance="session-owner",
+        dispatch={
+            "owner_id": str(owner_id),
+            "session_id": session_id,
+            "round_index": round_index,
+            "demands": [list(demand) for demand in demands],
+        },
+    )
+    if submission.task_created:
+        try:
+            pool = await get_arq_pool()
+            await pool.enqueue_job(
+                "prepare_questions_task",
+                str(submission.task.id),
+                str(owner_id),
+                demands,
+            )
+        except Exception:  # the durable row is committed; the reconciler retries
+            pass
+    return SupplyRequest("requested", submission.task.id)
 
 
 async def authorize(
@@ -265,12 +341,17 @@ async def next_question(
 
     # Nothing delivered this round.
     if unresolved:
-        state = await request_supply(
-            redis, session_id=session_id, owner_id=user.id, demands=unresolved
+        supply = await request_supply(
+            session,
+            redis,
+            session_id=session_id,
+            owner_id=user.id,
+            round_index=cur,
+            demands=unresolved,
         )
-        if state == "exhausted":
+        if supply.state == "exhausted":
             raise ServiceUnavailableError("question_preparation_exhausted")
-        return NoQuestionYet(reason="preparing")
+        return NoQuestionYet(reason="preparing", supply_task_id=supply.task_id)
     if candidates:
         # A concurrent request reserved the eligible candidate first.
         return NoQuestionYet(reason="preparing")

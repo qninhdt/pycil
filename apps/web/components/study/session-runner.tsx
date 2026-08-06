@@ -34,6 +34,14 @@ import { SessionStoppedPanel } from "./session-stopped-panel"
 import { VerdictPanel } from "./verdict-panel"
 
 /**
+ * Supply-task statuses after which no further event will arrive.
+ *
+ * Kept next to the subscription rather than in `task-snapshot.ts`: it is this
+ * screen's policy about when to stop waiting, not a property of the snapshot.
+ */
+const TERMINAL_SUPPLY = new Set(["succeeded", "failed", "expired"])
+
+/**
  * The study loop.
  *
  * This is the only component that calls `/next` or `/answers`, and it is why both go
@@ -123,14 +131,46 @@ export function SessionRunner({
     void runAdvance()
   }, [phase.kind, runAdvance])
 
+  // --- waiting for supply -------------------------------------------------------
+  //
+  // Two mechanisms, and which one applies is decided by the server rather than here.
+  //
+  // With a task id the screen *subscribes* and waits. That is the whole point of the
+  // change: `/next` mutates — it advances rounds, reserves deliveries and extends the
+  // exclusion set — so asking it repeatedly while nothing has happened is the one
+  // failure mode worth removing. The subscribe proxy replays the latest snapshot, so
+  // a dropped socket settles on reconnect and a lost enqueue is recovered by the
+  // worker's reconciler.
+  //
+  // Without one no task was started — the generation slot refused, or the cooldown
+  // has not elapsed — so there is nothing to listen to and the bounded backoff below
+  // is the only way forward. `settling` keeps the timer unconditionally: that flow is
+  // already event-driven through `pendingTaskId`, and the timer there only drains the
+  // budget so a grade that never lands reaches a stall instead of spinning.
+  const supplyTaskId = phase.kind === "preparing" ? phase.taskId : null
+  const supplySnapshot = useTaskSnapshot(supplyTaskId)
+
+  useEffect(() => {
+    if (!supplyTaskId || !supplySnapshot) return
+    // Every terminal status advances, not just success. `expired` is a lease the
+    // worker never renewed and `failed` a warm-up that gave up: in both cases no
+    // further event is coming, so waiting on this subscription would hang the
+    // session. `/next` decides what happens next — it may have a question anyway,
+    // from another round's supply, or report `preparing` again with a fresh task.
+    if (TERMINAL_SUPPLY.has(supplySnapshot.status)) {
+      dispatch({ type: "supply_settled" })
+    }
+  }, [supplyTaskId, supplySnapshot])
+
   // A polled state waits out its backoff, then asks again through the same guard.
   // `poll_again` preserves the attempt counter, so the budget actually drains and the
   // screen reaches a stall instead of polling a mutating endpoint forever.
   useEffect(() => {
+    if (phase.kind === "preparing" && supplyTaskId) return
     if (phase.kind !== "preparing" && phase.kind !== "settling") return
     const timer = setTimeout(() => dispatch({ type: "poll_again" }), backoffDelay(state.pollAttempt))
     return () => clearTimeout(timer)
-  }, [phase.kind, state.pollAttempt])
+  }, [phase.kind, supplyTaskId, state.pollAttempt])
 
   // --- the draft answer ---------------------------------------------------------
   //

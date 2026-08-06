@@ -48,7 +48,15 @@ export type Phase =
       notice: string | null
     }
   | { kind: "break"; roundIndex: number }
-  | { kind: "preparing" }
+  /**
+   * Supply is being generated.
+   *
+   * `taskId` is what the runner subscribes to. When it is null no task was
+   * started — the generation slot refused, or the cooldown has not elapsed — and
+   * the bounded backoff is the only way forward, which is why the poll machinery
+   * below still exists rather than being deleted outright.
+   */
+  | { kind: "preparing"; taskId: string | null }
   | { kind: "settling" }
   /** Polling gave up, or the server said supply is exhausted. Offers to wait on. */
   | { kind: "stalled"; message: string }
@@ -96,6 +104,15 @@ export type SessionEvent =
    * spent and the screen would poll a mutating endpoint forever.
    */
   | { type: "poll_again" }
+  /**
+   * The supply task the screen was subscribed to reached a terminal state.
+   *
+   * Distinct from `advance` for the same reason `poll_again` is: the counter must
+   * survive. A supply task that settles without producing a deliverable question
+   * puts `/next` straight back into `preparing`, and if this reset the budget those
+   * two would trade forever. The event makes the wait cheap, not unbounded.
+   */
+  | { type: "supply_settled" }
 
 export function initialSessionState(seed?: {
   roundIndex?: number | null
@@ -126,6 +143,15 @@ export function sessionReducer(
       // The counter survives on purpose: it is what the poll budget is measured
       // against, and only a real question, a break, or the learner resets it.
       return { ...state, phase: { kind: "advancing" } }
+
+    case "supply_settled":
+      // Only from `preparing`. A settled task arriving in any other phase is a
+      // late event for a wait the screen has already left — the learner may have
+      // retried from a stall, or a question may have arrived by another route —
+      // and acting on it would yank them out of whatever they moved on to.
+      return state.phase.kind === "preparing"
+        ? { ...state, phase: { kind: "advancing" } }
+        : state
 
     case "next_received":
       return applyNext(state, event.next)
@@ -179,7 +205,7 @@ function applyNext(state: SessionMachineState, next: NextQuestion): SessionMachi
       }
 
     case "preparing":
-      return poll(state, { kind: "preparing" }, PREPARING_STALL)
+      return poll(state, { kind: "preparing", taskId: next.taskId }, PREPARING_STALL)
 
     case "waiting":
       return poll(state, { kind: "settling" }, SETTLING_STALL)

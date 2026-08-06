@@ -234,7 +234,7 @@ async def next_question(
         return NextQuestionExhausted()
     if outcome.reason == "waiting":
         return NextQuestionWaiting()
-    return NextQuestionPreparing()
+    return NextQuestionPreparing(task_id=outcome.supply_task_id)
 
 
 @router.post("/answers", response_model=GradeResponse)

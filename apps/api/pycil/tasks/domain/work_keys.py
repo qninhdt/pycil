@@ -18,3 +18,19 @@ def word_work_key(match_key: str, dataset_fingerprint: str) -> str:
 
 def grading_work_key(response_id: str) -> str:
     return f"grading:{response_id}"
+
+
+def supply_work_key(session_id: str, round_index: int) -> str:
+    """Identity of one session's supply request for one round.
+
+    Keyed by session and round rather than by the demands themselves. The demand
+    list is derived from whatever the round still has unresolved, so two `/next`
+    calls landing in the same round can compute *different* lists — the first
+    consumes a delivery the second no longer sees. Keying on the list would make
+    those two distinct tasks, and the learner would be charged twice for the same
+    round's generation while the client subscribed to whichever id it saw last.
+
+    Not keyed by owner: `session_id` is already a per-learner opaque id, and
+    `submit_or_join` scopes the interest to the requester regardless.
+    """
+    return f"supply:{session_id}:{round_index}"

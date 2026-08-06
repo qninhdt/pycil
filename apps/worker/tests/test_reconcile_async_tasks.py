@@ -47,6 +47,16 @@ async def test_reconciliation_reenqueues_each_live_task_kind(monkeypatch):
             kind="grading",
             dispatch={"owner_id": "owner", "response_id": "response"},
         ),
+        SimpleNamespace(
+            id=uuid4(),
+            kind="question_supply",
+            dispatch={
+                "owner_id": "supply-owner",
+                "session_id": "abc123",
+                "round_index": 2,
+                "demands": [[41, 1, 1]],
+            },
+        ),
     ]
     redis = _Redis()
     _patch_tasks(monkeypatch, tasks)
@@ -55,12 +65,18 @@ async def test_reconciliation_reenqueues_each_live_task_kind(monkeypatch):
         {"session_factory": _session_factory, "redis": redis}
     )
 
-    assert result == {"status": "reconciled", "count": 2, "unhandled": 0}
+    assert result == {"status": "reconciled", "count": 3, "unhandled": 0}
     # `owner_id` travels with the re-enqueue so the retried job can still return the
     # inflight slot the original submission was charged.
+    #
+    # `question_supply` matters more than the other two, and for a reason specific to
+    # it: the learner's client subscribes to that task and no longer re-calls `/next`
+    # while waiting. So a supply row whose enqueue was lost is not a slow session but
+    # a stopped one, and this branch is the entire backstop for that.
     assert redis.enqueued == [
         ("generate_word_task", str(tasks[0].id), "run", "word-owner"),
         ("grade_answer_task", str(tasks[1].id), "owner", "response"),
+        ("prepare_questions_task", str(tasks[2].id), "supply-owner", [[41, 1, 1]]),
     ]
 
 

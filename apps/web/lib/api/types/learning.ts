@@ -113,9 +113,20 @@ export interface NextQuestionBreak {
   roundIndex: number
 }
 
-/** Questions are being generated. Poll again, do not resubmit anything. */
+/**
+ * Questions are being generated.
+ *
+ * `taskId` is the durable supply task: subscribe to it and wait, rather than
+ * calling `/next` again. That call mutates — it advances rounds and reserves
+ * deliveries — so repeating it while waiting is exactly what the event replaces.
+ *
+ * Null when no task was started: the per-learner generation slot refused the
+ * request, or it is still inside its cooldown. Nothing to subscribe to, so the
+ * bounded fallback applies. Null means "ask again shortly", not "nothing coming".
+ */
 export interface NextQuestionPreparing {
   state: "preparing"
+  taskId: string | null
 }
 
 /** A grade is outstanding and must settle before the next question. */

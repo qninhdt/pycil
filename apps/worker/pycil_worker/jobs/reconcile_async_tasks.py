@@ -28,6 +28,18 @@ async def reconcile_async_tasks(ctx: dict) -> dict:
                 "grade_answer_task", str(task.id), dispatch["owner_id"], dispatch["response_id"]
             )
             reenqueued += 1
+        elif task.kind == "question_supply":
+            # The learner's client is subscribed to this task and nothing else — it
+            # no longer re-asks `/next` while waiting. So a supply row whose enqueue
+            # was lost is not a slow session, it is a stopped one, and this branch is
+            # the whole backstop for that.
+            await ctx["redis"].enqueue_job(
+                "prepare_questions_task",
+                str(task.id),
+                dispatch["owner_id"],
+                dispatch["demands"],
+            )
+            reenqueued += 1
         else:
             # An unhandled kind is silently unrecoverable: the row stays queued
             # forever and nothing surfaces it. Logged rather than raised, because one

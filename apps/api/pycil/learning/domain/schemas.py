@@ -157,9 +157,22 @@ class NextQuestionBreak(BaseModel):
 
 
 class NextQuestionPreparing(BaseModel):
-    """Eligible work exists but supply is still warming — poll ``/next`` shortly."""
+    """Eligible work exists but supply is still warming.
+
+    ``task_id`` is the durable supply task, and subscribing to ``async:{task_id}``
+    is how the client learns that supply landed. That matters because the
+    alternative is calling ``/next`` again, and ``/next`` mutates — it advances
+    rounds, reserves deliveries and extends the exclusion set — so repeating it
+    while waiting is the one thing worth removing here.
+
+    Null when the request started no task: refused by the per-learner generation
+    slot, or still inside its cooldown. There is nothing to subscribe to in that
+    case, so the client falls back to asking again shortly. Null means "ask again",
+    never "no supply is coming".
+    """
 
     state: Literal["preparing"] = "preparing"
+    task_id: UUID | None = Field(default=None, serialization_alias="taskId")
 
 
 class NextQuestionWaiting(BaseModel):
