@@ -32,6 +32,15 @@ FLOOR_SHARED="${FLOOR_SHARED:-13}"
 FLOOR_WEB_UNIT="${FLOOR_WEB_UNIT:-110}"
 FLOOR_LEXI="${FLOOR_LEXI:-623}"
 
+# Coverage floors, applied only to a whole-suite run. They live here rather than in
+# each package's `addopts` because a threshold there also judges a single-file run,
+# which fails with every test passing and trains people to pass `--no-cov`.
+# `api` was measured at 83.07% over 4,703 statements; the other two carry the
+# values they were already gated at.
+COV_API="${COV_API:-82}"
+COV_WORKER="${COV_WORKER:-81}"
+COV_SHARED="${COV_SHARED:-78}"
+
 WITH_WEB_BUILD=0
 QUICK=0
 for arg in "$@"; do
@@ -73,8 +82,8 @@ extract_count() {
   grep -oE "$pattern" <<<"$output" | grep -oE '[0-9]+' | head -1 || true
 }
 
-run_pytest_tier() { # label dir floor extra_args...
-  local label="$1" dir="$2" floor="$3"; shift 3
+run_pytest_tier() { # label dir test_floor coverage_floor extra_args...
+  local label="$1" dir="$2" floor="$3" cov_floor="$4"; shift 4
   printf '\n\033[1m── %s ──\033[0m\n' "$label"
 
   if [[ ! -d "$dir" ]]; then
@@ -83,26 +92,32 @@ run_pytest_tier() { # label dir floor extra_args...
     return
   fi
 
-  local output status count
-  output="$(cd "$dir" && uv run pytest -q "$@" 2>&1)"
+  local output status count coverage
+  # The coverage threshold is passed here rather than living in the package's
+  # `addopts`, because there it also applies to a single-file run: `pytest
+  # tests/one_file.py` would report failure with every test passing, which teaches
+  # people to pass `--no-cov` and then the gate protects nothing. Each package
+  # measures coverage on every run; only the whole-suite run judges it.
+  output="$(cd "$dir" && uv run pytest -q --cov-fail-under="$cov_floor" "$@" 2>&1)"
   status=$?
   tail -3 <<<"$output"
 
   count="$(extract_count "$output" '[0-9]+ passed')"
   count="${count:-0}"
+  coverage="$(grep -oE 'Total coverage: [0-9.]+' <<<"$output" | grep -oE '[0-9.]+' | head -1)"
 
   if (( status != 0 )); then
-    record "$label" "FAIL" "pytest exit $status ($count passed)"
+    record "$label" "FAIL" "pytest exit $status ($count passed, coverage ${coverage:-?}%)"
   elif (( count < floor )); then
     record "$label" "FAIL" "$count passed, floor $floor"
   else
-    record "$label" "PASS" "$count passed (floor $floor)"
+    record "$label" "PASS" "$count passed (floor $floor), coverage ${coverage:-?}% (floor $cov_floor)"
   fi
 }
 
-run_pytest_tier "api"       "$REPO_ROOT/apps/api"           "$FLOOR_API"
-run_pytest_tier "worker"    "$REPO_ROOT/apps/worker"        "$FLOOR_WORKER"
-run_pytest_tier "shared-py" "$REPO_ROOT/packages/shared-py" "$FLOOR_SHARED"
+run_pytest_tier "api"       "$REPO_ROOT/apps/api"           "$FLOOR_API"    "$COV_API"
+run_pytest_tier "worker"    "$REPO_ROOT/apps/worker"        "$FLOOR_WORKER" "$COV_WORKER"
+run_pytest_tier "shared-py" "$REPO_ROOT/packages/shared-py" "$FLOOR_SHARED" "$COV_SHARED"
 
 # ---- Import boundaries (api + worker) ---------------------------------------
 # shared-py declares no contracts: one pure-logic package has no internal

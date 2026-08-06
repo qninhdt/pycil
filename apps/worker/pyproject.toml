@@ -45,7 +45,12 @@ testpaths = ["tests"]
 # Floor set to the value measured 2026-08-06, not to an aspiration. Above the
 # current level it blocks unrelated work; below it, the gate can be satisfied by
 # deleting tests. Raise it when coverage genuinely improves.
-addopts = "--cov=pycil_worker --cov-fail-under=81"
+# Coverage is measured on every run but gated only where a whole-suite number is
+# meaningful. `--cov-fail-under` here would apply to a single-file run too, so
+# `pytest tests/one_file.py` reports failure with every test passing — which
+# teaches people to pass `--no-cov`, and then the gate protects nothing. The
+# threshold lives in `scripts/verify-baseline.sh` and CI, which run the full suite.
+addopts = "--cov=pycil_worker"
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]

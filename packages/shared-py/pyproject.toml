@@ -29,7 +29,12 @@ testpaths = ["shared/fsrs/tests"]
 # The 78% (78.72 measured) is honest about a real gap rather than hiding it: shared/realtime/
 # (channels.py, payloads.py) sits at 0% because testpaths only reaches
 # shared/fsrs/tests. That is a test gap to close, not a number to tune away.
-addopts = "--cov=shared --cov-fail-under=78"
+# Coverage is measured on every run but gated only where a whole-suite number is
+# meaningful. `--cov-fail-under` here would apply to a single-file run too, so
+# `pytest tests/one_file.py` reports failure with every test passing — which
+# teaches people to pass `--no-cov`, and then the gate protects nothing. The
+# threshold lives in `scripts/verify-baseline.sh` and CI, which run the full suite.
+addopts = "--cov=shared"
 
 [tool.ruff]
 line-length = 100

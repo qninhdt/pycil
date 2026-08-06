@@ -94,7 +94,10 @@ jobs:
             || { echo "no tests collected (or collection error)"; exit 1; }
       - name: Run tests
         working-directory: packages/shared-py
-        run: uv run pytest -q
+        # The threshold is passed here rather than in the package's addopts: there
+        # it would also judge a single-file run, which fails with every test
+        # passing. Matches COV_SHARED in scripts/verify-baseline.sh.
+        run: uv run pytest -q --cov-fail-under=78
 
   test-api:
     # Full suite against a real Postgres + fakeredis (autouse fixture, see
@@ -138,9 +141,10 @@ jobs:
           uv run pytest --collect-only -q >/dev/null \
             || { echo "no tests collected (or collection error)"; exit 1; }
 
-      # Floor raised 70 -> 81 on 2026-08-06 against a measured 82%. A gate 12
-      # points below actual lets coverage rot silently; set at the measured value
-      # it cannot be met by deleting tests, and it moves up deliberately.
+      # 82, against a measured 83%. A gate below actual lets coverage rot down to
+      # the slack silently, so it tracks the measurement and moves up deliberately.
+      # Kept in step with COV_API in scripts/verify-baseline.sh, which is the same
+      # gate for a local run.
       - name: Run pytest with coverage
         working-directory: apps/api
         env:
@@ -148,7 +152,7 @@ jobs:
           # must match the service container above.
           TEST_DB_URL: postgresql+asyncpg://pycil:pycil@localhost:5432/pycil_test
         run: |
-          uv run pytest --cov=pycil --cov-fail-under=81 \
+          uv run pytest --cov=pycil --cov-fail-under=82 \
             --cov-report=xml -q --maxfail=5
 
       - name: Upload coverage XML
@@ -178,7 +182,9 @@ jobs:
         run: uv run pytest --collect-only -q >/dev/null
       - name: Run worker tests
         working-directory: apps/worker
-        run: uv run pytest -q
+        # See the shared-py job: the threshold belongs at the whole-suite
+        # invocation. Matches COV_WORKER in scripts/verify-baseline.sh.
+        run: uv run pytest -q --cov-fail-under=81
 
   migration-head:
     # A metadata create_all test does not prove Alembic's actual upgrade path.

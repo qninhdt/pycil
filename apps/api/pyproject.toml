@@ -46,6 +46,12 @@ dev = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# Coverage is measured on every run but gated only where a whole-suite number is
+# meaningful. `--cov-fail-under` in `addopts` would apply to a single-file run too,
+# so `pytest tests/one_file.py` would report failure with every test passing —
+# which teaches people to pass `--no-cov`, and then the gate protects nothing. The
+# threshold lives in `scripts/verify-baseline.sh` and CI, which run the full suite.
+addopts = "--cov=pycil"
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]
