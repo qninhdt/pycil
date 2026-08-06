@@ -104,6 +104,16 @@ export function releaseTurnKey(transport: AssistantTransport): void {
 export interface AssistantState {
   /** The learner's conversations. Survives a remount, so reopening shows them at once. */
   threads: Thread[]
+  /**
+   * Whether the list has been read even once.
+   *
+   * Reactive, unlike `transport.listLoaded`, and they answer different questions:
+   * that one is "has a read been *started*" and gates the effect, this one is "is
+   * `threads` an answer or merely an empty initial value" and gates rendering. A
+   * surface that cannot tell those apart treats the pre-read moment as "no threads
+   * exist", which closes the open conversation for as long as that moment lasts.
+   */
+  listRead: boolean
   /** A wire code from a failed listing, shown alongside whatever list is held. */
   listProblem: string | null
   /** The conversation the learner has open, or null for the list alone. */
@@ -138,6 +148,7 @@ export type AssistantStore = ReturnType<typeof createAssistantStore>
 export function createAssistantStore() {
   return createStore<AssistantState>()((set) => ({
     threads: [],
+    listRead: false,
     listProblem: null,
     openThreadId: null,
     session: emptyRunSession(null),
@@ -146,7 +157,7 @@ export function createAssistantStore() {
     transport: { abort: null, turnKey: null, loadedThreadId: null, listLoaded: false },
 
     openThread: (threadId) => set({ openThreadId: threadId }),
-    setThreads: (threads, problem) => set({ threads, listProblem: problem }),
+    setThreads: (threads, problem) => set({ threads, listProblem: problem, listRead: true }),
     setLastSent: (content) => set({ lastSent: content }),
     setRecovering: (recovering) => set({ recovering }),
 

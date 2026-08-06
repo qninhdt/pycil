@@ -95,29 +95,53 @@ test.describe("the assistant across the breakpoint", () => {
     // is the one the surface holds. Losing it across the boundary turns "Send again"
     // into "retype the paragraph you just lost", which for the messages this
     // assistant takes is not a recovery at all.
+    const sent = "Add three words about weather to my deck"
     const composer = learnerPage.getByRole("textbox").first()
-    await composer.fill("Add three words about weather to my deck")
+    await composer.fill(sent)
     await composer.press("Enter")
 
-    // Whatever the run does — stream, refuse on capacity, drop — the turn was sent,
-    // which is the only precondition the held copy has.
+    // Whatever the run then does — stream, refuse on capacity, drop — the turn was
+    // sent, which is the only precondition the held copy has.
     await expect(composer).toHaveValue("", { timeout: 30_000 })
 
     await learnerPage.setViewportSize(NARROW)
 
-    // The conversation is still open, which is the precondition for the composer and
-    // any retry affordance existing at all on the other side.
+    // The conversation is still open, which is the precondition for any retry
+    // affordance existing at all on the other side.
     await expect(
       learnerPage.locator("[aria-current='true']"),
       "the conversation closed, so nothing that depends on it could have survived",
     ).toHaveText(new RegExp(escapeForRegExp(title!)))
 
-    // The learner's own words are still on screen: `buildTranscript` renders the
-    // `user_message` event, and those events are what the unmount used to discard.
+    // The held copy, asserted through the only thing that reveals it: what a resend
+    // actually puts on the wire.
+    //
+    // Not asserted by looking for the words on screen. The transcript is built from
+    // streamed events and the server does not echo the learner's own message back,
+    // so an abandoned run legitimately shows an empty transcript — a screen check
+    // would fail against correct behaviour. And not asserted by the resend control
+    // merely existing either: the recovery notice renders that button
+    // unconditionally, so its presence says nothing about whether anything is held.
+    const resend = learnerPage
+      .getByRole("button", { name: /send again/i })
+      .or(learnerPage.getByRole("button", { name: /try again/i }))
     await expect(
-      learnerPage.getByText("Add three words about weather to my deck"),
-      "the transcript emptied when the rendering swapped",
-    ).toBeVisible()
+      resend.first(),
+      "no resend was offered, so the turn's outcome was not one this can test",
+    ).toBeVisible({ timeout: 30_000 })
+
+    const posted = learnerPage.waitForRequest(
+      (request) =>
+        request.method() === "POST" && /\/api\/assistant\/threads\/.+\/messages$/.test(request.url()),
+    )
+    await resend.first().click()
+
+    const body = (await posted).postDataJSON() as { content?: string }
+    expect(
+      body.content,
+      "the resend sent something other than the original message, so the copy held " +
+        "for it did not survive the rendering swap",
+    ).toBe(sent)
   })
 })
 

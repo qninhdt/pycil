@@ -66,11 +66,22 @@ function AssistantBody() {
     void refreshThreads(store)
   }, [store])
 
-  // A deleted thread must not stay open behind a transcript it no longer owns. Derived
-  // from the list rather than corrected inside the refetch, so it cannot be missed on
-  // a path that does not go through this component's own handler.
+  // A deleted thread must not stay open behind a transcript it no longer owns.
+  //
+  // Conditioned on the list having actually been read, which is the whole
+  // subtlety. `threads` starts empty and is filled by the effect above, so an
+  // unconditional `threads.some(...)` reads "this thread does not exist" during the
+  // window before the answer arrives — and that window reopens on the far side of a
+  // breakpoint crossing, where a freshly mounted surface renders once before the
+  // store's list reaches it. The transient null then propagated into
+  // `useAssistantRun`, which read it as a thread change: it aborted the open
+  // stream, released the turn key, and re-read the transcript. Closing the very
+  // conversation this store exists to preserve.
+  const listRead = useAssistantStore((state) => state.listRead)
   const openThreadId =
-    threadId && threads.some((thread) => thread.id === threadId) ? threadId : null
+    threadId && (!listRead || threads.some((thread) => thread.id === threadId))
+      ? threadId
+      : null
 
   const { transcript, phase, problem, recovering, send, decide, recover, resetTurn } =
     useAssistantRun(openThreadId)

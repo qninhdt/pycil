@@ -48,6 +48,18 @@ export interface DevIdentity {
   email: string
   accessToken: string
   expiresIn: number
+  /**
+   * The refresh half of the pair.
+   *
+   * A session sealed without one is signed in and cannot refresh, sign out, or
+   * delete the account — all three take the refresh token, because all three
+   * revoke it. A fixture missing it cannot reach those paths at all: the account
+   * deletion spec failed on a "Sign in again before deleting your account."
+   * notice that no real learner would ever see, because a real cookie always
+   * carries one.
+   */
+  refreshToken: string
+  refreshExpiresIn: number
 }
 
 /**
@@ -96,14 +108,27 @@ function parseCliOutput(stdout: string): DevIdentity {
     if (separator === -1) continue
     values[line.slice(0, separator).trim()] = line.slice(separator + 1).trim()
   }
-  const { email, access_token: accessToken, expires_in: expiresIn } = values
-  if (!email || !accessToken) {
+  const {
+    email,
+    access_token: accessToken,
+    expires_in: expiresIn,
+    refresh_token: refreshToken,
+    refresh_expires_in: refreshExpiresIn,
+  } = values
+  if (!email || !accessToken || !refreshToken) {
     throw new Error(
-      "The dev_identity CLI printed no token. Expected `email=`, `access_token=` " +
-        `and \`expires_in=\` lines, got:\n${stdout}`,
+      "The dev_identity CLI printed an incomplete pair. Expected `email=`, " +
+        "`access_token=`, `expires_in=`, `refresh_token=` and " +
+        `\`refresh_expires_in=\` lines, got:\n${stdout}`,
     )
   }
-  return { email, accessToken, expiresIn: Number(expiresIn) || 0 }
+  return {
+    email,
+    accessToken,
+    expiresIn: Number(expiresIn) || 0,
+    refreshToken,
+    refreshExpiresIn: Number(refreshExpiresIn) || 0,
+  }
 }
 
 /**
@@ -205,13 +230,17 @@ export async function readViewer(accessToken: string): Promise<Viewer> {
  *
  * `sealData` is `iron-session`'s own primitive, the one `getIronSession` uses, so
  * the envelope, the key derivation, and the TTL handling are the library's rather
- * than this file's. `ttl` matches the token's own lifetime: a cookie outliving its
- * bearer token would leave the suite signed in with a token the API refuses,
- * which reads as a puzzling 401 rather than as an expiry.
+ * than this file's. `ttl` matches the *refresh* token's lifetime, not the access
+ * token's: the cookie has to outlive the access token for a refresh to have
+ * anything to refresh from, which is the same relationship a real sign-in has.
  *
- * No `refreshToken` is set, because the CLI issues none. That is fine and
- * deliberate: `lib/api/request.ts` only attempts a refresh when one is present,
- * and the access token's TTL is a week.
+ * The refresh half is sealed too, and it is load-bearing rather than
+ * completeness. This used to omit it on the reasoning that `request.ts` only
+ * refreshes when one is present — true, and precisely why the omission was
+ * invisible: it silently removed refresh, sign-out and account deletion from
+ * everything the suite could reach, since all three revoke the refresh token.
+ * The deletion spec failed on a "Sign in again before deleting your account."
+ * notice that no real learner can ever see.
  */
 export async function sealSessionCookie(
   identity: DevIdentity,
@@ -225,11 +254,13 @@ export async function sealSessionCookie(
     expiresAt: nowInSeconds + identity.expiresIn,
     user: viewer,
     isLoggedIn: true,
+    refreshToken: identity.refreshToken,
+    refreshExpiresAt: nowInSeconds + identity.refreshExpiresIn,
   }
 
   return sealData(session, {
     password: sessionPassword(),
-    ttl: identity.expiresIn,
+    ttl: identity.refreshExpiresIn,
   })
 }
 
@@ -323,8 +354,10 @@ export async function buildStorageState(identity: DevIdentity, viewer: Viewer) {
         domain: "localhost",
         path: "/",
         // Playwright wants seconds since the epoch; -1 would make it a session
-        // cookie and lose it on context close.
-        expires: Math.floor(Date.now() / 1000) + identity.expiresIn,
+        // cookie and lose it on context close. Keyed to the refresh token's
+        // lifetime for the same reason the seal is: a cookie that expired with
+        // the access token would take the refresh path away with it.
+        expires: Math.floor(Date.now() / 1000) + identity.refreshExpiresIn,
         httpOnly: true,
         // The app sets `secure` everywhere except an explicitly declared local
         // development run, and the stack under test serves HTTPS through Caddy.

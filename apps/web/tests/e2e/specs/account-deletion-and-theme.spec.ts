@@ -96,10 +96,14 @@ test.describe("the theme", () => {
   test("switches, persists across a reload, and follows the system when asked", async ({
     learnerPage,
   }) => {
-    // The app runs `defaultTheme="system"` with `enableSystem`, so the starting point
-    // is whatever the OS reports. Pinned to light so "switched to dark" is a real
-    // change rather than possibly the value it already had.
-    await learnerPage.emulateMedia({ colorScheme: "light" })
+    // The starting point is whatever the OS reports, since the app runs
+    // `defaultTheme="system"` with `enableSystem`. Pinned to light so "switched to
+    // dark" is a real change rather than possibly the value it already had.
+    //
+    // `reducedMotion` is not cosmetic here: the theme menu animates in, and a click
+    // dispatched mid-transition hits an element Playwright calls unstable and then
+    // detaches. The screenshot project sets it for the same reason.
+    await learnerPage.emulateMedia({ colorScheme: "light", reducedMotion: "reduce" })
     await learnerPage.goto("/settings")
 
     const root = learnerPage.locator("html")
@@ -108,8 +112,22 @@ test.describe("the theme", () => {
     async function choose(label: RegExp) {
       // Two controls write the same preference — the header's and the settings
       // card's — and they are the same component deliberately, so either serves.
-      await learnerPage.getByRole("button", { name: /change theme/i }).first().click()
-      await learnerPage.getByRole("menuitemradio", { name: label }).click()
+      const trigger = learnerPage.getByRole("button", { name: /change theme/i }).first()
+      const option = learnerPage.getByRole("menuitemradio", { name: label })
+
+      // Opened only if it is not already open. This menu stays open after a
+      // selection — it is a radio group, so the checked item remains visible — and
+      // clicking the trigger again would close it instead.
+      if (!(await option.isVisible().catch(() => false))) await trigger.click()
+
+      // Awaited before clicking rather than relying on the click's own
+      // actionability wait: the menu mounts through a portal, so the first poll can
+      // resolve against a node that is then replaced as the popup positions itself.
+      await expect(option).toBeVisible()
+      await option.click()
+      // The selection landed. Asserted on the radio rather than on the theme, so a
+      // failure here says "the click missed" instead of "the theme did not change".
+      await expect(option).toHaveAttribute("aria-checked", "true")
     }
 
     await choose(/^dark$/i)
@@ -131,7 +149,7 @@ test.describe("the theme", () => {
     // System is a third state, not the absence of a choice — which is the reason the
     // control is a three-way radio rather than a switch. With the OS reporting dark,
     // choosing System must follow it rather than keep the light it was just set to.
-    await learnerPage.emulateMedia({ colorScheme: "dark" })
+    await learnerPage.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" })
     await choose(/^system$/i)
     await expect(
       root,
