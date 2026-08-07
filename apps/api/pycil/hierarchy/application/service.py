@@ -77,6 +77,7 @@ async def move_node(
         await cache.delete_prior_defsets_quietly(prior)
     else:
         await session.flush()
+        cache.defer_invalidation(session, prior)
     return current
 
 
@@ -94,6 +95,7 @@ async def soft_delete_node(session: AsyncSession, node: Node, *, commit: bool = 
         await cache.delete_prior_defsets_quietly(prior)
     else:
         await session.flush()
+        cache.defer_invalidation(session, prior)
 
 
 async def set_visibility(
@@ -122,6 +124,7 @@ async def set_visibility(
         await cache.delete_prior_defsets_quietly(prior)
     else:
         await session.flush()
+        cache.defer_invalidation(session, prior)
     return current
 
 

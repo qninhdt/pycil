@@ -76,7 +76,10 @@ async def remove_sense(
         await session.commit()
         await cache.delete_prior_defsets_quietly(prior)
     else:
+        # The caller owns the commit, so it owns the cleanup: deleting here would
+        # let a concurrent reader repopulate the key from the pre-commit generation.
         await session.flush()
+        cache.defer_invalidation(session, prior)
 
 
 async def list_sense_ids(session: AsyncSession, node_id: UUID) -> list[int]:

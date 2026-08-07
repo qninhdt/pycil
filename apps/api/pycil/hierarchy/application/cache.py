@@ -115,6 +115,37 @@ async def delete_prior_defsets(prior_generations: dict[UUID, int]) -> None:
         await redis.delete(*doomed)
 
 
+_PENDING_INVALIDATIONS = "pending_defset_invalidations"
+
+
+def defer_invalidation(session: AsyncSession, prior_generations: dict[UUID, int]) -> None:
+    """Record superseded keys for the caller that owns the commit to clean up.
+
+    A mutation that does not commit cannot delete these keys itself: the delete
+    has to follow the commit that supersedes them, or a concurrent reader can
+    repopulate the key it just removed. Bumping the generation and returning
+    without recording anything is what left the assistant's approved mutations
+    with a stale definition set cached for the full hour of ``_TTL``.
+
+    Merged rather than replaced, because one transaction may mutate several nodes
+    before it commits, and ``min`` keeps the earliest generation seen so the whole
+    superseded span is deleted rather than only its last step.
+    """
+    if not prior_generations:
+        return
+    pending: dict[UUID, int] = session.info.setdefault(_PENDING_INVALIDATIONS, {})
+    for node_id, generation in prior_generations.items():
+        known = pending.get(node_id)
+        pending[node_id] = generation if known is None else min(known, generation)
+
+
+async def flush_deferred_invalidations(session: AsyncSession) -> None:
+    """Delete what ``defer_invalidation`` recorded. Call only after a commit."""
+    pending = session.info.pop(_PENDING_INVALIDATIONS, None)
+    if pending:
+        await delete_prior_defsets_quietly(pending)
+
+
 async def delete_prior_defsets_quietly(prior_generations: dict[UUID, int]) -> None:
     """`delete_prior_defsets`, with Redis failures swallowed.
 
