@@ -26,6 +26,7 @@ from pycil.learning.infra import session_store
 from pycil.learning.infra.models import Response
 from pycil.learning.infra.session_store import AdmittedSense
 from pycil.learning.router import read_session
+from tests.learning import session_state
 
 pytestmark = pytest.mark.asyncio
 
@@ -66,7 +67,7 @@ async def _live_session(session, monkeypatch, owner, *, admitted=None):
 async def test_live_session_reports_round_and_per_sense_progress(session, monkeypatch):
     owner = await _user(session, "sread-live@example.com")
     redis, sid, deck = await _live_session(session, monkeypatch, owner)
-    await session_store.pass_checkpoint(redis, sid, 10, required_checkpoints=2)
+    await session_state.pass_checkpoint(redis, sid, 10, required_checkpoints=2)
 
     read = await read_session(sid, _cu(owner), session)
 
@@ -109,9 +110,9 @@ async def test_terminal_senses_are_counted_by_how_they_ended(session, monkeypatc
     owner = await _user(session, "sread-terminal@example.com")
     redis, sid, _deck = await _live_session(session, monkeypatch, owner)
     # 10 completes; 20 burns its retries.
-    await session_store.pass_checkpoint(redis, sid, 10, required_checkpoints=2)
-    await session_store.pass_checkpoint(redis, sid, 10, required_checkpoints=2)
-    await session_store.open_retry(
+    await session_state.pass_checkpoint(redis, sid, 10, required_checkpoints=2)
+    await session_state.pass_checkpoint(redis, sid, 10, required_checkpoints=2)
+    await session_state.open_retry(
         redis, sid, 20, requested_level=1, retries_used=3, failed_round=1, max_retries=2
     )
 
@@ -150,8 +151,8 @@ async def test_answer_counts_come_from_the_durable_rows(session, monkeypatch):
 async def test_recap_survives_completion_after_redis_is_deleted(session, monkeypatch):
     owner = await _user(session, "sread-recap@example.com")
     redis, sid, deck = await _live_session(session, monkeypatch, owner)
-    await session_store.pass_checkpoint(redis, sid, 10, required_checkpoints=2)
-    await session_store.pass_checkpoint(redis, sid, 10, required_checkpoints=2)
+    await session_state.pass_checkpoint(redis, sid, 10, required_checkpoints=2)
+    await session_state.pass_checkpoint(redis, sid, 10, required_checkpoints=2)
     session.add(
         Response(user_id=owner.id, session_id=sid, sense_id=10, question_id=1, is_correct=True)
     )

@@ -27,6 +27,7 @@ from pycil.learning.infra.models import (
     UserSenseStats,
 )
 from pycil.learning.infra.session_store import AdmittedSense
+from tests.learning import session_state
 
 pytestmark = pytest.mark.asyncio
 
@@ -89,7 +90,7 @@ async def test_acquisition_enters_fsrs_after_n_checkpoints(session):
     redis = get_redis()
     user = await _user(session)
     sid = await _start(session, redis, user, 42, "new", [1, 1])
-    await session_store.set_exposed(redis, sid, 42)
+    await session_state.mark_exposed(redis, sid, 42)
 
     out0 = await _answer(session, redis, user, sid, 42, 100, 1, 1, True)
     assert out0.fsrs_applied is False  # not complete yet
@@ -192,7 +193,7 @@ async def test_review_log_records_the_deck_the_review_happened_in(session):
         target_words=1, max_per_round=4,
         admitted=[AdmittedSense(77, "new", [1, 1])],
     )
-    await session_store.set_exposed(redis, sid, 77)
+    await session_state.mark_exposed(redis, sid, 77)
     await _answer(session, redis, user, sid, 77, 9001, 1, 1, True)
     await _answer(session, redis, user, sid, 77, 9002, 1, 1, True)
 
@@ -215,7 +216,7 @@ async def test_review_log_survives_an_expired_session_without_a_node(session):
     redis = get_redis()
     user = await _user(session)
     sid = await _start(session, redis, user, 88, "new", [1, 1])
-    await session_store.set_exposed(redis, sid, 88)
+    await session_state.mark_exposed(redis, sid, 88)
     await _answer(session, redis, user, sid, 88, 9101, 1, 1, True)
 
     assert await session_store.get_meta(redis, sid) is not None
@@ -243,7 +244,7 @@ async def test_a_hard_deleted_deck_releases_its_review_history(session):
     redis = get_redis()
     user = await _user(session)
     sid = await _start(session, redis, user, 55, "new", [1, 1])
-    await session_store.set_exposed(redis, sid, 55)
+    await session_state.mark_exposed(redis, sid, 55)
     await _answer(session, redis, user, sid, 55, 9201, 1, 1, True)
     await _answer(session, redis, user, sid, 55, 9202, 1, 1, True)
 
@@ -292,7 +293,7 @@ async def test_a_lost_claim_with_no_visible_stats_reports_no_transition(session,
     redis = get_redis()
     user = await _user(session)
     sid = await _start(session, redis, user, 61, "due", [2, 2])
-    await session_store.set_exposed(redis, sid, 61)
+    await session_state.mark_exposed(redis, sid, 61)
 
     # Force exactly the racing shape: the claim is taken by someone else, and the
     # stats row is not yet visible to this transaction.

@@ -7,6 +7,7 @@ import fakeredis.aioredis as fake_aioredis
 from pycil.learning.application import round_scheduler as sch
 from pycil.learning.infra import session_store
 from pycil.learning.infra.session_store import AdmittedSense, SenseProgress
+from tests.learning import session_state
 
 
 def _progress(**overrides) -> SenseProgress:
@@ -61,7 +62,7 @@ async def test_round_candidates_priority_order():
             AdmittedSense(30, "new", [1, 1]),
         ]
     )
-    await session_store.set_exposed(redis, sid, 30)  # 30 -> acquisition
+    await session_state.mark_exposed(redis, sid, 30)  # 30 -> acquisition
     cur = await session_store.advance_round(redis, sid)
     candidates = await sch.round_candidates(redis, sid, cur)
     tiers = [(c.tier, c.sense_id) for c in candidates]
@@ -78,7 +79,7 @@ async def test_session_complete_requires_all_terminal():
     fake_session = _NoPendingSession()
     assert await sch.session_complete(fake_session, redis, sid) is False
     # Mark terminal.
-    await session_store.open_retry(
+    await session_state.open_retry(
         redis, sid, 10, requested_level=2, retries_used=3, failed_round=1
     )
     assert await sch.session_complete(fake_session, redis, sid) is True

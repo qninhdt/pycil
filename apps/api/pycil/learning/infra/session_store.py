@@ -26,7 +26,7 @@ from redis.asyncio import Redis
 from redis.exceptions import WatchError
 
 from pycil.common.retry import cas_backoff
-from pycil.policy.policy import MAX_RETRIES_PER_CHECKPOINT, REQUIRED_CHECKPOINTS
+from pycil.policy.policy import REQUIRED_CHECKPOINTS
 
 # TTL >= the pending-grade reconcile horizon (24h) so Redis expiry only ends an
 # abandoned live session; it never races the durable async settle (which reads
@@ -240,12 +240,6 @@ async def excluded_ids(redis: Redis, session_id: str, sense_id: int) -> frozense
     return frozenset(int(member) for member in members)
 
 
-async def add_excluded(redis: Redis, session_id: str, sense_id: int, question_id: int) -> None:
-    key = _excluded_key(session_id, sense_id)
-    await redis.sadd(key, question_id)
-    await redis.expire(key, _TTL_SECONDS)
-
-
 # --- consume-once delivered-question bind (F5) ----------------------------------
 
 
@@ -449,31 +443,10 @@ async def advance_round(
                 continue
 
 
-async def mark_round_used(redis: Redis, session_id: str, sense_id: int, round_index: int) -> None:
-    """Record that a sense was served in ``round_index`` (once-per-round guard)."""
-    skey = _sense_key(session_id, sense_id)
-    await redis.hset(skey, "last_round_used", str(round_index))
-    await redis.hincrby(_key(session_id), "round_count", 1)
-    await redis.expire(skey, _TTL_SECONDS)
-
-
-async def set_exposed(redis: Redis, session_id: str, sense_id: int) -> None:
-    skey = _sense_key(session_id, sense_id)
-    await redis.hset(skey, "exposed", "1")
-    await redis.expire(skey, _TTL_SECONDS)
-
-
 async def set_awaiting_grade(redis: Redis, session_id: str, sense_id: int, on: bool) -> None:
     """Toggle the awaiting-grade flag around a ``pending`` evaluation (F10)."""
     skey = _sense_key(session_id, sense_id)
     await redis.hset(skey, "awaiting_grade", "1" if on else "0")
-    await redis.expire(skey, _TTL_SECONDS)
-
-
-async def mark_fsrs_applied(redis: Redis, session_id: str, sense_id: int) -> None:
-    """Best-effort advisory flag; set AFTER the authoritative Postgres commit."""
-    skey = _sense_key(session_id, sense_id)
-    await redis.hset(skey, "fsrs_applied", "1")
     await redis.expire(skey, _TTL_SECONDS)
 
 
@@ -652,132 +625,6 @@ async def claim_prepare_attempt(
                 pipe.expire(key, _TTL_SECONDS)
                 await pipe.execute()
                 return "claimed"
-            except WatchError:
-                # Lost the WATCH: another writer committed first. Back off with jitter
-                # before re-reading, so two writers that collided do not collide again
-                # on the very next tick.
-                attempt += 1
-                await cas_backoff(attempt)
-                continue
-
-
-async def lock_score(redis: Redis, session_id: str, sense_id: int, grade: str) -> str | None:
-    """One-shot ``none -> grade`` transition (``grade`` in ``{again, good}``).
-
-    ADVISORY fast-path only (F1): correctness is owned by the Postgres claim in
-    Phase 7, committed BEFORE this call.  Returns the applied grade if this call
-    won the lock, else ``None`` (already locked or state gone).
-    """
-    key = _sense_key(session_id, sense_id)
-    attempt = 0
-    while True:
-        async with redis.pipeline(transaction=True) as pipe:
-            try:
-                await pipe.watch(key)
-                current = await pipe.hget(key, "score")
-                if current is None or current != _NONE:
-                    await pipe.unwatch()
-                    return None
-                pipe.multi()
-                pipe.hset(key, "score", grade)
-                pipe.expire(key, _TTL_SECONDS)
-                await pipe.execute()
-                return grade
-            except WatchError:
-                # Lost the WATCH: another writer committed first. Back off with jitter
-                # before re-reading, so two writers that collided do not collide again
-                # on the very next tick.
-                attempt += 1
-                await cas_backoff(attempt)
-                continue
-
-
-async def pass_checkpoint(
-    redis: Redis,
-    session_id: str,
-    sense_id: int,
-    *,
-    required_checkpoints: int = REQUIRED_CHECKPOINTS,
-) -> int | None:
-    """Increment ``passed``, clear the open checkpoint/retry, reset retry budget.
-
-    Marks the sense terminal (``completed``) when ``passed == N``.  Returns the new
-    passed count, or ``None`` when the sense state is gone.
-    """
-    key = _sense_key(session_id, sense_id)
-    attempt = 0
-    while True:
-        async with redis.pipeline(transaction=True) as pipe:
-            try:
-                await pipe.watch(key)
-                raw_passed = await pipe.hget(key, "passed")
-                if raw_passed is None:
-                    await pipe.unwatch()
-                    return None
-                new_passed = int(raw_passed) + 1
-                mapping = {
-                    "passed": str(new_passed),
-                    "open_checkpoint": _MISSING,
-                    "open_requested_level": _MISSING,
-                    "open_failed_round": _MISSING,
-                    "retries_used": "0",
-                }
-                if new_passed >= required_checkpoints:
-                    mapping["terminal"] = "1"
-                    mapping["terminal_reason"] = "completed"
-                pipe.multi()
-                pipe.hset(key, mapping=mapping)
-                pipe.expire(key, _TTL_SECONDS)
-                await pipe.execute()
-                return new_passed
-            except WatchError:
-                # Lost the WATCH: another writer committed first. Back off with jitter
-                # before re-reading, so two writers that collided do not collide again
-                # on the very next tick.
-                attempt += 1
-                await cas_backoff(attempt)
-                continue
-
-
-async def open_retry(
-    redis: Redis,
-    session_id: str,
-    sense_id: int,
-    *,
-    requested_level: int,
-    retries_used: int,
-    failed_round: int,
-    max_retries: int = MAX_RETRIES_PER_CHECKPOINT,
-) -> None:
-    """Open a retry on the current checkpoint (index == ``passed``).
-
-    ``retries_used`` is caller-computed; the sense is marked terminal
-    (``retries_exhausted``) when it exceeds ``max_retries``.
-    """
-    key = _sense_key(session_id, sense_id)
-    attempt = 0
-    while True:
-        async with redis.pipeline(transaction=True) as pipe:
-            try:
-                await pipe.watch(key)
-                raw_passed = await pipe.hget(key, "passed")
-                if raw_passed is None:
-                    await pipe.unwatch()
-                    return
-                mapping = {
-                    "open_checkpoint": raw_passed,
-                    "open_requested_level": str(requested_level),
-                    "open_failed_round": str(failed_round),
-                    "retries_used": str(retries_used),
-                }
-                if retries_used > max_retries:
-                    mapping["terminal"] = "1"
-                    mapping["terminal_reason"] = "retries_exhausted"
-                pipe.multi()
-                pipe.hset(key, mapping=mapping)
-                pipe.expire(key, _TTL_SECONDS)
-                await pipe.execute()
-                return
             except WatchError:
                 # Lost the WATCH: another writer committed first. Back off with jitter
                 # before re-reading, so two writers that collided do not collide again

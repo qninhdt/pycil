@@ -27,6 +27,7 @@ from pycil.learning.application import session_recap
 from pycil.learning.infra import session_store
 from pycil.learning.infra.models import Response
 from pycil.learning.infra.session_store import AdmittedSense
+from tests.learning import session_state
 
 
 async def _user(session, email: str) -> User:
@@ -111,8 +112,8 @@ async def test_a_later_persist_corrects_the_completion_counts(session):
     first = await session_recap.load(session, owner.id, sid)
     assert first.senses_completed == 0
 
-    await session_store.pass_checkpoint(redis, sid, 10, required_checkpoints=2)
-    await session_store.pass_checkpoint(redis, sid, 10, required_checkpoints=2)
+    await session_state.pass_checkpoint(redis, sid, 10, required_checkpoints=2)
+    await session_state.pass_checkpoint(redis, sid, 10, required_checkpoints=2)
     await session_recap.persist(session, redis, sid, user_id=owner.id, node_id=deck.id)
 
     second = await session_recap.load(session, owner.id, sid)
@@ -173,9 +174,9 @@ async def test_an_exhausted_sense_is_not_counted_as_completed(session):
     owner = await _user(session, "recap-exhausted@example.com")
     redis, sid, deck = await _live(session, owner)
 
-    await session_store.pass_checkpoint(redis, sid, 10, required_checkpoints=2)
-    await session_store.pass_checkpoint(redis, sid, 10, required_checkpoints=2)
-    await session_store.open_retry(
+    await session_state.pass_checkpoint(redis, sid, 10, required_checkpoints=2)
+    await session_state.pass_checkpoint(redis, sid, 10, required_checkpoints=2)
+    await session_state.open_retry(
         redis, sid, 20, requested_level=1, retries_used=3, failed_round=1, max_retries=2
     )
 
@@ -196,8 +197,8 @@ async def test_an_admitted_sense_with_no_progress_row_is_skipped(session):
     """
     owner = await _user(session, "recap-missing-progress@example.com")
     redis, sid, deck = await _live(session, owner)
-    await session_store.pass_checkpoint(redis, sid, 10, required_checkpoints=2)
-    await session_store.pass_checkpoint(redis, sid, 10, required_checkpoints=2)
+    await session_state.pass_checkpoint(redis, sid, 10, required_checkpoints=2)
+    await session_state.pass_checkpoint(redis, sid, 10, required_checkpoints=2)
 
     # Drop one admitted sense's progress key, leaving the admission list intact.
     # Keyed through the store's own helper rather than a literal, so a key-layout

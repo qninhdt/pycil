@@ -8,6 +8,7 @@ import pytest
 
 from pycil.learning.infra import session_store
 from pycil.learning.infra.session_store import AdmittedSense
+from tests.learning import session_state
 
 pytestmark = pytest.mark.asyncio
 
@@ -28,30 +29,72 @@ async def _make_session(admitted):
     return redis, sid
 
 
-async def test_lock_score_is_one_shot_under_concurrency():
+async def test_the_first_grade_settles_the_score_and_a_later_one_cannot_move_it():
+    """One-shot ``none -> grade``, asserted on the writer production uses.
+
+    This behaviour used to live in a standalone ``lock_score`` CAS that nothing
+    outside the tests called. The projection carries it now (it writes ``score``
+    only while the stored value is still ``none``), so the guarantee is asserted
+    where it actually runs: a disqualifier settles ``again``, and a later clean
+    completion cannot rewrite that to ``good``.
+    """
     redis, sid = await _make_session([AdmittedSense(10, "due", [2, 2])])
-    results = await asyncio.gather(
-        *[session_store.lock_score(redis, sid, 10, "again") for _ in range(8)]
+    common = {
+        "requested_level": 2, "retries_used": 0, "failed_round": 0,
+        "max_retries": 2, "fsrs_applied": False,
+    }
+
+    await session_store.apply_checkpoint_projection(
+        redis, sid, 10, response_id=uuid.uuid4(), state_action="complete",
+        grade_due="again", **common,
     )
-    winners = [r for r in results if r == "again"]
-    assert len(winners) == 1
-    # A subsequent good lock is refused (already locked).
-    assert await session_store.lock_score(redis, sid, 10, "good") is None
+    assert (await session_store.get_progress(redis, sid, 10)).score == "again"
+
+    await session_store.apply_checkpoint_projection(
+        redis, sid, 10, response_id=uuid.uuid4(), state_action="complete",
+        grade_due="good", **common,
+    )
+    assert (await session_store.get_progress(redis, sid, 10)).score == "again"
 
 
-async def test_pass_checkpoint_reaches_terminal_at_n():
-    redis, sid = await _make_session([AdmittedSense(10, "new", [1, 1])])
-    assert await session_store.pass_checkpoint(redis, sid, 10, required_checkpoints=2) == 1
+async def test_concurrent_projections_of_one_grade_settle_the_score_once():
+    """Eight replays of the same response are one checkpoint, not eight.
+
+    The concurrency half of what the old one-shot lock test covered, but against
+    the real replay shape: arq redelivers a job, so the same ``response_id``
+    arrives more than once and must project exactly once.
+    """
+    redis, sid = await _make_session([AdmittedSense(10, "due", [2, 2])])
+    response_id = uuid.uuid4()
+    kwargs = {
+        "response_id": response_id, "state_action": "complete", "requested_level": 2,
+        "retries_used": 0, "failed_round": 0, "max_retries": 2, "grade_due": "again",
+        "fsrs_applied": False,
+    }
+
+    results = await asyncio.gather(
+        *[session_store.apply_checkpoint_projection(redis, sid, 10, **kwargs) for _ in range(8)]
+    )
+
+    assert all(results)
     progress = await session_store.get_progress(redis, sid, 10)
-    assert progress.terminal is False
-    assert await session_store.pass_checkpoint(redis, sid, 10, required_checkpoints=2) == 2
+    assert progress.passed == 1, "a replayed grade must not count as several checkpoints"
+    assert progress.score == "again"
+
+
+async def test_passing_the_required_checkpoints_reaches_terminal():
+    redis, sid = await _make_session([AdmittedSense(10, "new", [1, 1])])
+    assert await session_state.pass_checkpoint(redis, sid, 10, required_checkpoints=2)
+    progress = await session_store.get_progress(redis, sid, 10)
+    assert progress.passed == 1 and progress.terminal is False
+    assert await session_state.pass_checkpoint(redis, sid, 10, required_checkpoints=2)
     progress = await session_store.get_progress(redis, sid, 10)
     assert progress.terminal is True and progress.terminal_reason == "completed"
 
 
-async def test_open_retry_exhaustion_marks_terminal():
+async def test_exhausting_the_retry_budget_marks_terminal():
     redis, sid = await _make_session([AdmittedSense(10, "due", [2, 2])])
-    await session_store.open_retry(
+    await session_state.open_retry(
         redis, sid, 10, requested_level=2, retries_used=3, failed_round=1, max_retries=2
     )
     progress = await session_store.get_progress(redis, sid, 10)
@@ -69,8 +112,8 @@ async def test_consume_delivered_is_one_shot():
 
 async def test_excluded_ids_roundtrip_as_int_frozenset():
     redis, sid = await _make_session([AdmittedSense(10, "due", [2, 2])])
-    await session_store.add_excluded(redis, sid, 10, 111)
-    await session_store.add_excluded(redis, sid, 10, 222)
+    await session_state.exclude_question(redis, sid, 10, 111)
+    await session_state.exclude_question(redis, sid, 10, 222)
     excluded = await session_store.excluded_ids(redis, sid, 10)
     assert excluded == frozenset({111, 222})
     assert all(isinstance(x, int) for x in excluded)

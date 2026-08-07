@@ -15,6 +15,7 @@ from pycil.learning.application import service
 from pycil.learning.infra import session_store
 from pycil.learning.infra.models import GradeStatus, Response, ReviewLog
 from pycil.learning.infra.session_store import AdmittedSense
+from tests.learning import session_state
 
 pytestmark = pytest.mark.asyncio
 
@@ -67,7 +68,7 @@ async def _pending(session, redis, user, sense_id=42, qid=1):
         admitted=[AdmittedSense(sense_id, "due", [3, 3])],
     )
     # Advance to the final checkpoint so a correct settle completes N -> Good.
-    await session_store.pass_checkpoint(redis, sid, sense_id, required_checkpoints=2)
+    await session_state.pass_checkpoint(redis, sid, sense_id, required_checkpoints=2)
     resp = Response(
         user_id=user.id, session_id=sid, sense_id=sense_id, question_id=qid,
         grade_status=GradeStatus.pending, raw_answer="a sentence",
