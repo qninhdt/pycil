@@ -1,7 +1,14 @@
 name: Deploy
 
+# Gated on the test workflow rather than on the push itself. Both used to fire on
+# `push: main` independently, so a commit that broke the API suite still built and
+# pushed images — the deploy did not wait for, or look at, the test result.
+#
+# Referenced by workflow NAME (`name:` in test.yml), not by filename.
 on:
-  push:
+  workflow_run:
+    workflows: ["Tests"]
+    types: [completed]
     branches: [main]
 
 env:
@@ -10,6 +17,9 @@ env:
 
 jobs:
   build:
+    # `completed` covers failure and cancellation too, so the conclusion has to be
+    # checked explicitly; without this the gate would pass on a red suite.
+    if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -17,11 +27,19 @@ jobs:
     outputs:
       image_tag: ${{ steps.meta.outputs.image_tag }}
     steps:
+      # A `workflow_run` event checks out the default branch and sets GITHUB_SHA to
+      # its tip, which is not necessarily the commit that was tested. Both the
+      # checkout and the image tag are pinned to the tested revision so the image
+      # contains what the suite actually ran against.
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Resolve image tag
         id: meta
-        run: echo "image_tag=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+        env:
+          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: echo "image_tag=${TESTED_SHA::12}" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@v3
 

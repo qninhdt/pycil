@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
+from shared.realtime import channels
 from sqlalchemy import or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -95,7 +96,7 @@ async def _record_event_and_outbox(session: AsyncSession, task: AsyncTask) -> As
     session.add(
         AsyncTaskOutbox(
             event_id=event_id,
-            channel=f"async:{task.id}",
+            channel=channels.async_task(task.id),
             payload=snapshot,
         )
     )

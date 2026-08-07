@@ -32,7 +32,10 @@ x-lexi-provider-env: &lexi-provider-env
   LEXI_LLM_API_KEY: ${LEXI_LLM_API_KEY:-}
   LEXI_LLM_MODEL: ${LEXI_LLM_MODEL:-gpt-4o-mini}
   LEXI_LLM_TEMPERATURE: ${LEXI_LLM_TEMPERATURE:-0.1}
-  LEXI_LLM_STRUCTURED_METHOD: ${LEXI_LLM_STRUCTURED_METHOD:-}
+  # Falls back to the path that strips nullable unions, not the one that does not:
+  # an unset variable must not silently select the schema shape a proxy answers
+  # with an empty object.
+  LEXI_LLM_STRUCTURED_METHOD: ${LEXI_LLM_STRUCTURED_METHOD:-function_calling}
   LEXI_LLM_REASONING_EFFORT: ${LEXI_LLM_REASONING_EFFORT:-}
 
 x-assistant-env: &assistant-env
