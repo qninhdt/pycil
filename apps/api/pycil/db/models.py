@@ -17,7 +17,6 @@ from pycil.hierarchy.infra.models import (  # noqa: F401
     DeckAttributes,
     Node,
 )
-from pycil.jobs.models import WordGeneration  # noqa: F401
 from pycil.learning.infra.models import (  # noqa: F401
     Response,
     ReviewLog,

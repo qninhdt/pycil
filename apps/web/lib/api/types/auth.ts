@@ -57,5 +57,4 @@ export interface AccountExport {
   hierarchy: Record<string, unknown>[]
   learning: Record<string, unknown>
   assistant: Record<string, unknown>
-  wordGenerations: Record<string, unknown>[]
 }

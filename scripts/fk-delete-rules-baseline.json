@@ -118,9 +118,5 @@
   "user_sense_stats.user_sense_stats_user_id_fkey": {
     "delete_rule": "NO ACTION",
     "references": "users"
-  },
-  "word_generations.word_generations_owner_id_fkey": {
-    "delete_rule": "NO ACTION",
-    "references": "users"
   }
 }

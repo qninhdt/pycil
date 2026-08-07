@@ -14,7 +14,6 @@ from pycil_worker.main import WorkerSettings
     [
         ("pycil.learning.infra.models", "ReviewLog"),
         ("pycil.learning.infra.models", "Response"),
-        ("pycil.jobs.models", "WordGeneration"),
         ("pycil.tasks.infra.models", "AsyncTask"),
     ],
 )
@@ -37,18 +36,31 @@ def test_worker_startup_registers_every_referenced_table(module, model):
 
 def test_pending_grade_reconciliation_is_registered():
     assert {function.__name__ for function in WorkerSettings.functions} >= {
-        "generate_word",
+        "generate_word_task",
         "prepare_questions",
         "heartbeat",
         "grade_answer",
         "grade_answer_v1",
         "reconcile_pending_grades",
-        "reconcile_queued_word_generations",
         "reconcile_async_tasks",
         "reconcile_expired_assistant_actions",
         "reconcile_assistant_retention",
     }
     assert WorkerSettings.cron_jobs
+
+
+def test_word_generation_has_exactly_one_registered_handler():
+    """Durable tasks are the only word-generation path.
+
+    A second handler backed by its own table meant the assistant and the HTTP
+    route produced different rows, different notifications and different retry
+    behaviour for one feature, while both charged the same quota. Registering
+    either name again reinstates that split.
+    """
+    registered = {function.__name__ for function in WorkerSettings.functions}
+    assert "generate_word" not in registered
+    assert "reconcile_queued_word_generations" not in registered
+    assert "generate_word_task" in registered
 
 
 async def test_outbox_notification_coalesces_concurrent_drains(monkeypatch):
@@ -74,7 +86,7 @@ async def test_outbox_notification_coalesces_concurrent_drains(monkeypatch):
 
 
 def test_generate_word_task_accepts_the_owner_argument_as_optional():
-    """Deploy-order guard for the B1 fix.
+    """Deploy-order guard for the inflight-slot release.
 
     The API now enqueues `generate_word_task` with a fourth `owner_id` argument. A
     worker that predates it raises TypeError and the job dies, so the worker must be

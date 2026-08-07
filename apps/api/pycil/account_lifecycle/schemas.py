@@ -12,5 +12,4 @@ class AccountExport(BaseModel):
     profile: dict
     hierarchy: list[dict]
     learning: dict
-    word_generations: list[dict] = Field(serialization_alias="wordGenerations")
     assistant: dict

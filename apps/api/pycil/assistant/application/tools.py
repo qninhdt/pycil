@@ -3,7 +3,7 @@
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from langchain.tools import ToolRuntime, tool
 
@@ -11,14 +11,22 @@ from pycil.assistant.application import content_facade, hierarchy_facade
 from pycil.assistant.application.persistence import revalidate_actor
 from pycil.assistant.domain.context import AssistantContext
 from pycil.assistant.infra.models import ActionStatus, AssistantAction, AssistantActionAudit
-from pycil.common.errors import TooManyRequestsError
+from pycil.common.errors import AppError, TooManyRequestsError
+from pycil.config import settings
+from pycil.content.application import generation_quota
 from pycil.db.redis import get_arq_pool, get_redis
 from pycil.db.session import async_session_factory
+from pycil.hierarchy.application import cache
 from pycil.hierarchy.application.viewer_stats import get_folder_stats_for_viewer
-from pycil.jobs import service as jobs_service
 from pycil.ports.lexi_provider import get_lexi_client
+from pycil.tasks.application import service as task_service
+from pycil.tasks.domain.work_keys import word_work_key
 
 MAX_RESULTS = 50
+
+# Mirrors the HTTP route's ``WordRequest.query`` bound so both producers reject
+# the same input rather than one of them truncating it.
+MAX_QUERY_LENGTH = 200
 
 
 async def _mutate(runtime: ToolRuntime[AssistantContext]) -> None:
@@ -55,6 +63,10 @@ async def _run_sensitive(
             )
         )
         await session.commit()
+        # The domain write deferred its cache cleanup to whoever owns the commit,
+        # which is here. Running it before the commit would let a concurrent reader
+        # repopulate the key from the pre-commit generation.
+        await cache.flush_deferred_invalidations(session)
         return result
 
 
@@ -190,25 +202,51 @@ async def list_deck_items(
 async def request_word_generation(query: str, runtime: ToolRuntime[AssistantContext]) -> str:
     """Queue vocabulary generation for the caller."""
     await _mutate(runtime)
-    async with async_session_factory() as session:
-        record, created, allowed = await jobs_service.submit_generation(
-            session, get_redis(), runtime.context.user_id, query[:200], None
+    # The HTTP route rejects an over-long query at the boundary. Silently slicing
+    # here would generate an entry for a word the caller did not ask for.
+    trimmed = query.strip()
+    if not trimmed or len(trimmed) > MAX_QUERY_LENGTH:
+        raise AppError(
+            "word_generation_query_invalid",
+            code="word_generation_query_invalid",
         )
-    if not allowed:
+    owner_id = runtime.context.user_id
+    redis = get_redis()
+    if not await generation_quota.reserve_quota(redis, owner_id):
         raise TooManyRequestsError(
             "word_generation_quota_exceeded",
             code="word_generation_quota_exceeded",
             retry_after=3600,
         )
-    if created:
+    async with async_session_factory() as session:
         try:
-            await (await get_arq_pool()).enqueue_job(
-                "generate_word", str(runtime.context.user_id), query[:200], str(record.id)
+            submission = await task_service.submit_or_join(
+                session,
+                kind="word",
+                server_work_key=word_work_key(
+                    generation_quota.normalize_query(trimmed),
+                    settings.lexi_reference_dataset_fingerprint,
+                ),
+                requester_id=owner_id,
+                command_kind="word.generate",
+                command_id=f"word:{uuid4()}",
+                provenance="assistant",
+                dispatch={"query": trimmed, "owner_id": str(owner_id)},
             )
         except Exception:
-            # The durable reconciler will enqueue this committed row.
+            await generation_quota.release_inflight_quota(redis, owner_id)
+            raise
+    if not submission.task_created:
+        await generation_quota.release_inflight_quota(redis, owner_id)
+    else:
+        try:
+            await (await get_arq_pool()).enqueue_job(
+                "generate_word_task", str(submission.task.id), trimmed, str(owner_id)
+            )
+        except Exception:
+            # The durable reconciler will enqueue this committed task.
             pass
-    return f"generation_requested:{record.id}"
+    return f"generation_requested:{submission.task.id}"
 
 
 @tool

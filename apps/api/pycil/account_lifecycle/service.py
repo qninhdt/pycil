@@ -44,10 +44,6 @@ async def export_account(session: AsyncSession, user_id: UUID) -> dict:
             "review_log": await rows("SELECT * FROM review_log WHERE user_id = :user_id"),
             "responses": await rows("SELECT * FROM responses WHERE user_id = :user_id"),
         },
-        "word_generations": await rows(
-            "SELECT id, query, status, result, error_code, created_at, updated_at "
-            "FROM word_generations WHERE owner_id = :user_id"
-        ),
         "assistant": {
             "threads": await rows(
                 "SELECT id, title, status, created_at, updated_at FROM assistant_threads "
@@ -73,18 +69,11 @@ async def owns_active_refresh_token(session: AsyncSession, user_id: UUID, raw_to
     return row is not None
 
 
-async def delete_account(session: AsyncSession, user_id: UUID) -> int:
+async def delete_account(session: AsyncSession, user_id: UUID) -> None:
     """Erase dependent Pycil rows in FK order, never touching Lexi's database."""
     # Revoke before any irreversible deletion so a failed cleanup cannot leave
     # active credentials. The whole operation remains a single DB transaction.
     await refresh_sessions.revoke_user_sessions(session, user_id)
-    inflight_jobs = await session.scalar(
-        text(
-            "SELECT count(*) FROM word_generations WHERE owner_id = :user_id "
-            "AND status IN ('queued', 'running')"
-        ),
-        {"user_id": user_id},
-    )
     statements = (
         # The audit row survives the action it describes (`action_id` is SET NULL),
         # so account deletion has to remove this account's audits explicitly —
@@ -128,7 +117,6 @@ async def delete_account(session: AsyncSession, user_id: UUID) -> int:
         "DELETE FROM async_tasks WHERE kind = 'grading' AND id NOT IN "
         "(SELECT task_id FROM async_task_interests "
         "UNION SELECT task_id FROM async_command_receipts)",
-        "DELETE FROM word_generations WHERE owner_id = :user_id",
         "DELETE FROM deck_senses WHERE node_id IN "
         "(SELECT id FROM nodes WHERE author_id = :user_id)",
         "DELETE FROM deck_attributes WHERE node_id IN "
@@ -156,4 +144,3 @@ async def delete_account(session: AsyncSession, user_id: UUID) -> int:
         if await session.scalar(text("SELECT to_regclass(:table)"), {"table": table}):
             await session.execute(text(statement), params)
     await session.commit()
-    return int(inflight_jobs or 0)

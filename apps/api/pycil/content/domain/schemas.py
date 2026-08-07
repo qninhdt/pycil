@@ -2,12 +2,21 @@
 never from pycil rows (pycil stores only opaque ``senseId`` membership)."""
 
 from datetime import datetime
+from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class WordRequest(BaseModel):
     query: str = Field(min_length=1, max_length=200)
+
+
+class GenerationCreateRead(BaseModel):
+    """The receipt for an accepted word generation: the task to subscribe to."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    task_id: UUID = Field(serialization_alias="taskId")
 
 
 class SenseContent(BaseModel):

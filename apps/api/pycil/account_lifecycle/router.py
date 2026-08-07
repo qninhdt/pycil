@@ -11,9 +11,7 @@ from pycil.account_lifecycle.schemas import AccountDeleteRequest, AccountExport
 from pycil.auth.deps import current_user
 from pycil.auth.schemas import CurrentUser
 from pycil.common.errors import UnauthorizedError
-from pycil.db.redis import get_redis
 from pycil.db.session import get_session
-from pycil.jobs.service import release_inflight_quota
 from pycil.ports.centrifugo import disconnect_user
 
 logger = logging.getLogger(__name__)
@@ -39,10 +37,7 @@ async def delete_me(
         raise UnauthorizedError("account_delete_confirmation_required")
     if not await service.owns_active_refresh_token(session, user.id, body.refresh_token):
         raise UnauthorizedError("invalid_refresh_token")
-    inflight_jobs = await service.delete_account(session, user.id)
-    redis = get_redis()
-    for _ in range(inflight_jobs):
-        await release_inflight_quota(redis, user.id)
+    await service.delete_account(session, user.id)
     # The account rows are gone either way; a socket that outlives them can only
     # observe channels whose interests were deleted with it. Logged rather than
     # discarded so an operator can see when that cleanup did not land.

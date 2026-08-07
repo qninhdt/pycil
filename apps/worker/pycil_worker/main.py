@@ -9,8 +9,8 @@ orchestrates its own jobs.
 
 # Register every ORM model in SQLModel metadata before any job runs. The worker
 # writes rows the API would have registered through its routers at application
-# startup — WordGeneration needs `users`, and the grading job's ReviewLog needs
-# both `users` and `nodes`. A foreign key is not resolved when its model is
+# startup — the grading job's ReviewLog needs both `users` and `nodes`, and the
+# task tables need `users`. A foreign key is not resolved when its model is
 # imported but when the flush sorts tables, so a missing registration surfaces as
 # a NoReferencedTableError on the first write rather than at import, and only for
 # whichever job happens to run first on a cold worker.
@@ -29,7 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from pycil_worker.jobs.dispatch_task_outbox import dispatch_task_outbox
 from pycil_worker.jobs.generate_question import prepare_questions, prepare_questions_task
-from pycil_worker.jobs.generate_word import generate_word, generate_word_task
+from pycil_worker.jobs.generate_word import generate_word_task
 from pycil_worker.jobs.grade_answer import grade_answer, grade_answer_task, grade_answer_v1
 from pycil_worker.jobs.heartbeat import heartbeat
 from pycil_worker.jobs.reconcile_assistant_retention import reconcile_assistant_retention
@@ -38,7 +38,6 @@ from pycil_worker.jobs.reconcile_expired_assistant_actions import (
     reconcile_expired_assistant_actions,
 )
 from pycil_worker.jobs.reconcile_pending_grades import reconcile_pending_grades
-from pycil_worker.jobs.reconcile_queued_word_generations import reconcile_queued_word_generations
 from pycil_worker.lexi_library import create_lexicon_worker_engine
 
 _OUTBOX_NOTIFICATION_CHANNEL = "async_task_outbox"
@@ -111,9 +110,8 @@ async def on_shutdown(ctx: dict) -> None:
 
 
 class WorkerSettings:
-    # Keep the legacy handler for already-enqueued jobs while producers use v1.
+    # `grade_answer` stays registered because `grade_answer_v1` delegates to it.
     functions = [
-        generate_word,
         generate_word_task,
         prepare_questions,
         prepare_questions_task,
@@ -121,7 +119,6 @@ class WorkerSettings:
         grade_answer_v1,
         grade_answer_task,
         reconcile_pending_grades,
-        reconcile_queued_word_generations,
         reconcile_async_tasks,
         reconcile_expired_assistant_actions,
         reconcile_assistant_retention,
@@ -130,7 +127,6 @@ class WorkerSettings:
     ]
     cron_jobs = [
         cron(reconcile_pending_grades, minute={0, 10, 20, 30, 40, 50}),
-        cron(reconcile_queued_word_generations, minute=set(range(60))),
         cron(reconcile_async_tasks, minute=set(range(60))),
         cron(reconcile_expired_assistant_actions, minute={0, 10, 20, 30, 40, 50}),
         cron(reconcile_assistant_retention, hour={3}, minute={15}),

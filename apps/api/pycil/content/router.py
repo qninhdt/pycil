@@ -5,6 +5,7 @@ owner-only write). pycil persists only opaque ``deck_senses`` membership; sense
 content is resolved through the LexiReader port at read time.
 """
 
+import logging
 from typing import Annotated
 from uuid import UUID, uuid4
 
@@ -15,8 +16,9 @@ from pycil.auth.deps import current_user, optional_current_user
 from pycil.auth.schemas import CurrentUser
 from pycil.common.errors import NotFoundError, TooManyRequestsError
 from pycil.config import settings
-from pycil.content.application import service
+from pycil.content.application import generation_quota, service
 from pycil.content.domain.schemas import (
+    GenerationCreateRead,
     SenseAddRequest,
     SenseContent,
     SenseDetailRead,
@@ -30,14 +32,14 @@ from pycil.db.redis import get_arq_pool, get_redis
 from pycil.db.session import get_session
 from pycil.hierarchy.application import subtree
 from pycil.hierarchy.application.access import require_node_access
-from pycil.jobs import service as jobs_service
-from pycil.jobs.schemas import GenerationCreateRead
 from pycil.policy.policy import mastery_stage, mastery_stage_name
 from pycil.policy.sense_state import UserSenseStats
 from pycil.ports.lexi import LexiReader, SenseView
 from pycil.ports.lexi_provider import get_lexi_client
 from pycil.tasks.application import service as task_service
 from pycil.tasks.domain.work_keys import word_work_key
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["content"])
 
@@ -77,7 +79,7 @@ async def request_word(
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> GenerationCreateRead:
     redis = get_redis()
-    if not await jobs_service.reserve_quota(redis, user.id):
+    if not await generation_quota.reserve_quota(redis, user.id):
         # Kept as an existing domain exception until the API-wide 429 mapping lands.
         raise TooManyRequestsError(
             "word_generation_quota_exceeded",
@@ -89,7 +91,7 @@ async def request_word(
             session,
             kind="word",
             server_work_key=word_work_key(
-                jobs_service.normalize_query(body.query),
+                generation_quota.normalize_query(body.query),
                 settings.lexi_reference_dataset_fingerprint,
             ),
             requester_id=user.id,
@@ -99,10 +101,10 @@ async def request_word(
             dispatch={"query": body.query, "owner_id": str(user.id)},
         )
     except Exception:
-        await jobs_service.release_inflight_quota(redis, user.id)
+        await generation_quota.release_inflight_quota(redis, user.id)
         raise
     if not submission.task_created:
-        await jobs_service.release_inflight_quota(redis, user.id)
+        await generation_quota.release_inflight_quota(redis, user.id)
     else:
         # The committed task is the source of truth for the subscriber receipt.
         try:
@@ -120,8 +122,15 @@ async def request_word(
 @router.get("/words/search", response_model=list[WordSearchRead])
 async def search_words(
     q: Annotated[str, Query(min_length=1, max_length=200)],
+    # Anonymous lookup stays available — a shared deck opens from its own link
+    # without an account, and the two neighbouring content routes read the same
+    # way. The dependency is what makes a *broken* token a rejection instead of
+    # being silently downgraded to "no token", and keeps this route from being the
+    # only one in the API with no auth boundary at all.
+    user: Annotated[CurrentUser | None, Depends(optional_current_user)] = None,
     client: LexiReader = Depends(get_lexi_client),
 ) -> list[WordSearchRead]:
+    del user  # Results are identical for every caller; presence is the contract.
     results = await client.search(q)
     output: list[WordSearchRead] = []
     # KNOWN ISSUE, pre-existing and deliberately not fixed here: this issues one
@@ -138,7 +147,14 @@ async def search_words(
                     if not read_dto.pos and entry.senses[0].pos:
                         read_dto.pos = entry.senses[0].pos
             except Exception:
-                pass
+                # One result's enrichment failing still leaves a usable row, so the
+                # response is not abandoned. It is logged because the silent version
+                # reported a Lexi outage as a successful search with thin results.
+                # The word id, never the learner's query.
+                logger.warning(
+                    "sense enrichment failed for a search result",
+                    extra={"lexi_word_id": result.lexi_word_id},
+                )
         output.append(read_dto)
     return output
 

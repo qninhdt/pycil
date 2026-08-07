@@ -35,76 +35,6 @@ async def _resolved(value):
     return value
 
 
-async def test_generate_word_persists_terminal_result_and_publishes(monkeypatch):
-    job_id = uuid4()
-    calls: list[tuple[str, object]] = []
-    events: list[tuple] = []
-
-    class Reader:
-        async def search(self, query):
-            assert query == "serendipity"
-            return [SimpleNamespace(display="serendipity", entry_type="word")]
-
-    class WorkerEngine:
-        async def generate_fenced(self, source):
-            assert source.display == "serendipity"
-            return _entry("serendipity", 44)
-
-    async def claim_generation(_session, seen_job_id, worker_id, **_kwargs):
-        calls.append(("running", seen_job_id))
-        assert worker_id == "worker-a"
-        return SimpleNamespace(id=job_id, lease_token="lease-token", lease_fence=1)
-
-    async def complete_generation(_session, seen_job_id, token, fence, result):
-        assert (token, fence) == ("lease-token", 1)
-        calls.append(("succeeded", (seen_job_id, result)))
-        return SimpleNamespace(owner_id=uuid4())
-
-    async def release_inflight_quota(_redis, _owner_id):
-        return None
-
-    async def publish(*args, **kwargs):
-        events.append((args, kwargs))
-
-    from pycil.jobs import service as jobs_service
-
-    monkeypatch.setattr(jobs_service, "claim_generation", claim_generation)
-    monkeypatch.setattr(jobs_service, "complete_generation", complete_generation)
-    monkeypatch.setattr(jobs_service, "release_inflight_quota", release_inflight_quota)
-    monkeypatch.setattr(generate_word.realtime, "publish_job", publish)
-
-    result = await generate_word.generate_word(
-        _context(Reader(), WorkerEngine()) | {"worker_id": "worker-a", "redis": object()},
-        "owner",
-        "serendipity",
-        str(job_id),
-    )
-
-    assert result == {"status": "succeeded", "wordId": 9, "senseIds": [44]}
-    assert calls == [
-        ("running", job_id),
-        ("succeeded", (job_id, {"wordId": 9, "senseIds": [44]})),
-    ]
-    assert events[0][0] == ("owner", str(job_id), "running")
-    assert events[1][0] == ("owner", str(job_id), "succeeded")
-    assert events[1][1] == {"detail": "serendipity"}
-
-
-async def test_generate_word_ignores_retried_job(monkeypatch):
-    job_id = uuid4()
-
-    async def claim_generation(_session, _seen_job_id, _worker_id, **_kwargs):
-        return None
-
-    from pycil.jobs import service as jobs_service
-
-    monkeypatch.setattr(jobs_service, "claim_generation", claim_generation)
-    result = await generate_word.generate_word(
-        _context(object(), object()), "owner", "term", str(job_id)
-    )
-    assert result == {"status": "duplicate"}
-
-
 async def test_generate_word_task_publishes_sse_snapshot_result(monkeypatch):
     task_id = uuid4()
 
@@ -139,66 +69,12 @@ async def test_generate_word_task_publishes_sse_snapshot_result(monkeypatch):
     assert transitions[0][1]["result"] == {"wordId": 9, "senseIds": [44]}
 
 
-async def test_generate_word_schedules_retry_instead_of_arq_redelivery(monkeypatch):
-    job_id = uuid4()
-    events = []
-
-    class Reader:
-        async def search(self, _query):
-            raise RuntimeError("lexi unavailable")
-
-    async def claim_generation(_session, _seen_job_id, _worker_id, **_kwargs):
-        return SimpleNamespace(lease_token="lease-token", lease_fence=1)
-
-    async def fail_generation(_session, _seen_job_id, token, fence, code):
-        assert (token, fence, code) == ("lease-token", 1, "generation_failed")
-        return SimpleNamespace(status=SimpleNamespace(value="queued"))
-
-    async def publish(*args, **kwargs):
-        events.append((args, kwargs))
-
-    from pycil.jobs import service as jobs_service
-
-    monkeypatch.setattr(jobs_service, "claim_generation", claim_generation)
-    monkeypatch.setattr(jobs_service, "fail_generation", fail_generation)
-    monkeypatch.setattr(generate_word.realtime, "publish_job", publish)
-    result = await generate_word.generate_word(
-        _context(Reader(), object()), "owner", "term", str(job_id)
-    )
-    assert result == {"status": "retry_scheduled"}
-    assert events[-1][0] == ("owner", str(job_id), "queued")
-
-
-async def test_generate_word_returns_stale_when_failure_lease_was_reclaimed(monkeypatch):
-    job_id = uuid4()
-
-    class Reader:
-        async def search(self, _query):
-            raise RuntimeError("lexi unavailable")
-
-    async def claim_generation(_session, _seen_job_id, _worker_id, **_kwargs):
-        return SimpleNamespace(lease_token="lease-token", lease_fence=1)
-
-    async def fail_generation(*_args):
-        return None
-
-    from pycil.jobs import service as jobs_service
-
-    monkeypatch.setattr(jobs_service, "claim_generation", claim_generation)
-    monkeypatch.setattr(jobs_service, "fail_generation", fail_generation)
-    result = await generate_word.generate_word(
-        _context(Reader(), object()), "owner", "term", str(job_id)
-    )
-    assert result == {"status": "stale"}
-
-
 async def test_generate_word_task_releases_the_inflight_slot_it_was_charged(monkeypatch):
-    """B1: the enqueued job must return the inflight slot the route charged.
+    """The enqueued job must return the inflight slot the submitter charged.
 
-    `POST /word-generations` reserves two inflight counters bounded by
-    `word_generation_max_inflight_per_user` (10). The legacy `generate_word` handler
-    releases them on its terminal paths; `generate_word_task` — the job the route
-    actually enqueues — released neither. Ten successful generations therefore
+    Both producers reserve two inflight counters bounded by
+    `word_generation_max_inflight_per_user` (10), and this job is the only place
+    that can return them. Once it released neither, ten successful generations
     exhausted a learner's budget until the 900s TTL lapsed, and the eleventh was
     refused with 429 while nothing was in flight.
 
@@ -206,11 +82,11 @@ async def test_generate_word_task_releases_the_inflight_slot_it_was_charged(monk
     on a call count, because the counter is what bounds the next request.
     """
     import fakeredis.aioredis
-    from pycil.jobs import service as jobs_service
+    from pycil.content.application import generation_quota
 
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
     owner_id, task_id = uuid4(), uuid4()
-    assert await jobs_service.reserve_quota(redis, owner_id) is True
+    assert await generation_quota.reserve_quota(redis, owner_id) is True
     user_key = f"word-generation:inflight:user:{owner_id}"
     assert await redis.get(user_key) == "1"
 
@@ -251,11 +127,11 @@ async def test_generate_word_task_releases_the_slot_on_the_failure_path(monkeypa
     charged again seconds later.
     """
     import fakeredis.aioredis
-    from pycil.jobs import service as jobs_service
+    from pycil.content.application import generation_quota
 
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
     owner_id, task_id = uuid4(), uuid4()
-    assert await jobs_service.reserve_quota(redis, owner_id) is True
+    assert await generation_quota.reserve_quota(redis, owner_id) is True
     user_key = f"word-generation:inflight:user:{owner_id}"
 
     class Reader:
@@ -289,11 +165,11 @@ async def test_generate_word_task_keeps_the_slot_when_its_lease_was_reclaimed(mo
     exceed the inflight bound — the mirror image of the leak.
     """
     import fakeredis.aioredis
-    from pycil.jobs import service as jobs_service
+    from pycil.content.application import generation_quota
 
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
     owner_id, task_id = uuid4(), uuid4()
-    assert await jobs_service.reserve_quota(redis, owner_id) is True
+    assert await generation_quota.reserve_quota(redis, owner_id) is True
     user_key = f"word-generation:inflight:user:{owner_id}"
 
     class Reader:
@@ -358,72 +234,13 @@ async def test_generate_word_task_without_an_owner_settles_without_releasing(mon
     await redis.flushall()
 
 
-async def test_a_failed_generation_logs_the_cause_it_discards(monkeypatch, caplog):
-    """The failure path records a code and drops the exception; it must log first.
-
-    `fail_generation` stores `generation_failed` and nothing else, so a swallowed
-    exception left no evidence anywhere of *why* a word failed to generate. A live
-    failure had to be diagnosed by reproducing the call inside the container by
-    hand — the worker log said only that the job returned `failed`.
-
-    Asserted on the log record rather than on the return value, because the return
-    value was never the problem.
-    """
-    import logging
-
-    from pycil.jobs import service as jobs_service
-
-    class ExplodingReader:
-        async def search(self, query):
-            raise RuntimeError("the provider returned an empty payload")
-
-    recorded: dict[str, object] = {}
-
-    async def claim_generation(_session, _job_id, _worker_id, **_kwargs):
-        return SimpleNamespace(lease_token="token", lease_fence=1, owner_id=uuid4())
-
-    async def fail_generation(_session, _job_id, _token, _fence, code):
-        recorded["code"] = code
-        return SimpleNamespace(status="failed", owner_id=uuid4())
-
-    monkeypatch.setattr(jobs_service, "claim_generation", claim_generation)
-    monkeypatch.setattr(jobs_service, "fail_generation", fail_generation)
-    monkeypatch.setattr(
-        jobs_service, "release_inflight_quota", lambda *a, **k: _resolved(None)
-    )
-    monkeypatch.setattr(
-        generate_word.realtime, "publish_job", lambda *a, **k: _resolved(None)
-    )
-
-    # `_context` predates the quota release, which reads ctx["redis"].
-    context = _context(ExplodingReader(), object()) | {"redis": object()}
-    with caplog.at_level(logging.ERROR, logger=generate_word.logger.name):
-        result = await generate_word.generate_word(
-            context, str(uuid4()), "truculent", str(uuid4())
-        )
-
-    assert result["status"] == "failed"
-    assert recorded["code"] == "generation_failed"
-    # The cause, not just the fact. A record with no traceback would leave the
-    # operator exactly where they were.
-    assert any(
-        record.exc_info is not None and "truculent" in record.getMessage()
-        for record in caplog.records
-    ), f"the cause was not logged; records: {[r.getMessage() for r in caplog.records]}"
-
-
 async def test_the_task_path_logs_the_cause_it_discards(monkeypatch, caplog):
-    """The live path's silent catch, which the legacy handler's fix did not cover.
+    """The failure branch swallows the provider exception and records only a code.
 
-    Both functions in this module swallow the provider exception and record a code.
-    The legacy `generate_word` was fixed first, but `generate_word_task` is the one
-    the route enqueues — so a real failure still recorded `word_generation_failed`
-    and discarded the reason. That gap was found the hard way: an E2E generation
-    failed, the log said only that the job returned `failed`, and the cause had to
-    be reproduced inside the container by hand.
-
-    `word_generation_failed` is the error code only this branch writes, which is how
-    the E2E failure was attributed here rather than to the legacy handler.
+    `transition_task` stores `word_generation_failed` and nothing else, so the
+    exception is the only account of *why* and it ends here. That gap was found the
+    hard way: an E2E generation failed, the log said only that the job returned
+    `failed`, and the cause had to be reproduced inside the container by hand.
     """
     import logging
 
