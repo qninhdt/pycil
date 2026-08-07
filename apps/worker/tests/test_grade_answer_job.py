@@ -23,31 +23,32 @@ def worker_context():
     }
 
 
-async def test_grade_answer_publishes_terminal_verdict(monkeypatch, worker_context):
+async def test_grade_answer_returns_the_settled_verdict(monkeypatch, worker_context):
+    """A settled verdict reports itself, and reports that no task consumed it.
+
+    This used to assert on a direct publish to an owner-scoped grading channel. The
+    subscribe proxy admits only ``async:<uuid>``, so that channel had no subscriber
+    and the assertion proved delivery that could not happen. The durable snapshot is
+    the delivery path, and ``task`` is what says whether one was found.
+    """
     outcome = SimpleNamespace(
         response_id=uuid4(), sense_id=42, is_correct=True, grade_score=1.0,
         grade_feedback="ok", mastery_before=10, mastery_after=20,
         render_format="free_text", reveal=None,
     )
-    published = []
 
     async def resolve(*args):
         return outcome
-
-    async def publish(owner_uid, event):
-        published.append((owner_uid, event))
 
     async def no_task(*args, **kwargs):
         return None
 
     monkeypatch.setattr(grade_answer.service, "apply_verdict", resolve)
-    monkeypatch.setattr(grade_answer.realtime, "publish_grading", publish)
     monkeypatch.setattr(grade_answer.task_service, "find_live_task", no_task)
 
     result = await grade_answer.grade_answer(worker_context, "owner", str(outcome.response_id))
 
     assert result == {"status": "graded", "is_correct": True, "task": "no-task"}
-    assert published[0][1].to_dict()["masteryAfter"] == 20
 
 
 async def test_reconciled_grade_converges_the_task_snapshot(monkeypatch, worker_context):
@@ -72,9 +73,6 @@ async def test_reconciled_grade_converges_the_task_snapshot(monkeypatch, worker_
     async def resolve(*args):
         return outcome
 
-    async def publish(*args):
-        return None
-
     async def find_live_task(session, *, kind, work_key):
         looked_up.append((kind, work_key))
         return SimpleNamespace(id=task_id)
@@ -88,7 +86,6 @@ async def test_reconciled_grade_converges_the_task_snapshot(monkeypatch, worker_
         return True
 
     monkeypatch.setattr(grade_answer.service, "apply_verdict", resolve)
-    monkeypatch.setattr(grade_answer.realtime, "publish_grading", publish)
     monkeypatch.setattr(grade_answer.task_service, "find_live_task", find_live_task)
     monkeypatch.setattr(grade_answer.task_service, "claim_task", claim_task)
     monkeypatch.setattr(grade_answer.task_service, "transition_task", transition_task)
@@ -121,9 +118,6 @@ async def test_grade_convergence_failure_does_not_fail_the_grade(monkeypatch, wo
     async def resolve(*args):
         return outcome
 
-    async def publish(*args):
-        return None
-
     async def find_live_task(session, *, kind, work_key):
         return SimpleNamespace(id=uuid4())
 
@@ -131,7 +125,6 @@ async def test_grade_convergence_failure_does_not_fail_the_grade(monkeypatch, wo
         return None  # another worker holds the lease
 
     monkeypatch.setattr(grade_answer.service, "apply_verdict", resolve)
-    monkeypatch.setattr(grade_answer.realtime, "publish_grading", publish)
     monkeypatch.setattr(grade_answer.task_service, "find_live_task", find_live_task)
     monkeypatch.setattr(grade_answer.task_service, "claim_task", claim_task)
 
@@ -141,15 +134,17 @@ async def test_grade_convergence_failure_does_not_fail_the_grade(monkeypatch, wo
     assert result["task"] == "not-claimable"
 
 
-async def test_grade_answer_retry_does_not_republish(monkeypatch, worker_context):
+async def test_grade_answer_retry_settles_nothing_a_second_time(monkeypatch, worker_context):
+    """An arq redelivery of an already-terminal response must be a no-op.
+
+    `apply_verdict` returning None means the response was already settled (or is
+    still pending), so the job reports `duplicate` and touches nothing further.
+    """
+
     async def resolve(*args):
         return None
 
-    async def publish(*args):  # pragma: no cover - must never be reached
-        raise AssertionError("terminal retry was published")
-
     monkeypatch.setattr(grade_answer.service, "apply_verdict", resolve)
-    monkeypatch.setattr(grade_answer.realtime, "publish_grading", publish)
 
     result = await grade_answer.grade_answer(worker_context, "owner", str(uuid4()))
     assert result == {"status": "duplicate"}

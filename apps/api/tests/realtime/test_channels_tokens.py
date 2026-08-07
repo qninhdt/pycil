@@ -8,10 +8,11 @@ import httpx
 import jwt
 import pytest
 from shared.realtime import channels
-from shared.realtime.payloads import GradingResult, JobUpdate
+from shared.realtime.payloads import GradingResult
 
 from pycil.config import Settings, settings
 from pycil.ports import centrifugo as client
+from pycil.realtime.application.subscriptions import _resource_id
 from pycil.realtime.router import realtime_token
 
 
@@ -28,6 +29,32 @@ def test_default_public_sse_url_uses_caddy_ingress(monkeypatch):
 def test_channels_for_two_tasks_do_not_collide():
     a, b = uuid.uuid4(), uuid.uuid4()
     assert channels.async_task(a) != channels.async_task(b)
+
+
+def test_the_builder_produces_a_channel_the_subscribe_proxy_accepts():
+    """Check the two sides against each other, not against a literal.
+
+    Two builders once produced `users:{uid}:jobs:{id}` and `users:{uid}:grading:{id}`
+    while the proxy admitted only `async:<uuid>`, so every event published through
+    them reached a channel no client could hold and the notification was silently
+    lost. A test asserting the builder against a hardcoded string would not have
+    caught it — both sides have to be exercised together.
+    """
+    task_id = uuid.uuid4()
+    assert _resource_id(channels.async_task(task_id)) == task_id
+
+
+@pytest.mark.parametrize(
+    "channel",
+    [
+        "users:owner:jobs:abc#owner",
+        "users:owner:grading:abc#owner",
+        "async:not-a-uuid",
+        "prefixed:async:00000000-0000-0000-0000-000000000000",
+    ],
+)
+def test_the_proxy_rejects_every_channel_shape_no_client_can_hold(channel):
+    assert _resource_id(channel) is None
 
 
 def test_connection_token_has_user_and_auth_version_metadata():
@@ -77,8 +104,6 @@ def test_caddy_exposes_sse_emulation_but_not_websocket_or_sockjs():
 
 
 def test_payload_serialization():
-    job = JobUpdate(job_id="j1", status="done", detail="ok")
-    assert job.to_dict() == {"jobId": "j1", "status": "done", "detail": "ok"}
     grade = GradingResult(
         response_id="r1", sense_id=42, is_correct=True, grade_score=1.0,
         mastery_before=10, mastery_after=20,

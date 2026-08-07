@@ -1,20 +1,11 @@
-"""Typed realtime event payloads — shared by api + worker publishers.
+"""Typed realtime event payload for the durable task snapshot.
 
-Plain dataclasses serialized to dict for the Centrifugo publish body. Keep these
-in sync on both sides so the frontend sees one stable event shape per channel.
+A plain dataclass serialized to dict for the outbox payload. It is the single
+definition of this wire shape, so the frontend sees one stable grading event.
 """
 
 from dataclasses import dataclass
 
-
-@dataclass
-class JobUpdate:
-    job_id: str
-    status: str  # queued | running | succeeded | failed
-    detail: str | None = None
-
-    def to_dict(self) -> dict:
-        return {"jobId": self.job_id, "status": self.status, "detail": self.detail}
 
 @dataclass
 class GradingResult:

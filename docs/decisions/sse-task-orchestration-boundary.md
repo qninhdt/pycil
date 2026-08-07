@@ -95,8 +95,9 @@ is forward-fix or a verified database restore—never a return to dual writers.
 
 ## Baseline procedure
 
-Run [`scripts/verify-sse-task-migration-baseline.sh`](../../scripts/verify-sse-task-migration-baseline.sh)
-against each source database before a rehearsal. Archive its JSON output with
-the backup manifest. The command fails if the Pycil migration head differs
-from `0013_word_generation_leases`; Lexi verification is intentionally an
-explicit second invocation so this repository never needs Lexi credentials.
+The cutover this decision describes is complete, and the rehearsal script that
+counted `word_generations` rows went with the table it queried. A schema
+rehearsal now runs [`scripts/rehearse-fresh-schema.sh`](../../scripts/rehearse-fresh-schema.sh),
+which builds both schemas from their migrations rather than comparing row counts
+against a pre-cutover snapshot. Lexi verification stays an explicit second
+invocation so this repository never needs Lexi credentials.

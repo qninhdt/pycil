@@ -87,31 +87,3 @@ async def unsubscribe_channel(user_id: UUID | str, channel: str) -> bool:
     except (httpx.HTTPError, ValueError):
         return False
     return isinstance(payload, dict) and not payload.get("error")
-
-
-async def publish(channel: str, data: dict) -> None:
-    """Fire-and-forget publish to an owner-scoped channel.
-
-    Live, and the only publish path the worker has: `generate_word` reports job
-    progress through it and `grade_answer` delivers a grading result
-    (`pycil_worker/realtime.py`). It previously described itself as a compatibility
-    shim for "legacy producers pending task-registry cutover", which had stopped
-    being true — the cutover is done and these are the current producers.
-
-    Distinct from the durable path on purpose. Task-registry state goes through the
-    worker outbox, which requires an HTTP ACK and is replayed on failure. This is
-    for updates whose loss is acceptable: a missed "running" tick costs a
-    progress-bar frame, and the authoritative state is always re-readable. Hence
-    the swallowed `HTTPError` — a broker outage must not fail the job that was
-    merely narrating itself.
-    """
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as http_client:
-            response = await http_client.post(
-                f"{settings.centrifugo_url}/api/publish",
-                headers={"X-API-Key": settings.centrifugo_api_key},
-                json={"channel": channel, "data": data},
-            )
-            response.raise_for_status()
-    except httpx.HTTPError:
-        return

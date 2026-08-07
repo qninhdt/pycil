@@ -3,9 +3,9 @@
 The learning service's ``apply_verdict`` is the source of truth: it claims a fenced
 lease (so an arq retry never re-bills the judge), calls the judge-backed
 ``LexiconEngine.evaluate_answer``, and — once settled — applies the checkpoint
-consequence through the Phase 7 engine (one FSRS update per session/sense, reading
-the durable requested/served levels off the response row).  The job then publishes
-the settled result to the owner-scoped grading channel.
+consequence (one FSRS update per session/sense, reading the durable
+requested/served levels off the response row). The job then converges the durable
+task snapshot, which is what the browser is subscribed to.
 """
 
 from datetime import UTC, datetime
@@ -18,8 +18,6 @@ from pycil.tasks.application import service as task_service
 from pycil.tasks.domain.work_keys import grading_work_key
 from pycil.tasks.infra.models import AsyncTaskStatus
 from shared.realtime.payloads import GradingResult
-
-from pycil_worker import realtime
 
 
 def _task_result(response: Response) -> dict:
@@ -110,20 +108,6 @@ async def grade_answer(ctx: dict, owner_uid: str, response_id: str) -> dict:
         # Already terminal, or still pending (model not settled) — no re-publish.
         return {"status": "duplicate"}
 
-    await realtime.publish_grading(
-        owner_uid,
-        GradingResult(
-            response_id=response_id,
-            sense_id=outcome.sense_id,
-            is_correct=outcome.is_correct,
-            grade_score=outcome.grade_score,
-            grade_feedback=outcome.grade_feedback,
-            mastery_before=outcome.mastery_before,
-            mastery_after=outcome.mastery_after,
-            render_format=outcome.render_format,
-            reveal=outcome.reveal,
-        ),
-    )
     task_state = await _converge_task_snapshot(
         ctx,
         response_id,
