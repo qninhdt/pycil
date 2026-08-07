@@ -10,6 +10,16 @@ Note what this does NOT assert: that a route is *sign-in only*. Anonymous read o
 public content is intended (a shared deck opens from its own link), so
 ``optional_current_user`` counts as covered. What is forbidden is a route with no
 identity boundary whatsoever.
+
+Coverage is by construction, not by enumeration: the loop walks
+``create_app().routes``, so every module mounted on the app is included the moment
+it is mounted — currently 42 routes across assistant, content, hierarchy,
+learning, realtime and sessions. There is no per-module list to keep in sync,
+which is the failure mode this file exists to avoid.
+
+Verified to fail: removing ``Depends(current_user)`` from one learning route makes
+this red naming that exact path, and restoring it makes it green. A guard nobody
+has watched fail is not a guard.
 """
 
 from pycil.auth.deps import current_user, optional_current_user

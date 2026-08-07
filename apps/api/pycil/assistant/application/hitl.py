@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from pycil.assistant.infra.models import ActionStatus, AssistantAction, AssistantActionAudit
 from pycil.common.errors import ConflictError, NotFoundError
 from pycil.config import settings
+from pycil.db.session import async_session_factory
+from pycil.hierarchy.infra.models import Node
 
 
 def canonical_digest(arguments: dict) -> str:
@@ -118,8 +120,6 @@ async def mark_executing(session: AsyncSession, action: AssistantAction) -> None
 
 async def finish_action(action_id: UUID, succeeded: bool) -> None:
     """Record one terminal execution result after the resumed graph completes."""
-    from pycil.db.session import async_session_factory
-
     async with async_session_factory() as session:
         action = await session.get(AssistantAction, action_id)
         if action is not None and action.status == ActionStatus.EXECUTING and succeeded:
@@ -145,8 +145,6 @@ async def validate_action_freshness(session: AsyncSession, action: AssistantActi
     if not generations and action.resource_generation is not None:
         key = "node_id" if "node_id" in action.canonical_args else "deck_id"
         generations = {key: action.resource_generation}
-    from pycil.hierarchy.infra.models import Node
-
     for key, generation in generations.items():
         raw_node_id = action.canonical_args.get(key)
         try:

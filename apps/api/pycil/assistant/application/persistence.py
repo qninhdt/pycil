@@ -8,7 +8,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pycil.assistant.infra.models import AssistantRun, AssistantThread, RunStatus
-from pycil.common.errors import ConflictError, NotFoundError
+from pycil.auth.models import User
+from pycil.common.errors import ConflictError, ForbiddenError, NotFoundError
 from pycil.config import settings
 
 
@@ -83,9 +84,6 @@ async def create_or_load_run(
 
 async def revalidate_actor(session: AsyncSession, user_id: UUID, token_version: int) -> None:
     """Re-read authoritative account state immediately before a mutation/resume."""
-    from pycil.auth.models import User
-    from pycil.common.errors import ForbiddenError
-
     user = await session.get(User, user_id)
     if user is None or user.token_version != token_version:
         raise ForbiddenError("assistant_actor_revoked", code="assistant_actor_revoked")

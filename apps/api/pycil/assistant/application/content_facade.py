@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pycil.assistant.application.hierarchy_facade import _owned_node
-from pycil.common.errors import NotFoundError
+from pycil.common.errors import ConflictError, NotFoundError
 from pycil.content.application import service
 from pycil.content.infra.models import DeckSense
 from pycil.hierarchy.infra.models import NodeType
@@ -16,8 +16,6 @@ from pycil.ports.lexi_provider import get_lexi_client
 async def _owned_deck(session: AsyncSession, actor_id: UUID, deck_id: UUID):
     deck = await _owned_node(session, actor_id, deck_id)
     if deck.type != NodeType.DECK:
-        from pycil.common.errors import ConflictError
-
         raise ConflictError("deck_senses_require_deck")
     return deck
 

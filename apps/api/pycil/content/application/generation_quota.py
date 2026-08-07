@@ -12,6 +12,8 @@ from uuid import UUID
 
 from redis.asyncio import Redis
 
+from pycil.config import settings
+
 _RESERVE_QUOTA = """
 local limits = {tonumber(ARGV[1]), tonumber(ARGV[2]), tonumber(ARGV[3]), tonumber(ARGV[4])}
 for i = 1, 4 do
@@ -49,8 +51,6 @@ def _quota_keys(owner_id: UUID, now: datetime) -> tuple[str, str, str, str]:
 
 async def reserve_quota(redis: Redis, owner_id: UUID) -> bool:
     """Atomically charge a request and reserve its two durable inflight slots."""
-    from pycil.config import settings
-
     now = _now()
     seconds_to_midnight = (
         int((now.replace(hour=23, minute=59, second=59, microsecond=0) - now).total_seconds()) + 1

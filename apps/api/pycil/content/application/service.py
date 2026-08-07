@@ -9,6 +9,7 @@ from uuid import UUID
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from pycil.common.errors import ConflictError, NotFoundError
 from pycil.content.infra.models import DeckSense
 from pycil.hierarchy.application import cache
 from pycil.hierarchy.application import service as hierarchy_service
@@ -129,12 +130,8 @@ async def _next_position(session: AsyncSession, node_id: UUID) -> int:
 async def _require_live_deck(session: AsyncSession, node_id: UUID) -> Node:
     node = await session.get(Node, node_id, with_for_update=True)
     if node is None or node.deleted_at is not None:
-        from pycil.common.errors import NotFoundError
-
         raise NotFoundError("deck_not_found")
     if node.type != NodeType.DECK:
-        from pycil.common.errors import ConflictError
-
         raise ConflictError("deck_senses_require_deck")
     return node
 

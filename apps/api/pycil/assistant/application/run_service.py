@@ -16,6 +16,7 @@ from pycil.common.errors import ConflictError
 from pycil.config import settings
 from pycil.db.redis import get_redis
 from pycil.db.session import async_session_factory
+from pycil.hierarchy.infra.models import Node
 
 
 def checkpoint_thread_id(owner_id: UUID, thread_id: UUID) -> str:
@@ -217,8 +218,6 @@ async def stream_run(
                             # costs nothing extra and is the difference between
                             # informed consent and a blind yes.
                             targets: dict[str, str] = {}
-                            from pycil.hierarchy.infra.models import Node
-
                             for key in ("node_id", "deck_id", "parent_id"):
                                 raw_target = arguments.get(key)
                                 if raw_target is None:
