@@ -22,7 +22,6 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
-
 from sqlalchemy import update
 
 from pycil.auth.models import User
@@ -31,8 +30,7 @@ from pycil.common.errors import ConflictError
 from pycil.content.application import service as content_service
 from pycil.db.redis import get_redis
 from pycil.hierarchy.application import service as hierarchy_service
-from pycil.hierarchy.infra.models import NodeType
-from pycil.hierarchy.infra.models import Node
+from pycil.hierarchy.infra.models import Node, NodeType
 from pycil.learning.application import planning, session_flow, session_queue
 from pycil.learning.infra.models import SenseStatus, UserSenseStats
 from pycil.policy.policy import (

@@ -17,7 +17,8 @@ from pycil.auth.models import User
 from pycil.auth.schemas import CurrentUser
 from pycil.common.errors import ConflictError
 from pycil.content.application import service as content_service
-from pycil.hierarchy.application import reads, service as hierarchy_service
+from pycil.hierarchy.application import reads
+from pycil.hierarchy.application import service as hierarchy_service
 from pycil.hierarchy.infra.models import NodeType
 from pycil.hierarchy.router import (
     global_cefr,
