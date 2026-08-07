@@ -10,6 +10,8 @@ from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from uuid import uuid4
 
+import pytest
+
 from pycil_worker.jobs.reconcile_async_tasks import reconcile_async_tasks
 
 
@@ -80,14 +82,20 @@ async def test_reconciliation_reenqueues_each_live_task_kind(monkeypatch):
     ]
 
 
-async def test_a_word_row_from_the_previous_release_is_still_reenqueued(monkeypatch):
-    """A queued row written before `owner_id` was recorded must still recover.
+async def test_a_word_row_reenqueues_with_the_owner_that_was_charged(monkeypatch):
+    """The re-enqueue must carry the owner, or the refund has nobody to credit.
 
-    Reconciliation is precisely what runs against rows created by the previous
-    release. Requiring `owner_id` here would strand them permanently, so the job
-    passes None and settles the task without releasing a slot it cannot attribute.
+    This used to assert the opposite — that a row without `owner_id` still
+    recovered, passing None onward — as tolerance for rows written before the
+    field existed. No such row was ever written. Both producers put `owner_id` in
+    `dispatch` at submission, so reading it with `.get()` only turned a malformed
+    row into a silently unrefunded slot.
     """
-    tasks = [SimpleNamespace(id=uuid4(), kind="word", dispatch={"query": "legacy"})]
+    tasks = [
+        SimpleNamespace(
+            id=uuid4(), kind="word", dispatch={"query": "legacy", "owner_id": "word-owner"}
+        )
+    ]
     redis = _Redis()
     _patch_tasks(monkeypatch, tasks)
 
@@ -96,7 +104,31 @@ async def test_a_word_row_from_the_previous_release_is_still_reenqueued(monkeypa
     )
 
     assert result == {"status": "reconciled", "count": 1, "unhandled": 0}
-    assert redis.enqueued == [("generate_word_task", str(tasks[0].id), "legacy", None)]
+    assert redis.enqueued == [("generate_word_task", str(tasks[0].id), "legacy", "word-owner")]
+
+
+async def test_a_word_row_missing_its_owner_fails_loudly(monkeypatch):
+    """A dispatch with no owner raises rather than re-enqueueing unrefundably.
+
+    Deliberately pinning the blunt behaviour: `dispatch["owner_id"]` raises
+    KeyError, and there is no per-task guard, so the batch aborts. That is worse
+    than skipping the row and better than the `.get()` it replaced, which
+    re-enqueued a job whose refund could never be credited to anyone.
+
+    No producer can write such a row — both put `owner_id` in `dispatch` at
+    submission — so this documents the blast radius if one ever does, rather than
+    claiming the reconciler handles it gracefully. Making it a skip-and-report is
+    a change to the reconciler's error contract, which belongs with the task
+    dispatch work, not here.
+    """
+    tasks = [SimpleNamespace(id=uuid4(), kind="word", dispatch={"query": "no-owner"})]
+    redis = _Redis()
+    _patch_tasks(monkeypatch, tasks)
+
+    with pytest.raises(KeyError):
+        await reconcile_async_tasks({"session_factory": _session_factory, "redis": redis})
+
+    assert redis.enqueued == [], "a row with no owner must not be re-enqueued"
 
 
 async def test_a_kind_with_no_handler_is_counted_and_not_enqueued(monkeypatch):

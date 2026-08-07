@@ -59,7 +59,7 @@ def test_the_proxy_rejects_every_channel_shape_no_client_can_hold(channel):
 
 def test_connection_token_has_user_and_auth_version_metadata():
     uid = uuid.uuid4()
-    token = client.sign_subscription_token(uid, token_version=7)
+    token, _expires_at = client.mint_connection_token(uid, token_version=7)
     claims = jwt.decode(
         token, settings.centrifugo_token_hmac_secret, algorithms=["HS256"]
     )
@@ -70,7 +70,7 @@ def test_connection_token_has_user_and_auth_version_metadata():
 
 def test_token_signed_with_centrifugo_secret_not_api_jwt_secret():
     uid = uuid.uuid4()
-    token = client.sign_subscription_token(uid, token_version=1)
+    token, _expires_at = client.mint_connection_token(uid, token_version=1)
     # Must NOT verify against the API's JWT secret — different key domain.
     import pytest
 
@@ -167,76 +167,3 @@ async def test_disconnect_user_calls_centrifugo_and_handles_api_failures(monkeyp
 
     monkeypatch.setattr(client.httpx, "AsyncClient", lambda **_kwargs: ErrorClient())
     assert await client.disconnect_user("user-1") is False
-
-
-@pytest.mark.asyncio
-async def test_unsubscribe_channel_closes_an_established_subscription(monkeypatch):
-    """`expire_at` bounds a subscription; only unsubscribe ends one immediately.
-
-    Centrifugo evaluates `expire_at` on its own clock, so a clamp shortens the
-    window but does not cut a live subscription at the moment a task settles.
-    Verified against Centrifugo v6.8.3: `POST /api/unsubscribe` returns
-    `{"result":{}}` for a user/channel pair.
-    """
-    calls = []
-
-    class MockAsyncClient:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *_args):
-            return False
-
-        async def post(self, url, **kwargs):
-            calls.append((url, kwargs))
-            return httpx.Response(200, json={"result": {}}, request=httpx.Request("POST", url))
-
-    monkeypatch.setattr(client.httpx, "AsyncClient", lambda **_kwargs: MockAsyncClient())
-    assert await client.unsubscribe_channel("user-1", "async:task-1") is True
-    assert calls == [
-        (
-            f"{settings.centrifugo_url}/api/unsubscribe",
-            {
-                "json": {"user": "user-1", "channel": "async:task-1"},
-                "headers": {"X-API-Key": settings.centrifugo_api_key},
-            },
-        )
-    ]
-
-
-@pytest.mark.asyncio
-async def test_unsubscribe_reports_a_command_level_error_as_failure(monkeypatch):
-    """Centrifugo returns command errors inside a 200, like `disconnect_user`."""
-
-    class MockAsyncClient:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *_args):
-            return False
-
-        async def post(self, url, **_kwargs):
-            return httpx.Response(
-                200,
-                json={"error": {"code": 102, "message": "unknown channel"}},
-                request=httpx.Request("POST", url),
-            )
-
-    monkeypatch.setattr(client.httpx, "AsyncClient", lambda **_kwargs: MockAsyncClient())
-    assert await client.unsubscribe_channel("user-1", "async:task-1") is False
-
-
-@pytest.mark.asyncio
-async def test_unsubscribe_treats_a_transport_error_as_failure(monkeypatch):
-    class MockAsyncClient:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *_args):
-            return False
-
-        async def post(self, url, **_kwargs):
-            raise httpx.ConnectError("centrifugo down")
-
-    monkeypatch.setattr(client.httpx, "AsyncClient", lambda **_kwargs: MockAsyncClient())
-    assert await client.unsubscribe_channel("user-1", "async:task-1") is False

@@ -207,26 +207,40 @@ async def test_subscribe_expiry_is_clamped_to_the_interest_not_the_token(session
 async def test_the_terminal_transition_does_not_unsubscribe_from_centrifugo(session, monkeypatch):
     """Recorded decision: closing the window is expiry's job, not unsubscribe's.
 
-    The plan asked for an explicit Centrifugo `unsubscribe` on the terminal
-    transition. `unsubscribe_channel` exists and works — verified against v6.8.3 —
-    but calling it here would cut the connection before the outbox has published the
-    terminal snapshot. `transition_task` and `dispatch_task_outbox` are separate,
+    An explicit Centrifugo `unsubscribe` on the terminal transition was considered
+    and rejected: it worked (verified against v6.8.3), but calling it here would
+    cut the connection before the outbox has published the terminal snapshot.
+    `transition_task` and `dispatch_task_outbox` are separate,
     asynchronous paths: the transition only enqueues an outbox row, and the cron
     relay publishes it up to a minute later. Unsubscribing first destroys exactly
     the handover the grace window exists to protect.
 
     So the window is closed by the clamped expiry instead, and this pins that
     choice: a future change that adds the call back fails here.
+
+    The client no longer exposes an `unsubscribe_channel` at all — it was deleted
+    as uncalled — so the seam is asserted by spying on the transport instead of on
+    a named method. That is the stronger check: it fails for any new HTTP call the
+    transition makes to Centrifugo, not only for one spelled a particular way.
     """
     from pycil.ports import centrifugo as realtime_client
 
     calls: list[tuple] = []
 
-    async def record(user_id, channel):
-        calls.append((user_id, channel))
-        return True
+    class RecordingClient:
+        async def __aenter__(self):
+            return self
 
-    monkeypatch.setattr(realtime_client, "unsubscribe_channel", record)
+        async def __aexit__(self, *_args):
+            return False
+
+        async def post(self, url, **kwargs):
+            calls.append((url, kwargs))
+            raise AssertionError(f"the terminal transition called Centrifugo at {url}")
+
+    monkeypatch.setattr(
+        realtime_client.httpx, "AsyncClient", lambda **_kwargs: RecordingClient()
+    )
 
     user = await _user(session, "terminal-no-unsubscribe@example.com")
     submission = await _task(session, user)

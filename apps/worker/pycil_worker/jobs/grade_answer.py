@@ -94,7 +94,19 @@ async def _converge_task_snapshot(ctx: dict, response_id: str, result: dict) -> 
     return "converged" if updated else "stale"
 
 
-async def grade_answer(ctx: dict, owner_uid: str, response_id: str) -> dict:
+async def grade_answer_v1(ctx: dict, owner_uid: str, response_id: str) -> dict:
+    """Grade by response id, for the pending-grade reconciler.
+
+    One function rather than the three that used to spell this: `grade_answer`
+    held the body, `grade_answer_v1` forwarded to it verbatim to "retain
+    `grade_answer` while old jobs drain", and both were registered. There were no
+    old jobs to drain — the queue this guarded against has never held any — so the
+    forwarder and its target were one name too many for one operation.
+
+    `grade_answer_task` remains separate and is what producers enqueue. This entry
+    point exists only because the reconciler re-enqueues by response id, which is
+    also why `_converge_task_snapshot` has to go looking for the task afterwards.
+    """
     redis = get_redis()
     grader = ctx["lexi_engine"]
     session_factory = ctx["session_factory"]
@@ -114,11 +126,6 @@ async def grade_answer(ctx: dict, owner_uid: str, response_id: str) -> dict:
         _outcome_result(outcome),
     )
     return {"status": "graded", "is_correct": outcome.is_correct, "task": task_state}
-
-
-async def grade_answer_v1(ctx: dict, owner_uid: str, response_id: str) -> dict:
-    """Versioned producer target; retain ``grade_answer`` while old jobs drain."""
-    return await grade_answer(ctx, owner_uid, response_id)
 
 
 async def grade_answer_task(ctx: dict, task_id: str, owner_uid: str, response_id: str) -> dict:

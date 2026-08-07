@@ -36,12 +36,6 @@ from pycil.ports.lexi_provider import get_lexi_client
 
 router = APIRouter(tags=["hierarchy"])
 
-# Ceiling on the ids `/me/cefr` pulls into memory. That endpoint is the only
-# remaining caller of `_tracked_sense_ids`, because CEFR level is Lexi-side data
-# that a pycil query cannot group by. Far above any real learner's tracked set, so
-# in practice it truncates nothing — it exists so one pathological account cannot
-# turn a request into an unbounded scan.
-reads.TRACKED_SENSE_CEILING = 20_000
 
 
 @router.get("/nodes", response_model=NodePageRead)

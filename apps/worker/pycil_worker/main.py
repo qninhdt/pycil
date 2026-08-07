@@ -30,7 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from pycil_worker.jobs.dispatch_task_outbox import dispatch_task_outbox
 from pycil_worker.jobs.generate_question import prepare_questions, prepare_questions_task
 from pycil_worker.jobs.generate_word import generate_word_task
-from pycil_worker.jobs.grade_answer import grade_answer, grade_answer_task, grade_answer_v1
+from pycil_worker.jobs.grade_answer import grade_answer_task, grade_answer_v1
 from pycil_worker.jobs.heartbeat import heartbeat
 from pycil_worker.jobs.reconcile_assistant_retention import reconcile_assistant_retention
 from pycil_worker.jobs.reconcile_async_tasks import reconcile_async_tasks
@@ -110,12 +110,10 @@ async def on_shutdown(ctx: dict) -> None:
 
 
 class WorkerSettings:
-    # `grade_answer` stays registered because `grade_answer_v1` delegates to it.
     functions = [
         generate_word_task,
         prepare_questions,
         prepare_questions_task,
-        grade_answer,
         grade_answer_v1,
         grade_answer_task,
         reconcile_pending_grades,

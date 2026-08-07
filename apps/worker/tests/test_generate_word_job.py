@@ -4,6 +4,8 @@ from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from uuid import uuid4
 
+import pytest
+
 from pycil_worker.jobs import generate_word
 
 
@@ -36,7 +38,11 @@ async def _resolved(value):
 
 
 async def test_generate_word_task_publishes_sse_snapshot_result(monkeypatch):
+    import fakeredis.aioredis
+
     task_id = uuid4()
+    owner_id = uuid4()
+    redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
 
     class Reader:
         async def search(self, _query):
@@ -61,12 +67,12 @@ async def test_generate_word_task_publishes_sse_snapshot_result(monkeypatch):
     monkeypatch.setattr(generate_word.task_service, "claim_task", claim_task)
     monkeypatch.setattr(generate_word.task_service, "transition_task", transition_task)
 
-    result = await generate_word.generate_word_task(
-        _context(Reader(), WorkerEngine()), str(task_id), "term"
-    )
+    ctx = _context(Reader(), WorkerEngine()) | {"redis": redis}
+    result = await generate_word.generate_word_task(ctx, str(task_id), "term", str(owner_id))
 
     assert result == {"status": "succeeded", "wordId": 9, "senseIds": [44]}
     assert transitions[0][1]["result"] == {"wordId": 9, "senseIds": [44]}
+    await redis.flushall()
 
 
 async def test_generate_word_task_releases_the_inflight_slot_it_was_charged(monkeypatch):
@@ -199,13 +205,14 @@ async def test_generate_word_task_keeps_the_slot_when_its_lease_was_reclaimed(mo
     await redis.flushall()
 
 
-async def test_generate_word_task_without_an_owner_settles_without_releasing(monkeypatch):
-    """An in-flight job enqueued by the previous release carries no owner.
+async def test_generate_word_task_refuses_a_call_with_no_owner(monkeypatch):
+    """The owner is required, so a caller that omits it fails at the call.
 
-    The argument is optional so that a rolling deploy — new worker, jobs already
-    queued by the old API — settles the task instead of raising TypeError. Such a
-    job cannot release a slot it cannot attribute, and the 900s TTL remains the
-    backstop for that window only.
+    This used to assert the opposite: that a three-argument call settled the task
+    anyway, as tolerance for jobs queued by a previous release during a rolling
+    deploy. No such job has ever been queued. What the default actually bought was
+    a caller who could forget the argument and leak the learner's inflight slot
+    until the 900s TTL lapsed, with nothing failing.
     """
     import fakeredis.aioredis
 
@@ -220,17 +227,9 @@ async def test_generate_word_task_without_an_owner_settles_without_releasing(mon
         async def generate_fenced(self, _source):
             return _entry("term", 44)
 
-    task = SimpleNamespace(id=task_id, lease_token="lease-token", lease_fence=1)
-    monkeypatch.setattr(
-        generate_word.task_service, "claim_task", lambda *_a: _resolved(task)
-    )
-    monkeypatch.setattr(
-        generate_word.task_service, "transition_task", lambda *_a, **_k: _resolved(task)
-    )
-
     ctx = _context(Reader(), WorkerEngine()) | {"redis": redis}
-    result = await generate_word.generate_word_task(ctx, str(task_id), "term")
-    assert result == {"status": "succeeded", "wordId": 9, "senseIds": [44]}
+    with pytest.raises(TypeError):
+        await generate_word.generate_word_task(ctx, str(task_id), "term")
     await redis.flushall()
 
 

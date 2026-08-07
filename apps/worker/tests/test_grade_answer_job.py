@@ -46,7 +46,7 @@ async def test_grade_answer_returns_the_settled_verdict(monkeypatch, worker_cont
     monkeypatch.setattr(grade_answer.service, "apply_verdict", resolve)
     monkeypatch.setattr(grade_answer.task_service, "find_live_task", no_task)
 
-    result = await grade_answer.grade_answer(worker_context, "owner", str(outcome.response_id))
+    result = await grade_answer.grade_answer_v1(worker_context, "owner", str(outcome.response_id))
 
     assert result == {"status": "graded", "is_correct": True, "task": "no-task"}
 
@@ -146,7 +146,7 @@ async def test_grade_answer_retry_settles_nothing_a_second_time(monkeypatch, wor
 
     monkeypatch.setattr(grade_answer.service, "apply_verdict", resolve)
 
-    result = await grade_answer.grade_answer(worker_context, "owner", str(uuid4()))
+    result = await grade_answer.grade_answer_v1(worker_context, "owner", str(uuid4()))
     assert result == {"status": "duplicate"}
 
 

@@ -15,9 +15,7 @@ from pycil.tasks.infra.models import AsyncTaskStatus
 logger = logging.getLogger(__name__)
 
 
-async def generate_word_task(
-    ctx: dict, task_id: str, query: str, owner_uid: str | None = None
-) -> dict:
+async def generate_word_task(ctx: dict, task_id: str, query: str, owner_uid: str) -> dict:
     """Generate one dictionary entry and settle its durable task.
 
     ``owner_uid`` identifies who was charged the inflight generation slot at
@@ -26,19 +24,19 @@ async def generate_word_task(
     it is the only place that can return them. Without the release, ten successful
     generations exhausted a learner's budget until the 900s TTL lapsed.
 
-    Optional so a job already queued by the previous release settles instead of
-    raising ``TypeError`` during a rolling deploy. Such a job cannot attribute a
-    slot, and the TTL remains the backstop for that window alone.
+    Required, not optional. It defaulted to ``None`` so a job enqueued by a
+    previous release would settle rather than raise ``TypeError`` mid rolling
+    deploy — a queue that has never held such a job. Every producer and the
+    reconciler pass it, so the default only hid a caller that forgot to.
     """
     task_uuid = UUID(task_id)
-    owner_id = UUID(owner_uid) if owner_uid else None
+    owner_id = UUID(owner_uid)
 
     async def release() -> None:
         # Only a transition this worker actually won may return the slot: a
         # rejected fence means another attempt owns the task and is still charged
         # for it, so releasing here would let the learner exceed the bound.
-        if owner_id is not None:
-            await generation_quota.release_inflight_quota(ctx["redis"], owner_id)
+        await generation_quota.release_inflight_quota(ctx["redis"], owner_id)
 
     async with ctx["session_factory"]() as session:
         task = await task_service.claim_task(session, task_uuid, ctx.get("worker_id", "worker"))

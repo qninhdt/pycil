@@ -22,11 +22,6 @@ async def readiness() -> bool:
         return False
 
 
-def sign_subscription_token(user_id: UUID | str, token_version: int = 0) -> str:
-    """Sign an SSE connection token bound to the current auth token version."""
-    return mint_connection_token(user_id, token_version)[0]
-
-
 def mint_connection_token(user_id: UUID | str, token_version: int) -> tuple[str, int]:
     """Return a connection token together with its exact Unix expiry timestamp."""
     now = int(time.time())
@@ -63,27 +58,13 @@ async def disconnect_user(user_id: UUID | str) -> bool:
     return isinstance(payload, dict) and not payload.get("error")
 
 
-async def unsubscribe_channel(user_id: UUID | str, channel: str) -> bool:
-    """End one user's subscription to one channel immediately.
-
-    ``expire_at`` bounds a subscription, but Centrifugo evaluates it on its own
-    clock, so shortening it does not cut a subscription that is already
-    established. This does, which is what makes a terminal task or a logout take
-    effect now rather than at the next expiry check.
-
-    Verified against Centrifugo v6.8.3: ``POST /api/unsubscribe`` accepts a
-    user/channel pair and answers ``{"result": {}}``. Command-level errors arrive
-    inside a 200, so both they and transport failures count as unsuccessful.
-    """
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as http_client:
-            response = await http_client.post(
-                f"{settings.centrifugo_url}/api/unsubscribe",
-                json={"user": str(user_id), "channel": channel},
-                headers={"X-API-Key": settings.centrifugo_api_key},
-            )
-            response.raise_for_status()
-            payload = response.json()
-    except (httpx.HTTPError, ValueError):
-        return False
-    return isinstance(payload, dict) and not payload.get("error")
+# There is deliberately no `unsubscribe_channel` here.
+#
+# It existed, worked (verified against Centrifugo v6.8.3), and had no caller. The
+# terminal-task path closes a subscription window with a clamped `expire_at`
+# instead, because unsubscribing at the transition would cut the connection before
+# the outbox has published the terminal snapshot — `transition_task` only enqueues
+# an outbox row, and the cron relay publishes it up to a minute later.
+#
+# Kept as a note rather than as code because the reasoning is what a future reader
+# needs; the function was a standing invitation to reintroduce that race.

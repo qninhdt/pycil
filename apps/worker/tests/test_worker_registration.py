@@ -39,7 +39,6 @@ def test_pending_grade_reconciliation_is_registered():
         "generate_word_task",
         "prepare_questions",
         "heartbeat",
-        "grade_answer",
         "grade_answer_v1",
         "reconcile_pending_grades",
         "reconcile_async_tasks",
@@ -85,15 +84,16 @@ async def test_outbox_notification_coalesces_concurrent_drains(monkeypatch):
     assert calls == 1
 
 
-def test_generate_word_task_accepts_the_owner_argument_as_optional():
-    """Deploy-order guard for the inflight-slot release.
+def test_generate_word_task_requires_the_owner_it_must_refund():
+    """The owner is the only thing that can return the charged inflight slot.
 
-    The API now enqueues `generate_word_task` with a fourth `owner_id` argument. A
-    worker that predates it raises TypeError and the job dies, so the worker must be
-    deployed at or before the API. Conversely, a job already queued by the previous
-    API carries only three arguments, which is why the parameter is optional rather
-    than required — this asserts that direction, so a future change that makes it
-    required fails here instead of stranding queued rows.
+    It was optional so a job queued by a previous release would settle instead of
+    raising TypeError mid rolling deploy. That queue has never held such a job,
+    and the default's real effect was to accept a caller that forgot the argument
+    and silently strand the learner's slot until the 900s TTL lapsed.
+
+    Both producers and the reconciler pass it, so requiring it turns that
+    omission into an immediate error instead of a quota that leaks.
     """
     import inspect
 
@@ -101,6 +101,6 @@ def test_generate_word_task_accepts_the_owner_argument_as_optional():
 
     parameters = inspect.signature(generate_word_task).parameters
     assert list(parameters) == ["ctx", "task_id", "query", "owner_uid"]
-    assert parameters["owner_uid"].default is None, (
-        "owner_uid must stay optional so jobs queued by the previous release settle"
+    assert parameters["owner_uid"].default is inspect.Parameter.empty, (
+        "owner_uid must stay required so a caller cannot silently leak the slot"
     )

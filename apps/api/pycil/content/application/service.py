@@ -33,18 +33,6 @@ async def create_deck(
     )
 
 
-async def rename_deck(session: AsyncSession, node: Node, name: str) -> Node:
-    node.name = name
-    await session.commit()
-    await session.refresh(node)
-    return node
-
-
-async def delete_deck(session: AsyncSession, node: Node) -> None:
-    """Soft-delete a deck node."""
-    await hierarchy_service.soft_delete_node(session, node)
-
-
 async def add_sense(session: AsyncSession, node_id: UUID, sense_id: int) -> DeckSense:
     """Append a sense to a deck (idempotent on the UNIQUE(node_id, sense_id))."""
     await _require_live_deck(session, node_id)
