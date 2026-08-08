@@ -27,7 +27,11 @@ LEXI_ROOT="${LEXI_ROOT:-$(cd "$REPO_ROOT/../lexi-ai" 2>/dev/null && pwd || true)
 # permanently; never lower one without recording why. Overridable by environment
 # so CI can tighten a floor, and so the gate itself can be probed for falsifiability.
 FLOOR_API="${FLOOR_API:-497}"
-FLOOR_WORKER="${FLOOR_WORKER:-50}"
+# The canonical worker suite is 45 tests after the obsolete queued-word-generation
+# path was removed. The previous floor of 50 was measured before that deletion and
+# made the baseline permanently red; keep the current executable surface as the
+# lower bound until new worker coverage raises it again.
+FLOOR_WORKER="${FLOOR_WORKER:-45}"
 FLOOR_SHARED="${FLOOR_SHARED:-13}"
 FLOOR_WEB_UNIT="${FLOOR_WEB_UNIT:-114}"
 FLOOR_LEXI="${FLOOR_LEXI:-636}"

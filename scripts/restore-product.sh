@@ -1,23 +1,16 @@
 #!/usr/bin/env bash
-# Restore a coordinated product backup. This intentionally stops both stacks.
+# Restore a coordinated Pycil backup. The dump contains the public application
+# and isolated embedded-Lexi schemas in one PostgreSQL database.
 set -euo pipefail
 
 PYCIL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-LEXI_PROJECT_DIR="${LEXI_PROJECT_DIR:-/opt/lexi-ai}"
 BACKUP_ID="${BACKUP_ID:?set BACKUP_ID to the coordinated backup identifier}"
 
-test -f "$LEXI_PROJECT_DIR/deploy/docker-compose.yml" || {
-  echo "LEXI_PROJECT_DIR must contain deploy/docker-compose.yml" >&2
-  exit 1
-}
-
 (cd "$PYCIL_DIR" && docker compose stop caddy api worker)
-(cd "$LEXI_PROJECT_DIR" && docker compose -f deploy/docker-compose.yml stop api worker)
 
-# Lexi must restore first: Pycil persists opaque Lexi IDs.
-(cd "$LEXI_PROJECT_DIR" && BACKUP_ID="$BACKUP_ID" docker compose -f deploy/docker-compose.yml --profile backup run --rm --entrypoint /restore.sh backup)
-(cd "$LEXI_PROJECT_DIR" && docker compose -f deploy/docker-compose.yml up -d migrate api worker)
+# The one dump restores both schemas; the migration gate then verifies the
+# installed Lexi head before the API/worker processes start.
 (cd "$PYCIL_DIR" && BACKUP_ID="$BACKUP_ID" docker compose --profile backup run --rm --entrypoint /restore.sh backup)
 (cd "$PYCIL_DIR" && docker compose up -d migrate worker api caddy)
 
-echo "restore submitted; verify both /readyz and /health/ready before traffic is resumed"
+echo "restore submitted; verify /health/ready before traffic is resumed"
