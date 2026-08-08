@@ -10,6 +10,7 @@ from typing import Annotated
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Header, Query
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pycil.auth.deps import current_user, optional_current_user
@@ -146,11 +147,18 @@ async def search_words(
                     read_dto.senses = [_sense_content(s) for s in entry.senses]
                     if not read_dto.pos and entry.senses[0].pos:
                         read_dto.pos = entry.senses[0].pos
-            except Exception:
+            except SQLAlchemyError:
                 # One result's enrichment failing still leaves a usable row, so the
                 # response is not abandoned. It is logged because the silent version
                 # reported a Lexi outage as a successful search with thin results.
                 # The word id, never the learner's query.
+                #
+                # Narrow on purpose. A word the search index knows but the dictionary
+                # does not is now a `None` return rather than a raise, so the only
+                # thing left to absorb here is Lexi's database being unreachable.
+                # Catching every exception meant a genuine defect in the enrichment
+                # below — a mapper change, a bad attribute — degraded to a thin row
+                # and a warning instead of failing where someone would see it.
                 logger.warning(
                     "sense enrichment failed for a search result",
                     extra={"lexi_word_id": result.lexi_word_id},

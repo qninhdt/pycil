@@ -5,9 +5,7 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass
 
-from lexi_ai.contracts import PresentedQuestion
-
-from pycil.ports.lexi import LexiReader
+from pycil.ports.lexi import LexiReader, PresentedQuestion
 
 
 @dataclass(frozen=True)

@@ -15,6 +15,7 @@ from types import SimpleNamespace
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from pycil.auth import tokens
@@ -27,10 +28,20 @@ pytestmark = pytest.mark.asyncio
 
 
 class FakeReader:
-    """One search hit whose entry lookup either works or raises."""
+    """One search hit whose entry lookup works, is absent, or fails.
 
-    def __init__(self, *, entry_fails: bool = False):
+    ``entry_fails`` raises the error a real outage raises. The route catches
+    `SQLAlchemyError` specifically, so a fake raising a bare `RuntimeError` would
+    pass through and prove the opposite of what the outage test claims.
+
+    ``entry_missing`` is the separate case: the search index knows a word id the
+    dictionary has no row for. That answers `None` now rather than raising, which
+    is the contract the port always declared.
+    """
+
+    def __init__(self, *, entry_fails: bool = False, entry_missing: bool = False):
         self.entry_fails = entry_fails
+        self.entry_missing = entry_missing
 
     async def search(self, _query):
         return [
@@ -46,8 +57,10 @@ class FakeReader:
         ]
 
     async def get_entry(self, _word_id):
+        if self.entry_missing:
+            return None
         if self.entry_fails:
-            raise RuntimeError("lexi unavailable")
+            raise OperationalError("SELECT words", {}, Exception("lexi unavailable"))
         return SimpleNamespace(
             word_id=42,
             senses=[
@@ -178,3 +191,32 @@ async def test_one_result_losing_its_entry_still_returns_a_usable_row(search_cli
     assert any("enrichment failed" in record.message for record in caplog.records)
     # The learner's query is not an operational detail worth persisting in logs.
     assert not any("eloquent" in record.getMessage() for record in caplog.records)
+
+
+@pytest.mark.parametrize("search_client", [FakeReader(entry_missing=True)], indirect=True)
+async def test_a_word_the_dictionary_has_no_entry_for_is_a_thin_row_not_an_error(
+    search_client, caplog
+):
+    """A miss is a normal outcome, so it must not be reported as a failure.
+
+    The port always declared `EntryView | None`, but the implementation used
+    `.scalar_one()`, which raises. The route only survived because it wrapped the
+    call in a bare `except Exception` — so a routine miss and a database outage
+    produced the same warning, and neither was distinguishable in the logs.
+
+    Now the miss returns `None` and the row is served without enrichment, quietly.
+    """
+    import logging
+
+    client, _factory, _reader = search_client
+
+    with caplog.at_level(logging.WARNING, logger="pycil.content.router"):
+        response = await client.get("/v1/words/search", params={"q": "eloquent"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [row["display"] for row in body] == ["eloquent"]
+    assert body[0]["senses"] == []
+    assert not caplog.records, (
+        "a word with no dictionary entry is an ordinary miss, not an operational warning"
+    )

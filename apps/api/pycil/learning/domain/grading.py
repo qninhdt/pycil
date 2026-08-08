@@ -2,8 +2,9 @@
 
 from dataclasses import asdict
 
-from lexi_ai.contracts import AnswerSubmission, PresentedQuestion, Reveal, TextResponse
 from shared.fsrs import GRADE_AGAIN, GRADE_GOOD
+
+from pycil.ports.lexi import AnswerSubmission, PresentedQuestion, Reveal, TextResponse
 
 
 def answer_submission(question: PresentedQuestion, answer: str) -> AnswerSubmission:

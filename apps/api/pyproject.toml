@@ -222,6 +222,34 @@ forbidden_modules = [
     "sqlalchemy",
 ]
 
+# A domain module must not name lexi-ai's types directly: that is a dependency on
+# an external package's layout, which is the coupling `ports/lexi.py` exists to
+# absorb. The port re-exports the contract vocabulary so a domain rule can be
+# stated without leaving pycil.
+#
+# Separate from the contract above because only the DIRECT edge is wrong here.
+# `learning/domain` -> `ports.lexi` -> `lexi_ai` is the design, so the indirect
+# path must stay legal — whereas for `sqlalchemy` above, an indirect route into
+# the ORM is exactly what should fail. One flag, two different intents, hence two
+# contracts.
+#
+# All five domains are listed, not just `learning`: the other four have no such
+# edge today, and this is what keeps it that way. The application layer is
+# deliberately not covered — a stable published contracts package is a reasonable
+# dependency one layer up from domain.
+[[tool.importlinter.contracts]]
+name = "domain names no external contract types directly"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = [
+    "pycil.content.domain",
+    "pycil.hierarchy.domain",
+    "pycil.tasks.domain",
+    "pycil.assistant.domain",
+    "pycil.learning.domain",
+]
+forbidden_modules = ["lexi_ai"]
+
 # Persistence knows about tables, not about use cases. An infra module importing
 # its own application layer is the inversion that makes a repository impossible to
 # reuse and reintroduces a cycle inside the package.

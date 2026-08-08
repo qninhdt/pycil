@@ -9,7 +9,37 @@ from lexi_ai.contracts import (
     PrepareDemand,
     PresentedQuestion,
     QuestionTypeInfo,
+    Reveal,
+    TextResponse,
 )
+
+# Re-exported so `learning/domain` can name these types without importing an
+# external library. The port owns which operations pycil may perform AND which
+# vocabulary it states them in; a domain module reaching past it for the second
+# had a direct dependency on lexi-ai's package layout, which is the coupling the
+# port exists to absorb. An import-linter contract forbids the direct edge now.
+#
+# Application-layer modules may still import `lexi_ai.contracts` themselves: a
+# stable published contracts package is a reasonable dependency one layer up.
+# Domain is where it is not.
+__all__ = [
+    "AnswerSubmission",
+    "Evaluation",
+    "EntryView",
+    "LexiReader",
+    "LexiWorkerEngine",
+    "PrepareDemand",
+    "PrepareReportView",
+    "PresentedQuestion",
+    "QuestionTypeInfo",
+    "Reveal",
+    "SearchResultView",
+    "SenseFormView",
+    "SenseReferenceView",
+    "SenseRelationView",
+    "SenseView",
+    "TextResponse",
+]
 
 
 class SearchResultView(Protocol):
