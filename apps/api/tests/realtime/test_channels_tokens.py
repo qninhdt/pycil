@@ -1,5 +1,6 @@
 """Realtime: owner-scoped user-limited channel naming and connection tokens."""
 
+import json
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,6 +15,7 @@ from pycil.config import Settings, settings
 from pycil.ports import centrifugo as client
 from pycil.realtime.application.subscriptions import _resource_id
 from pycil.realtime.router import realtime_token
+from tests.realtime.fakes import FakeRealtimeControl
 
 
 def test_durable_channel_uses_only_an_opaque_task_id():
@@ -59,7 +61,8 @@ def test_the_proxy_rejects_every_channel_shape_no_client_can_hold(channel):
 
 def test_connection_token_has_user_and_auth_version_metadata():
     uid = uuid.uuid4()
-    token, _expires_at = client.mint_connection_token(uid, token_version=7)
+    # Signing is local and synchronous, so the adapter needs no transport for this.
+    token, _expires_at = client.CentrifugoControl().mint_connection_token(uid, token_version=7)
     claims = jwt.decode(
         token, settings.centrifugo_token_hmac_secret, algorithms=["HS256"]
     )
@@ -70,7 +73,7 @@ def test_connection_token_has_user_and_auth_version_metadata():
 
 def test_token_signed_with_centrifugo_secret_not_api_jwt_secret():
     uid = uuid.uuid4()
-    token, _expires_at = client.mint_connection_token(uid, token_version=1)
+    token, _expires_at = client.CentrifugoControl().mint_connection_token(uid, token_version=1)
     # Must NOT verify against the API's JWT secret — different key domain.
     import pytest
 
@@ -115,55 +118,111 @@ def test_payload_serialization():
 
 @pytest.mark.asyncio
 async def test_realtime_token_includes_connection_expiry_and_public_sse_url(monkeypatch):
+    """The route hands back whatever the port minted, plus the configured SSE url.
+
+    The fake is passed in rather than monkeypatched over the module: the route now
+    takes the port as a parameter, so substituting it needs no patching at all.
+    """
     uid = uuid.uuid4()
-    monkeypatch.setattr(
-        client, "mint_connection_token", lambda _user_id, _version: ("signed", 1234)
-    )
     from pycil.realtime import router
 
     monkeypatch.setattr(router.settings, "centrifugo_public_sse_url", "https://api.test/connection/sse")
 
-    result = await realtime_token(SimpleNamespace(id=uid, token_version=0))
-    assert result.model_dump(by_alias=True) == {
-        "token": "signed",
-        "expiresAt": 1234,
-        "sseUrl": "https://api.test/connection/sse",
-    }
+    realtime = FakeRealtimeControl()
+
+    result = await realtime_token(SimpleNamespace(id=uid, token_version=0), realtime)
+
+    payload = result.model_dump(by_alias=True)
+    assert payload["sseUrl"] == "https://api.test/connection/sse"
+    # The route must hand back the port's own expiry, not recompute one.
+    claims = jwt.decode(
+        payload["token"], settings.centrifugo_token_hmac_secret, algorithms=["HS256"]
+    )
+    assert claims["sub"] == str(uid)
+    assert payload["expiresAt"] == claims["exp"]
+    # And it must have asked for THIS user at THIS token version.
+    assert realtime.minted == [(str(uid), 0)]
 
 
 @pytest.mark.asyncio
-async def test_disconnect_user_calls_centrifugo_and_handles_api_failures(monkeypatch):
-    calls = []
+async def test_disconnect_user_calls_centrifugo_and_handles_api_failures():
+    """The adapter's HTTP contract, asserted through a transport rather than a patch.
 
-    class MockAsyncClient:
-        async def __aenter__(self):
-            return self
+    This used to replace `centrifugo.httpx.AsyncClient` wholesale — reaching through
+    the seam at a transport detail, so any change to how the request was issued broke
+    it. `CentrifugoControl` takes its client, so a `MockTransport` exercises the real
+    request-building and response-handling code with no patching.
+    """
+    calls: list[httpx.Request] = []
 
-        async def __aexit__(self, *_args):
-            return False
+    def ok(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(200, json={})
 
-        async def post(self, url, **kwargs):
-            calls.append((url, kwargs))
-            return httpx.Response(200, json={}, request=httpx.Request("POST", url))
+    adapter = client.CentrifugoControl(
+        httpx.AsyncClient(transport=httpx.MockTransport(ok))
+    )
+    assert await adapter.disconnect_user("user-1") is True
+    assert len(calls) == 1
+    assert str(calls[0].url) == f"{settings.centrifugo_url}/api/disconnect"
+    assert calls[0].headers["X-API-Key"] == settings.centrifugo_api_key
+    assert json.loads(calls[0].content) == {"user": "user-1"}
+    await adapter.close()
 
-    monkeypatch.setattr(client.httpx, "AsyncClient", lambda **_kwargs: MockAsyncClient())
-    assert await client.disconnect_user("user-1") is True
-    assert calls == [
-        (
-            f"{settings.centrifugo_url}/api/disconnect",
-            {
-                "json": {"user": "user-1"},
-                "headers": {"X-API-Key": settings.centrifugo_api_key},
-            },
-        )
-    ]
 
-    class ErrorClient(MockAsyncClient):
-        async def post(self, url, **kwargs):
-            del kwargs
-            return httpx.Response(
-                200, json={"error": {"code": 100}}, request=httpx.Request("POST", url)
-            )
+@pytest.mark.asyncio
+async def test_a_command_level_error_inside_a_200_is_a_failed_disconnect():
+    """Centrifugo reports command errors in a successful HTTP response."""
 
-    monkeypatch.setattr(client.httpx, "AsyncClient", lambda **_kwargs: ErrorClient())
-    assert await client.disconnect_user("user-1") is False
+    def command_error(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"error": {"code": 100}})
+
+    adapter = client.CentrifugoControl(
+        httpx.AsyncClient(transport=httpx.MockTransport(command_error))
+    )
+    assert await adapter.disconnect_user("user-1") is False
+    await adapter.close()
+
+
+@pytest.mark.asyncio
+async def test_a_transport_failure_is_a_failed_disconnect():
+    """A logout must still succeed when the broker is unreachable."""
+
+    def unreachable(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("centrifugo down", request=request)
+
+    adapter = client.CentrifugoControl(
+        httpx.AsyncClient(transport=httpx.MockTransport(unreachable))
+    )
+    assert await adapter.disconnect_user("user-1") is False
+    await adapter.close()
+
+
+@pytest.mark.asyncio
+async def test_readiness_reports_reachability_without_publishing():
+    """`/health/ready` needs a yes/no, and must not emit an event to get it."""
+    seen: list[httpx.Request] = []
+
+    def healthy(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200)
+
+    adapter = client.CentrifugoControl(
+        httpx.AsyncClient(transport=httpx.MockTransport(healthy))
+    )
+    assert await adapter.readiness() is True
+    assert [request.method for request in seen] == ["GET"]
+    assert str(seen[0].url) == f"{settings.centrifugo_url}/health"
+    await adapter.close()
+
+
+@pytest.mark.asyncio
+async def test_readiness_is_false_when_the_broker_is_unreachable():
+    def unreachable(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("centrifugo down", request=request)
+
+    adapter = client.CentrifugoControl(
+        httpx.AsyncClient(transport=httpx.MockTransport(unreachable))
+    )
+    assert await adapter.readiness() is False
+    await adapter.close()

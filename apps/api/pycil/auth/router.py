@@ -17,7 +17,7 @@ from pycil.auth.models import RefreshSession, User
 from pycil.auth.schemas import CurrentUser, LoginStart, LogoutRequest, RefreshRequest, TokenResponse
 from pycil.common.errors import AppError, UnauthorizedError
 from pycil.db.session import get_session
-from pycil.ports.centrifugo import disconnect_user
+from pycil.ports.centrifugo import RealtimeControl, get_centrifugo
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +112,7 @@ async def logout(
     body: LogoutRequest | None = None,
     user: CurrentUser | None = Depends(optional_current_user),
     session: AsyncSession = Depends(get_session),
+    realtime: RealtimeControl = Depends(get_centrifugo),
 ) -> None:
     # Idempotent even for a token already rotated, expired, or unknown.
     user_id = user.id if user is not None else None
@@ -133,7 +134,7 @@ async def logout(
         # logout must still succeed — but a failure is logged rather than dropped,
         # because it is the only signal that sockets outlived a revocation. The
         # connection token has no revocation list, so that window is up to 900s.
-        if not await disconnect_user(user_id):
+        if not await realtime.disconnect_user(user_id):
             logger.warning(
                 "realtime disconnect failed after logout; sockets may outlive revocation",
                 extra={"user_id": str(user_id)},

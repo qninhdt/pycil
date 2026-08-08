@@ -14,7 +14,7 @@ from pycil.auth.schemas import CurrentUser
 from pycil.common.errors import error_responses
 from pycil.config import settings
 from pycil.db.session import get_session
-from pycil.ports import centrifugo as client
+from pycil.ports.centrifugo import RealtimeControl, get_centrifugo
 from pycil.realtime.application.subscriptions import SubscribeProxyRequest, authorize_subscription
 
 router = APIRouter(prefix="/realtime", tags=["realtime"])
@@ -42,8 +42,9 @@ class TokenResponse(BaseModel):
 @router.get("/token", response_model=TokenResponse, responses=error_responses(401, 429))
 async def realtime_token(
     user: Annotated[CurrentUser, Depends(current_user)],
+    realtime: RealtimeControl = Depends(get_centrifugo),
 ) -> TokenResponse:
-    token, expires_at = client.mint_connection_token(user.id, user.token_version)
+    token, expires_at = realtime.mint_connection_token(user.id, user.token_version)
     return TokenResponse(
         token=token,
         expires_at=expires_at,

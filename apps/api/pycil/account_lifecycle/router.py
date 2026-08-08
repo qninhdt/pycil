@@ -12,7 +12,7 @@ from pycil.auth.deps import current_user
 from pycil.auth.schemas import CurrentUser
 from pycil.common.errors import UnauthorizedError
 from pycil.db.session import get_session
-from pycil.ports.centrifugo import disconnect_user
+from pycil.ports.centrifugo import RealtimeControl, get_centrifugo
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +32,7 @@ async def delete_me(
     body: AccountDeleteRequest,
     user: Annotated[CurrentUser, Depends(current_user)],
     session: AsyncSession = Depends(get_session),
+    realtime: RealtimeControl = Depends(get_centrifugo),
 ) -> Response:
     if body.confirmation != "DELETE":
         raise UnauthorizedError("account_delete_confirmation_required")
@@ -41,7 +42,7 @@ async def delete_me(
     # The account rows are gone either way; a socket that outlives them can only
     # observe channels whose interests were deleted with it. Logged rather than
     # discarded so an operator can see when that cleanup did not land.
-    if not await disconnect_user(user.id):
+    if not await realtime.disconnect_user(user.id):
         logger.warning(
             "realtime disconnect failed after account deletion",
             extra={"user_id": str(user.id)},

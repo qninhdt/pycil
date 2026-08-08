@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime, timedelta
 
+import httpx
 import pytest
 
 from pycil.auth.models import User
@@ -222,25 +223,24 @@ async def test_the_terminal_transition_does_not_unsubscribe_from_centrifugo(sess
     as uncalled — so the seam is asserted by spying on the transport instead of on
     a named method. That is the stronger check: it fails for any new HTTP call the
     transition makes to Centrifugo, not only for one spelled a particular way.
+
+    The spy is installed as the process adapter rather than by patching
+    `httpx.AsyncClient`. `CentrifugoControl` builds its client once in `__init__`,
+    so replacing the class afterwards intercepts nothing and the test would pass
+    without observing anything at all.
     """
     from pycil.ports import centrifugo as realtime_client
 
-    calls: list[tuple] = []
+    calls: list[str] = []
 
-    class RecordingClient:
-        async def __aenter__(self):
-            return self
+    def record(request: httpx.Request) -> httpx.Response:
+        calls.append(str(request.url))
+        raise AssertionError(f"the terminal transition called Centrifugo at {request.url}")
 
-        async def __aexit__(self, *_args):
-            return False
-
-        async def post(self, url, **kwargs):
-            calls.append((url, kwargs))
-            raise AssertionError(f"the terminal transition called Centrifugo at {url}")
-
-    monkeypatch.setattr(
-        realtime_client.httpx, "AsyncClient", lambda **_kwargs: RecordingClient()
+    spy = realtime_client.CentrifugoControl(
+        httpx.AsyncClient(transport=httpx.MockTransport(record))
     )
+    monkeypatch.setattr(realtime_client, "_control", spy)
 
     user = await _user(session, "terminal-no-unsubscribe@example.com")
     submission = await _task(session, user)

@@ -31,7 +31,7 @@ from pycil.db.session import engine
 from pycil.hierarchy.router import router as hierarchy_router
 from pycil.learning.router import router as learning_router
 from pycil.observability import metrics
-from pycil.ports.centrifugo import readiness as centrifugo_readiness
+from pycil.ports.centrifugo import RealtimeControl, close_centrifugo, get_centrifugo
 from pycil.ports.lexi_provider import close_lexi_client, get_lexi_client
 from pycil.realtime.router import router as realtime_router
 from pycil.realtime.router import subscribe_proxy_router
@@ -54,6 +54,7 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         await close_lexi_client()
+        await close_centrifugo()
         pool = getattr(app.state, "assistant_pool", None)
         if pool is not None:
             await pool.close()
@@ -103,7 +104,9 @@ def create_app() -> FastAPI:
         return {"status": "ok"}
 
     @app.get("/health/ready")
-    async def readiness() -> dict[str, str]:
+    async def readiness(
+        realtime: RealtimeControl = Depends(get_centrifugo),
+    ) -> dict[str, str]:
         try:
             async with engine.connect() as connection:
                 await connection.execute(text("SELECT 1"))
@@ -113,7 +116,7 @@ def create_app() -> FastAPI:
                 raise RuntimeError("worker_heartbeat_missing")
         except Exception as exc:  # noqa: BLE001 - readiness must collapse dependency details
             raise ServiceUnavailableError("core_dependency_unavailable") from exc
-        if not await centrifugo_readiness():
+        if not await realtime.readiness():
             raise ServiceUnavailableError("centrifugo_unavailable")
         return {"status": "ready"}
 

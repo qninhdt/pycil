@@ -62,15 +62,27 @@ async def session(engine) -> AsyncGenerator[AsyncSession, None]:
 
 
 @pytest_asyncio.fixture
-async def client(engine) -> AsyncGenerator[AsyncClient, None]:
+async def app(engine):
+    """The application under test, with its session bound to the test database.
+
+    Exposed separately from `client` so a test can install its own
+    `dependency_overrides` on the SAME app the client drives. Without this, a test
+    substituting a port had to monkeypatch the module the route imported from,
+    which reaches past the seam instead of through it.
+    """
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     async def _override() -> AsyncGenerator[AsyncSession, None]:
         async with factory() as s:
             yield s
 
-    app = create_app()
-    app.dependency_overrides[get_session] = _override
+    application = create_app()
+    application.dependency_overrides[get_session] = _override
+    return application
+
+
+@pytest_asyncio.fixture
+async def client(app) -> AsyncGenerator[AsyncClient, None]:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c

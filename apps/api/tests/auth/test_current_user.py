@@ -86,32 +86,40 @@ async def test_logout_is_idempotent_and_revokes_access(client, session):
 
 
 async def test_logout_logs_a_failed_disconnect_instead_of_discarding_it(
-    client, session, monkeypatch, caplog
+    app, client, session, caplog
 ):
-    """B2: `disconnect_user` returns a bool that both callers threw away.
+    """`disconnect_user` returns a bool that both callers used to throw away.
 
     The call is best-effort by design — revocation is already durable, so logout
     must still succeed — but silently dropping the result means an operator has no
     signal that sockets stayed open after a revocation. That is the window an
     already-issued 900s connection token keeps working in.
+
+    The broker is substituted through `dependency_overrides` rather than by
+    monkeypatching the name the router imported. That is the point of the port: the
+    route asks for a `RealtimeControl`, so the test supplies one and no HTTP client
+    is constructed anywhere in this run.
     """
     import logging
 
-    from pycil.auth import router as auth_router
+    from pycil.ports.centrifugo import get_centrifugo
+    from tests.realtime.fakes import FakeRealtimeControl
 
     user = await _seed(session, email="logout-disconnect@x.co")
     raw_refresh, _ = await issue(session, user.id)
     await session.commit()
 
-    async def failing_disconnect(_user_id):
-        return False
+    unreachable = FakeRealtimeControl(disconnects=False)
+    app.dependency_overrides[get_centrifugo] = lambda: unreachable
 
-    monkeypatch.setattr(auth_router, "disconnect_user", failing_disconnect)
     with caplog.at_level(logging.WARNING, logger="pycil.auth.router"):
         response = await client.post("/v1/auth/logout", json={"refresh_token": raw_refresh})
 
     # Logout still succeeds: local revocation is authoritative.
     assert response.status_code == 204
+    assert unreachable.disconnected == [str(user.id)], (
+        "logout must ask the broker to close the revoked user's sockets"
+    )
     assert any("disconnect" in record.message.lower() for record in caplog.records), (
         "a failed realtime disconnect must be logged, not discarded"
     )
