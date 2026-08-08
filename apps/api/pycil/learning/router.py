@@ -8,6 +8,7 @@ tamper protection).  All session routes gate the deck via require_node_access.
 
 from datetime import UTC, datetime
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +22,7 @@ from pycil.learning.application import (
     answering,
     dashboard,
     planning,
+    response_reads,
     session_flow,
     session_recap,
 )
@@ -237,7 +239,7 @@ async def next_question(
     return NextQuestionPreparing(task_id=outcome.supply_task_id)
 
 
-@router.post("/answers", response_model=GradeResponse)
+@router.post("/answers", response_model=GradeResponse, response_model_exclude_none=True)
 async def submit_answer(
     body: AnswerRequest,
     user: Annotated[CurrentUser, Depends(current_user)],
@@ -285,3 +287,17 @@ async def submit_answer(
         mastery_before=outcome.mastery_before,
         mastery_after=outcome.mastery_after,
     )
+
+
+@router.get(
+    "/responses/{response_id}",
+    response_model=GradeResponse,
+    response_model_exclude_none=True,
+)
+async def get_response(
+    response_id: UUID,
+    user: Annotated[CurrentUser, Depends(current_user)],
+    session: AsyncSession = Depends(get_session),
+) -> GradeResponse:
+    """Return the durable answer projection for the authenticated owner."""
+    return await response_reads.get_response(session, user.id, response_id)

@@ -182,6 +182,9 @@ async def test_pending_response_has_dedicated_raw_answer_field():
 
 
 async def test_answer_contract_exposes_grade_fields():
-    schemas = create_app().openapi()["components"]["schemas"]
+    openapi = create_app().openapi()
+    schemas = openapi["components"]["schemas"]
     props = schemas["GradeResponse"]["properties"]
     assert {"responseId", "gradeStatus", "renderFormat", "reveal", "taskId"} <= props.keys()
+    assert props["gradeStatus"]["enum"] == ["pending", "graded", "expired"]
+    assert "/v1/responses/{response_id}" in openapi["paths"]

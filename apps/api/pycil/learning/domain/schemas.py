@@ -202,7 +202,9 @@ class GradeResponse(BaseModel):
     """Grade result: rule types graded in-request with reveal data, llm types pending."""
 
     response_id: UUID = Field(serialization_alias="responseId")
-    grade_status: str = Field(serialization_alias="gradeStatus")
+    grade_status: Literal["pending", "graded", "expired"] = Field(
+        serialization_alias="gradeStatus"
+    )
     sense_id: int = Field(serialization_alias="senseId")
     render_format: str = Field(serialization_alias="renderFormat")
     task_id: UUID | None = Field(default=None, serialization_alias="taskId")

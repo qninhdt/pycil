@@ -175,6 +175,31 @@ async def test_a_free_text_answer_is_deferred_rather_than_graded(llm_client):
     assert body.get("masteryAfter") is None
 
 
+async def test_pending_response_has_an_owner_scoped_durable_read(llm_client):
+    client, *_ = llm_client
+    session_id = await _start(client, llm_client[3])
+    checkpoint = await _ready_checkpoint(client, session_id)
+    answered = await client.post(
+        "/v1/answers",
+        json={
+            "sessionId": session_id,
+            "questionId": checkpoint["questionId"],
+            "answer": "I used the word in a sentence.",
+        },
+    )
+
+    response_id = answered.json()["responseId"]
+    polled = await client.get(f"/v1/responses/{response_id}")
+
+    assert polled.status_code == 200
+    assert polled.json() == {
+        "responseId": response_id,
+        "gradeStatus": "pending",
+        "senseId": _LLM_SENSE,
+        "renderFormat": "free_text",
+    }
+
+
 async def test_the_pending_row_keeps_the_raw_answer_for_the_worker(llm_client):
     """The worker grades from `raw_answer`; a rule-graded row deliberately has none.
 
