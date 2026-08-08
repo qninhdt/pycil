@@ -7,7 +7,7 @@ GitHub-pinned `lexi-ai` domain library, plus a folder/deck/reference hierarchy.
 - **Codebase map:** [`docs/codebase-summary.md`](docs/codebase-summary.md)
 - **Frontend BFF contract:** [`docs/frontend-integration-guide.md`](docs/frontend-integration-guide.md)
 - **Roadmap:** [`docs/project-roadmap.md`](docs/project-roadmap.md)
-- **Active plan:** [`plans/260716-1321-system-design-alignment-hardening/plan.md`](plans/260716-1321-system-design-alignment-hardening/plan.md)
+- **Latest plan:** [`plans/260716-1321-system-design-alignment-hardening/plan.md`](plans/260716-1321-system-design-alignment-hardening/plan.md)
 
 ## Architecture
 

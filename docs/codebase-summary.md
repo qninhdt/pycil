@@ -22,8 +22,9 @@ imports Lexi ORM models directly.
 | `assistant/` | Optional assistant with independent FastAPI SSE and HITL actions. |
 
 `POST /v1/word-generations` returns an opaque `taskId`. Pending study grades and
-question generation also return task IDs. Clients subscribe through SSE only;
-there are no job or response status endpoints.
+question generation also return task IDs. Clients subscribe through SSE; the
+owner-scoped `GET /v1/responses/{responseId}` read is the durable fallback for a
+missed grading event, while generic task status has no REST endpoint.
 
 ## Frontend (`apps/web`)
 

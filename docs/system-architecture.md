@@ -7,4 +7,5 @@ the application schema, task outbox, worker orchestration, and SSE delivery.
 
 The API and worker create separate Lexi pools. Compose applies Lexi's domain
 migrations before Pycil's migrations. No Lexi HTTP/gRPC process, service
-deployment, service secrets, status polling, or WebSocket client path remains.
+deployment, service secrets, generic task-status polling, or WebSocket client path
+remains; durable grading responses still have an owner-scoped recovery read.

@@ -1,17 +1,18 @@
 # Product backup and restore runbook
 
-Pycil and Lexi have separate PostgreSQL databases. Back up and restore them as
-one product unit because Pycil stores opaque IDs owned by Lexi.
+Pycil uses one PostgreSQL database with two ownership boundaries: Pycil's
+application tables live in `public`, while embedded Lexi owns the isolated `lexi`
+schema. The single custom-format dump therefore backs up both schemas as one
+product unit; Pycil stores opaque IDs owned by Lexi.
 
 ## One-time host setup
 
-On the deployment host, create a Restic password file for each compose project
+On the deployment host, create the Restic password file for this Compose project
 outside source control (for example, `infra/backup/restic.password`) with mode
-`0600`. Configure the same durable `RESTIC_REPOSITORY` and password material
-for the scheduled backup environment. Set `LEXI_PROJECT_DIR` to the absolute
-Lexi checkout path when it is not `/opt/lexi-ai`.
+`0600`. Configure the same durable `RESTIC_REPOSITORY` and password material for
+the scheduled backup environment.
 
-Do not commit either password file or cloud credentials. The compose backup
+Do not commit the password file or cloud credentials. The Compose backup
 profiles deliberately require them at runtime.
 
 ## Backup
@@ -22,11 +23,12 @@ Run from the Pycil checkout:
 RESTIC_REPOSITORY='b2:bucket/product' ./scripts/backup-product.sh
 ```
 
-The coordinator temporarily stops both API/worker write paths, assigns one
-UTC `BACKUP_ID`, then writes `lexi-<id>.dump` and `pycil-<id>.dump` to Restic.
-It restarts the services even if a backup command fails. Schedule this command
-from the host scheduler with a monitored failure alert; Restic retention is
-applied by the Pycil backup container (7 daily, 4 weekly, 6 monthly).
+The coordinator temporarily stops API/worker writes, assigns one UTC
+`BACKUP_ID`, and streams a custom-format dump containing both `public` and
+`lexi` to Restic as `pycil-<id>.dump`. It restarts the services even if a backup
+command fails. Schedule this command from the host scheduler with a monitored
+failure alert; Restic retention is applied by the Pycil backup container (7
+daily, 4 weekly, 6 monthly).
 
 ## Restore drill
 
@@ -39,10 +41,10 @@ RESTIC_REPOSITORY='b2:bucket/product' \
 ./scripts/restore-product.sh
 ```
 
-The coordinator stops both stacks, restores Lexi first, runs its migrations,
-then restores Pycil and starts its migrations/API/worker. Before routing
-traffic, verify Lexi's readiness endpoint and Pycil's `/health/ready`, perform
-one authenticated read, and record the drill result and recovery time.
+The coordinator stops the Pycil stack, restores the shared dump, then starts the
+Lexi-domain and Pycil migration gates before API/worker. Before routing traffic,
+verify Pycil's `/health/ready`, perform one authenticated read, and record the
+drill result and recovery time.
 
 ## Recovery objective
 

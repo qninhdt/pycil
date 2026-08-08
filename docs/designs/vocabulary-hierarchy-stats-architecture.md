@@ -1,6 +1,6 @@
 # Vocabulary Hierarchy and Statistics — Current Python Contract
 
-**Status:** Approved architecture; integrity and API hardening in progress
+**Status:** Approved architecture; integrity and API hardening complete
 
 **Updated:** 2026-07-16
 
@@ -16,11 +16,12 @@ Pycil is a backend-only Python system:
 - Redis for L1 subtree caches and ephemeral sessions
 - arq worker for asynchronous generation and LLM grading
 - Centrifugo for owner-scoped realtime delivery
-- lexi-ai behind `LexiClient`, with its own dictionary/question database
+- lexi-ai behind `LexiClient`, with dictionary/question tables in its isolated
+  `lexi` schema in the shared PostgreSQL database
 
 The atomic learnable unit is lexi-ai's opaque `sense_id`. Pycil stores only
 `deck_senses(node_id, sense_id, position)` membership and never joins dictionary
-content across the two-database boundary.
+content across the public/`lexi` schema boundary.
 
 Legacy Go, ELO, `definition_id`, in-process dictionary-map, L2 cache, nightly
 snapshot, and partition-first descriptions are superseded by this contract.

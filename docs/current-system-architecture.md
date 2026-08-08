@@ -23,7 +23,8 @@ Pycil's `async_tasks` registry, interests, command receipts, event stream, and
 transactional outbox provide durable task identity and delivery. Every
 non-assistant asynchronous client state change arrives through authorized,
 versioned Centrifugo SSE task snapshots. The outbox relay recovers missed
-delivery; clients do not poll task or response status.
+delivery; the owner-scoped response read is a durable fallback for missed grading
+pushes, while clients do not poll generic task status.
 
 Assistant FastAPI SSE and its HITL/recovery contract are independent and
 unchanged.

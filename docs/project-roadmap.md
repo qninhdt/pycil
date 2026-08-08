@@ -65,7 +65,7 @@ from this repo during the greenfield migration. It was later rebuilt from
 scratch against the completed contract — see the Web Frontend Rebuild milestone
 below.
 
-## Web Frontend Rebuild (complete bar the live-stack verification)
+## Web Frontend Rebuild (complete; live-stack verification deferred)
 
 **Plan:** [Web Frontend Rebuild](../plans/260727-1332-web-frontend-rebuild/plan.md)
 
@@ -79,13 +79,13 @@ per-item learning state, enriched weakest, the corrected deck-settings pair,
 the way — a no-op deck-settings endpoint, `restore_delivered` wedging a sense
 after an aborted answer, and a `RunEventRead` serialization mismatch.
 
-Phases 1–12 shipped. Phase 13 (verification) landed its stack-independent slice:
+Phases 1–12 shipped. Phase 13 (verification) completed its stack-independent slice:
 the Vitest unit layer (session reducer, error taxonomy, snapshot reconciliation,
 mastery mapping, the assistant transport), a runnable ten-check design-system
 audit, Storybook stories for the feature components, and a CI web job. The
-remaining phase-13 work (Playwright E2E against `docker compose`, the generation
-tier, a11y runs, and the screenshot set) needs a live stack and is deferred to a
-nightly workflow. Phase 14 is this docs sync.
+remaining phase-13 deployment checks (Playwright E2E against `docker compose`,
+the generation tier, a11y runs, and the screenshot set) need a live stack and are
+deferred to a nightly workflow. Phase 14 is this docs sync.
 
 ### Cut P1 scope (recorded as decisions, not omissions)
 
@@ -114,13 +114,13 @@ written. The frontend copes honestly — it re-reads persisted events and offers
 resend rather than claiming the reply will resume — but an interrupted reply can
 only be resent, not resumed, until the server reaps such runs.
 
-## System Design Alignment and Hardening (active)
+## System Design Alignment and Hardening (complete)
 
 **Plan:** [System Design Alignment and Hardening](../plans/260716-1321-system-design-alignment-hardening/plan.md)
 
 | Phase | Name | Status | Outcome |
 |---|---|---|---|
-| 1 | Canonicalize Contracts and Baseline | Complete | Current Python/FSRS/two-DB design contracts recorded; local API tests provision disposable PostgreSQL with Testcontainers, CI retains `TEST_DB_URL`, and 19 known gaps are strict xfails for later phases. |
+| 1 | Canonicalize Contracts and Baseline | Complete | Current Python/FSRS/public-plus-isolated-Lexi-schema design contracts recorded; local API tests provision disposable PostgreSQL with Testcontainers, CI retains `TEST_DB_URL`, and 19 known gaps are strict xfails for later phases. |
 | 2 | Hierarchy and cache integrity | Complete | Additive `0002` migration preflights invalid legacy hierarchy data; service rules enforce tree/reference/membership invariants, inherited public-folder reads, live-reference revocation, and DB-generation cache invalidation. |
 | 3 | Canonical session delivery | Complete | Redis session queue/cursor and issued-question binding deliver canonical, answer-sanitised questions; first attempts are recorded durably. |
 | 4 | Grading persistence and concurrency | Complete | Pending `use_in_sentence` responses use fenced leases, polling, and worker reconciliation. |
@@ -153,9 +153,12 @@ phases above retain their stated validation work. See the
   published Cambridge artifact; it cannot be hermetic because it validates
   the runtime artifact download and shared Docker network.
 - 2k/100k statistics and live Centrifugo ACL checks are opt-in Docker-backed
-  tests; they are excluded from the default suite to keep it hermetic.
-  recorded yet.
-- Backups must cover Pycil's own Postgres and Lexi's separate Postgres.
+  tests; they are excluded from the default suite to keep it hermetic. The local
+  benchmark baseline is recorded in the active plan's query-budget report; the
+  default suite covers the SQL/proxy authorization contracts without requiring a
+  live broker.
+- Backups must cover both Pycil's `public` schema and embedded Lexi's isolated
+  `lexi` schema in the shared PostgreSQL database.
 
 ---
 

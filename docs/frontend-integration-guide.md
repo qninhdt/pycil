@@ -11,10 +11,10 @@ All product routes are under `/v1`.
 | Flow | Routes |
 | --- | --- |
 | Dictionary | `GET /words/search?q=...`, `GET /senses/{senseId}`, `POST /word-generations` |
-| Hierarchy | `GET/POST /nodes`, `GET/PATCH/DELETE /nodes/{id}`, `POST /nodes/{id}/move`, `PATCH /nodes/{id}/visibility`, deck item add/remove |
-| Study | `POST /sessions`, `GET /sessions/{sessionId}`, `GET /sessions/{sessionId}/next`, `POST /answers` |
-| Progress | `GET /me`, `GET /capabilities`, `GET /me/history`, `GET /me/cefr`, `GET /me/weakest` |
-| Settings | `GET/PUT /me/learning-settings` |
+| Hierarchy | `GET/POST /nodes`, `GET/PATCH/DELETE /nodes/{id}`, `POST /nodes/{id}/move`, `PATCH /nodes/{id}/visibility`, deck item add/remove; folder stats/items/history/weakest/CEFR |
+| Study | `POST /sessions`, `GET /sessions/{sessionId}`, `GET /sessions/{sessionId}/next`, `POST /answers`, `GET /responses/{responseId}` |
+| Progress | `GET /me`, `GET /capabilities`, `GET /me/stats`, `GET /me/history`, `GET /me/cefr`, `GET /me/weakest` |
+| Settings | `GET/PATCH /me/learning-settings` |
 | Realtime | `GET /realtime/token` |
 | Assistant | `POST /assistant/threads`, `GET /assistant/threads/{id}/messages`, `POST .../messages` (SSE), `POST .../actions/{id}/confirm` |
 
@@ -61,6 +61,12 @@ render formats are:
   The verdict arrives later as a task snapshot over SSE. The task id is durable,
   so a reload re-subscribes and the replayed snapshot rebuilds the same verdict.
 
+`GET /responses/{responseId}` is the owner-scoped durable recovery projection for
+the same answer. It returns `gradeStatus: "pending"`, `"graded"`, or `"expired"`;
+pending responses contain no unresolved verdict fields. SSE is the normal fast path,
+while this response read recovers a missed push or supports a client that cannot
+maintain the connection.
+
 ## Task settlement is SSE-plus-recovery, not polling
 
 Async word generation, question preparation, and free-text grades all identify
@@ -70,12 +76,13 @@ subscribe to the authorized task IDs. Snapshots are versioned and carry `taskId`
 `kind`, `status`, `result`, and `errorCode`; reconciliation is monotonic
 (a lower version or a repeated event id never regresses state).
 
-Recovery is built in and does **not** require polling: the subscribe proxy
-replays the latest persisted snapshot on every subscribe, and the server's
-outbox relay plus `force_recovery` settle a task even if the original enqueue was
-dropped or the socket blipped. A disconnect with work outstanding is stated to
-the learner but is not treated as a lost update. `stale` is reserved for a
-re-subscribe that was actually **denied**, not for an ordinary disconnect.
+Recovery is built in: the subscribe proxy replays the latest persisted snapshot on
+every subscribe, and the server's outbox relay plus `force_recovery` settle a task
+even if the original enqueue was dropped or the socket blipped. The response read
+is the durable fallback for a missed grade event. A disconnect with work
+outstanding is stated to the learner but is not treated as a lost update. `stale`
+is reserved for a re-subscribe that was actually **denied**, not for an ordinary
+disconnect.
 
 ## Assistant streaming
 

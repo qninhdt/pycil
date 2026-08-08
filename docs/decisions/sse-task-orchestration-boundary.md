@@ -1,20 +1,17 @@
 # ADR: SSE task orchestration and embedded Lexi boundary
 
-**Status:** accepted — Phase 2 foundation deployed; migration target remains in progress
+**Status:** accepted — embedded-Lexi and durable-task migration complete
 
 **Date:** 2026-07-22
 
 ## Context
 
-The deployed system has owner-scoped `word_generations`, a separate Lexi HTTP
-service, best-effort Centrifugo publications, and browser polling. That model
-cannot safely share provider work, guarantee delivery after a publish failure,
-or remove status polling. This decision is the contract for the staged
-migration; it does not claim that the target is already deployed.
-
-Phase 2 deploys the generic registry/outbox schema and relay only. It does not
-move legacy producers, browser delivery, or Lexi execution to the new path;
-those remain later-phase cutovers.
+The pre-migration system had owner-scoped `word_generations`, a separate Lexi
+HTTP service, best-effort Centrifugo publications, and browser status polling.
+That model could not safely share provider work or guarantee recovery after a
+publish failure. This decision records the target contract and the completed
+cutover: embedded Lexi, durable task/outbox delivery, and owner-scoped recovery
+reads are now the deployed path.
 
 ## Decision
 
@@ -71,9 +68,10 @@ Each task state transition writes its event and an outbox row in the same
 transaction. The outbox relay publishes full snapshots at least once;
 subscribers deduplicate `(eventId, version)`. Centrifugo SSE subscription
 authorization loads live interests or private delivery/response access and
-returns a durable current snapshot. Browser task/response/session polling and
-WebSocket delivery are migration targets for removal; backend outbox sweeping
-remains mandatory crash recovery.
+returns a durable current snapshot. Generic task-status polling and WebSocket
+delivery are removed; the owner-scoped response read and `/next` recovery reads
+remain because they recover durable learning/session state rather than mutate
+task status. Backend outbox sweeping remains mandatory crash recovery.
 
 ### Retention and migration safety
 

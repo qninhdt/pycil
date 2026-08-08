@@ -1,6 +1,6 @@
 # FSRS Learning Engine — Current Python Contract
 
-**Status:** Implemented core; workflow hardening in progress
+**Status:** Implemented and hardened
 
 **Updated:** 2026-07-16
 

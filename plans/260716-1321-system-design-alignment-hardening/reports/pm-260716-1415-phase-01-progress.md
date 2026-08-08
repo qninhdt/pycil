@@ -18,7 +18,7 @@ status: complete
 
 - [x] Testcontainers PostgreSQL fallback; CI `TEST_DB_URL` override retained.
 - [x] 19 strict contract-gap xfails cover approved future hardening work.
-- [x] FSRS and hierarchy design notes aligned to Python, FSRS, senses, and the two-DB boundary.
+- [x] FSRS and hierarchy design notes aligned to Python, FSRS, senses, and the public-plus-isolated-Lexi-schema boundary.
 - [x] Baseline: shared 13 passed; API 64 passed, 19 xfailed; zero failures/errors.
 - [x] Delegated code review, tester, debugger passed.
 
