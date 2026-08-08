@@ -216,19 +216,16 @@ async def test_global_history_with_no_tracked_senses_returns_empty_buckets(sessi
 # --- the mastered boundary --------------------------------------------------
 
 
-async def test_mastered_uses_the_top_stage_floor_not_a_literal_80(session):
-    """A sense at exactly 80 sits in the fourth stage, so it is NOT mastered.
-
-    It used to be counted as mastered by two separate literal 80s while the ramp
-    displayed it one stage lower, and a single screen could show both figures.
-    """
+async def test_mastered_uses_the_server_owned_80_floor(session):
+    """The approved statistics threshold is 80, independent of visual bands."""
     from pycil.policy.policy import LEVEL_PROFILES, MASTERED_FLOOR
 
-    assert MASTERED_FLOOR == LEVEL_PROFILES[-1].lo == 81
+    assert MASTERED_FLOOR == 80
+    assert LEVEL_PROFILES[-1].lo == 81
 
     owner = await _user(session, "gm-owner@example.com")
-    await _stat(session, owner.id, 1, 80)
-    await _stat(session, owner.id, 2, 81)
+    await _stat(session, owner.id, 1, 79)
+    await _stat(session, owner.id, 2, 80)
 
     stats_read = await global_stats(_cu(owner), session)
 

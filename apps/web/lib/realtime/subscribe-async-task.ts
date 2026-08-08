@@ -1,5 +1,6 @@
 import type { Centrifuge, Subscription } from "centrifuge"
 
+import { ASYNC_TASK_NAMESPACE } from "./grading-result.generated"
 import { isAsyncTaskSnapshot, type AsyncTaskSnapshot } from "./task-snapshot"
 
 /** Centrifugo's permission-denied code, returned by the subscribe proxy. */
@@ -32,7 +33,7 @@ export function subscribeToAsyncTask(
   taskId: string,
   handlers: AsyncTaskSubscriptionHandlers,
 ): () => void {
-  const channel = `async:${taskId}`
+  const channel = `${ASYNC_TASK_NAMESPACE}:${taskId}`
   let subscription: Subscription
 
   try {

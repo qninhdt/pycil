@@ -1,7 +1,7 @@
 /**
  * Generated from apps/api by scripts/extract-error-codes.py. Do not edit.
  *
- * Source revision: 8b0178a
+ * Source fingerprint: ef6a734d2529
  *
  * Every error code the API can put on the wire, with the HTTP statuses it can
  * arrive with. A code appears under more than one status when it is raised from
@@ -76,6 +76,7 @@ export const API_ERROR_STATUS = {
   "too_many_requests": [429],
   "unauthorized": [401],
   "validation_error": [422],
+  "word_generation_query_invalid": [400],
   "word_generation_quota_exceeded": [429],
 } as const
 

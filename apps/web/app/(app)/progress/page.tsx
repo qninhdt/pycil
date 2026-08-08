@@ -60,7 +60,7 @@ export default async function ProgressPage({
           <section className="grid grid-cols-2 gap-6 sm:grid-cols-4">
             <StatFigure label="Words" value={String(data.stats.total)} />
             <StatFigure label="Studied" value={String(data.stats.learned)} />
-            <StatFigure label="Fluent" value={String(data.stats.mastered)} />
+            <StatFigure label="Mastered" value={String(data.stats.mastered)} />
             <StatFigure
               label="Average"
               value={`${Math.round(data.stats.avgMastery)}%`}

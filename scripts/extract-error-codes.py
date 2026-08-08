@@ -31,9 +31,9 @@ Codes come from three places, all of which have to be read to be correct:
 from __future__ import annotations
 
 import ast
+import hashlib
 import pathlib
 import re
-import subprocess
 import sys
 
 API_ROOT = pathlib.Path(__file__).resolve().parent.parent / "apps" / "api"
@@ -193,14 +193,22 @@ def scan_envelope_literals() -> dict[str, set[int]]:
     return found
 
 
-def source_revision() -> str:
-    try:
-        return subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"],
-            capture_output=True, text=True, check=True, cwd=API_ROOT,
-        ).stdout.strip()
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return "unknown"
+def source_fingerprint() -> str:
+    """Stable identity for the Python files this generator scans.
+
+    A Git ``HEAD`` is not stable while a generated file is being committed: CI
+    checks out the new commit, regenerates, and would otherwise change the
+    generated header on every commit. Hashing the actual inputs keeps the header
+    useful for provenance without making the check self-invalidating.
+    """
+    digest = hashlib.sha256()
+    for source in sorted(PACKAGE.rglob("*.py")):
+        if "__pycache__" in source.parts:
+            continue
+        digest.update(source.relative_to(API_ROOT).as_posix().encode())
+        digest.update(b"\0")
+        digest.update(source.read_bytes())
+    return digest.hexdigest()[:12]
 
 
 def render(codes: dict[str, set[int]]) -> str:
@@ -208,7 +216,7 @@ def render(codes: dict[str, set[int]]) -> str:
         "/**",
         " * Generated from apps/api by scripts/extract-error-codes.py. Do not edit.",
         " *",
-        f" * Source revision: {source_revision()}",
+        f" * Source fingerprint: {source_fingerprint()}",
         " *",
         " * Every error code the API can put on the wire, with the HTTP statuses it can",
         " * arrive with. A code appears under more than one status when it is raised from",

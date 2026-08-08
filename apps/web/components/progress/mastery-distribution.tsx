@@ -1,4 +1,4 @@
-import { MASTERY_BANDS, masteryBand } from "@/lib/design/mastery"
+import { MASTERED_FLOOR, MASTERY_BANDS, masteryBand } from "@/lib/design/mastery"
 import { cn } from "@/lib/utils"
 
 /**
@@ -69,7 +69,7 @@ export function MasteryDistribution({
               </span>
             </p>
             <p className="text-sm text-muted-foreground tabular-nums">
-              {mastered} at {MASTERY_BANDS[MASTERY_BANDS.length - 1].name}
+              {mastered} mastered at {MASTERED_FLOOR}%+
             </p>
           </div>
         </>

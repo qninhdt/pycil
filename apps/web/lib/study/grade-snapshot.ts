@@ -16,6 +16,7 @@
  */
 
 import type { AsyncTaskSnapshot } from "@/lib/realtime/task-snapshot"
+import type { GradingResultPayload } from "@/lib/realtime/grading-result.generated"
 import type { Reveal } from "@/lib/api/types"
 
 import type { Verdict } from "./session-machine"
@@ -58,19 +59,31 @@ export function readPendingGrade(
 /**
  * Builds a verdict from the worker's result payload.
  *
- * Every field is read defensively because the payload is typed as an open record on
- * the wire. A missing field becomes null rather than a thrown read, so a partial
- * result still renders the part that arrived instead of blanking the screen at the
- * moment the learner is waiting for it.
+ * Every field is still read defensively, because the value arrives off a realtime
+ * channel and a mismatch must degrade to null rather than throw at the moment the
+ * learner is waiting for a mark.
+ *
+ * What changed is where the *names* come from. These were bare string keys into an
+ * open record, so renaming a field in `GradingResult.to_dict()` produced a verdict
+ * of all nulls: no exception, no type error, the unit tests still green, and a
+ * blank score on screen. Keying the reads to the generated payload type makes that
+ * rename a compile error here instead.
+ *
+ * `Partial<...>` rather than the interface itself: the runtime shape is untrusted,
+ * so the values stay `unknown` and go through the same guards. Only the key names
+ * are borrowed from the contract.
  */
+type UntrustedGradingResult = Partial<Record<keyof GradingResultPayload, unknown>>
+
 function verdictFromResult(result: Record<string, unknown> | null): Verdict {
+  const payload = result as UntrustedGradingResult | null
   return {
-    isCorrect: asBoolean(result?.isCorrect),
-    score: asNumber(result?.gradeScore),
-    feedback: asString(result?.gradeFeedback),
-    reveal: asReveal(result?.reveal),
-    masteryBefore: asNumber(result?.masteryBefore),
-    masteryAfter: asNumber(result?.masteryAfter),
+    isCorrect: asBoolean(payload?.isCorrect),
+    score: asNumber(payload?.gradeScore),
+    feedback: asString(payload?.gradeFeedback),
+    reveal: asReveal(payload?.reveal),
+    masteryBefore: asNumber(payload?.masteryBefore),
+    masteryAfter: asNumber(payload?.masteryAfter),
   }
 }
 

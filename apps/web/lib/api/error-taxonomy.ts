@@ -151,6 +151,10 @@ export const ERROR_TAXONOMY: Record<ApiErrorCode, ErrorTaxonomyEntry> = {
     category: "not_found",
     message: "That word is no longer available.",
   },
+  word_generation_query_invalid: {
+    category: "conflict",
+    message: "Enter a word or phrase up to 200 characters.",
+  },
   word_generation_quota_exceeded: {
     category: "quota",
     message: "You have reached today's limit for adding new words.",

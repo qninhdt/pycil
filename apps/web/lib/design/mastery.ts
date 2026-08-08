@@ -1,33 +1,24 @@
 /**
- * The five mastery bands. These thresholds mirror `LEVEL_PROFILES` and
- * `mastery_band` in the API's learning policy; the UI must not invent its own
- * boundaries or a band would be named differently in two places.
+ * Resolving a mastery score to its band.
  *
- * The stage names are shown to the learner verbatim, and they must stay identical
- * to `STAGE_NAMES` in the API's learning policy. Both render on the same screens:
- * a deck row shows the server's `masteryStageName` while the dashboard and the
- * study verdict resolve the name from this table, so any divergence shows one
- * learner two labels for one score.
+ * The band table itself is generated from the API's learning policy into
+ * `mastery.generated.ts` — it is a cross-language contract, and it used to be
+ * mirrored here by hand with only a comment asking future editors to keep the two
+ * in step. Both render on the same screens (a deck row shows the server's
+ * `masteryStageName` while the dashboard and study verdict resolve the name here),
+ * so a drifting edge showed one learner two labels for one score.
+ *
+ * The functions stay hand-written and stay tested: clamping, rounding and NaN
+ * handling are frontend display decisions, not part of the contract.
  */
 
-export type MasteryStage = 1 | 2 | 3 | 4 | 5
+export type { MasteryBand, MasteryStage } from "./mastery.generated"
+export {
+  MASTERED_FLOOR,
+  MASTERY_BANDS,
+} from "./mastery.generated"
 
-export interface MasteryBand {
-  stage: MasteryStage
-  name: string
-  /** Inclusive lower bound of the mastery score. */
-  min: number
-  /** Inclusive upper bound of the mastery score. */
-  max: number
-}
-
-export const MASTERY_BANDS: readonly MasteryBand[] = [
-  { stage: 1, name: "New", min: 0, max: 10 },
-  { stage: 2, name: "Recognised", min: 11, max: 30 },
-  { stage: 3, name: "Familiar", min: 31, max: 55 },
-  { stage: 4, name: "Applied", min: 56, max: 80 },
-  { stage: 5, name: "Fluent", min: 81, max: 100 },
-] as const
+import { MASTERY_BANDS, type MasteryBand } from "./mastery.generated"
 
 /** Total number of pips a mastery ramp renders. */
 export const MASTERY_STAGE_COUNT = MASTERY_BANDS.length

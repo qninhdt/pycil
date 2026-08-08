@@ -61,9 +61,13 @@ jobs:
       # A doc that names a file makes a checkable claim, and this repo had
       # accumulated false ones from three superseded eras. Historical documents
       # are exempt; the rest must cite paths that exist.
+      # Runs at the workspace root, where the path is `scripts/...`. It was written
+      # as `../../scripts/...` with no working-directory, which resolves outside the
+      # checkout and dies with "can't open file" before reading a single document —
+      # a gate that cannot start cannot fail for the reason it exists.
       - name: Documentation cites real paths
         if: matrix.name == 'api'
-        run: python3 ../../scripts/check-doc-paths.py
+        run: python3 scripts/check-doc-paths.py
 
       - name: Error codes are regenerated
         if: matrix.name == 'api'
@@ -72,6 +76,24 @@ jobs:
           uv run python ../../scripts/extract-error-codes.py
           git diff --exit-code ../../apps/web/lib/api/error-codes.generated.ts \
             || { echo "::error::error-codes.generated.ts is stale — run scripts/extract-error-codes.py and commit"; exit 1; }
+
+      # The mastery bands and the grading payload are defined in Python and were
+      # re-declared by hand in TypeScript. Neither TS suite could catch a rename:
+      # the band table was mirrored with only a comment asking editors to keep it
+      # in step, and every grading field was read by bare string key through a
+      # defensive cast, so a renamed field produced a blank verdict for a learner
+      # who had just answered — nothing thrown, nothing red.
+      #
+      # Stdlib-only and AST-based, like check-doc-paths.py, so it needs no
+      # configured Python environment to run here.
+      - name: Realtime and policy contracts are regenerated
+        if: matrix.name == 'api'
+        run: |
+          python3 scripts/extract-realtime-contracts.py
+          git diff --exit-code \
+            apps/web/lib/design/mastery.generated.ts \
+            apps/web/lib/realtime/grading-result.generated.ts \
+            || { echo "::error::generated contracts are stale — run scripts/extract-realtime-contracts.py and commit"; exit 1; }
 
   test-shared:
     # Pure-logic tests (FSRS math, packages/shared-py/shared/fsrs) — no DB, no I/O.

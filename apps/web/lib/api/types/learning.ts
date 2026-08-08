@@ -256,7 +256,7 @@ export interface Reveal {
  */
 export interface GradeResult {
   responseId: string
-  gradeStatus: "graded" | "pending"
+  gradeStatus: "graded" | "pending" | "expired"
   senseId: number
   renderFormat: RenderFormat
   /** Present only when `gradeStatus` is "pending". */

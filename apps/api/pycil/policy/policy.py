@@ -75,14 +75,13 @@ def mastery_band(mastery: int) -> _Band:
     return LEVEL_PROFILES[-1]
 
 
-# --- Mastery stages (the single source of truth for "mastered") -----------------
+# --- Mastery stages and the server-owned mastered threshold ---------------------
 #
-# The bands above already partition 0..100; naming them makes the ramp the API
-# reports and the ramp the UI renders the same object. Three definitions of
-# "mastered" existed before: these bands, a literal 80 in hierarchy/stats.py, and
-# another inlined literal 80 in hierarchy/router.py. A sense at exactly 80 was
-# therefore counted as mastered while sitting in the fourth stage, and a single
-# screen could show both figures.
+# The bands above partition 0..100; naming them makes the ramp the API reports and
+# the ramp the UI renders the same object. "Mastered" is intentionally a separate
+# server-owned threshold: the approved contract is 80, even though the visual
+# "Applied" band runs through 80 and "Fluent" begins at 81. Keeping this value here
+# prevents callers from redefining mastery per request.
 STAGE_NAMES: tuple[str, ...] = ("New", "Recognised", "Familiar", "Applied", "Fluent")
 
 if len(STAGE_NAMES) != len(LEVEL_PROFILES):
@@ -90,9 +89,9 @@ if len(STAGE_NAMES) != len(LEVEL_PROFILES):
         f"{len(STAGE_NAMES)} stage names for {len(LEVEL_PROFILES)} bands"
     )
 
-# Mastered == the top stage. Derived, never a literal: moving a band edge moves
-# this with it.
-MASTERED_FLOOR = LEVEL_PROFILES[-1].lo
+# The statistics contract owns this threshold; it is not a caller-controlled
+# query parameter and does not need to coincide with a visual stage boundary.
+MASTERED_FLOOR = 80
 
 
 def mastery_stage(mastery: int) -> int:

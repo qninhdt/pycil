@@ -30,7 +30,7 @@ async def test_array_bound_folder_stats_budget(session):
                 user_id, sense_id, stability, difficulty, mastery, interval_days,
                 review_count, lapse_count, status
             )
-            SELECT CAST(:user_id AS uuid), sense_id, 10, 5, 75, 1, 1, 0, 'review'
+            SELECT CAST(:user_id AS uuid), sense_id, 10, 5, 75, 1, 1, 0, 'scheduled'
             FROM unnest(CAST(:sense_ids AS bigint[])) AS sense_id
             """
         ),
