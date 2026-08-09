@@ -1,12 +1,8 @@
-"""Thin wrapper over shared.fsrs — the learning domain's single FSRS entry point.
-
-Keeps FSRS math in the shared package (Phase 4) while giving the service a small
-domain-shaped surface. No new math here.
-"""
+"""Thin wrapper over shared.fsrs — the learning domain's single FSRS entry point."""
 
 from datetime import datetime
 
-from shared.fsrs import MemoryState, initial_state, mastery, recall, update
+from shared.fsrs import MemoryState, initial_state, update
 
 
 def elapsed_days(last_review: datetime | None, now: datetime) -> float:
@@ -25,4 +21,4 @@ def next_state(
     return update(stability, difficulty, correct, elapsed_days(last_review, now))
 
 
-__all__ = ["MemoryState", "elapsed_days", "first_review", "next_state", "mastery", "recall"]
+__all__ = ["MemoryState", "elapsed_days", "first_review", "next_state"]

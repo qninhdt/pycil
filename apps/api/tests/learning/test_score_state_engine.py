@@ -23,10 +23,9 @@ from pycil.learning.infra.models import (
     GradeStatus,
     Response,
     ReviewLog,
-    SenseStatus,
-    UserSenseStats,
 )
 from pycil.learning.infra.session_store import AdmittedSense
+from pycil.policy.sense_state import SenseStatus, UserSenseStats
 from tests.learning import session_state
 
 pytestmark = pytest.mark.asyncio

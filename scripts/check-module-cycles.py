@@ -37,7 +37,7 @@ from pathlib import Path
 #
 # It is not a real cycle. Only Alembic (`alembic/env.py`) and the test harness
 # (`tests/conftest.py`) import `db.models`; no domain does, and no request path
-# touches it. `db.session`, `db.redis` and `db.base` — what the domains actually
+# touches it. `db.session` and `db.redis` — what the domains actually
 # import — carry zero domain imports between them, so the runtime graph is
 # acyclic. Aggregating a build-time aggregator with the runtime leaves is what
 # manufactures the edge.

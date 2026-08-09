@@ -18,7 +18,6 @@ from pycil.db.redis import get_redis
 
 _AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 _TOKEN_URL = "https://oauth2.googleapis.com/token"
-_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
 _JWKS_URL = "https://www.googleapis.com/oauth2/v3/certs"
 _ISSUERS = {"https://accounts.google.com", "accounts.google.com"}
 _STATE_TTL_SECONDS = 600

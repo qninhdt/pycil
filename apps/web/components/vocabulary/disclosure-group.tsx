@@ -14,8 +14,8 @@ import { cn } from "@/lib/utils"
  * One collapsed section of the sense record.
  *
  * Sense detail carries a dozen optional Lexi fields. Rendering them all open turns
- * the page into a field dump; dropping them throws away the work of phases 2 to 4.
- * So everything outside the reading layer lives in one of these, closed on arrival.
+ * the page into a field dump; everything outside the reading layer lives in one of
+ * these, closed on arrival.
  *
  * A group with nothing in it renders nothing at all — not a heading with an empty
  * body, and not a disabled trigger. An absent field should leave no trace.

@@ -19,10 +19,7 @@ import type { LearningSettings } from "@/lib/api/types"
 /**
  * How the learner's sessions are shaped.
  *
- * One form for the whole account, because that is where the API stores it. It used to
- * be per deck, which meant the same person got a different session length depending on
- * which deck they opened, and a session started on a folder ignored the setting
- * entirely — so a configured value applied about half the time.
+ * One form for the whole account, because that is where the API stores the settings.
  *
  * The bounds match the API's own validation and the table's CHECK constraints, so an
  * out-of-range value is refused here with a sentence rather than sent and rejected with

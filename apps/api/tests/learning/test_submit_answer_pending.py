@@ -50,8 +50,6 @@ from tests.learning.fakes import RUBRIC_AT_EVERY_LEVEL, FakeLexiReader
 # A free-text sense: `use_in_sentence` is the fake's LLM type, so evaluating it
 # returns `status="pending"` and the route must take the deferred branch.
 _LLM_SENSE = 501
-# A rule-graded sense, for the contrast cases.
-_RULE_SENSE = 502
 
 
 class _FakeArqPool:

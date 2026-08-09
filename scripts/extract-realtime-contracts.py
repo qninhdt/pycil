@@ -368,42 +368,6 @@ def render_grading(fields: list[tuple[str, str, bool]], namespace: str) -> str:
     lines += [
         "}",
         "",
-        "/** Every key the payload carries, in wire order. */",
-        "export const GRADING_RESULT_KEYS = [",
-        *(f'  "{name}",' for name, _, _ in fields),
-        "] as const",
-        "",
-        "/**",
-        " * Whether a value is a usable grading result.",
-        " *",
-        " * Checks the fields the verdict is actually built from and tolerates extra",
-        " * keys, so adding a field to the Python payload cannot reject a snapshot a",
-        " * client already understands. A *renamed* field does fail here, which is the",
-        " * whole point.",
-        " */",
-        "export function isGradingResultPayload(",
-        "  value: unknown,",
-        "): value is GradingResultPayload {",
-        '  if (!value || typeof value !== "object") return false',
-        "  const payload = value as Record<string, unknown>",
-        "  return (",
-    ]
-    checks: list[str] = []
-    for name, ts_type, nullable in fields:
-        if ts_type == "Record<string, unknown>":
-            check = f'(payload.{name} === null || typeof payload.{name} === "object")'
-        elif nullable:
-            check = f'(payload.{name} === null || typeof payload.{name} === "{ts_type}")'
-        else:
-            check = f'typeof payload.{name} === "{ts_type}"'
-        checks.append(check)
-    for index, check in enumerate(checks):
-        tail = "" if index == len(checks) - 1 else " &&"
-        lines.append(f"    {check}{tail}")
-    lines += [
-        "  )",
-        "}",
-        "",
         "/**",
         " * The channel namespace a durable task is published on.",
         " *",

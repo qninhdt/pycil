@@ -210,7 +210,7 @@ async def test_deck_items_carry_the_callers_learning_state(session):
     from datetime import UTC, datetime
 
     from pycil.content.router import deck_items
-    from pycil.learning.infra.models import SenseStatus, UserSenseStats
+    from pycil.policy.sense_state import SenseStatus, UserSenseStats
 
     owner = await _seed_user(session, "deck-state@x.co")
     deck = await service.create_deck(session, owner.id, "Deck")
@@ -251,7 +251,7 @@ async def test_deck_items_carry_the_callers_learning_state(session):
 async def test_deck_items_expose_no_learning_state_to_anonymous(session):
     from pycil.content.router import deck_items
     from pycil.hierarchy.infra.models import Visibility
-    from pycil.learning.infra.models import SenseStatus, UserSenseStats
+    from pycil.policy.sense_state import SenseStatus, UserSenseStats
 
     owner = await _seed_user(session, "deck-anon@x.co")
     deck = await service.create_deck(session, owner.id, "Deck")

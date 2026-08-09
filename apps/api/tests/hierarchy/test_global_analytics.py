@@ -26,7 +26,8 @@ from pycil.hierarchy.router import (
     global_stats,
     global_weakest,
 )
-from pycil.learning.infra.models import ReviewLog, SenseStatus, UserSenseStats
+from pycil.learning.infra.models import ReviewLog
+from pycil.policy.sense_state import SenseStatus, UserSenseStats
 
 pytestmark = pytest.mark.asyncio
 

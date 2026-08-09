@@ -1,13 +1,8 @@
 """Read-side helpers for the hierarchy routes.
 
-These are the queries and shaping steps the routes call, extracted from
-`router.py` so that module is routes only. All read traffic used to live inside
-the router while `service.py` owned mutations, which meant reads had no layer of
-their own and bypassed the service boundary entirely — a 553-line file mixing 14
-routes with the SQL behind them.
-
-Nothing here is a route, and nothing here mutates. Anything that writes belongs in
-`service.py`; anything that authorizes belongs in `access.py`.
+These are the queries and shaping steps used by the hierarchy routes. Nothing here
+is a route, and nothing here mutates. Anything that writes belongs in `service.py`;
+anything that authorizes belongs in `access.py`.
 """
 
 from datetime import UTC, date, datetime, timedelta

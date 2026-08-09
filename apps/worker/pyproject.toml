@@ -79,10 +79,6 @@ extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path"]
 # never reach back into the worker, or a request-path import would drag arq and
 # the job registry into the web process.
 #
-# Whole-package `forbidden`, and observed failing on a deliberate violation
-# before being trusted. The two contracts this repo deleted had both rotted while
-# still passing, which is the failure mode to design against.
-
 [tool.importlinter]
 root_package = "pycil_worker"
 include_external_packages = true
@@ -92,5 +88,5 @@ include_external_packages = true
 [[tool.importlinter.contracts]]
 name = "only the worker entrypoint and jobs know about arq"
 type = "forbidden"
-source_modules = ["pycil_worker.lexi_library", "pycil_worker.config"]
+source_modules = ["pycil_worker.lexi_library"]
 forbidden_modules = ["arq"]

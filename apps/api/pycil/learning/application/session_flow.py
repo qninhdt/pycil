@@ -169,11 +169,7 @@ async def _plan_under_stable_scope(
     A structural mutation can move senses in or out of the subtree mid-request, so
     the generation is read before and after and the plan is discarded if it moved.
 
-    B14. `node` and `plan` used to be read after the loop, which was sound only
-    because `for ... else` raises when nothing breaks — an incidental property held
-    together by a `plan = None` initialiser that would have let a `None` plan reach
-    the session had the control flow ever changed. Returning the successful attempt
-    makes the invariant the code's own statement.
+    Returning the successful attempt makes the scope invariant explicit.
     """
     for _ in range(_PLAN_ATTEMPTS):
         node = await require_node_access(session, node_id, user, write=False)
@@ -392,7 +388,7 @@ async def _try_deliver(
         try:
             resolved = await resolver.resolve_exposure(client, sense_id)
         except LookupError:
-            return None  # F14: missing/stale sense -> defer, do not 500
+            return None  # Missing or stale sense: defer instead of failing the request.
         if not await session_store.reserve_round_delivery(
             redis, session_id, sense_id, round_index, question_id=None
         ):

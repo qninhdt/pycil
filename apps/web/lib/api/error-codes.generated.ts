@@ -1,7 +1,7 @@
 /**
  * Generated from apps/api by scripts/extract-error-codes.py. Do not edit.
  *
- * Source fingerprint: ef6a734d2529
+ * Source fingerprint: 3b92294c85a8
  *
  * Every error code the API can put on the wire, with the HTTP statuses it can
  * arrive with. A code appears under more than one status when it is raised from
@@ -81,8 +81,6 @@ export const API_ERROR_STATUS = {
 } as const
 
 export type ApiErrorCode = keyof typeof API_ERROR_STATUS
-
-export const API_ERROR_CODES = Object.keys(API_ERROR_STATUS) as ApiErrorCode[]
 
 export function isKnownApiErrorCode(code: string): code is ApiErrorCode {
   return code in API_ERROR_STATUS

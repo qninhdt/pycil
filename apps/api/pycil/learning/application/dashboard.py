@@ -20,7 +20,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pycil.hierarchy.infra.models import Node, NodeType
-from pycil.learning.infra.models import ReviewLog, UserSenseStats
+from pycil.learning.infra.models import ReviewLog
+from pycil.policy.sense_state import UserSenseStats
 
 # Days of due-count forecast the dashboard renders, today inclusive.
 FORECAST_DAYS = 7
@@ -150,10 +151,7 @@ async def _resume_target(
 ) -> ResumeTarget | None:
     """The deck the learner last reviewed in, or their first deck as a fallback.
 
-    The fallback is honest but weak — "whichever deck comes first" is wrong the
-    moment someone owns more than one — so it exists only for a learner who has
-    never reviewed anything. It used to fire for everyone, because `ReviewLog.node_id`
-    was never written (B5, fixed separately: measured 160 of 160 rows NULL).
+    The fallback is used only for a learner who has never reviewed anything.
     """
     recent_node_id = (
         await session.execute(

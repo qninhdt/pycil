@@ -6,7 +6,7 @@ attempt table.  At most ONE FSRS update is applied per (session, sense): ``Again
 immediately on the first disqualifier, or ``Good`` on clean completion of all N
 checkpoints.
 
-Idempotency (defense in depth), Postgres-authoritative (F1):
+Idempotency is enforced in Postgres, with Redis as an advisory fast path:
   1. ``session_sense_attempts`` unique claim is the authority for
      "FSRS-applied-once-per-(session,sense)" — the claim winner applies FSRS.
   2. ``pg_advisory_xact_lock`` + ``FOR UPDATE`` serialize the write; claim insert,
@@ -15,7 +15,7 @@ Idempotency (defense in depth), Postgres-authoritative (F1):
      AFTER the Postgres commit — never before (a crash in that gap would lose the
      grade).
 
-The consume-once bind (F5, Phase 8) guarantees a delivered ``question_id`` enters
+The consume-once bind guarantees a delivered ``question_id`` enters
 this apply path at most once, so ``passed`` is never double-incremented.
 """
 
@@ -40,11 +40,10 @@ from pycil.learning.infra.models import (
     GradeStatus,
     Response,
     ReviewLog,
-    SenseStatus,
     SessionSenseAttempt,
-    UserSenseStats,
 )
 from pycil.policy.policy import MAX_RETRIES_PER_CHECKPOINT, REQUIRED_CHECKPOINTS
+from pycil.policy.sense_state import SenseStatus, UserSenseStats
 from pycil.ports.lexi import LexiWorkerEngine
 
 logger = logging.getLogger(__name__)
@@ -109,14 +108,6 @@ async def apply_checkpoint_result(
 
     # Which deck this review happened in. `Response` does not carry it, so it comes
     # from the session's Redis meta — the only place that knows.
-    #
-    # This is B5: `ReviewLog` has had a `node_id` column since `models.py:63`, but
-    # nothing ever populated it, so every row was NULL. The dashboard's
-    # "continue where you left off" query filters on
-    # `ReviewLog.node_id.is_not(None)` (`router.py:198`), so it matched nothing and
-    # silently fell through to "the caller's first deck, whichever that is" — a
-    # feature that looked implemented and never once worked. Measured before the
-    # fix: 160 of 160 rows NULL.
     #
     # Best-effort by design: the row must be written even when the session key has
     # expired (an async LLM settle can land long after), so a missing meta leaves
@@ -210,7 +201,7 @@ async def apply_checkpoint_result(
             mastery_before = mastery_after = stats.mastery
             stability_after = stats.stability
         else:
-            # B6. Claim lost AND no stats row is visible yet — the winner holds the
+            # The claim was lost and no stats row is visible yet — the winner holds the
             # row lock and has not committed. The three fields kept their zero
             # initialisers here, so the response reported `masteryBefore: 0,
             # masteryAfter: 0` for an answer that DID apply FSRS, which the client
@@ -382,7 +373,7 @@ async def create_pending_response(
     served_level: int | None,
     render_format: str,
 ) -> Response:
-    """Persist/reuse one async-grade outbox row (carries durable levels, F3)."""
+    """Persist or reuse one async-grade outbox row with durable level data."""
     stmt = (
         insert(Response)
         .values(

@@ -1,10 +1,4 @@
-"""Candidate pool: load due-review and new senses for session planning.
-
-Re-homed from the old single-queue builder.  The session planner (``planning``)
-consumes these helpers to admit senses; this module only loads + classifies +
-ranks candidates.  The buried filter and the canonical subtree scope are reused
-verbatim from the prior implementation.
-"""
+"""Candidate pool: load due-review and new senses for session planning."""
 
 from dataclasses import dataclass
 from datetime import datetime
@@ -16,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from pycil.hierarchy.application.subtree import resolve_sense_ids
 from pycil.learning.domain.fsrs_wrapper import elapsed_days
-from pycil.learning.infra.models import SenseStatus, UserSenseStats
+from pycil.policy.sense_state import SenseStatus, UserSenseStats
 
 _STATS_SQL = text(
     """

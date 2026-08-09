@@ -1,7 +1,7 @@
 """Round scheduler: pick the next eligible (sense, requirement) per round.
 
 Decides WHICH sense/requirement to serve next (the resolver picks the concrete
-question at delivery, Phase 2/8).  A round is a variable-size wave capped at
+question at delivery). A round is a variable-size wave capped at
 ``max_questions_per_round``, filled by the spec priority order:
 
     1. eligible retries        (failed checkpoint, waited >= 1 round)
@@ -177,7 +177,7 @@ async def has_pending_grade(
 async def session_complete(
     session: AsyncSession, redis: Redis, session_id: str
 ) -> bool:
-    """The single pending-aware session-end predicate (F12).
+    """The single pending-aware session-end predicate.
 
     Complete only when every admitted sense is terminal AND no checkpoint is
     awaiting a grade AND no ``responses`` row for the session is still pending.

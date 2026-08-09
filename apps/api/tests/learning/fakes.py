@@ -25,8 +25,6 @@ SHIPPED_TYPES = [
     QuestionTypeInfo("cloze", RenderKind.TEXT_SPAN, "assessment", frozenset({2, 3})),
     QuestionTypeInfo("use_in_sentence", RenderKind.FREE_TEXT, "assessment", frozenset({3, 4})),
 ]
-SHIPPED_DESCRIPTORS = SHIPPED_TYPES
-
 # A rubric-graded type declared across the whole assessment ladder.
 #
 # The shipped set cannot reach the deferred/LLM branch of `submit_answer` at the

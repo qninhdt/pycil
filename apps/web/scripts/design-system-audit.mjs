@@ -7,7 +7,7 @@
  * `space-*`, elevation is a hairline ring rather than a drop shadow, and colour
  * flows through the semantic layer rather than a raw hex or a `dark:` override
  * at the call site. Each rule below is one grep, and a hit in feature code fails
- * the build. The `components/ui/**` primitive registry (phase 6) is exempt,
+ * the build. The `components/ui/**` primitive registry is exempt,
  * because that layer is where the tokens are wired to Tailwind in the first
  * place; the rules exist to keep the *rest* of the app off the raw values.
  *

@@ -135,7 +135,7 @@ async def submit(
         redis, client, session_id=session_id, question_id=question_id
     )
 
-    # Consume-once bind (F5): the submitted question must be the sense's currently
+    # Consume-once bind: the submitted question must be the sense's currently
     # delivered checkpoint; a replayed or self-selected id is rejected.
     if not await session_store.consume_delivered(
         redis, session_id, sense_id, question_id
@@ -221,7 +221,7 @@ async def _resolve_question(
         except (TypeError, ValueError):
             sense_id = None
     if question is None or sense_id is None:
-        # Purged/regenerated question (F14) — reject gracefully, not a 500.
+        # A purged or regenerated question is a conflict, not a server failure.
         await session_store.reopen_bound_delivery(redis, session_id, question_id)
         raise ConflictError("question_not_available")
     if question.interaction != "assessment":

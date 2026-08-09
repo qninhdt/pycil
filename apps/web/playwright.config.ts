@@ -21,7 +21,7 @@ import { defineConfig, devices } from "@playwright/test"
 /**
  * One origin for the browser, the API, and SSE.
  *
- * Phase 7 put the app, `/v1`, and `/connection/sse` behind a single Caddy origin
+ * The app, `/v1`, and `/connection/sse` share a single Caddy origin
  * specifically so the SSE URL the API hands the browser is same-origin: a
  * frontend on its own port would make every subscribe cross-origin and would
  * have to be added to `CENTRIFUGO_ALLOWED_ORIGINS`. Pointing the suite anywhere

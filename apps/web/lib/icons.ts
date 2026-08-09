@@ -24,7 +24,6 @@ export {
   BellIcon,
   SparkleIcon,
   GearIcon,
-  UserCircleIcon,
   SignOutIcon,
   SignInIcon,
 
@@ -38,11 +37,9 @@ export {
 
   // Direction and disclosure.
   CaretRightIcon,
-  CaretLeftIcon,
   CaretDownIcon,
   CaretUpIcon,
   ArrowRightIcon,
-  ArrowLeftIcon,
   XIcon,
   PlusIcon,
   MinusIcon,
@@ -51,11 +48,8 @@ export {
 
   // Library hierarchy: folder, deck, reference.
   FolderIcon,
-  FolderOpenIcon,
   CardsThreeIcon,
   LinkSimpleIcon,
-  BookOpenIcon,
-  FilePlusIcon,
   PencilSimpleIcon,
   TrashIcon,
   ArrowsOutCardinalIcon,
@@ -64,12 +58,7 @@ export {
 
   // Study.
   PlayIcon,
-  PauseIcon,
   CoffeeIcon,
-  LightbulbIcon,
-  EyeIcon,
-  EyeSlashIcon,
-  SpeakerHighIcon,
 
   // Verdict and state.
   CheckCircleIcon,
@@ -79,13 +68,10 @@ export {
   InfoIcon,
   ClockIcon,
   HourglassIcon,
-  WifiHighIcon,
   WifiSlashIcon,
 
   // Progress.
   TrendUpIcon,
-  StackIcon,
-  CalendarBlankIcon,
 
   // Assistant.
   PaperPlaneRightIcon,

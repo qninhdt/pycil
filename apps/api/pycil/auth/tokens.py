@@ -7,7 +7,6 @@ rotation only.
 """
 
 import time
-import uuid
 
 import jwt
 
@@ -63,8 +62,3 @@ def verify(token: str) -> dict:
     if iat > now + _CLOCK_SKEW_SECONDS:
         raise jwt.InvalidIssuedAtError("iat_in_future")
     return claims
-
-
-def new_state_token() -> str:
-    """Opaque single-use OAuth state/verifier id (stored in Redis)."""
-    return uuid.uuid4().hex

@@ -189,7 +189,7 @@ test.describe("the study loop", () => {
     // by answering it. The learner never saw it.
     //
     // Two guards exist: the runner's own ref (`session-runner.tsx`) and the action
-    // layer's single-flight map (`lib/actions/study.ts`). Phase 8 proved the second
+    // layer's single-flight map (`lib/actions/study.ts`). The second
     // mechanically. This drives the first through the browser, which is the only place
     // the double invocation it defends against actually originates.
     await startSession(learnerPage, learner.deckId)

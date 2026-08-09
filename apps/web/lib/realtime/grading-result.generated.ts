@@ -1,7 +1,7 @@
 /**
  * Generated from packages/shared-py/shared/realtime/payloads.py by scripts/extract-realtime-contracts.py. Do not edit.
  *
- * Source fingerprint: cb68c663c993
+ * Source fingerprint: e07921786315
  *
  * The inner `result` payload of a settled grading task.
  *
@@ -29,45 +29,6 @@ export interface GradingResultPayload {
   masteryAfter: number | null
   renderFormat: string
   reveal: Record<string, unknown> | null
-}
-
-/** Every key the payload carries, in wire order. */
-export const GRADING_RESULT_KEYS = [
-  "responseId",
-  "senseId",
-  "isCorrect",
-  "gradeScore",
-  "gradeFeedback",
-  "masteryBefore",
-  "masteryAfter",
-  "renderFormat",
-  "reveal",
-] as const
-
-/**
- * Whether a value is a usable grading result.
- *
- * Checks the fields the verdict is actually built from and tolerates extra
- * keys, so adding a field to the Python payload cannot reject a snapshot a
- * client already understands. A *renamed* field does fail here, which is the
- * whole point.
- */
-export function isGradingResultPayload(
-  value: unknown,
-): value is GradingResultPayload {
-  if (!value || typeof value !== "object") return false
-  const payload = value as Record<string, unknown>
-  return (
-    typeof payload.responseId === "string" &&
-    typeof payload.senseId === "number" &&
-    typeof payload.isCorrect === "boolean" &&
-    typeof payload.gradeScore === "number" &&
-    (payload.gradeFeedback === null || typeof payload.gradeFeedback === "string") &&
-    (payload.masteryBefore === null || typeof payload.masteryBefore === "number") &&
-    (payload.masteryAfter === null || typeof payload.masteryAfter === "number") &&
-    typeof payload.renderFormat === "string" &&
-    (payload.reveal === null || typeof payload.reveal === "object")
-  )
 }
 
 /**

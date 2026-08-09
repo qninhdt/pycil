@@ -4,8 +4,8 @@ This is the EPHEMERAL tier: admitted senses + per-sense checkpoint/score progres
 round bookkeeping, and per-sense served-question exclusions.  Only FSRS state is
 durable (Postgres); everything here is discarded at session end and is safe to
 lose — the authoritative one-FSRS-per-(session,sense) record lives in Postgres
-(``session_sense_attempts`` + ``review_log``), written before any Redis update
-(see Phase 7).  Redis ``score``/``fsrs_applied`` are an advisory fast-path only.
+  (``session_sense_attempts`` + ``review_log``), written before any Redis update.
+  Redis ``score``/``fsrs_applied`` are an advisory fast-path only.
 
 Key layout (namespace ``session:{sid}``):
   ``session:{sid}``                       HASH  meta (owner/node/generation/round/settings)
@@ -240,7 +240,7 @@ async def excluded_ids(redis: Redis, session_id: str, sense_id: int) -> frozense
     return frozenset(int(member) for member in members)
 
 
-# --- consume-once delivered-question bind (F5) ----------------------------------
+# --- consume-once delivered-question bind ----------------------------------------
 
 
 async def get_delivered(redis: Redis, session_id: str, sense_id: int) -> int | None:
@@ -274,7 +274,7 @@ async def consume_delivered(
 
     Returns True only if ``current_qid`` matches ``question_id`` (then clears it);
     a replayed/duplicate/self-selected question id that is not the sense's current
-    delivered question is rejected (F5).
+    delivered question is rejected.
     """
     key = _sense_key(session_id, sense_id)
     attempt = 0
@@ -444,7 +444,7 @@ async def advance_round(
 
 
 async def set_awaiting_grade(redis: Redis, session_id: str, sense_id: int, on: bool) -> None:
-    """Toggle the awaiting-grade flag around a ``pending`` evaluation (F10)."""
+    """Toggle the awaiting-grade flag around a ``pending`` evaluation."""
     skey = _sense_key(session_id, sense_id)
     await redis.hset(skey, "awaiting_grade", "1" if on else "0")
     await redis.expire(skey, _TTL_SECONDS)
@@ -654,10 +654,7 @@ async def end_session(redis: Redis, session_id: str) -> None:
 
 # INCR and EXPIRE in one round trip. Done separately, a process that died between
 # them left a counter with NO TTL, so the learner's quota key never decayed and they
-# were locked out of LLM grading permanently — a durable consequence from a window
-# meant to be 5 minutes wide. `jobs/service.py:17-28` already reserves its quota
-# through a Lua script for exactly this reason; this brings the learning-side slots
-# onto the same footing.
+# were locked out of LLM grading permanently.
 #
 # EXPIRE is refreshed on the first increment only, which keeps the window rolling
 # from first use rather than sliding forward on every call. Re-arming it every time

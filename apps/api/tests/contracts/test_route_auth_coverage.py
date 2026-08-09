@@ -1,4 +1,4 @@
-"""Every /v1 route carries an auth dependency, or is on the open allowlist.
+"""Every /v1 route carries an auth dependency, body credential, or open allowlist.
 
 ``GET /v1/words/search`` was once the only business route with no auth dependency
 at all — no ``current_user``, no ``optional_current_user``, and no global default
@@ -41,6 +41,10 @@ AUTH_HANDSHAKE_PATHS = {
     "/v1/auth/callback",
 }
 
+# Refresh authenticates with the rotating credential in its request body. It must
+# not accept a bearer token as a compatibility shortcut.
+BODY_AUTH_PATHS = {"/v1/auth/refresh"}
+
 _ACCEPTED = {current_user, optional_current_user}
 
 
@@ -60,7 +64,7 @@ def test_every_v1_route_has_an_identity_boundary():
         path = getattr(route, "path", "")
         if not path.startswith("/v1"):
             continue
-        if path in OPEN_PATHS or path in AUTH_HANDSHAKE_PATHS:
+        if path in OPEN_PATHS or path in AUTH_HANDSHAKE_PATHS or path in BODY_AUTH_PATHS:
             continue
         if not _guards(route) & _ACCEPTED:
             unguarded.append(f"{sorted(route.methods)} {path}")
@@ -74,7 +78,7 @@ def test_every_v1_route_has_an_identity_boundary():
 def test_the_allowlisted_paths_still_exist():
     """A stale allowlist entry silently exempts nothing and hides the next omission."""
     live = {getattr(route, "path", "") for route in create_app().routes}
-    missing = (OPEN_PATHS | AUTH_HANDSHAKE_PATHS) - live
+    missing = (OPEN_PATHS | AUTH_HANDSHAKE_PATHS | BODY_AUTH_PATHS) - live
     assert not missing, f"allowlist names routes that no longer exist: {missing}"
 
 

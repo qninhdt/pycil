@@ -107,8 +107,7 @@ test.describe("an anonymous visitor", () => {
     await anonymousPage.goto(`/w/${fixture.publicSenseId}`)
 
     await expect(anonymousPage).not.toHaveURL(/\/login/)
-    // The headword is the assertion that would have failed before phase 2, when
-    // the deck row rendered a definition with no word attached to it.
+    // The heading confirms that the public sense rendered a dictionary entry.
     await expect(anonymousPage.getByRole("heading", { level: 1 })).toBeVisible()
   })
 

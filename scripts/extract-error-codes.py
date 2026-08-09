@@ -235,8 +235,6 @@ def render(codes: dict[str, set[int]]) -> str:
         "",
         "export type ApiErrorCode = keyof typeof API_ERROR_STATUS",
         "",
-        "export const API_ERROR_CODES = Object.keys(API_ERROR_STATUS) as ApiErrorCode[]",
-        "",
         "export function isKnownApiErrorCode(code: string): code is ApiErrorCode {",
         "  return code in API_ERROR_STATUS",
         "}",

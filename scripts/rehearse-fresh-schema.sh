@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Rehearse the pre-release, empty-volume cutover locally. This never copies
-# legacy Lexi service data; it proves the new images can create both schemas,
+# prior Lexi service data; it proves the new images can create both schemas,
 # start the embedded worker, and satisfy API readiness.
 set -euo pipefail
 

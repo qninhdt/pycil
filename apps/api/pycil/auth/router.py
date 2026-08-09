@@ -83,21 +83,14 @@ async def callback(
 @router.post("/refresh", response_model=TokenResponse)
 async def refresh(
     body: RefreshRequest | None = None,
-    user: CurrentUser | None = Depends(optional_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> TokenResponse:
-    if body is not None:
-        result = await refresh_sessions.rotate(session, body.refresh_token)
-        if result is None:
-            raise UnauthorizedError("invalid_refresh_token")
-        user, refresh_token, refresh_ttl = result
-    elif user is not None:
-        # v1 compatibility: old BFFs used a bearer-only refresh. Issue their
-        # first rotating token and return it alongside the renewed access JWT.
-        refresh_token, refresh_ttl = await refresh_sessions.issue(session, user.id)
-        await session.commit()
-    else:
+    if body is None:
         raise UnauthorizedError("missing_refresh_token")
+    result = await refresh_sessions.rotate(session, body.refresh_token)
+    if result is None:
+        raise UnauthorizedError("invalid_refresh_token")
+    user, refresh_token, refresh_ttl = result
     token, ttl = tokens.sign_access(user)
     return TokenResponse(
         access_token=token,

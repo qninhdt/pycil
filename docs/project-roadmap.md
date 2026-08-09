@@ -14,16 +14,12 @@ history; they do not describe the current system.
 
 ---
 
-## Python Greenfield Migration (current)
+## Python Greenfield Migration (historical plan)
 
 **Plan:** `plans/260705-0032-python-greenfield-migration/plan.md`
-**Scope:** use separately deployed `lexi-ai` as the dictionary/question/grading
-authority over authenticated internal HTTP,
-implement FSRS-4.5 + the folder/deck/REFERENCE hierarchy, redesign auth
-(Google OAuth 2.1 + PKCE + bearer JWT), add Centrifugo realtime. Removes
-billing, gamification, admin dashboard, translation/TTS, ELO, and general SSE.
-The approved Assistant Agent MVP reintroduces only bounded, owner-scoped
-chat/SSE with durable human approval for sensitive actions.
+The original plan called for a separately deployed `lexi-ai` authority and an
+external Next.js BFF. The implementation now embeds `lexi-ai` and ships the BFF
+in `apps/web`; the completed current architecture is documented above.
 
 | Phase | Name | Status |
 |---|---|---|
@@ -36,7 +32,7 @@ chat/SSE with durable human approval for sensitive actions.
 | 7 | Hierarchy & Stats | Complete |
 | 8 | Realtime Centrifugo | Complete |
 | 9 | Worker Redesign | Complete |
-| 10 | Frontend Auth & Rename | Deferred — external Next.js BFF |
+| 10 | Frontend Auth & Rename | Superseded by the in-repo web rebuild |
 | 11 | Integration Wiring | Complete |
 | 12 | Tests & Docs | Complete |
 

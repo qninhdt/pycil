@@ -10,7 +10,7 @@ admitted set (for ``session_store.create``) and the demand list; the router
 enqueues the best-effort, quota-gated warm-up (executed on the worker, which owns
 the provider-enabled ``prepare_questions``).  A transient not-yet-warm sense
 defers via the existing generation-pending flow rather than blocking session
-creation (F7).
+    creation.
 """
 
 from __future__ import annotations

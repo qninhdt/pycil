@@ -3,11 +3,7 @@ import { expect, test } from "../fixtures/test"
 /**
  * The library: structure, breadcrumbs, the palette, and the deck view.
  *
- * The deck assertion here is the one that matters most historically. Before phase
- * 2 a deck row rendered a definition with no headword attached, because the API
- * returned senses whose `word` was resolved from a source the deck list never
- * read. So "the deck shows the word" is not a tautology — it is a regression
- * guard on the bug that made the product look broken.
+ * The deck assertion verifies that each rendered sense includes its headword.
  */
 
 test.describe("library structure", () => {
@@ -71,8 +67,7 @@ test.describe("library structure", () => {
 
     await expect(page.getByRole("heading", { name: fixture.deckName })).toBeVisible()
 
-    // Every seeded sense carries a word. This is the phase-2 regression guard:
-    // a definition with no headword is what the bug looked like.
+    // Every seeded sense carries a word, and the deck should display it.
     for (const sense of fixture.senses) {
       if (!sense.word) continue
       await expect(

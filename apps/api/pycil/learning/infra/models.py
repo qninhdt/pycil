@@ -22,16 +22,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, SQLModel
 
-# `UserSenseStats` moved to `pycil.policy.sense_state`: `content` and `hierarchy`
-# both read it, and importing it from here was the last edge of the
-# `content <-> hierarchy <-> learning` cycle. Re-exported so this module still
-# reads as the learning schema — learning remains its only writer.
-from pycil.policy.sense_state import SenseStatus, UserSenseStats  # noqa: E402, F401
-
 TZDateTime = DateTime(timezone=True)
-
-
-
 
 class ReviewLog(SQLModel, table=True):
     __tablename__ = "review_log"
@@ -145,8 +136,6 @@ class SessionSenseAttempt(SQLModel, table=True):
     created_at: datetime | None = Field(
         default=None, sa_type=TZDateTime, sa_column_kwargs={"server_default": text("NOW()")}
     )
-
-
 
 class UserLearningSettings(SQLModel, table=True):
     """How this learner's sessions are shaped.

@@ -1,11 +1,7 @@
 # Testing Strategy
 
-**Note:** this file originally described `apps/pycil-core` (the pre-migration
-backend). That app was fully superseded by `apps/api` and removed from disk
-(2026-07-06) — the "Historical" section below is kept purely as a record of
-its testing approach, not a description of anything currently runnable. It
-does **not** describe `apps/api`/`apps/worker` (the current backend) — see
-"Current backend (`apps/api`)" below for that.
+The historical section records the pre-migration test approach. Current backend
+coverage is described below.
 
 ## Current backend (`apps/api`)
 
@@ -26,15 +22,15 @@ the intended seam.
 Run: `cd apps/api && uv run pytest`.
 
 There is no coverage-gate config (`--cov-fail-under`) in `apps/api/pyproject.toml`
-today — the 70% gate described below is specific to `apps/pycil-core`.
+today.
 
 `packages/shared-py/shared/fsrs/tests/` covers the FSRS engine; run with
 `cd packages/shared-py && uv run pytest`. The legacy question-plugin tests
 that used to live in `packages/shared-py/tests/` were removed alongside
 `apps/pycil-core`, their only consumer.
 
-`apps/worker` has no test suite yet — the previous LLM-pipeline tests were
-removed during the worker redesign and not replaced.
+`apps/worker/tests/` covers registration, generation, durable grading, and
+reconciliation jobs.
 
 ## Current frontend (`apps/web`)
 

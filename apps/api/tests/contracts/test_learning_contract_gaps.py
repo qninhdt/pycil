@@ -18,8 +18,9 @@ from pycil.content.infra.models import DeckSense
 from pycil.db.session import get_session
 from pycil.hierarchy.application import service as hierarchy_service
 from pycil.hierarchy.infra.models import NodeType
-from pycil.learning.infra.models import Response, UserSenseStats
+from pycil.learning.infra.models import Response
 from pycil.main import create_app
+from pycil.policy.sense_state import UserSenseStats
 from pycil.ports.lexi_provider import get_lexi_client
 from tests.learning.fakes import FakeLexiReader
 

@@ -1,7 +1,7 @@
 /**
  * Generated from apps/api/pycil/policy/policy.py by scripts/extract-realtime-contracts.py. Do not edit.
  *
- * Source fingerprint: cb68c663c993
+ * Source fingerprint: e07921786315
  *
  * The mastery bands and their learner-visible names.
  *

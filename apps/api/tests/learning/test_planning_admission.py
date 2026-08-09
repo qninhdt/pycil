@@ -32,12 +32,12 @@ from pycil.db.redis import get_redis
 from pycil.hierarchy.application import service as hierarchy_service
 from pycil.hierarchy.infra.models import Node, NodeType
 from pycil.learning.application import planning, session_flow, session_queue
-from pycil.learning.infra.models import SenseStatus, UserSenseStats
 from pycil.policy.policy import (
     ASSESSMENT_FLOOR,
     NEW_WORD_FLOOR,
     REQUIRED_CHECKPOINTS,
 )
+from pycil.policy.sense_state import SenseStatus, UserSenseStats
 
 # No module-level `asyncio` mark: this file mixes pure-function tests with
 # database-backed ones, and `asyncio_mode = "auto"` already collects the async ones.

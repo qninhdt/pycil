@@ -12,7 +12,7 @@ import {
 } from "@/lib/study/session-machine"
 
 /**
- * The session lifecycle reducer — the priority module of phase 13.
+ * The session lifecycle reducer.
  *
  * Every decision the study screen makes is a function of the previous state and one
  * event, so the whole lifecycle is asserted here without a server: each transition,

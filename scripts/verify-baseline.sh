@@ -14,9 +14,8 @@
 #   scripts/verify-baseline.sh --with-web   # adds typecheck/lint/build/storybook
 #   scripts/verify-baseline.sh --quick      # python tiers only
 #
-# E2E is deliberately NOT here: it needs a live stack plus a real LLM, runs for
-# ~11 minutes, and is gated by test-ID manifest rather than by count. See
-# scripts/verify-e2e-manifest.sh.
+# E2E is deliberately NOT here: it needs a live stack plus a real LLM and runs in
+# the nightly workflow.
 
 set -uo pipefail
 
@@ -34,7 +33,9 @@ FLOOR_API="${FLOOR_API:-497}"
 FLOOR_WORKER="${FLOOR_WORKER:-45}"
 FLOOR_SHARED="${FLOOR_SHARED:-13}"
 FLOOR_WEB_UNIT="${FLOOR_WEB_UNIT:-114}"
-FLOOR_LEXI="${FLOOR_LEXI:-636}"
+# The current 624-test suite is the executable surface after removing obsolete
+# question-plugin registry and stored-question tests.
+FLOOR_LEXI="${FLOOR_LEXI:-624}"
 
 # Coverage floors, applied only to a whole-suite run. They live here rather than in
 # each package's `addopts` because a threshold there also judges a single-file run,

@@ -1,28 +1,4 @@
-"""One retry schedule for every durable retry site, and the CAS backoff.
-
-Three separate policies existed before, and the differences between them were
-accidents rather than decisions:
-
-- `jobs/service.py`  had `(5, 30, 120)` and indexed it as `delays[attempt - 1]` with
-  no clamp, against a `max_attempts` column defaulting to 4. That happens to be safe
-  today only because the terminal check fires first at attempt 4. It is one row away
-  from breaking: a job created with `max_attempts=6` raises IndexError while failing
-  attempt 4, so `fail_generation` never commits and the row stays RUNNING with a
-  cleared in-memory lease. It does eventually reach FAILED — `claim_generation`
-  reclaims the expired lease and the `attempt >= max_attempts` check terminates it —
-  but only after burning the remaining attempts on IndexErrors instead of recording
-  the real `error_code`, and after a lease timeout each time instead of the intended
-  backoff. The failure is silent and the diagnosis is wrong.
-- `tasks/service.py` had `(1, 5, 30, 120, 300)` and did clamp, in two places, with two
-  slightly different expressions.
-- the 8 WATCH/MULTI CAS loops in `session_store.py` had no backoff at all: on contention
-  they re-ran immediately, so several writers spun against each other as fast as the
-  event loop allowed.
-
-`next_attempt_delay` is the one schedule, always clamped, so adding an attempt can
-never index past the end. `cas_backoff` is the spin control, with jitter, because
-without it two writers retrying in lockstep collide again on the next tick.
-"""
+"""Shared retry schedule for durable jobs and CAS contention backoff."""
 
 from __future__ import annotations
 

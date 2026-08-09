@@ -54,8 +54,7 @@ def presentation_payload(question: PresentedQuestion) -> dict:
 def render_format(question: PresentedQuestion) -> str:
     """The wire discriminator for a typed render contract.
 
-    Not legacy, despite how this once described itself: it is what
-    `answering.py` puts on every delivered question and what the client switches
+    This is what `answering.py` puts on every delivered question and what the client switches
     on to pick a component. The typed `render` object is the internal
     representation; this is its name on the wire, and the two are deliberately
     separate so an internal type can be refactored without a wire break.

@@ -352,9 +352,8 @@ test.describe("keyboard-only operation", () => {
  * The reduced-motion preference, set at the browser rather than mocked.
  *
  * `app/globals.css` collapses every animation and transition to 0.01ms under the
- * query, and `lib/design/motion.ts` expects Motion consumers to degrade through
- * `useReducedMotion`. Playwright can set the real media feature, so this asserts the
- * computed result rather than the presence of the rule.
+ * query. Playwright can set the real media feature, so this asserts the computed
+ * result rather than the presence of the rule.
  */
 test.describe("reduced motion", () => {
   test("collapses transitions when the preference is set", async ({ page }) => {

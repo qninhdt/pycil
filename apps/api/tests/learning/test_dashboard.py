@@ -6,7 +6,7 @@ import pytest
 
 from pycil.auth.models import User
 from pycil.auth.tokens import sign_access
-from pycil.learning.infra.models import UserSenseStats
+from pycil.policy.sense_state import UserSenseStats
 
 pytestmark = pytest.mark.asyncio
 

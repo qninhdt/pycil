@@ -45,10 +45,6 @@ export const sessionOptions: SessionOptions = {
   },
 };
 
-export const defaultSession: SessionData = {
-  isLoggedIn: false,
-};
-
 /**
  * Server-only. The returned object carries `accessToken` and `refreshToken`, so
  * it must never be passed to a client component or returned from a server

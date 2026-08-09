@@ -24,8 +24,6 @@ NEW_WORD_FLOOR = 2
 # has never overridden it, which is why the default lives in one place.
 DEFAULT_TARGET_WORDS_PER_SESSION = 10
 DEFAULT_MAX_QUESTIONS_PER_ROUND = 8
-# Full difficulty ladder (0 = exposure, 1..4 = assessment).
-DIFFICULTY_LEVELS = frozenset({0, 1, 2, 3, 4})
 # Lowest assessment level; acquisition checkpoints always request this.
 ASSESSMENT_FLOOR = 1
 
