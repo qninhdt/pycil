@@ -2,6 +2,7 @@ import "server-only"
 
 import { createApiClient, type ApiClient } from "@/lib/api/client"
 import { handleAction, type ActionResult } from "@/lib/api/handle-api-error"
+import type { SessionData } from "@/lib/auth/types"
 import { getSession } from "@/lib/auth/session"
 
 /**
@@ -30,10 +31,11 @@ const SIGNED_OUT = {
 
 export async function withClient<T>(
   run: (client: ApiClient) => Promise<T>,
+  existingSession?: SessionData,
 ): Promise<ActionResult<T>> {
-  const session = await getSession()
+  const session = existingSession ?? await getSession()
   if (!session.isLoggedIn) return SIGNED_OUT
 
-  const client = createApiClient(session)
+  const client = createApiClient(session, { refresh: true })
   return handleAction(() => run(client))
 }

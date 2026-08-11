@@ -31,7 +31,17 @@ export function CentrifugoProvider({ children }: { children: React.ReactNode }) 
     let centrifuge: Centrifuge | null = null
 
     async function connect() {
-      const initial = await getRealtimeToken()
+      let initial: Awaited<ReturnType<typeof getRealtimeToken>>
+      try {
+        initial = await getRealtimeToken()
+      } catch (error) {
+        if (!mounted) return
+        setConnectionState("disconnected")
+        if (process.env.NODE_ENV === "development") {
+          console.warn("realtime token unavailable", error)
+        }
+        return
+      }
       if (!mounted) return
       if (!initial) {
         setConnectionState("disconnected")

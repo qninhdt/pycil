@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation"
 
 import type { ActionResult } from "@/lib/api/handle-api-error"
+import { accessTokenForRequest } from "@/lib/api/request"
 import type { AccountExport } from "@/lib/api/types"
 import { getSession } from "@/lib/auth/session"
 
@@ -48,7 +49,19 @@ export async function deleteAccount(): Promise<
     }
   }
 
-  const result = await withClient((client) => client.auth.deleteAccount(refreshToken))
+  const result = await withClient(
+    async (client) => {
+      // Refresh and persist this exact session before reading the family token.
+      // `withClient` must not deserialize a second cookie behind our back.
+      await accessTokenForRequest(session, { refresh: true })
+      const currentRefreshToken = session.refreshToken
+      if (!currentRefreshToken) {
+        throw new Error("Sign in again before deleting your account.")
+      }
+      return client.auth.deleteAccount(currentRefreshToken)
+    },
+    session,
+  )
   if (!result.success) return result
 
   session.destroy()

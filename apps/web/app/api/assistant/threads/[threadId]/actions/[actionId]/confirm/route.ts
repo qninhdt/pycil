@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { accessTokenForRequest } from "@/lib/api/request";
 import { getSession } from "@/lib/auth/session";
 
 export async function POST(
@@ -7,7 +8,8 @@ export async function POST(
 ) {
   try {
     const session = await getSession();
-    if (!session.isLoggedIn || !session.accessToken) {
+    const accessToken = await accessTokenForRequest(session);
+    if (!session.isLoggedIn || !accessToken) {
       return NextResponse.json(
         { error: { code: "unauthorized", message: "Unauthorized" } },
         { status: 401 }
@@ -19,7 +21,7 @@ export async function POST(
     const apiUrl = process.env.PYCIL_API_URL || "http://localhost:8000";
 
     const headers: Record<string, string> = {
-      Authorization: `Bearer ${session.accessToken}`,
+      Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",
     };
 

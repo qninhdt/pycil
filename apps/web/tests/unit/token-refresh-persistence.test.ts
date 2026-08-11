@@ -9,18 +9,17 @@
  * looks signed in while every call it makes returns 401.
  *
  * The complication is that a cookie cannot be written during render. Next.js
- * throws when a server component tries. So persistence has to be attempted and
- * allowed to fail quietly: a mutating action or route handler seals the cookie,
- * a render-time read uses the fresh token for that request only. These tests pin
- * both halves — that save is attempted, and that a render-context failure does
- * not take the request down with it.
+ * throws when a server component tries. Plain Server Component reads therefore
+ * opt out of refresh; mutation-capable actions and route handlers opt in and must
+ * fail rather than return a fresh token backed by a stale cookie.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("server-only", () => ({}))
 
-const { createFetcher } = await import("@/lib/api/request")
+const { createFetcher, SessionPersistenceError } = await import("@/lib/api/request")
+const { createApiClient } = await import("@/lib/api/client")
 
 type MutableSession = {
   accessToken?: string
@@ -32,7 +31,9 @@ type MutableSession = {
 }
 
 /** A session whose access token expires inside the refresh window. */
-function expiringSession(overrides: Partial<MutableSession> = {}): MutableSession {
+function expiringSession(
+  overrides: Partial<MutableSession> = {}
+): MutableSession {
   const now = Math.floor(Date.now() / 1000)
   return {
     accessToken: "stale-access-token",
@@ -90,22 +91,47 @@ describe("token refresh persistence", () => {
     expect(save).toHaveBeenCalledTimes(1)
   })
 
-  it("still serves the request when the cookie cannot be written during render", async () => {
+  it("fails when an opted-in refresh cannot write the cookie", async () => {
     // Next.js throws exactly this way when a server component tries to set a
-    // cookie. A read-time refresh must degrade to "fresh token for this request
-    // only" rather than turning a page render into an error.
+    // cookie. An opted-in refresh must fail rather than return a fresh token backed
+    // by a stale cookie.
     const save = vi.fn(async () => {
-      throw new Error("Cookies can only be modified in a Server Action or Route Handler")
+      throw new Error(
+        "Cookies can only be modified in a Server Action or Route Handler"
+      )
     })
     const session = expiringSession({ save })
     vi.stubGlobal("fetch", mockFetchSequence())
 
-    await expect(createFetcher(session as never)("/v1/anything")).resolves.toEqual({
-      ok: true,
-    })
+    const request = createFetcher(session as never)("/v1/anything")
+    await expect(request).rejects.toBeInstanceOf(SessionPersistenceError)
+    await expect(request).rejects.toThrow(
+      "Could not persist the refreshed session after token rotation",
+    )
 
     expect(save).toHaveBeenCalledTimes(1)
     expect(session.accessToken).toBe("fresh-access-token")
+  })
+
+  it("does not rotate a token for a non-persisting Server Component read", async () => {
+    const save = vi.fn(async () => {})
+    const session = expiringSession({ save })
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ "content-type": "application/json" }),
+      json: async () => ({ ok: true }),
+      text: async () => '{"ok":true}',
+    } as unknown as Response)
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(
+      createFetcher(session as never, { refresh: false })("/v1/anything"),
+    ).resolves.toEqual({ ok: true })
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(session.refreshToken).toBe("stale-refresh-token")
+    expect(save).not.toHaveBeenCalled()
   })
 
   it("does not attempt a save when no refresh happened", async () => {
@@ -129,6 +155,129 @@ describe("token refresh persistence", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
+  it("defaults the typed API client to non-refreshing reads", async () => {
+    const save = vi.fn(async () => {})
+    const session = expiringSession({ save })
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ "content-type": "application/json" }),
+      json: async () => ({ ok: true }),
+      text: async () => '{"ok":true}',
+    } as unknown as Response)
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(createApiClient(session as never).auth.getViewer()).resolves.toEqual({
+      ok: true,
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(String(fetchMock.mock.calls[0]?.[0])).toMatch(/\/v1\/me$/)
+    expect(session.refreshToken).toBe("stale-refresh-token")
+    expect(save).not.toHaveBeenCalled()
+  })
+
+  it("shares one refresh when concurrent reads use the same session", async () => {
+    const save = vi.fn(async () => {})
+    const session = expiringSession({ save })
+    let releaseRefresh!: () => void
+    const refreshGate = new Promise<void>((resolve) => {
+      releaseRefresh = resolve
+    })
+    const refreshResponse = {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        accessToken: "fresh-access-token",
+        refreshToken: "fresh-refresh-token",
+        expiresIn: 3600,
+        refreshExpiresIn: 604_800,
+      }),
+    }
+    const apiResponse = {
+      ok: true,
+      status: 200,
+      headers: new Headers({ "content-type": "application/json" }),
+      json: async () => ({ ok: true }),
+      text: async () => '{"ok":true}',
+    }
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.endsWith("/v1/auth/refresh")) {
+        await refreshGate
+        return refreshResponse as unknown as Response
+      }
+      return apiResponse as unknown as Response
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const first = createFetcher(session as never)("/v1/first")
+    const second = createFetcher(session as never)("/v1/second")
+    await Promise.resolve()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    releaseRefresh()
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      { ok: true },
+      { ok: true },
+    ])
+    expect(
+      fetchMock.mock.calls.filter(([url]) => url.endsWith("/v1/auth/refresh"))
+    ).toHaveLength(1)
+    expect(save).toHaveBeenCalledTimes(1)
+  })
+
+  it("shares one refresh across separately deserialized sessions", async () => {
+    const firstSave = vi.fn(async () => {})
+    const secondSave = vi.fn(async () => {})
+    const firstSession = expiringSession({ save: firstSave })
+    const secondSession = expiringSession({ save: secondSave })
+    let releaseRefresh!: () => void
+    const refreshGate = new Promise<void>((resolve) => {
+      releaseRefresh = resolve
+    })
+    const refreshResponse = {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        accessToken: "fresh-access-token",
+        refreshToken: "fresh-refresh-token",
+        expiresIn: 3600,
+        refreshExpiresIn: 604_800,
+      }),
+    }
+    const apiResponse = {
+      ok: true,
+      status: 200,
+      headers: new Headers({ "content-type": "application/json" }),
+      json: async () => ({ ok: true }),
+      text: async () => '{"ok":true}',
+    }
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.endsWith("/v1/auth/refresh")) {
+        await refreshGate
+        return refreshResponse as unknown as Response
+      }
+      return apiResponse as unknown as Response
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const first = createFetcher(firstSession as never)("/v1/first")
+    const second = createFetcher(secondSession as never)("/v1/second")
+    await Promise.resolve()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    releaseRefresh()
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      { ok: true },
+      { ok: true },
+    ])
+    expect(
+      fetchMock.mock.calls.filter(([url]) => url.endsWith("/v1/auth/refresh")),
+    ).toHaveLength(1)
+    expect(firstSave).toHaveBeenCalledTimes(1)
+    expect(secondSave).toHaveBeenCalledTimes(1)
+  })
+
   it("does not attempt a save when the refresh call fails", async () => {
     const save = vi.fn(async () => {})
     const session = expiringSession({ save })
@@ -136,14 +285,17 @@ describe("token refresh persistence", () => {
       "fetch",
       vi
         .fn()
-        .mockResolvedValueOnce({ ok: false, status: 401 } as unknown as Response)
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 401,
+        } as unknown as Response)
         .mockResolvedValueOnce({
           ok: true,
           status: 200,
           headers: new Headers({ "content-type": "application/json" }),
           json: async () => ({ ok: true }),
           text: async () => '{"ok":true}',
-        } as unknown as Response),
+        } as unknown as Response)
     )
 
     await createFetcher(session as never)("/v1/anything")

@@ -22,6 +22,12 @@ function requireSessionPassword(): string {
         "Generate one with `openssl rand -base64 32`.",
     );
   }
+  const normalized = password.toLowerCase();
+  if (normalized.includes("changeme") || normalized.includes("replace-with")) {
+    throw new Error(
+      "SESSION_PASSWORD is still a placeholder. Generate one with `openssl rand -base64 32`.",
+    );
+  }
   return password;
 }
 

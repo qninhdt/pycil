@@ -97,12 +97,11 @@ export function useAssistantRun(threadId: string | null) {
       const run = await recoverRun(threadId, runId)
       if (!active || !run.success) return
 
-      // `running` only, deliberately. An `interrupted` run is *not* abandoned — it is
-      // paused on a decision the learner has yet to give, and the approval card is
-      // already rendered from its `confirmation_required` event. Telling them the
-      // connection dropped would be false, and would offer a resend in place of the
-      // approve/reject they actually owe.
-      if (run.data.status === "running") {
+      // `interrupted` is *not* abandoned — it is paused on a decision the learner
+      // has yet to give, and the approval card is already rendered from its
+      // `confirmation_required` event. A cancelled run has no terminal event,
+      // though, so it needs the same resend/recovery offer as a dropped running run.
+      if (run.data.status === "running" || run.data.status === "cancelled") {
         state.updateSession(threadId, () => ({ phase: "abandoned" }))
       }
     })()
@@ -319,7 +318,10 @@ export function useAssistantRun(threadId: string | null) {
       if (!run.success) return
 
       const unfinished =
-        run.data.status === "running" || run.data.status === "interrupted"
+        run.data.status === "running" ||
+        run.data.status === "interrupted" ||
+        run.data.status === "cancelled"
+      if (!unfinished) releaseTurnKey(state.transport)
       state.updateSession(threadId, () => ({ phase: unfinished ? "abandoned" : "idle" }))
     } finally {
       // Cleared only if this thread's own recovery is still the outstanding one. A
