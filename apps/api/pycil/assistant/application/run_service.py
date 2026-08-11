@@ -6,7 +6,7 @@ from typing import Any
 from uuid import UUID
 
 from langgraph.types import Command
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from pycil.assistant.application.hitl import create_pending_action
 from pycil.assistant.application.persistence import retention_deadline
@@ -120,6 +120,36 @@ async def append_event(run_id: UUID, event_type: str, payload: dict) -> Assistan
         return event
 
 
+async def finish_run(
+    run_id: UUID,
+    status: RunStatus,
+    event_type: str,
+    payload: dict,
+    error_code: str | None = None,
+) -> AssistantRunEvent:
+    """Commit a terminal run status and its terminal event in one transaction."""
+    async with async_session_factory() as session:
+        run = await session.scalar(
+            select(AssistantRun).where(AssistantRun.id == run_id).with_for_update()
+        )
+        if run is None:
+            raise ConflictError("assistant_run_not_found")
+        run.status = status
+        run.error_code = error_code
+        run.event_cursor += 1
+        event = AssistantRunEvent(
+            run_id=run_id,
+            sequence=run.event_cursor,
+            event_type=event_type,
+            sanitized_payload=payload,
+            expires_at=retention_deadline(),
+        )
+        session.add(event)
+        await session.commit()
+        await session.refresh(event)
+        return event
+
+
 async def set_run_status(run_id: UUID, status: RunStatus, error_code: str | None = None) -> None:
     async with async_session_factory() as session:
         run = await session.get(AssistantRun, run_id)
@@ -127,6 +157,23 @@ async def set_run_status(run_id: UUID, status: RunStatus, error_code: str | None
             run.status = status
             run.error_code = error_code
             await session.commit()
+
+
+async def cancel_run_if_active(run_id: UUID, *, include_interrupted: bool = False) -> None:
+    """Mark an interrupted stream cancelled without overwriting a terminal state."""
+    active_statuses = (RunStatus.PENDING, RunStatus.RUNNING)
+    if include_interrupted:
+        active_statuses += (RunStatus.INTERRUPTED,)
+    async with async_session_factory() as session:
+        await session.execute(
+            update(AssistantRun)
+            .where(
+                AssistantRun.id == run_id,
+                AssistantRun.status.in_(active_statuses),
+            )
+            .values(status=RunStatus.CANCELLED, error_code="client_disconnected")
+        )
+        await session.commit()
 
 
 def _token_payload(chunk: Any) -> dict | None:
@@ -260,14 +307,34 @@ async def stream_run(
                             },
                         )
                         return
-        await set_run_status(run.id, RunStatus.SUCCEEDED)
-        yield await append_event(run.id, "done", {})
+        yield await finish_run(run.id, RunStatus.SUCCEEDED, "done", {})
     except TimeoutError:
-        await set_run_status(run.id, RunStatus.FAILED, "deadline_exceeded")
-        yield await append_event(run.id, "error", {"code": "deadline_exceeded"})
+        yield await finish_run(
+            run.id,
+            RunStatus.FAILED,
+            "error",
+            {"code": "deadline_exceeded"},
+            "deadline_exceeded",
+        )
+    except asyncio.CancelledError:
+        # A disconnected SSE consumer cancels the generator before the graph can
+        # finish. Persist a terminal state so the run is not stranded as RUNNING,
+        # but never overwrite a terminal status committed just before disconnect.
+        await cancel_run_if_active(run.id, include_interrupted=resume is not None)
+        raise
+    except GeneratorExit:
+        # ``aclose()`` uses GeneratorExit rather than CancelledError. It has the
+        # same lifecycle consequence: no client remains to consume this run.
+        await cancel_run_if_active(run.id, include_interrupted=resume is not None)
+        return
     except Exception:
-        await set_run_status(run.id, RunStatus.FAILED, "execution_failed")
-        yield await append_event(run.id, "error", {"code": "execution_failed"})
+        yield await finish_run(
+            run.id,
+            RunStatus.FAILED,
+            "error",
+            {"code": "execution_failed"},
+            "execution_failed",
+        )
     finally:
         if acquired_here or lease_acquired:
             await release_lease(context.user_id, run.thread_id, run.id)

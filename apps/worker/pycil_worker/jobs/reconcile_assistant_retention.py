@@ -7,6 +7,8 @@ from pycil.assistant.infra.models import AssistantActionAudit, AssistantThread
 from pycil.config import settings
 from sqlalchemy import delete, select
 
+from pycil_worker.context import ReadyWorkerContext
+
 # LangGraph owns these and keys them by a `thread_id` string, not a foreign key, so
 # no database cascade reaches them. Written out as literals rather than interpolated
 # from a table list: the values were always parameterized, but a scanner cannot tell
@@ -18,7 +20,7 @@ _CHECKPOINT_DELETES = (
 )
 
 
-async def reconcile_assistant_retention(ctx: dict) -> int:
+async def reconcile_assistant_retention(ctx: ReadyWorkerContext) -> int:
     """Delete inactive conversations/runs/events/actions and age out audits after 90 days.
 
     Runs, their events and their actions cascade from the thread (migration 0024), so

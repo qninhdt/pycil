@@ -39,6 +39,10 @@ cookie and forwards `Authorization: Bearer` only from the server, so a token
 never reaches the browser. It talks to the API over REST and receives task
 updates over Centrifugo SSE.
 
+Refresh credentials rotate transactionally in PostgreSQL. Redis coordinates
+overlapping BFF refresh requests without storing bearer tokens; a bounded replay
+grace recovers a committed successor, while older reuse revokes the refresh family.
+
 ## Local development
 
 Prereqs: Docker 24+, docker-compose v2, `uv`, a Google OAuth client, and network

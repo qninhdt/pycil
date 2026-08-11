@@ -5,6 +5,8 @@ from datetime import UTC, datetime, timedelta
 from pycil.learning.infra.models import GradeStatus, Response
 from sqlalchemy import or_, select, update
 
+from pycil_worker.context import ReadyWorkerContext
+
 # A pending answer is abandoned after this long and its text is discarded.
 EXPIRY_HOURS = 24
 
@@ -18,7 +20,7 @@ HARD_CEILING_HOURS = 48
 REQUEUE_BATCH = 100
 
 
-async def reconcile_pending_grades(ctx: dict) -> dict:
+async def reconcile_pending_grades(ctx: ReadyWorkerContext) -> dict:
     """Bounded outbox sweep; terminal rows and active leases are never requeued."""
     session_factory = ctx["session_factory"]
     async with session_factory() as session:
@@ -90,9 +92,7 @@ async def reconcile_pending_grades(ctx: dict) -> dict:
         )
         await session.commit()
     for response in rows:
-        await ctx["redis"].enqueue_job(
-            "grade_answer_v1", str(response.user_id), str(response.id)
-        )
+        await ctx["redis"].enqueue_job("grade_answer_v1", str(response.user_id), str(response.id))
     return {
         "requeued": len(rows),
         "purged": purged.rowcount,

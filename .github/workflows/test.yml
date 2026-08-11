@@ -310,7 +310,6 @@ jobs:
           POSTGRES_USER: pycil
           POSTGRES_PASSWORD: pycil
           POSTGRES_DB: pycil
-          DATABASE_URL_ASYNC: postgresql+asyncpg://pycil:pycil@postgres:5432/pycil
           REDIS_PASSWORD: redis-ci-password
           REDIS_URL: redis://:redis-ci-password@redis:6379/0
           LEXI_REFERENCE_DATASET_PATH: /tmp/cambridge.db

@@ -3,8 +3,9 @@
 import pytest
 from sqlalchemy import select
 
+from pycil.auth import refresh_sessions
 from pycil.auth.dev_identity import assert_dev_identity_allowed, seed_and_issue_dev_token
-from pycil.auth.models import RefreshSession
+from pycil.auth.models import RefreshSession, User
 from pycil.config import Settings
 
 pytestmark = pytest.mark.asyncio
@@ -51,14 +52,32 @@ async def test_dev_identity_issues_a_usable_refresh_token(session):
     assert identity.refresh_expires_in > identity.expires_in
 
     rows = (
-        await session.execute(
-            select(RefreshSession).where(RefreshSession.user_id == identity.user.id)
+        (
+            await session.execute(
+                select(RefreshSession).where(RefreshSession.user_id == identity.user.id)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert len(rows) == 1, "the issued refresh token was not persisted"
     assert rows[0].revoked_at is None
     # The raw credential is never stored; only its digest is.
     assert identity.refresh_token not in str(rows[0].token_digest)
+
+
+async def test_dev_identity_rolls_back_user_when_refresh_issue_fails(session, monkeypatch):
+    async def fail_to_issue(*_args, **_kwargs):
+        raise RuntimeError("refresh store unavailable")
+
+    monkeypatch.setattr(refresh_sessions, "issue", fail_to_issue)
+
+    with pytest.raises(RuntimeError, match="refresh store unavailable"):
+        await seed_and_issue_dev_token(session, "rollback@test.local", _config())
+
+    await session.rollback()
+    user = await session.scalar(select(User).where(User.email == "rollback@test.local"))
+    assert user is None
 
 
 @pytest.mark.parametrize(

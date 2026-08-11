@@ -11,10 +11,12 @@ import httpx
 from pycil.config import settings
 from pycil.tasks.application import service
 
+from pycil_worker.context import ReadyWorkerContext
+
 logger = logging.getLogger(__name__)
 
 
-async def dispatch_task_outbox(ctx: dict) -> dict[str, int]:
+async def dispatch_task_outbox(ctx: ReadyWorkerContext) -> dict[str, int]:
     lease_owner = f"{ctx['worker_id']}:task-outbox"
     published = retried = dead_letters = 0
     async with ctx["session_factory"]() as session:

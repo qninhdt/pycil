@@ -4,7 +4,13 @@ Env-driven with dev defaults. Pycil owns the application schema and embeds the
 Lexi domain library in the same PostgreSQL cluster under its own schema.
 """
 
+from urllib.parse import urlsplit
+
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+REFRESH_COORDINATION_LOCK_TTL_SECONDS = 15
+REFRESH_COORDINATION_WAIT_TIMEOUT_SECONDS = REFRESH_COORDINATION_LOCK_TTL_SECONDS + 1
 
 
 class Settings(BaseSettings):
@@ -25,7 +31,11 @@ class Settings(BaseSettings):
     jwt_secret_previous: str = ""
     jwt_max_age_seconds: int = 900
     refresh_token_pepper: str = "changeme-refresh-token-pepper"
-    refresh_token_ttl_seconds: int = 2_592_000
+    refresh_token_ttl_seconds: int = Field(default=2_592_000, gt=0)
+    # A bounded reuse interval lets concurrent callers recover the same successor
+    # after a process/Redis failure without turning an old token into a permanent
+    # credential. Reuse after this interval revokes the refresh family.
+    refresh_token_replay_grace_seconds: int = Field(default=60, ge=32, le=300)
     google_client_id: str = ""
     google_client_secret: str = ""
     oauth_redirect_uris: str = ""
@@ -141,7 +151,9 @@ def validate_production_settings(config: Settings) -> None:
 
     required = {
         "JWT_SECRET": config.jwt_secret,
+        "DB_URL": config.db_url,
         "REFRESH_TOKEN_PEPPER": config.refresh_token_pepper,
+        "REDIS_URL": config.redis_url,
         "INTERNAL_SECRET": config.internal_secret,
         "CENTRIFUGO_API_KEY": config.centrifugo_api_key,
         "CENTRIFUGO_TOKEN_HMAC_SECRET": config.centrifugo_token_hmac_secret,
@@ -150,18 +162,88 @@ def validate_production_settings(config: Settings) -> None:
         "GOOGLE_CLIENT_ID": config.google_client_id,
         "GOOGLE_CLIENT_SECRET": config.google_client_secret,
     }
-    unsafe = [name for name, value in required.items() if not value or "changeme" in value.lower()]
+    placeholders = ("changeme", "replace-with", "redis-dev-only")
+    unsafe = [
+        name
+        for name, value in required.items()
+        if (
+            not value
+            or any(marker in value.lower() for marker in placeholders)
+            or (
+                name
+                in {
+                    "JWT_SECRET",
+                    "REFRESH_TOKEN_PEPPER",
+                    "INTERNAL_SECRET",
+                    "CENTRIFUGO_API_KEY",
+                    "CENTRIFUGO_TOKEN_HMAC_SECRET",
+                    "CENTRIFUGO_SUBSCRIBE_PROXY_SECRET",
+                }
+                and len(value) < 32
+            )
+        )
+    ]
+    if config.jwt_secret_previous and (
+        len(config.jwt_secret_previous) < 32
+        or any(marker in config.jwt_secret_previous.lower() for marker in placeholders)
+    ):
+        unsafe.append("JWT_SECRET_PREVIOUS")
+    if config.refresh_token_replay_grace_seconds <= REFRESH_COORDINATION_WAIT_TIMEOUT_SECONDS:
+        unsafe.append("REFRESH_TOKEN_REPLAY_GRACE_SECONDS")
+    if config.refresh_token_ttl_seconds <= 0:
+        unsafe.append("REFRESH_TOKEN_TTL_SECONDS")
+    if not _is_authenticated_redis_url(config.redis_url):
+        unsafe.append("REDIS_URL")
     origins = config.cors_origins
-    if not origins or any(origin == "*" or "localhost" in origin for origin in origins):
+    if not origins or any(
+        origin == "*" or not _is_https_url(origin, origin=True) or "localhost" in origin.lower()
+        for origin in origins
+    ):
         unsafe.append("ALLOWED_ORIGINS")
-    if not config.allowed_oauth_redirect_uris:
+    if not config.allowed_oauth_redirect_uris or any(
+        not _is_https_url(uri) or "localhost" in uri.lower()
+        for uri in config.allowed_oauth_redirect_uris
+    ):
         unsafe.append("OAUTH_REDIRECT_URIS")
-    if not config.domain or config.domain == "localhost":
+    if not config.domain or config.domain.lower() == "localhost":
         unsafe.append("DOMAIN")
-    if not config.centrifugo_public_sse_url.startswith("https://"):
+    if (
+        not _is_https_url(config.centrifugo_public_sse_url)
+        or "localhost" in config.centrifugo_public_sse_url.lower()
+    ):
         unsafe.append("CENTRIFUGO_PUBLIC_SSE_URL")
     if unsafe:
         raise RuntimeError(f"unsafe production configuration: {', '.join(sorted(unsafe))}")
+
+
+def _is_https_url(value: str, *, origin: bool = False) -> bool:
+    try:
+        parsed = urlsplit(value)
+        if (
+            parsed.scheme.lower() != "https"
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+        ):
+            return False
+        if origin and (parsed.path not in {"", "/"} or parsed.query or parsed.fragment):
+            return False
+    except ValueError:
+        return False
+    return True
+
+
+def _is_authenticated_redis_url(value: str) -> bool:
+    try:
+        parsed = urlsplit(value)
+        return (
+            parsed.scheme.lower() in {"redis", "rediss"}
+            and bool(parsed.hostname)
+            and parsed.password is not None
+            and bool(parsed.password)
+        )
+    except ValueError:
+        return False
 
 
 def get_settings() -> Settings:

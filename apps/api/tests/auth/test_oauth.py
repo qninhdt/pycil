@@ -1,8 +1,10 @@
 """OIDC ID-token validation covers nonce and issuer checks."""
 
 import pytest
+from sqlalchemy import select
 
 from pycil.auth import oauth
+from pycil.auth.models import User
 from pycil.auth.oauth import _validate_id_token
 from pycil.config import settings
 
@@ -112,6 +114,31 @@ async def test_callback_does_not_leak_the_provider_exception_to_the_client(
     )
 
 
+@pytest.mark.asyncio
+async def test_callback_rolls_back_user_when_refresh_issue_fails(client, session, monkeypatch):
+    from pycil.auth import refresh_sessions
+    from pycil.auth import router as auth_router
+
+    async def exchange_code(_code, _state):
+        return {
+            "email": "oauth-rollback@example.test",
+            "email_verified": True,
+            "name": "OAuth Rollback",
+        }
+
+    async def fail_to_issue(*_args, **_kwargs):
+        raise RuntimeError("refresh store unavailable")
+
+    monkeypatch.setattr(auth_router.oauth, "exchange_code", exchange_code)
+    monkeypatch.setattr(refresh_sessions, "issue", fail_to_issue)
+
+    with pytest.raises(RuntimeError, match="refresh store unavailable"):
+        await client.get("/v1/auth/callback?code=c&state=s")
+
+    user = await session.scalar(select(User).where(User.email == "oauth-rollback@example.test"))
+    assert user is None
+
+
 def test_logout_uses_the_public_digest_helper_not_a_private_attribute():
     """`auth/router.py` reached into `refresh_sessions._digest`.
 
@@ -121,7 +148,7 @@ def test_logout_uses_the_public_digest_helper_not_a_private_attribute():
     """
     from pycil.auth import refresh_sessions
 
-    assert hasattr(refresh_sessions, "token_digest"), (
-        "the digest helper must have a public name its callers can use"
-    )
+    assert hasattr(
+        refresh_sessions, "token_digest"
+    ), "the digest helper must have a public name its callers can use"
     assert refresh_sessions.token_digest("abc") == refresh_sessions._digest("abc")

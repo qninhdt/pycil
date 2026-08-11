@@ -38,7 +38,7 @@ class ErrorEnvelope(BaseModel):
     error: ErrorDetail
 
 
-def error_responses(*status_codes: int) -> dict[int, dict[str, Any]]:
+def error_responses(*status_codes: int) -> dict[int | str, dict[str, Any]]:
     """OpenAPI response metadata that mirrors the runtime error envelope."""
     return {
         status_code: {"model": ErrorEnvelope, "description": "Canonical API error."}

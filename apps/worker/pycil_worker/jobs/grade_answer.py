@@ -19,6 +19,8 @@ from pycil.tasks.domain.work_keys import grading_work_key
 from pycil.tasks.infra.models import AsyncTaskStatus
 from shared.realtime.payloads import GradingResult
 
+from pycil_worker.context import ReadyWorkerContext
+
 
 def _task_result(response: Response) -> dict:
     """The durable task snapshot, built from a persisted row.
@@ -56,7 +58,7 @@ def _outcome_result(outcome) -> dict:
     ).to_dict()
 
 
-async def _converge_task_snapshot(ctx: dict, response_id: str, result: dict) -> str:
+async def _converge_task_snapshot(ctx: ReadyWorkerContext, response_id: str, result: dict) -> str:
     """Settle the durable task for a response graded outside the task job.
 
     The pending-grade reconciler re-enqueues ``grade_answer_v1`` by response id, not
@@ -76,9 +78,7 @@ async def _converge_task_snapshot(ctx: dict, response_id: str, result: dict) -> 
         )
         if task is None:
             return "no-task"
-        claimed = await task_service.claim_task(
-            session, task.id, ctx.get("worker_id", "worker")
-        )
+        claimed = await task_service.claim_task(session, task.id, ctx.get("worker_id", "worker"))
     if claimed is None:
         # Another worker owns the lease, or the task is already terminal.
         return "not-claimable"
@@ -94,7 +94,7 @@ async def _converge_task_snapshot(ctx: dict, response_id: str, result: dict) -> 
     return "converged" if updated else "stale"
 
 
-async def grade_answer_v1(ctx: dict, owner_uid: str, response_id: str) -> dict:
+async def grade_answer_v1(ctx: ReadyWorkerContext, owner_uid: str, response_id: str) -> dict:
     """Grade by response id, for the pending-grade reconciler.
 
     One function rather than the three that used to spell this: `grade_answer`
@@ -128,7 +128,9 @@ async def grade_answer_v1(ctx: dict, owner_uid: str, response_id: str) -> dict:
     return {"status": "graded", "is_correct": outcome.is_correct, "task": task_state}
 
 
-async def grade_answer_task(ctx: dict, task_id: str, owner_uid: str, response_id: str) -> dict:
+async def grade_answer_task(
+    ctx: ReadyWorkerContext, task_id: str, owner_uid: str, response_id: str
+) -> dict:
     """Persist grading results in the task registry for SSE subscribers."""
     redis = get_redis()
     grader = ctx["lexi_engine"]
@@ -153,14 +155,22 @@ async def grade_answer_task(ctx: dict, task_id: str, owner_uid: str, response_id
     except Exception:
         async with ctx["session_factory"]() as session:
             updated = await task_service.transition_task(
-                session, task_uuid, lease_token=task.lease_token, lease_fence=task.lease_fence,
-                status=AsyncTaskStatus.FAILED, error_code="answer_grading_failed",
+                session,
+                task_uuid,
+                lease_token=task.lease_token,
+                lease_fence=task.lease_fence,
+                status=AsyncTaskStatus.FAILED,
+                error_code="answer_grading_failed",
             )
         return {"status": "failed" if updated else "stale"}
     async with ctx["session_factory"]() as session:
         updated = await task_service.transition_task(
-            session, task_uuid, lease_token=task.lease_token, lease_fence=task.lease_fence,
-            status=AsyncTaskStatus.SUCCEEDED, result=result,
+            session,
+            task_uuid,
+            lease_token=task.lease_token,
+            lease_fence=task.lease_fence,
+            status=AsyncTaskStatus.SUCCEEDED,
+            result=result,
         )
     if updated:
         return {"status": "graded", "is_correct": result["isCorrect"]}

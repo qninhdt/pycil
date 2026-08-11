@@ -15,6 +15,7 @@ orchestrates its own jobs.
 # a NoReferencedTableError on the first write rather than at import, and only for
 # whichever job happens to run first on a cold worker.
 import asyncio
+from typing import cast
 from uuid import uuid4
 
 import asyncpg
@@ -27,6 +28,7 @@ from pycil.ports.lexi import LexiReader, LexiWorkerEngine
 from pycil.ports.lexi_embedded import create_lexicon_reader
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from pycil_worker.context import ReadyWorkerContext, WorkerContext
 from pycil_worker.jobs.dispatch_task_outbox import dispatch_task_outbox
 from pycil_worker.jobs.generate_question import prepare_questions, prepare_questions_task
 from pycil_worker.jobs.generate_word import generate_word_task
@@ -58,7 +60,7 @@ def _asyncpg_url(database_url: str) -> str:
     return database_url.replace("postgresql+asyncpg://", "postgresql://", 1)
 
 
-async def _drain_task_outbox(ctx: dict) -> None:
+async def _drain_task_outbox(ctx: ReadyWorkerContext) -> None:
     lock = ctx["task_outbox_drain_lock"]
     if lock.locked():
         return
@@ -66,7 +68,7 @@ async def _drain_task_outbox(ctx: dict) -> None:
         await dispatch_task_outbox(ctx)
 
 
-async def _start_task_outbox_listener(ctx: dict) -> None:
+async def _start_task_outbox_listener(ctx: ReadyWorkerContext) -> None:
     async def on_notification(_connection, _pid, _channel, _payload) -> None:
         await _drain_task_outbox(ctx)
 
@@ -76,7 +78,7 @@ async def _start_task_outbox_listener(ctx: dict) -> None:
     ctx["task_outbox_notification_callback"] = on_notification
 
 
-async def on_startup(ctx: dict) -> None:
+async def on_startup(ctx: WorkerContext) -> None:
     ctx["worker_id"] = str(uuid4())
     lexicon, reader, worker_engine = create_embedded_lexi_worker_engine()
     ctx["lexicon"] = lexicon
@@ -86,15 +88,16 @@ async def on_startup(ctx: dict) -> None:
     ctx["engine"] = engine
     ctx["session_factory"] = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     ctx["task_outbox_drain_lock"] = asyncio.Lock()
-    await heartbeat(ctx)
-    await _start_task_outbox_listener(ctx)
+    ready_ctx = cast(ReadyWorkerContext, ctx)
+    await heartbeat(ready_ctx)
+    await _start_task_outbox_listener(ready_ctx)
     # Register LISTEN before the initial sweep so a committed event cannot slip
     # between them and wait for the periodic recovery sweep.
-    await _drain_task_outbox(ctx)
-    await reconcile_async_tasks(ctx)
+    await _drain_task_outbox(ready_ctx)
+    await reconcile_async_tasks(ready_ctx)
 
 
-async def on_shutdown(ctx: dict) -> None:
+async def on_shutdown(ctx: WorkerContext) -> None:
     listener = ctx.get("task_outbox_listener")
     callback = ctx.get("task_outbox_notification_callback")
     if listener is not None:

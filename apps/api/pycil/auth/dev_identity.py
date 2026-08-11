@@ -61,8 +61,9 @@ async def seed_and_issue_dev_token(
     if user is None:
         user = User(email=email, name="Pycil Development")
         session.add(user)
-        await session.commit()
-        await session.refresh(user)
+        await session.flush()
+    if user.id is None:
+        raise RuntimeError("user identity was not assigned after flush")
     access_token, expires_in = tokens.sign_access(user)
     refresh_token, refresh_expires_in = await refresh_sessions.issue(session, user.id)
     await session.commit()

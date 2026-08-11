@@ -2,10 +2,12 @@
 
 import logging
 
+from pycil_worker.context import ReadyWorkerContext
+
 logger = logging.getLogger(__name__)
 
 
-async def reconcile_async_tasks(ctx: dict) -> dict:
+async def reconcile_async_tasks(ctx: ReadyWorkerContext) -> dict:
     from pycil.tasks.application import service as task_service
 
     async with ctx["session_factory"]() as session:

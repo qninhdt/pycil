@@ -122,9 +122,9 @@ async def finish_action(action_id: UUID, succeeded: bool) -> None:
     """Record one terminal execution result after the resumed graph completes."""
     async with async_session_factory() as session:
         action = await session.get(AssistantAction, action_id)
-        if action is not None and action.status == ActionStatus.EXECUTING and succeeded:
-            action.status = ActionStatus.SUCCEEDED
-            action.result = {"status": "succeeded"}
+        if action is not None and action.status == ActionStatus.EXECUTING:
+            action.status = ActionStatus.SUCCEEDED if succeeded else ActionStatus.FAILED
+            action.result = {"status": action.status.value}
             session.add(
                 AssistantActionAudit(
                     action_id=action.id,

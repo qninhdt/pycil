@@ -14,7 +14,6 @@ imports Lexi ORM models directly.
 | Area | Responsibility |
 | --- | --- |
 | `content/` | Search, opaque deck sense membership, embedded Lexi adapter. |
-| `jobs/` | Internal word-generation quota and worker fencing. |
 | `tasks/` | Durable task identity, interests, snapshots, and outbox delivery. |
 | `learning/` | Session planning, round delivery, Lexi grading, and FSRS persistence. |
 | `hierarchy/` | Folder/deck/reference tree, ownership scoping, visibility. |

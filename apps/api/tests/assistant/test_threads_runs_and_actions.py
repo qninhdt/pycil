@@ -12,6 +12,7 @@ from pycil.assistant.application.hitl import (
     claim_decision,
     create_pending_action,
     expire_pending_actions,
+    finish_action,
     validate_action_freshness,
 )
 from pycil.assistant.application.persistence import create_or_load_run, require_owned_thread
@@ -233,3 +234,37 @@ async def test_sensitive_execution_persists_minimized_success_audit(engine, sess
             )
         )
     assert [audit.decision for audit in audits] == ["proposed", "succeeded"]
+
+
+async def test_failed_sensitive_execution_is_terminal_and_audited(engine, session, monkeypatch):
+    owner = await create_user(session)
+    thread = await create_thread(session, owner.id)
+    action = await create_pending_action(
+        session,
+        run_id=(await create_run(session, thread.id, owner.id, uuid4())).id,
+        owner_id=owner.id,
+        tool="delete_node",
+        arguments={"node_id": str(uuid4())},
+    )
+    action.status = ActionStatus.EXECUTING
+    await session.commit()
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    from pycil.assistant.application import hitl
+
+    monkeypatch.setattr(hitl, "async_session_factory", factory)
+
+    await finish_action(action.id, succeeded=False)
+
+    async with factory() as verify:
+        failed = await verify.get(AssistantAction, action.id)
+        audits = list(
+            await verify.scalars(
+                select(AssistantActionAudit)
+                .where(AssistantActionAudit.action_id == action.id)
+                .order_by(AssistantActionAudit.occurred_at)
+            )
+        )
+    assert failed is not None
+    assert failed.status == ActionStatus.FAILED
+    assert failed.result == {"status": "failed"}
+    assert [audit.decision for audit in audits] == ["proposed", "failed"]

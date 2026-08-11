@@ -14,8 +14,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from pycil.auth import oauth, refresh_sessions, tokens
 from pycil.auth.deps import get_user_by_email, optional_current_user
 from pycil.auth.models import RefreshSession, User
+from pycil.auth.refresh_coordination import RefreshCoordinationError, coordinate_refresh
 from pycil.auth.schemas import CurrentUser, LoginStart, LogoutRequest, RefreshRequest, TokenResponse
-from pycil.common.errors import AppError, UnauthorizedError
+from pycil.common.errors import (
+    AppError,
+    ServiceUnavailableError,
+    UnauthorizedError,
+    error_responses,
+)
+from pycil.db.redis import get_redis
 from pycil.db.session import get_session
 from pycil.ports.centrifugo import RealtimeControl, get_centrifugo
 
@@ -66,8 +73,11 @@ async def callback(
     else:
         user.name = userinfo.get("name") or user.name
         user.image = userinfo.get("picture") or user.image
-    await session.commit()
-    await session.refresh(user)
+    # Keep the user upsert and refresh-session issuance in one transaction. A
+    # partial sign-in must not leave a user row that has no usable credentials.
+    await session.flush()
+    if user.id is None:
+        raise RuntimeError("user identity was not assigned after flush")
 
     token, ttl = tokens.sign_access(user)
     refresh_token, refresh_ttl = await refresh_sessions.issue(session, user.id)
@@ -80,24 +90,39 @@ async def callback(
     )
 
 
-@router.post("/refresh", response_model=TokenResponse)
+@router.post(
+    "/refresh",
+    response_model=TokenResponse,
+    responses=error_responses(401, 422, 500, 503),
+)
 async def refresh(
     body: RefreshRequest | None = None,
     session: AsyncSession = Depends(get_session),
 ) -> TokenResponse:
     if body is None:
         raise UnauthorizedError("missing_refresh_token")
-    result = await refresh_sessions.rotate(session, body.refresh_token)
-    if result is None:
+
+    async def rotate_and_sign() -> TokenResponse | None:
+        result = await refresh_sessions.rotate(session, body.refresh_token)
+        if result is None:
+            return None
+        user, refresh_token, refresh_ttl = result
+        token, ttl = tokens.sign_access(user)
+        return TokenResponse(
+            access_token=token,
+            refresh_token=refresh_token,
+            expires_in=ttl,
+            refresh_expires_in=refresh_ttl,
+        )
+
+    try:
+        response = await coordinate_refresh(get_redis(), body.refresh_token, rotate_and_sign)
+    except RefreshCoordinationError as exc:
+        raise ServiceUnavailableError("The service is temporarily unavailable.") from exc
+
+    if response is None:
         raise UnauthorizedError("invalid_refresh_token")
-    user, refresh_token, refresh_ttl = result
-    token, ttl = tokens.sign_access(user)
-    return TokenResponse(
-        access_token=token,
-        refresh_token=refresh_token,
-        expires_in=ttl,
-        refresh_expires_in=refresh_ttl,
-    )
+    return response
 
 
 @router.post("/logout", status_code=204)
@@ -112,12 +137,16 @@ async def logout(
     if body is not None:
         digest = refresh_sessions.token_digest(body.refresh_token)
         row = (
-            await session.execute(
-                select(RefreshSession)
-                .where(RefreshSession.token_digest == digest)
-                .with_for_update()
+            (
+                await session.execute(
+                    select(RefreshSession)
+                    .where(RefreshSession.token_digest == digest)
+                    .with_for_update()
+                )
             )
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
         user_id = row.user_id if row is not None else user_id
     if user_id is not None:
         await refresh_sessions.revoke_user_sessions(session, user_id)

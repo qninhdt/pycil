@@ -22,11 +22,13 @@ from lexi_ai.contracts import PrepareDemand
 from pycil.tasks.application import service as task_service
 from pycil.tasks.infra.models import AsyncTaskStatus
 
+from pycil_worker.context import ReadyWorkerContext
+
 logger = logging.getLogger(__name__)
 _MAX_PREPARE_TRIES = 2
 
 
-async def prepare_questions(ctx: dict, owner_uid: str, demands: list) -> dict:
+async def prepare_questions(ctx: ReadyWorkerContext, owner_uid: str, demands: list) -> dict:
     """Warm supply with bounded retries for transient reader/provider failures."""
     del owner_uid  # supply is per-word, not per-user
     reader = ctx["lexi_reader"]
@@ -74,7 +76,7 @@ async def prepare_questions(ctx: dict, owner_uid: str, demands: list) -> dict:
 
 
 async def prepare_questions_task(
-    ctx: dict, task_id: str, owner_uid: str, demands: list
+    ctx: ReadyWorkerContext, task_id: str, owner_uid: str, demands: list
 ) -> dict:
     """Warm supply under a durable task, so its completion can be subscribed to.
 

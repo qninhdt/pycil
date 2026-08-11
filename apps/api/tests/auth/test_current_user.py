@@ -1,9 +1,17 @@
 """Refresh-token rotation and token-version revocation."""
 
-import pytest
+import asyncio
+import secrets
+from datetime import UTC, datetime, timedelta
+from uuid import uuid4
 
-from pycil.auth import tokens
-from pycil.auth.models import User
+import pytest
+from redis.exceptions import RedisError
+from sqlalchemy import select
+
+from pycil.auth import refresh_sessions, tokens
+from pycil.auth import router as auth_router
+from pycil.auth.models import RefreshSession, User
 from pycil.auth.refresh_sessions import issue
 
 pytestmark = pytest.mark.asyncio
@@ -57,7 +65,7 @@ async def test_token_version_bump_revokes(client, session):
     assert resp.status_code == 401
 
 
-async def test_reused_refresh_token_revokes_the_new_access_token(client, session):
+async def test_refresh_reuse_grace_then_old_replay_revokes_the_family(client, session, monkeypatch):
     user = await _seed(session, email="replay@x.co")
     raw_refresh, _ = await issue(session, user.id)
     await session.commit()
@@ -66,10 +74,129 @@ async def test_reused_refresh_token_revokes_the_new_access_token(client, session
     assert first.status_code == 200
     new_access = first.json()["accessToken"]
 
+    within_grace = await client.post("/v1/auth/refresh", json={"refresh_token": raw_refresh})
+    assert within_grace.status_code == 200
+    assert within_grace.json()["refreshToken"] != raw_refresh
+
+    future = datetime.now(UTC) + timedelta(seconds=61)
+    monkeypatch.setattr(refresh_sessions, "_now", lambda: future)
     replay = await client.post("/v1/auth/refresh", json={"refresh_token": raw_refresh})
     assert replay.status_code == 401
     revoked = await client.get("/v1/me", headers=await _bearer(new_access))
     assert revoked.status_code == 401
+
+
+async def test_overlapping_refresh_requests_share_one_rotation(client, session, monkeypatch):
+    user = await _seed(session, email="refresh-race@x.co")
+    raw_refresh, _ = await issue(session, user.id)
+    await session.commit()
+
+    started = asyncio.Event()
+    release = asyncio.Event()
+    original_rotate = refresh_sessions.rotate
+
+    async def gated_rotate(db_session, raw_token):
+        started.set()
+        await release.wait()
+        return await original_rotate(db_session, raw_token)
+
+    monkeypatch.setattr(refresh_sessions, "rotate", gated_rotate)
+    first_task = asyncio.create_task(
+        client.post("/v1/auth/refresh", json={"refresh_token": raw_refresh})
+    )
+    await started.wait()
+    second_task = asyncio.create_task(
+        client.post("/v1/auth/refresh", json={"refresh_token": raw_refresh})
+    )
+    await asyncio.sleep(0)
+    release.set()
+
+    first, second = await asyncio.gather(first_task, second_task)
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["refreshToken"] == second.json()["refreshToken"]
+
+    # The outcome marker is for overlapping callers only. A later reuse still
+    # reaches PostgreSQL and invokes the family-revocation policy after grace.
+    monkeypatch.setattr(
+        refresh_sessions,
+        "_now",
+        lambda: datetime.now(UTC) + timedelta(seconds=61),
+    )
+    replay = await client.post("/v1/auth/refresh", json={"refresh_token": raw_refresh})
+    assert replay.status_code == 401
+    revoked = await client.get("/v1/me", headers=await _bearer(first.json()["accessToken"]))
+    assert revoked.status_code == 401
+
+
+async def test_refresh_retry_recovers_after_post_commit_failure(client, session, monkeypatch):
+    user = await _seed(session, email="refresh-recovery@x.co")
+    raw_refresh, _ = await issue(session, user.id)
+    await session.commit()
+
+    original_rotate = refresh_sessions.rotate
+    calls = 0
+
+    async def flaky_rotate(db_session, raw_token):
+        nonlocal calls
+        calls += 1
+        result = await original_rotate(db_session, raw_token)
+        if calls == 1:
+            raise RuntimeError("response lost after commit")
+        return result
+
+    monkeypatch.setattr(refresh_sessions, "rotate", flaky_rotate)
+    with pytest.raises(RuntimeError, match="response lost after commit"):
+        await client.post("/v1/auth/refresh", json={"refresh_token": raw_refresh})
+    recovered = await client.post("/v1/auth/refresh", json={"refresh_token": raw_refresh})
+
+    assert recovered.status_code == 200
+    assert calls == 2
+
+
+async def test_legacy_successor_is_not_fabricated_on_replay(client, session):
+    user = await _seed(session, email="legacy-refresh@x.co")
+    raw_refresh, _ = await issue(session, user.id)
+    await session.flush()
+    predecessor = (
+        await session.execute(
+            select(RefreshSession).where(
+                RefreshSession.token_digest == refresh_sessions.token_digest(raw_refresh)
+            )
+        )
+    ).scalar_one()
+    legacy_raw = secrets.token_urlsafe(48)
+    legacy = RefreshSession(
+        id=uuid4(),
+        user_id=user.id,
+        family_id=predecessor.family_id,
+        token_digest=refresh_sessions.token_digest(legacy_raw),
+        expires_at=datetime.now(UTC) + timedelta(days=1),
+    )
+    session.add(legacy)
+    await session.commit()
+    predecessor.revoked_at = datetime.now(UTC)
+    predecessor.replaced_by_id = legacy.id
+    await session.commit()
+
+    replay = await client.post("/v1/auth/refresh", json={"refresh_token": raw_refresh})
+    assert replay.status_code == 401
+
+
+async def test_refresh_returns_503_when_redis_coordination_fails(client, session, monkeypatch):
+    user = await _seed(session, email="refresh-redis-down@x.co")
+    raw_refresh, _ = await issue(session, user.id)
+    await session.commit()
+
+    class BrokenRedis:
+        async def set(self, *args, **kwargs):
+            del args, kwargs
+            raise RedisError("redis is down")
+
+    monkeypatch.setattr(auth_router, "get_redis", lambda: BrokenRedis())
+    response = await client.post("/v1/auth/refresh", json={"refresh_token": raw_refresh})
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "service_unavailable"
 
 
 async def test_logout_is_idempotent_and_revokes_access(client, session):
@@ -117,9 +244,9 @@ async def test_logout_logs_a_failed_disconnect_instead_of_discarding_it(
 
     # Logout still succeeds: local revocation is authoritative.
     assert response.status_code == 204
-    assert unreachable.disconnected == [str(user.id)], (
-        "logout must ask the broker to close the revoked user's sockets"
-    )
-    assert any("disconnect" in record.message.lower() for record in caplog.records), (
-        "a failed realtime disconnect must be logged, not discarded"
-    )
+    assert unreachable.disconnected == [
+        str(user.id)
+    ], "logout must ask the broker to close the revoked user's sockets"
+    assert any(
+        "disconnect" in record.message.lower() for record in caplog.records
+    ), "a failed realtime disconnect must be logged, not discarded"

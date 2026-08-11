@@ -2,7 +2,10 @@ FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy
+
+COPY --from=ghcr.io/astral-sh/uv:0.10.7 /uv /uvx /bin/
 
 WORKDIR /app
 
@@ -16,10 +19,11 @@ COPY packages/shared-py /app/packages/shared-py
 COPY apps/api /app/apps/api
 COPY apps/worker /app/apps/worker
 
-RUN pip install --upgrade pip \
-    && pip install -e /app/packages/shared-py \
-    && pip install -e /app/apps/api \
-    && pip install -e /app/apps/worker
+WORKDIR /app/apps/worker
+
+RUN uv sync --locked --no-dev
+
+ENV PATH="/app/apps/worker/.venv/bin:$PATH"
 
 # Lexi resolves a candidate's senses against WordNet during generation, so the
 # corpus is a runtime requirement of this image rather than an optional extra:
@@ -34,8 +38,6 @@ RUN pip install --upgrade pip \
 ENV NLTK_DATA=/usr/local/nltk_data
 RUN python -m nltk.downloader -d "$NLTK_DATA" wordnet \
     && python -c "from nltk.corpus import wordnet; assert wordnet.synsets('resilient')"
-
-WORKDIR /app/apps/worker
 
 # Drop root: arq needs no privileged ports or writes outside the venv.
 RUN useradd --create-home --uid 10001 appuser \

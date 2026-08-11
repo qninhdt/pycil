@@ -12,10 +12,14 @@ from pycil.content.application import generation_quota
 from pycil.tasks.application import service as task_service
 from pycil.tasks.infra.models import AsyncTaskStatus
 
+from pycil_worker.context import ReadyWorkerContext
+
 logger = logging.getLogger(__name__)
 
 
-async def generate_word_task(ctx: dict, task_id: str, query: str, owner_uid: str) -> dict:
+async def generate_word_task(
+    ctx: ReadyWorkerContext, task_id: str, query: str, owner_uid: str
+) -> dict:
     """Generate one dictionary entry and settle its durable task.
 
     ``owner_uid`` identifies who was charged the inflight generation slot at

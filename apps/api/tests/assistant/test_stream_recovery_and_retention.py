@@ -39,6 +39,31 @@ async def test_streaming_routes_publish_a_named_sse_openapi_contract():
     )
 
 
+async def test_stream_proxy_closes_inner_generator_on_disconnect():
+    closed = asyncio.Event()
+
+    async def source():
+        try:
+            await asyncio.Event().wait()
+            yield "never"
+        finally:
+            closed.set()
+
+    response = router._stream(source())
+    body = response.body_iterator.__aiter__()
+
+    async def next_frame():
+        return await anext(body)
+
+    task = asyncio.create_task(next_frame())
+    await asyncio.sleep(0)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    await asyncio.wait_for(closed.wait(), timeout=1)
+
+
 def _session_factory(engine):
     return async_sessionmaker(engine, expire_on_commit=False)
 
@@ -106,6 +131,80 @@ async def test_run_deadline_persists_only_sanitized_error_and_releases_lease(
         {"code": "deadline_exceeded"}
     ]
     assert await run_service.get_redis().get(f"assistant:run:{owner.id}:{thread.id}") is None
+
+
+async def test_cancelled_stream_marks_run_cancelled_and_releases_lease(
+    engine, session, monkeypatch
+):
+    owner = await create_user(session)
+    thread = await create_thread(session, owner.id)
+    run = await create_run(session, thread.id, owner.id, uuid4())
+    factory = _session_factory(engine)
+    monkeypatch.setattr(run_service, "async_session_factory", factory)
+    started = asyncio.Event()
+    blocked = asyncio.Event()
+
+    class BlockingGraph:
+        async def astream(self, *args, **kwargs):
+            del args, kwargs
+            started.set()
+            await blocked.wait()
+            yield None
+
+    async def consume():
+        async for _event in run_service.stream_run(
+            BlockingGraph(),
+            run,
+            AssistantContext(owner.id, owner.token_version),
+            content="hello",
+        ):
+            pass
+
+    task = asyncio.create_task(consume())
+    await started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    async with factory() as verify:
+        persisted_run = await verify.get(type(run), run.id)
+    assert persisted_run.status == RunStatus.CANCELLED
+    assert persisted_run.error_code == "client_disconnected"
+    assert await run_service.get_redis().get(f"assistant:run:{owner.id}:{thread.id}") is None
+
+
+async def test_cancellation_does_not_overwrite_a_terminal_run(engine, session, monkeypatch):
+    owner = await create_user(session)
+    thread = await create_thread(session, owner.id)
+    run = await create_run(session, thread.id, owner.id, uuid4())
+    run.status = RunStatus.SUCCEEDED
+    await session.commit()
+    factory = _session_factory(engine)
+    monkeypatch.setattr(run_service, "async_session_factory", factory)
+
+    await run_service.cancel_run_if_active(run.id)
+
+    async with factory() as verify:
+        persisted_run = await verify.get(type(run), run.id)
+    assert persisted_run.status == RunStatus.SUCCEEDED
+    assert persisted_run.error_code is None
+
+
+async def test_resumed_cancellation_can_leave_an_interrupted_run(engine, session, monkeypatch):
+    owner = await create_user(session)
+    thread = await create_thread(session, owner.id)
+    run = await create_run(session, thread.id, owner.id, uuid4())
+    run.status = RunStatus.INTERRUPTED
+    await session.commit()
+    factory = _session_factory(engine)
+    monkeypatch.setattr(run_service, "async_session_factory", factory)
+
+    await run_service.cancel_run_if_active(run.id, include_interrupted=True)
+
+    async with factory() as verify:
+        persisted_run = await verify.get(type(run), run.id)
+    assert persisted_run.status == RunStatus.CANCELLED
+    assert persisted_run.error_code == "client_disconnected"
 
 
 async def test_redis_lease_fails_closed_for_rate_and_monthly_spend(monkeypatch):
