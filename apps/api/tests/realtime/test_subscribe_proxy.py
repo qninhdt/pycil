@@ -6,9 +6,9 @@ import httpx
 import pytest
 from shared.realtime.channels import ASYNC_TASK_PREFIX
 
+from pycil.auth.deps import read_token_version
 from pycil.auth.models import User
 from pycil.realtime.application.subscriptions import SubscribeProxyRequest, authorize_subscription
-from pycil.realtime.router import _current_token_version
 from pycil.tasks.application import service
 from pycil.tasks.domain.vocabulary import TASK_KIND_GRADING
 from pycil.tasks.infra.models import AsyncTaskStatus
@@ -19,7 +19,7 @@ pytestmark = pytest.mark.asyncio
 # parameter rather than importing `auth`, which is what keeps `realtime` off the
 # `auth <-> realtime` cycle; passing the real one here means these tests cover the
 # wiring too, not just the authorizer in isolation.
-_lookup = _current_token_version
+_lookup = read_token_version
 
 
 async def _user(session, email: str) -> User:

@@ -83,6 +83,26 @@ async def issue(
     return raw, ttl
 
 
+async def locked_by_digest(session: AsyncSession, digest: str) -> RefreshSession | None:
+    """Fetch one session row by digest, holding its row lock.
+
+    Shared by rotation and logout: both decide a credential's fate under
+    ``WITH FOR UPDATE``, so two concurrent consumers cannot rotate or revoke the
+    same token twice.
+    """
+    return (
+        (
+            await session.execute(
+                select(RefreshSession)
+                .where(RefreshSession.token_digest == digest)
+                .with_for_update()
+            )
+        )
+        .scalars()
+        .first()
+    )
+
+
 async def revoke_user_sessions(
     session: AsyncSession, user_id: UUID, *, bump_version: bool = True
 ) -> None:
@@ -106,17 +126,7 @@ async def rotate(session: AsyncSession, raw_token: str) -> tuple[User, str, int]
     contained by revoking every refresh family for its user.
     """
     digest = _digest(raw_token)
-    row = (
-        (
-            await session.execute(
-                select(RefreshSession)
-                .where(RefreshSession.token_digest == digest)
-                .with_for_update()
-            )
-        )
-        .scalars()
-        .first()
-    )
+    row = await locked_by_digest(session, digest)
     if row is None:
         return None
 

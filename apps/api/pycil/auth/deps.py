@@ -73,3 +73,12 @@ async def optional_current_user(
 async def get_user_by_email(session: AsyncSession, email: str) -> User | None:
     result = await session.execute(select(User).where(User.email == email))
     return result.scalars().first()
+
+
+async def read_token_version(session: AsyncSession, user_id: UUID) -> int | None:
+    """Read a user's live token version, or None when the user is gone.
+
+    Supplied to the realtime subscribe proxy as an injected lookup: the
+    authorizer needs this one integer but must not depend on ``auth`` for it.
+    """
+    return await session.scalar(select(User.token_version).where(User.id == user_id))

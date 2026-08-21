@@ -8,12 +8,11 @@ import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pycil.auth import oauth, refresh_sessions, tokens
 from pycil.auth.deps import get_user_by_email, optional_current_user
-from pycil.auth.models import RefreshSession, User
+from pycil.auth.models import User
 from pycil.auth.refresh_coordination import RefreshCoordinationError, coordinate_refresh
 from pycil.auth.schemas import CurrentUser, LoginStart, LogoutRequest, RefreshRequest, TokenResponse
 from pycil.common.errors import (
@@ -136,17 +135,7 @@ async def logout(
     user_id = user.id if user is not None else None
     if body is not None:
         digest = refresh_sessions.token_digest(body.refresh_token)
-        row = (
-            (
-                await session.execute(
-                    select(RefreshSession)
-                    .where(RefreshSession.token_digest == digest)
-                    .with_for_update()
-                )
-            )
-            .scalars()
-            .first()
-        )
+        row = await refresh_sessions.locked_by_digest(session, digest)
         user_id = row.user_id if row is not None else user_id
     if user_id is not None:
         await refresh_sessions.revoke_user_sessions(session, user_id)
