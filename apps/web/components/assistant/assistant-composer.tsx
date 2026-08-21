@@ -13,11 +13,10 @@ import { PaperPlaneRightIcon } from "@/lib/icons"
 /**
  * The API's own limit, from `settings.assistant_max_message_chars`.
  *
- * Enforced here because the server answers an over-length message with a **503**
- * (`assistant_message_too_long`, `assistant/router.py:248`). A 503 reads as "the
- * service is broken" to everything that handles it generically, when the real
- * cause is a message the learner can simply shorten. Refusing locally turns an
- * outage-shaped failure into a visible character count.
+ * Enforced here because the server answers an over-length message with a **413**
+ * (`assistant_message_too_long`). A rejected request mid-conversation still
+ * breaks the send flow, when the real cause is a message the learner can simply
+ * shorten. Refusing locally turns a failed send into a visible character count.
  */
 const MAX_CHARS = 8000
 

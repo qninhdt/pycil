@@ -196,7 +196,9 @@ async def owned_children_page(
 
     Keyset pagination on the primary key: `limit + 1` rows are fetched so the
     presence of the extra row answers "is there another page" without a second
-    COUNT over the same predicate.
+    COUNT over the same predicate. The cursor is the LAST id of the returned page;
+    the resume predicate `id > cursor` then continues right after it, so walking
+    pages covers every row exactly once.
 
     Deliberately scoped to `author_id`. Public nodes have no discovery surface —
     they are reachable by direct link or through a tree their author owns, never by
@@ -211,5 +213,6 @@ async def owned_children_page(
         statement = statement.where(Node.id > cursor)
     rows = await session.execute(statement.order_by(Node.id).limit(limit + 1))
     nodes = list(rows.scalars())
-    next_cursor = str(nodes[limit].id) if len(nodes) > limit else None
-    return nodes[:limit], next_cursor
+    page, extra = nodes[:limit], nodes[limit:]
+    next_cursor = str(page[-1].id) if extra and page else None
+    return page, next_cursor

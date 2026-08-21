@@ -8,11 +8,9 @@ nodes.
 
 from uuid import UUID
 
-from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pycil.common.errors import NotFoundError
-from pycil.hierarchy.application import service
+from pycil.hierarchy.application import reads, service
 from pycil.hierarchy.application.access import ActorRef, require_node_access
 from pycil.hierarchy.infra.models import Node, NodeType, Visibility
 
@@ -35,32 +33,22 @@ async def list_nodes(
     limit: int,
     cursor: UUID | None = None,
 ) -> dict:
+    """One id-keyset page of the caller's own nodes under ``parent_id``.
+
+    Delegates to ``reads.owned_children_page`` so the assistant tool and the HTTP
+    library listing are two surfaces over ONE pagination scheme. The cursor is
+    opaque, exactly like the route's: the owner predicate always applies, so a
+    stale or foreign id can only shift where the caller's own scan resumes — it
+    can never widen what is visible.
+    """
     if parent_id is not None:
         await require_node_access(session, parent_id, ActorRef(actor_id), write=True)
-    conditions = [
-        Node.author_id == actor_id,
-        Node.parent_node_id == parent_id,
-        Node.deleted_at.is_(None),
-    ]
-    if cursor is not None:
-        cursor_node = await require_node_access(session, cursor, ActorRef(actor_id), write=True)
-        if cursor_node.parent_node_id != parent_id:
-            raise NotFoundError("assistant_cursor_not_in_collection")
-        conditions.append(
-            or_(
-                Node.created_at > cursor_node.created_at,
-                and_(Node.created_at == cursor_node.created_at, Node.id > cursor_node.id),
-            )
-        )
-    rows = list(
-        await session.scalars(
-            select(Node).where(*conditions).order_by(Node.created_at, Node.id).limit(limit + 1)
-        )
+    page, next_cursor = await reads.owned_children_page(
+        session, actor_id, parent_id, cursor=cursor, limit=limit
     )
-    page, extra = rows[:limit], rows[limit:]
     return {
         "items": [node_payload(node) for node in page],
-        "next_cursor": str(page[-1].id) if extra and page else None,
+        "next_cursor": next_cursor,
     }
 
 
