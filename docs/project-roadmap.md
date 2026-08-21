@@ -156,6 +156,35 @@ phases above retain their stated validation work. See the
 - Backups must cover both Pycil's `public` schema and embedded Lexi's isolated
   `lexi` schema in the shared PostgreSQL database.
 
+## Architecture Consolidation Refactor (phases complete; integration pin pending)
+
+**Plan:** [Architecture Refactor — pycil + lexi-ai](../plans/260821-2149-architecture-refactor-pycil-lexi-ai/plan.md)
+
+Consolidation of the duplicated conventions the 2026-08-21 audits surfaced, on
+branch `refactor/architecture-alignment` (one commit per passing phase), plus a
+matching polish batch in the lexi-ai repo. No behavior change except two
+approved wire adjustments: oversized assistant messages answer `413` (error code
+unchanged) and hierarchy listings share one corrected id-keyset cursor.
+
+| Phase | Name | Status |
+|---|---|---|
+| 01 | Baseline verification | Complete |
+| 02 | Cross-service job contract registry (shared-py) | Complete |
+| 03 | Task dispatch consolidation (`submit_and_dispatch`) | Complete |
+| 04 | Ownership-gate collapse to `require_node_access` | Complete |
+| 05 | Assistant router extraction into application layer | Complete |
+| 06 | Router-hygiene contract test over all routers | Complete |
+| 07 | Pagination unification (wire change) | Complete |
+| 08 | Worker Centrifugo publish unification | Complete |
+| 09 | Web BFF cleanup batch | Complete |
+| 10 | lexi-ai ports polish batch | Complete (lexi repo) |
+| 11 | Integration: re-pin lexi-ai, full verify, docs sync | In progress |
+
+Phase 11 remainder: pycil still pins lexi-ai at `fbbea3d`; bumping to the polish
+tip (`49c2a80`) with final api/worker suites is outstanding. Post-refactor tech
+debt is documented in the plan, not scheduled (god-file splits beyond the
+approved ones, OpenAPI-generated web types, retry-philosophy docstring map).
+
 ---
 
 ## Historical: Pre-Migration Sprint Roadmap (superseded)

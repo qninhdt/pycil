@@ -4,6 +4,77 @@ All notable releases. Format derived from Keep a Changelog; dates in ISO-8601.
 
 ---
 
+## [Unreleased] — 2026-08-22 — Architecture consolidation refactor
+
+Consolidates the duplicated conventions the 2026-08-21 audits surfaced into one
+implementation each, and moves assistant business logic out of its HTTP layer.
+No behavior change except two approved wire adjustments: oversized assistant
+messages now answer `413` instead of `503` (error code unchanged), and hierarchy
+listing cursors moved to corrected keyset values. Every phase landed on
+`refactor/architecture-alignment`, one commit per phase, behind green api/worker/
+shared-py/web suites. See
+`plans/260821-2149-architecture-refactor-pycil-lexi-ai/plan.md`.
+
+### Changed
+
+- **The async-job contract lives in shared-py.** Task kinds
+  (`word` / `grading` / `question_supply`), the job-name-per-kind registry,
+  typed dispatch payloads (`WordDispatch` / `GradingDispatch` / `SupplyDispatch`
+  with `to_dispatch` / `from_dispatch` / `job_args`), and the worker heartbeat
+  key are defined once in `shared/tasks/contract.py`; producers enqueue by
+  lookup and worker startup fails if its registrations do not cover the
+  registry.
+- **One submit-and-dispatch choreography** (`tasks/application/dispatch.py:
+  submit_and_dispatch`) replaces four drifted producer copies; word generation
+  becomes a single use case (`content/application/generation.py`) shared by the
+  HTTP route and the assistant tool instead of a second pipeline in `tools.py`.
+- **Ownership checks collapse to the canonical gate.** Assistant facades call
+  hierarchy's `require_node_access` with the id-only `ActorRef` principal, so
+  inherited-visibility and ancestry rules can no longer diverge between the
+  routes and the tools.
+- **Assistant router reduced to wiring, auth, and SSE framing** (362 → 232
+  lines): run/message/thread lifecycle moved into application modules
+  (`run_service`, `message_flow`, `thread_lifecycle`). Oversized messages answer
+  `413 PayloadTooLargeError` with the error code `assistant_message_too_long`
+  unchanged.
+- **One id-keyset listing helper** (`hierarchy/application/reads.py:
+  owned_children_page`) now serves both the hierarchy route and the assistant
+  facade, retiring the facade's separate created-at cursor scheme; the resume
+  cursor is the last returned row id. (The bounded offset slice on
+  `/folders/{id}/items` deliberately stays.)
+- **One process-wide Centrifugo client** (`ports/centrifugo.py`) across API and
+  worker; the worker's outbox relay consumes publishing through the injected
+  job context instead of building a fresh HTTP client per invocation.
+- **Web BFF plumbing consolidated:** route handlers reduce to their preamble via
+  `lib/api/upstream.ts` (`apiUrl` + `proxyToApi`), repeated toast-on-error
+  three-liners collapse into `lib/feedback/toast-api-error.ts`.
+
+### Added
+
+- **Router-hygiene AST contract** over all seven routers
+  (`tests/architecture/test_router_hygiene.py`): line budgets, no query
+  construction in routers, private helpers only from documented allow-lists, no
+  function-local imports, and a floor on registered routes.
+- **ESLint import-boundary rules** for the web app: components cannot reach into
+  `lib/api` internals and screen features cannot import each other's files.
+
+### Fixed
+
+- **Keyset pagination off-by-one:** the canonical listing helper's cursor now
+  resumes strictly after the last returned row, so walking pages covers every
+  node exactly once.
+
+### lexi-ai (separate repo, pin bump pending)
+
+Ports-and-adapters polish landed on lexi-ai `refactor/architecture-polish`
+(`49c2a80`; 640 tests passed, import-linter clean): the AssetStore port carries
+full signatures, `SenseEntryLoader` left the application layer (deleting
+`application/question_ports.py`), asset file storage split out of the SQL
+repository (`infrastructure/db/asset_file_store.py`), theme/embedding errors are
+typed in `domain/errors.py`, and `PrepareReport` is sourced from
+`contracts/questions.py`. Pycil still pins `fbbea3d`; re-pinning plus final
+verification remain open.
+
 ## [Unreleased] — 2026-07-28 — Web frontend rebuild + contract completion
 
 Rebuilds `apps/web` on the shipped API contract and closes the API-side gaps and
