@@ -76,14 +76,14 @@ async def test_persisted_events_are_ordered_and_recoverable_after_last_event_id(
     run = await create_run(session, thread.id, owner.id, uuid4())
     factory = _session_factory(engine)
     monkeypatch.setattr(run_service, "async_session_factory", factory)
-    monkeypatch.setattr(router, "async_session_factory", factory)
 
     first = await run_service.append_event(run.id, "token", {"content": "one"})
     second = await run_service.append_event(run.id, "token", {"content": "two"})
     final = await run_service.append_event(run.id, "done", {})
 
     assert [first.sequence, second.sequence, final.sequence] == [1, 2, 3]
-    recovered = [frame async for frame in router._persisted_events(run.id, after=1)]
+    replayed = router._framed(run_service.persisted_events(run.id, after=1))
+    recovered = [frame async for frame in replayed]
     assert recovered == [
         'id: 2\nevent: token\ndata: {"content":"two"}\n\n',
         "id: 3\nevent: done\ndata: {}\n\n",

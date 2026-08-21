@@ -98,6 +98,28 @@ async def release_lease(owner_id: UUID, thread_id: UUID, run_id: UUID) -> None:
                 await redis.delete(counter_key)
 
 
+async def lease_held(owner_id: UUID, thread_id: UUID) -> bool:
+    """Whether a live execution currently holds the thread's run lease."""
+    return await get_redis().get(f"assistant:run:{owner_id}:{thread_id}") is not None
+
+
+async def persisted_events(run_id: UUID, after: int = 0):
+    """Yield a run's persisted events after an exclusive sequence cursor.
+
+    Replay outlives the request that asked for it — the response body is consumed
+    after the route has returned — so this opens its own session instead of using
+    the caller's (the documented out-of-request seam shared with ``append_event``).
+    """
+    async with async_session_factory() as session:
+        events = await session.scalars(
+            select(AssistantRunEvent)
+            .where(AssistantRunEvent.run_id == run_id, AssistantRunEvent.sequence > after)
+            .order_by(AssistantRunEvent.sequence)
+        )
+        for event in events:
+            yield event
+
+
 async def append_event(run_id: UUID, event_type: str, payload: dict) -> AssistantRunEvent:
     """Persist a sanitized event before making it available to an SSE client."""
     async with async_session_factory() as session:

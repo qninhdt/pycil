@@ -16,6 +16,7 @@ from pycil.common.errors import (
     ConflictError,
     ForbiddenError,
     NotFoundError,
+    PayloadTooLargeError,
     ServiceUnavailableError,
     TooManyRequestsError,
     UnauthorizedError,
@@ -56,6 +57,7 @@ def _raise_through_handler(error: AppError) -> tuple[int, dict]:
         ),
         (UnauthorizedError("invalid_refresh_token"), 401, "invalid_refresh_token"),
         (ForbiddenError("assistant_actor_revoked"), 403, "assistant_actor_revoked"),
+        (PayloadTooLargeError("assistant_message_too_long"), 413, "assistant_message_too_long"),
     ],
 )
 def test_identifier_message_reaches_the_wire_as_the_code(error, expected_status, expected_code):

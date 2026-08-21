@@ -93,6 +93,13 @@ class ConflictError(AppError):
     code = "conflict"
 
 
+class PayloadTooLargeError(AppError):
+    """A request body field exceeds a declared size limit."""
+
+    status_code = 413
+    code = "payload_too_large"
+
+
 class ServiceUnavailableError(AppError):
     status_code = 503
     code = "service_unavailable"

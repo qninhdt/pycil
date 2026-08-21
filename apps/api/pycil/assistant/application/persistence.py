@@ -7,7 +7,12 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pycil.assistant.infra.models import AssistantRun, AssistantThread, RunStatus
+from pycil.assistant.infra.models import (
+    AssistantRun,
+    AssistantRunEvent,
+    AssistantThread,
+    RunStatus,
+)
 from pycil.auth.models import User
 from pycil.common.errors import ConflictError, ForbiddenError, NotFoundError
 from pycil.config import settings
@@ -25,6 +30,45 @@ async def require_owned_thread(
     if thread is None or thread.owner_id != owner_id or thread.status != "active":
         raise NotFoundError("assistant_thread_not_found")
     return thread
+
+
+async def refresh_retention(session: AsyncSession, thread: AssistantThread) -> None:
+    """Extend the thread's retention window on each authenticated access."""
+    thread.retention_deadline = retention_deadline()
+    await session.commit()
+
+
+async def require_owned_run(
+    session: AsyncSession, *, run_id: UUID, thread_id: UUID, owner_id: UUID
+) -> AssistantRun:
+    """Resolve a run the owner may read, scoped to the thread it belongs to."""
+    run = await session.get(AssistantRun, run_id)
+    if run is None or run.thread_id != thread_id or run.owner_id != owner_id:
+        raise NotFoundError("assistant_run_not_found")
+    return run
+
+
+async def thread_events(session: AsyncSession, thread_id: UUID) -> list[AssistantRunEvent]:
+    """Every event of a thread's transcript, ordered across all of its runs."""
+    events = await session.execute(
+        select(AssistantRunEvent)
+        .join(AssistantRun, AssistantRun.id == AssistantRunEvent.run_id)
+        .where(AssistantRun.thread_id == thread_id)
+        .order_by(AssistantRunEvent.created_at, AssistantRunEvent.sequence)
+    )
+    return list(events.scalars())
+
+
+async def run_events(
+    session: AsyncSession, run_id: UUID, after: int = 0
+) -> list[AssistantRunEvent]:
+    """Events of one run after an exclusive sequence cursor, for stream recovery."""
+    events = await session.scalars(
+        select(AssistantRunEvent)
+        .where(AssistantRunEvent.run_id == run_id, AssistantRunEvent.sequence > after)
+        .order_by(AssistantRunEvent.sequence)
+    )
+    return list(events)
 
 
 async def create_or_load_run(

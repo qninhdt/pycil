@@ -1,4 +1,9 @@
-"""Owner-scoped assistant threads, recoverable SSE runs, and HITL decisions."""
+"""Owner-scoped assistant threads, recoverable SSE runs, and HITL decisions.
+
+Routes own dependency wiring, authentication, and SSE framing; every state
+transition lives in the application layer (`persistence`, `run_service`,
+`message_flow`, `thread_lifecycle`, `hitl`).
+"""
 
 import asyncio
 import json
@@ -7,30 +12,28 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from pycil.assistant.application import thread_lifecycle
 from pycil.assistant.application.hitl import (
     claim_decision,
-    finish_action,
-    mark_executing,
+    require_action_run,
     validate_action_freshness,
 )
+from pycil.assistant.application.message_flow import (
+    ensure_action_checkpoint_fresh,
+    start_message_run,
+    stream_resumed_run,
+)
 from pycil.assistant.application.persistence import (
-    create_or_load_run,
+    refresh_retention,
+    require_owned_run,
     require_owned_thread,
-    retention_deadline,
     revalidate_actor,
+    run_events,
+    thread_events,
 )
-from pycil.assistant.application.run_service import (
-    acquire_lease,
-    append_event,
-    checkpoint_thread_id,
-    checkpoint_version,
-    set_run_status,
-    stream_run,
-)
+from pycil.assistant.application.run_service import acquire_lease, persisted_events, stream_run
 from pycil.assistant.domain.context import AssistantContext
 from pycil.assistant.domain.schemas import (
     ActionDecision,
@@ -41,62 +44,20 @@ from pycil.assistant.domain.schemas import (
     ThreadCreate,
     ThreadRead,
 )
-from pycil.assistant.infra.models import (
-    ActionStatus,
-    AssistantAction,
-    AssistantActionAudit,
-    AssistantRun,
-    AssistantRunEvent,
-    AssistantThread,
-    RunStatus,
-)
+from pycil.assistant.infra.models import AssistantRunEvent
+from pycil.assistant.sse import SSE_OPENAPI_EXTENSION, SSE_RESPONSE
 from pycil.auth.deps import current_user
 from pycil.auth.schemas import CurrentUser
 from pycil.common.errors import (
     ConflictError,
-    NotFoundError,
+    PayloadTooLargeError,
     ServiceUnavailableError,
     error_responses,
 )
 from pycil.config import settings
-from pycil.db.redis import get_redis
-from pycil.db.session import async_session_factory, get_session
+from pycil.db.session import get_session
 
 router = APIRouter(prefix="/assistant", tags=["assistant"])
-
-
-class AssistantSSEEvent(BaseModel):
-    """Named contract for one logical event encoded in the SSE response stream."""
-
-    model_config = ConfigDict(populate_by_name=True)
-
-    id: int = Field(description="Monotonically increasing event id for reconnection.")
-    event: str = Field(description="Event type, such as token, action, error, or done.")
-    data: dict = Field(description="Sanitized JSON event payload.")
-
-
-SSE_RESPONSE = {
-    200: {
-        "model": AssistantSSEEvent,
-        "description": "A recoverable server-sent event stream.",
-        "content": {
-            "text/event-stream": {
-                "schema": {
-                    "type": "string",
-                    "description": "SSE frames; each data payload matches AssistantSSEEvent.",
-                    "x-pycil-sse-event-schema": "#/components/schemas/AssistantSSEEvent",
-                }
-            }
-        },
-    }
-}
-SSE_OPENAPI_EXTENSION = {
-    "x-pycil-sse-contract": {
-        "eventSchema": "#/components/schemas/AssistantSSEEvent",
-        "frame": "id: <sequence>\\nevent: <event>\\ndata: <json>\\n\\n",
-        "reconnectHeader": "Last-Event-ID",
-    }
-}
 
 
 def _event_frame(event: AssistantRunEvent) -> str:
@@ -104,15 +65,10 @@ def _event_frame(event: AssistantRunEvent) -> str:
     return f"id: {event.sequence}\nevent: {event.event_type}\ndata: {payload}\n\n"
 
 
-async def _persisted_events(run_id: UUID, after: int = 0) -> AsyncIterator[str]:
-    async with async_session_factory() as session:
-        events = await session.scalars(
-            select(AssistantRunEvent)
-            .where(AssistantRunEvent.run_id == run_id, AssistantRunEvent.sequence > after)
-            .order_by(AssistantRunEvent.sequence)
-        )
-        for event in events:
-            yield _event_frame(event)
+async def _framed(events: AsyncIterator[AssistantRunEvent]) -> AsyncIterator[str]:
+    """Encode persisted event rows as SSE frames."""
+    async for event in events:
+        yield _event_frame(event)
 
 
 def _graph(request: Request):
@@ -160,12 +116,7 @@ async def create_thread(
     user: CurrentUser = Depends(current_user),
     session: AsyncSession = Depends(get_session),
 ) -> ThreadRead:
-    thread = AssistantThread(
-        owner_id=user.id, title=body.title, retention_deadline=retention_deadline()
-    )
-    session.add(thread)
-    await session.commit()
-    await session.refresh(thread)
+    thread = await thread_lifecycle.create_thread(session, owner_id=user.id, title=body.title)
     return ThreadRead.model_validate(thread)
 
 
@@ -173,11 +124,7 @@ async def create_thread(
 async def list_threads(
     user: CurrentUser = Depends(current_user), session: AsyncSession = Depends(get_session)
 ) -> list[ThreadRead]:
-    rows = await session.scalars(
-        select(AssistantThread)
-        .where(AssistantThread.owner_id == user.id, AssistantThread.status == "active")
-        .order_by(AssistantThread.updated_at.desc())
-    )
+    rows = await thread_lifecycle.list_active_threads(session, owner_id=user.id)
     return [ThreadRead.model_validate(row) for row in rows]
 
 
@@ -188,15 +135,8 @@ async def thread_messages(
     session: AsyncSession = Depends(get_session),
 ) -> list[RunEventRead]:
     thread = await require_owned_thread(session, thread_id, user.id)
-    thread.retention_deadline = retention_deadline()
-    await session.commit()
-    events = await session.execute(
-        select(AssistantRunEvent)
-        .join(AssistantRun, AssistantRun.id == AssistantRunEvent.run_id)
-        .where(AssistantRun.thread_id == thread_id)
-        .order_by(AssistantRunEvent.created_at, AssistantRunEvent.sequence)
-    )
-    return [RunEventRead.model_validate(e) for e in events.scalars()]
+    await refresh_retention(session, thread)
+    return [RunEventRead.model_validate(e) for e in await thread_events(session, thread_id)]
 
 
 @router.get("/threads/{thread_id}/runs/{run_id}", response_model=RunRecoveryRead)
@@ -208,14 +148,8 @@ async def get_run(
     session: AsyncSession = Depends(get_session),
 ):
     await require_owned_thread(session, thread_id, user.id)
-    run = await session.get(AssistantRun, run_id)
-    if run is None or run.thread_id != thread_id or run.owner_id != user.id:
-        raise NotFoundError("assistant_run_not_found")
-    events = await session.scalars(
-        select(AssistantRunEvent)
-        .where(AssistantRunEvent.run_id == run.id, AssistantRunEvent.sequence > after)
-        .order_by(AssistantRunEvent.sequence)
-    )
+    run = await require_owned_run(session, run_id=run_id, thread_id=thread_id, owner_id=user.id)
+    events = await run_events(session, run.id, after)
     # Returned as the model rather than a hand-dumped dict: `response_model` then
     # applies the aliases itself, so the camelCase output cannot drift from the
     # schema the way two separate `model_dump(by_alias=True)` calls could.
@@ -228,7 +162,7 @@ async def get_run(
 @router.post(
     "/threads/{thread_id}/messages",
     response_class=StreamingResponse,
-    responses={**SSE_RESPONSE, **error_responses(401, 404, 409, 422, 429, 503)},
+    responses={**SSE_RESPONSE, **error_responses(401, 404, 409, 413, 422, 429, 503)},
     openapi_extra=SSE_OPENAPI_EXTENSION,
 )
 async def send_message(
@@ -239,40 +173,21 @@ async def send_message(
     session: AsyncSession = Depends(get_session),
 ):
     if len(body.content) > settings.assistant_max_message_chars:
-        raise ServiceUnavailableError(
-            "assistant_message_too_long", code="assistant_message_too_long"
-        )
+        # A client-side payload problem is a 4xx, not a server outage.
+        raise PayloadTooLargeError("assistant_message_too_long")
     graph = _graph(request)
-    thread = await require_owned_thread(session, thread_id, user.id)
-    thread.retention_deadline = retention_deadline()
-    await session.commit()
-    run, created = await create_or_load_run(
-        session, thread_id=thread_id, owner_id=user.id, client_message_id=body.client_message_id
+    started = await start_message_run(
+        session,
+        thread_id=thread_id,
+        owner_id=user.id,
+        client_message_id=body.client_message_id,
+        content=body.content,
     )
-    lease_key = f"assistant:run:{user.id}:{thread_id}"
-    retry_unstarted_run = (
-        not created and run.status == RunStatus.PENDING and await get_redis().get(lease_key) is None
-    )
-    if not created and not retry_unstarted_run:
-        return _stream(_persisted_events(run.id, _last_event_id(request)))
-    if not await acquire_lease(user.id, thread_id, run.id):
-        if created:
-            await set_run_status(run.id, RunStatus.FAILED, "capacity_exhausted")
-        raise ConflictError("assistant_capacity_exhausted")
-    if created:
-        await append_event(run.id, "user_message", {"content": body.content})
-
-    async def events():
-        async for event in stream_run(
-            graph,
-            run,
-            AssistantContext(user.id, user.token_version),
-            content=body.content,
-            lease_acquired=True,
-        ):
-            yield _event_frame(event)
-
-    return _stream(events())
+    if started.replay_only:
+        return _stream(_framed(persisted_events(started.run.id, _last_event_id(request))))
+    context = AssistantContext(user.id, user.token_version)
+    events = stream_run(graph, started.run, context, content=body.content, lease_acquired=True)
+    return _stream(_framed(events))
 
 
 @router.post(
@@ -294,46 +209,15 @@ async def confirm_action(
     action = await claim_decision(session, action_id, user.id, body.decision)
     if body.decision == "approve":
         await validate_action_freshness(session, action)
-    run = await session.get(AssistantRun, action.run_id)
-    if run is None or run.thread_id != thread_id:
-        raise NotFoundError("assistant_action_not_found")
+    run = await require_action_run(session, action, thread_id)
     graph = _graph(request)
-    if body.decision == "approve" and action.checkpoint_version not in {None, "unknown"}:
-        config = {"configurable": {"thread_id": checkpoint_thread_id(user.id, thread_id)}}
-        if await checkpoint_version(graph, config) != action.checkpoint_version:
-            action.status = ActionStatus.INVALIDATED
-            await session.commit()
-            raise ServiceUnavailableError(
-                "assistant_action_checkpoint_stale", code="assistant_action_stale"
-            )
+    if body.decision == "approve":
+        await ensure_action_checkpoint_fresh(session, graph, user.id, thread_id, action)
     if not await acquire_lease(user.id, thread_id, run.id):
         raise ConflictError("assistant_capacity_exhausted")
-
-    async def events():
-        succeeded = False
-        if body.decision == "approve":
-            # The transition happens only once the response body is consumed;
-            # a client that never opens its stream cannot strand an action.
-            async with async_session_factory() as action_session:
-                fresh = await action_session.get(AssistantAction, action.id, with_for_update=True)
-                if fresh is None:
-                    raise NotFoundError("assistant_action_not_found")
-                await mark_executing(action_session, fresh)
-        try:
-            async for event in stream_run(
-                graph,
-                run,
-                AssistantContext(user.id, user.token_version, action.id),
-                resume=body.decision,
-                lease_acquired=True,
-            ):
-                succeeded = event.event_type == "done"
-                yield _event_frame(event)
-        finally:
-            if body.decision == "approve":
-                await finish_action(action.id, succeeded)
-
-    return _stream(events())
+    context = AssistantContext(user.id, user.token_version, action.id)
+    events = stream_resumed_run(graph, run, context, resume=body.decision, action_id=action.id)
+    return _stream(_framed(events))
 
 
 @router.delete("/threads/{thread_id}", status_code=204)
@@ -345,18 +229,4 @@ async def delete_thread(
 ) -> None:
     thread = await require_owned_thread(session, thread_id, user.id)
     checkpointer = getattr(request.app.state, "assistant_checkpointer", None)
-    if checkpointer is not None:
-        # Keep the owner-bound thread if checkpoint deletion fails so retry is possible.
-        await checkpointer.adelete_thread(checkpoint_thread_id(user.id, thread_id))
-    run_ids = select(AssistantRun.id).where(AssistantRun.thread_id == thread.id)
-    action_ids = select(AssistantAction.id).where(AssistantAction.run_id.in_(run_ids))
-    await session.execute(
-        update(AssistantActionAudit)
-        .where(AssistantActionAudit.action_id.in_(action_ids))
-        .values(action_id=None)
-    )
-    await session.execute(delete(AssistantAction).where(AssistantAction.run_id.in_(run_ids)))
-    await session.execute(delete(AssistantRunEvent).where(AssistantRunEvent.run_id.in_(run_ids)))
-    await session.execute(delete(AssistantRun).where(AssistantRun.thread_id == thread.id))
-    await session.delete(thread)
-    await session.commit()
+    await thread_lifecycle.delete_thread(session, thread, checkpointer)

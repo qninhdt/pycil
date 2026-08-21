@@ -8,7 +8,12 @@ from uuid import UUID, uuid4
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pycil.assistant.infra.models import ActionStatus, AssistantAction, AssistantActionAudit
+from pycil.assistant.infra.models import (
+    ActionStatus,
+    AssistantAction,
+    AssistantActionAudit,
+    AssistantRun,
+)
 from pycil.common.errors import ConflictError, NotFoundError
 from pycil.config import settings
 from pycil.db.session import async_session_factory
@@ -116,6 +121,29 @@ async def mark_executing(session: AsyncSession, action: AssistantAction) -> None
         raise ConflictError("assistant_action_not_approved")
     action.status = ActionStatus.EXECUTING
     await session.commit()
+
+
+async def require_action_run(
+    session: AsyncSession, action: AssistantAction, thread_id: UUID
+) -> AssistantRun:
+    """The proposed action's run, which must live in the thread being confirmed."""
+    run = await session.get(AssistantRun, action.run_id)
+    if run is None or run.thread_id != thread_id:
+        raise NotFoundError("assistant_action_not_found")
+    return run
+
+
+async def begin_action_execution(action_id: UUID) -> None:
+    """Move an approved action to EXECUTING once its response body is consumed.
+
+    Called from inside the SSE generator rather than the route, so a client that
+    confirms but never opens its stream cannot strand the action mid-execution.
+    """
+    async with async_session_factory() as session:
+        fresh = await session.get(AssistantAction, action_id, with_for_update=True)
+        if fresh is None:
+            raise NotFoundError("assistant_action_not_found")
+        await mark_executing(session, fresh)
 
 
 async def finish_action(action_id: UUID, succeeded: bool) -> None:

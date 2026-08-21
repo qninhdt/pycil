@@ -17,7 +17,6 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from pycil.assistant import router as assistant_router
 from pycil.assistant.application import run_service
 from pycil.auth.deps import current_user
 from pycil.auth.models import User
@@ -41,7 +40,6 @@ async def assistant_client(engine, monkeypatch):
 
     # `append_event` opens its own session, so it needs the test engine too.
     monkeypatch.setattr(run_service, "async_session_factory", factory)
-    monkeypatch.setattr(assistant_router, "async_session_factory", factory)
 
     async def override_session():
         async with factory() as session:

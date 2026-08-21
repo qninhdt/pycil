@@ -15,14 +15,10 @@ The reasons, verified by reading each site:
 * `assistant/application/tools.py` (12 sites) — LLM tool calls execute inside a LangGraph run,
   driven by the model rather than by the HTTP request. There is no request scope to
   inherit: the run outlives the response that started it.
-* `assistant/router.py:317` — documented in place at `:315-316`. The
-  request-scoped session is closed when the response *starts*, so a streaming
-  generator holding it would operate on a closed session. Also deliberate that the
-  transition happens only as the body is consumed, so a client that never opens its
-  stream cannot strand an action.
-* `assistant/router.py:108`,
-  `application/run_service.py`, `application/hitl.py` — same reason: work that
-  continues after the response has begun streaming.
+* `assistant/application/run_service.py`, `assistant/application/hitl.py` — work that
+  continues after the response has begun streaming: event persistence during a run,
+  replay reads, and the action transitions that happen only as the body is consumed,
+  so a client that never opens its stream cannot strand an action.
 * `auth/dev_identity.py` — a development-only identity mint invoked outside the
   normal request path.
 """
@@ -40,7 +36,6 @@ PYCIL = pathlib.Path(__file__).resolve().parents[1] / "pycil"
 ALLOWED = {
     "db/session.py": "defines get_session",
     "assistant/application/tools.py": "LLM tool calls run outside any request scope",
-    "assistant/router.py": "streaming generators outlive the request-scoped session",
     "assistant/application/run_service.py": "assistant runs continue after the response begins",
     "assistant/application/hitl.py": "human-in-the-loop resolution runs outside the request",
     "auth/dev_identity.py": "development-only identity mint, not a request path",
