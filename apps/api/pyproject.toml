@@ -19,7 +19,7 @@ dependencies = [
     "structlog>=24.4,<25.0",
     "pycil-shared",
     # lexi-ai, pinned to an immutable commit (never a movable tag).
-    "lexi-ai @ git+https://github.com/qninhdt/lexi-ai.git@fbbea3d4837f0ecae0ebba4791bbc537b9ab3188",
+    "lexi-ai @ git+https://github.com/qninhdt/lexi-ai.git@49c2a80195f346cb839391049e3765e20784b47f",
     "langchain==1.3.13",
     "langgraph-checkpoint-postgres==3.1.0",
     "psycopg[binary,pool]==3.2.13",

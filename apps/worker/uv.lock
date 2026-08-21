@@ -1029,7 +1029,7 @@ wheels = [
 [[package]]
 name = "lexi-ai"
 version = "0.1.0"
-source = { git = "https://github.com/qninhdt/lexi-ai.git?rev=fbbea3d4837f0ecae0ebba4791bbc537b9ab3188#fbbea3d4837f0ecae0ebba4791bbc537b9ab3188" }
+source = { git = "https://github.com/qninhdt/lexi-ai.git?rev=49c2a80195f346cb839391049e3765e20784b47f#49c2a80195f346cb839391049e3765e20784b47f" }
 dependencies = [
     { name = "aiosqlite" },
     { name = "jinja2" },
@@ -1490,7 +1490,7 @@ requires-dist = [
     { name = "langchain", specifier = "==1.3.13" },
     { name = "langchain-openai", specifier = "==1.3.5" },
     { name = "langgraph-checkpoint-postgres", specifier = "==3.1.0" },
-    { name = "lexi-ai", git = "https://github.com/qninhdt/lexi-ai.git?rev=fbbea3d4837f0ecae0ebba4791bbc537b9ab3188" },
+    { name = "lexi-ai", git = "https://github.com/qninhdt/lexi-ai.git?rev=49c2a80195f346cb839391049e3765e20784b47f" },
     { name = "psycopg", extras = ["binary", "pool"], specifier = "==3.2.13" },
     { name = "pycil-shared", editable = "../../packages/shared-py" },
     { name = "pydantic", specifier = ">=2.9,<3.0" },
