@@ -16,8 +16,8 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/toast"
 import { updateNode } from "@/lib/actions/nodes"
-import { classifyErrorCode } from "@/lib/api/error-taxonomy"
 import type { NodeRead } from "@/lib/api/types"
+import { toastApiError } from "@/lib/feedback/toast-api-error"
 
 /**
  * Renaming a node and editing its description.
@@ -58,10 +58,7 @@ export function RenameNodeDialog({
       })
 
       if (!result.success) {
-        toast.add({
-          title: "Could not save the change",
-          description: classifyErrorCode(result.code).message,
-        })
+        toastApiError(result, "Could not save the change")
         return
       }
 

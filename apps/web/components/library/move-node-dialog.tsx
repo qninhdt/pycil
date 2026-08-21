@@ -14,8 +14,8 @@ import {
 import { Spinner } from "@/components/ui/spinner"
 import { toast } from "@/components/ui/toast"
 import { listMoveDestinations, moveNode } from "@/lib/actions/nodes"
-import { classifyErrorCode } from "@/lib/api/error-taxonomy"
 import type { NodeRead } from "@/lib/api/types"
+import { toastApiError } from "@/lib/feedback/toast-api-error"
 import { CaretRightIcon, FolderIcon, HouseIcon } from "@/lib/icons"
 import { cn } from "@/lib/utils"
 
@@ -63,10 +63,7 @@ export function MoveNodeDialog({
     listMoveDestinations(browsingId).then((result) => {
       if (!current) return
       if (!result.success) {
-        toast.add({
-          title: "Could not load folders",
-          description: classifyErrorCode(result.code).message,
-        })
+        toastApiError(result, "Could not load folders")
         // Recorded as an empty level rather than left pending, so the surface stops
         // claiming to load something that already came back.
         setSettled({ browsingId, folders: [] })
@@ -97,10 +94,7 @@ export function MoveNodeDialog({
       const result = await moveNode(node.id, browsingId)
 
       if (!result.success) {
-        toast.add({
-          title: "Could not move it",
-          description: classifyErrorCode(result.code).message,
-        })
+        toastApiError(result, "Could not move it")
         return
       }
 

@@ -9,21 +9,20 @@ import { ArrowRightIcon, CoffeeIcon } from "@/lib/icons"
  * (the cap is per deck settings, applied at planning time) and reports the round being
  * entered, so this screen names what just finished rather than counting locally.
  *
- * Continuing calls `/next` again. That call is a mutation, so the control is disabled
- * while it is in flight: a second tap here would advance the round twice and strand a
- * question the learner never saw.
+ * Continuing calls `/next` again. That call is a mutation, so a second tap must not
+ * double-advance. The guard is the reducer's, not a prop: dispatching `advance` moves
+ * the screen to its loading phase before any call starts, and that phase offers no
+ * button to tap twice.
  */
 export function RoundBreakPanel({
   /** 0-based index of the round being entered, as the server counts them. */
   roundIndex,
   answeredInRound,
   onContinue,
-  advancing,
 }: {
   roundIndex: number
   answeredInRound: number
   onContinue: () => void
-  advancing: boolean
 }) {
   // The server's index is 0-based and names the round about to start, so the one
   // that just closed is the number before it, in human counting.
@@ -44,7 +43,7 @@ export function RoundBreakPanel({
         </p>
       </div>
 
-      <Button onClick={onContinue} disabled={advancing} size="lg">
+      <Button onClick={onContinue} size="lg">
         Next round
         <ArrowRightIcon data-icon="inline-end" />
       </Button>

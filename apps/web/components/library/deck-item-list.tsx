@@ -19,7 +19,7 @@ import { toast } from "@/components/ui/toast"
 import { MinusIcon, WarningIcon } from "@/lib/icons"
 import { removeSenseFromDeck } from "@/lib/actions/nodes"
 import type { SenseContent } from "@/lib/api/types"
-import { classifyErrorCode } from "@/lib/api/error-taxonomy"
+import { toastApiError } from "@/lib/feedback/toast-api-error"
 import type { LiveSession } from "@/lib/stores/ui-store"
 import { useUiStore } from "@/lib/stores/store-provider"
 
@@ -91,10 +91,7 @@ export function DeckItemList({
       setPending(null)
 
       if (!result.success) {
-        toast.add({
-          title: "Could not remove the word",
-          description: classifyErrorCode(result.code).message,
-        })
+        toastApiError(result, "Could not remove the word")
         return
       }
 

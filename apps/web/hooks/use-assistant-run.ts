@@ -35,6 +35,11 @@ import { useAssistantStore, useAssistantStoreApi } from "@/lib/stores/store-prov
 
 export type { RunPhase }
 
+/** What one posted stream turned out to be. */
+type PostedStream =
+  | { ok: false; code: string }
+  | { ok: true; terminal: boolean }
+
 export function useAssistantRun(threadId: string | null) {
   const store = useAssistantStoreApi()
   const session = useAssistantStore((state) => state.session)
@@ -166,6 +171,42 @@ export function useAssistantRun(threadId: string | null) {
     [store],
   )
 
+  /**
+   * Posts one assistant request and reads its stream to completion.
+   *
+   * Shared by `send` and `decide`, which differ only in what they post and in
+   * the turn-key rules around the call — those stay at the call sites because
+   * they genuinely differ. Everything here is identical for both.
+   *
+   * `runId` stamps the streamed events: for a new turn it is the turn's own id,
+   * which stands in because the wire format omits a run identity; for a decision
+   * it is the paused run's real id.
+   */
+  const postStream = useCallback(
+    async (
+      forThreadId: string,
+      url: string,
+      body: unknown,
+      runId: string,
+      signal: AbortSignal,
+    ): Promise<PostedStream> => {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal,
+      })
+
+      if (!response.ok) {
+        return { ok: false, code: await readErrorCode(response) }
+      }
+
+      const terminal = await consume(response, forThreadId, runId)
+      return { ok: true, terminal }
+    },
+    [consume],
+  )
+
   /** Posts a turn and streams the reply. */
   const send = useCallback(
     async (content: string) => {
@@ -186,28 +227,26 @@ export function useAssistantRun(threadId: string | null) {
       state.updateSession(threadId, () => ({ phase: "streaming", problem: null }))
 
       try {
-        const response = await fetch(`/api/assistant/threads/${threadId}/messages`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ clientMessageId: turnId, content }),
-          signal: controller.signal,
-        })
+        const posted = await postStream(
+          threadId,
+          `/api/assistant/threads/${threadId}/messages`,
+          { clientMessageId: turnId, content },
+          turnId,
+          controller.signal,
+        )
 
-        if (!response.ok) {
+        if (!posted.ok) {
           // A refusal is a *known* outcome, so the key is spent. On the capacity path
           // the server has already marked the run `FAILED`, so retrying with the same
           // key replays a run holding nothing but the original `user_message`: no
           // reply, no error, no explanation.
           releaseTurnKey(transport)
-          const code = await readErrorCode(response)
-          state.updateSession(threadId, () => ({ phase: "idle", problem: code }))
+          state.updateSession(threadId, () => ({ phase: "idle", problem: posted.code }))
           return
         }
 
-        // The turn's own id stands in for the run id, which the wire format omits.
-        const terminal = await consume(response, threadId, turnId)
-        if (terminal) releaseTurnKey(transport)
-        state.updateSession(threadId, () => ({ phase: terminal ? "idle" : "abandoned" }))
+        if (posted.terminal) releaseTurnKey(transport)
+        state.updateSession(threadId, () => ({ phase: posted.terminal ? "idle" : "abandoned" }))
       } catch {
         // An abort is this hook cancelling itself, not a failure to report.
         if (controller.signal.aborted) return
@@ -217,7 +256,7 @@ export function useAssistantRun(threadId: string | null) {
         }))
       }
     },
-    [threadId, consume, store],
+    [threadId, postStream, store],
   )
 
   /**
@@ -239,28 +278,26 @@ export function useAssistantRun(threadId: string | null) {
       state.updateSession(threadId, () => ({ phase: "streaming", problem: null }))
 
       try {
-        const response = await fetch(
+        const posted = await postStream(
+          threadId,
           `/api/assistant/threads/${threadId}/actions/${actionId}/confirm`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ decision }),
-            signal: controller.signal,
-          },
+          { decision },
+          runId,
+          controller.signal,
         )
 
-        if (!response.ok) {
+        if (!posted.ok) {
           // Where a stale approval surfaces: `validate_action_freshness` rejects an
           // approval the learner believes they just granted, and the code carries which
           // way it failed — expired, already resolved, or the resource moved on.
-          const code = await readErrorCode(response)
-          state.updateSession(threadId, () => ({ phase: "idle", problem: code }))
+          // Unlike a refused turn, the key is not released here: the paused run is
+          // still the live one, and its approval card remains on offer.
+          state.updateSession(threadId, () => ({ phase: "idle", problem: posted.code }))
           return
         }
 
-        const terminal = await consume(response, threadId, runId)
-        if (terminal) releaseTurnKey(transport)
-        state.updateSession(threadId, () => ({ phase: terminal ? "idle" : "abandoned" }))
+        if (posted.terminal) releaseTurnKey(transport)
+        state.updateSession(threadId, () => ({ phase: posted.terminal ? "idle" : "abandoned" }))
       } catch {
         if (controller.signal.aborted) return
         state.updateSession(threadId, () => ({
@@ -269,7 +306,7 @@ export function useAssistantRun(threadId: string | null) {
         }))
       }
     },
-    [threadId, consume, store],
+    [threadId, postStream, store],
   )
 
   /**

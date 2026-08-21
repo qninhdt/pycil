@@ -2,6 +2,61 @@ import { defineConfig, globalIgnores } from "eslint/config";
 import nextVitals from "eslint-config-next/core-web-vitals";
 import nextTs from "eslint-config-next/typescript";
 
+/**
+ * Components consume the API through its public surfaces only. The fetcher,
+ * client, proxy helper, and generated codes are server-side plumbing; letting a
+ * component import them couples render trees to transport details and invites
+ * secrets into the bundle. `@/lib/api/types` and `@/lib/api/error-taxonomy`
+ * are the intended surface and stay open.
+ */
+const apiInternalsPattern = {
+  group: ["@/lib/api/**", "!@/lib/api/types", "!@/lib/api/error-taxonomy"],
+  message:
+    "Import only the public lib/api surfaces (@/lib/api/types, @/lib/api/error-taxonomy); the rest of lib/api is server-side.",
+};
+
+const publicSurfaceRules = {
+  "no-restricted-imports": ["error", { patterns: [apiInternalsPattern] }],
+};
+
+/**
+ * The screen features each own one surface and coordinate through stores and
+ * the shell rather than by reaching into each other's files. `components/ui`,
+ * `components/vocabulary`, and `components/theme` are shared layers any feature
+ * may use, and `components/shell` plus `components/command` compose screens by
+ * design, so they live outside this list.
+ */
+const screenFeatures = [
+  "activity",
+  "assistant",
+  "dashboard",
+  "library",
+  "progress",
+  "settings",
+  "study",
+];
+
+const screenFeatureBoundaryRules = screenFeatures.map((feature) => ({
+  files: [`components/${feature}/**`],
+  rules: {
+    "no-restricted-imports": [
+      "error",
+      {
+        patterns: [
+          apiInternalsPattern,
+          {
+            group: screenFeatures
+              .filter((other) => other !== feature)
+              .map((other) => `@/components/${other}/**`),
+            message:
+              "Screen features stay independent: share through components/ui or components/vocabulary, a store, or the shell instead of importing another feature's files.",
+          },
+        ],
+      },
+    ],
+  },
+}));
+
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
@@ -30,6 +85,11 @@ const eslintConfig = defineConfig([
     files: ["tests/e2e/**/*.ts"],
     rules: { "react-hooks/rules-of-hooks": "off" },
   },
+  {
+    files: ["components/**", "hooks/**"],
+    rules: publicSurfaceRules,
+  },
+  ...screenFeatureBoundaryRules,
 ]);
 
 export default eslintConfig;

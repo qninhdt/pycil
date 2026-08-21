@@ -145,6 +145,6 @@ export const Disabled: Story = {
 
 export const Exposure: Story = {
   render: () => (
-    <ExposureCard question={flashcard} onAdvance={() => {}} advancing={false} />
+    <ExposureCard question={flashcard} onAdvance={() => {}} />
   ),
 }

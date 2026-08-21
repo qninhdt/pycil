@@ -368,12 +368,7 @@ export function SessionRunner({
 
   if (phase.kind === "stalled") {
     return stage(
-      <StalledPanel
-        message={phase.message}
-        onRetry={onAdvance}
-        onLeave={onExit}
-        retrying={false}
-      />,
+      <StalledPanel message={phase.message} onRetry={onAdvance} onLeave={onExit} />,
     )
   }
 
@@ -383,7 +378,6 @@ export function SessionRunner({
         roundIndex={phase.roundIndex}
         answeredInRound={state.roundServed}
         onContinue={onAdvance}
-        advancing={false}
       />,
     )
   }
@@ -409,7 +403,7 @@ export function SessionRunner({
   // disabled one. Narrowing on the render format also removes any need to cast below,
   // since every remaining format is an assessment.
   if (question.renderFormat === "flashcard") {
-    return stage(<ExposureCard question={question} onAdvance={onAdvance} advancing={false} />)
+    return stage(<ExposureCard question={question} onAdvance={onAdvance} />)
   }
 
   // A grade that will not arrive still has to let the learner move on, so a failed

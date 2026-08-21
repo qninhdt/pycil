@@ -16,8 +16,8 @@ import {
 } from "@/components/ui/alert-dialog"
 import { toast } from "@/components/ui/toast"
 import { deleteNode } from "@/lib/actions/nodes"
-import { classifyErrorCode } from "@/lib/api/error-taxonomy"
 import type { NodeRead } from "@/lib/api/types"
+import { toastApiError } from "@/lib/feedback/toast-api-error"
 import { WarningIcon } from "@/lib/icons"
 
 import { nodeTypeLabel } from "./node-icon"
@@ -52,10 +52,7 @@ export function DeleteNodeDialog({
       const result = await deleteNode(node.id)
 
       if (!result.success) {
-        toast.add({
-          title: `Could not delete this ${kind}`,
-          description: classifyErrorCode(result.code).message,
-        })
+        toastApiError(result, `Could not delete this ${kind}`)
         return
       }
 

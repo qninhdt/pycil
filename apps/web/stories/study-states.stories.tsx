@@ -40,7 +40,6 @@ export const Stalled: Story = {
       message="Your next question is still being written. This sometimes takes a while."
       onRetry={() => {}}
       onLeave={() => {}}
-      retrying={false}
     />
   ),
 }

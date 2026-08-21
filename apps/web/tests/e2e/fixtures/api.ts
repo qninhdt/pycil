@@ -1,3 +1,5 @@
+import type { NodeRead, SenseContent, WordSearchResult } from "@/lib/api/types"
+
 import { apiBaseUrl } from "./env"
 
 /**
@@ -64,37 +66,19 @@ export async function apiCall<T = unknown>(
   return { status: response.status, body: parsed as T }
 }
 
-export interface Node {
-  id: string
-  name: string
-  type: string
-  parentNodeId?: string | null
-  visibility?: string
-  itemCount?: number | null
-}
-
-export interface SenseContent {
-  senseId?: number | null
-  word?: string | null
-  definition: string
-  tier: string
-  /**
-   * The dictionary's example sentences, with the target word tagged.
-   *
-   * Carried because a cloze stem *is* one of these with the target blanked out, so
-   * matching a stem back to its example is how a spec resolves the word a typed
-   * gap-fill expects. The `<t inf="...">` markers are the upstream dictionary's own
-   * and are passed through verbatim; anything reading these must strip them rather
-   * than assume plain text.
-   */
-  examples?: string[] | null
-}
-
-export interface WordSearchResult {
-  display: string
-  wordId?: number | null
-  senses?: SenseContent[]
-}
+/**
+ * The wire shapes, imported rather than redeclared.
+ *
+ * These are the same contracts the app renders against, so a change to the API's
+ * serialized fields updates the suite through one definition instead of leaving
+ * a hand-copied fixture asserting against a shape nobody serves. The import is
+ * type-only: nothing under `lib/` joins the Playwright graph at runtime.
+ *
+ * `Node` keeps its shorter name as an alias; it is what the seeding helpers and
+ * the specs have always called a node read.
+ */
+export type Node = NodeRead
+export type { SenseContent, WordSearchResult }
 
 /**
  * `NodeType` and `Visibility` are uppercase on the wire.

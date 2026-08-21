@@ -111,13 +111,13 @@ export const RoundPips: Story = {
 
 export const RoundBreak: Story = {
   render: () => (
-    <RoundBreakPanel roundIndex={2} answeredInRound={6} onContinue={() => {}} advancing={false} />
+    <RoundBreakPanel roundIndex={2} answeredInRound={6} onContinue={() => {}} />
   ),
 }
 
 /** The empty round: a break reached with nothing answered reads differently. */
 export const RoundBreakEmpty: Story = {
   render: () => (
-    <RoundBreakPanel roundIndex={1} answeredInRound={0} onContinue={() => {}} advancing={false} />
+    <RoundBreakPanel roundIndex={1} answeredInRound={0} onContinue={() => {}} />
   ),
 }

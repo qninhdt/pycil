@@ -23,8 +23,8 @@ import { Textarea } from "@/components/ui/textarea"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { toast } from "@/components/ui/toast"
 import { createNode } from "@/lib/actions/nodes"
-import { classifyErrorCode } from "@/lib/api/error-taxonomy"
 import type { NodeType } from "@/lib/api/types"
+import { toastApiError } from "@/lib/feedback/toast-api-error"
 import { PlusIcon } from "@/lib/icons"
 
 import { nodeTypeLabel } from "./node-icon"
@@ -79,10 +79,7 @@ export function CreateNodeSheet({
       })
 
       if (!result.success) {
-        toast.add({
-          title: "Could not create it",
-          description: classifyErrorCode(result.code).message,
-        })
+        toastApiError(result, "Could not create it")
         return
       }
 

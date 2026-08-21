@@ -32,8 +32,8 @@ import {
 import { Spinner } from "@/components/ui/spinner"
 import { toast } from "@/components/ui/toast"
 import { createThread, deleteThread } from "@/lib/actions/assistant"
-import { classifyErrorCode } from "@/lib/api/error-taxonomy"
 import type { Thread } from "@/lib/api/types"
+import { toastApiError } from "@/lib/feedback/toast-api-error"
 import { ChatCircleIcon, PlusIcon, TrashIcon } from "@/lib/icons"
 import { cn } from "@/lib/utils"
 
@@ -56,7 +56,7 @@ export function ThreadList({
     startMutating(async () => {
       const result = await createThread()
       if (!result.success) {
-        toast.add({ title: classifyErrorCode(result.code).message })
+        toastApiError(result)
         return
       }
       onChanged()
@@ -71,7 +71,7 @@ export function ThreadList({
       const result = await deleteThread(thread.id)
       setPendingDelete(null)
       if (!result.success) {
-        toast.add({ title: classifyErrorCode(result.code).message })
+        toastApiError(result)
         return
       }
       onChanged()

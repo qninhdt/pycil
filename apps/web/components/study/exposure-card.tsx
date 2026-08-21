@@ -21,11 +21,9 @@ import { ArrowRightIcon } from "@/lib/icons"
 export function ExposureCard({
   question,
   onAdvance,
-  advancing,
 }: {
   question: FlashcardReady
   onAdvance: () => void
-  advancing: boolean
 }) {
   const { word, definition, pos, example, ipa_uk, ipa_us } = question.payload
 
@@ -49,7 +47,7 @@ export function ExposureCard({
           it is wrapped rather than given a second rendering path. */}
       <ExampleList examples={example ? [example] : null} />
 
-      <Button onClick={onAdvance} disabled={advancing} size="lg" className="self-start">
+      <Button onClick={onAdvance} size="lg" className="self-start">
         Got it
         <ArrowRightIcon data-icon="inline-end" />
       </Button>

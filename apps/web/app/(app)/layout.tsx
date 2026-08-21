@@ -6,7 +6,7 @@ import { AppShell } from "@/components/shell/app-shell"
 /**
  * Chrome only. Every provider is mounted in the root layout instead, so `/study`
  * — which sits outside this group and renders no chrome — still reads the same
- * store, query cache, and realtime connection as the shell.
+ * stores and realtime connection as the shell.
  *
  * Only `ViewerSummary` crosses into the client tree. `getSession()` also holds
  * the access and refresh tokens, and handing that object down would serialise

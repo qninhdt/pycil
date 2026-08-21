@@ -5,6 +5,7 @@ import type { SessionData } from "@/lib/auth/types"
 
 import { ApiError, type ApiErrorEnvelope } from "./errors"
 import type { AuthTokens } from "./types"
+import { apiUrl } from "./upstream"
 
 /**
  * The one place a request leaves for the API.
@@ -47,10 +48,6 @@ export class SessionPersistenceError extends Error {
     super("Could not persist the refreshed session after token rotation")
     this.name = "SessionPersistenceError"
   }
-}
-
-function apiBaseUrl(): string {
-  return process.env.PYCIL_API_URL || "http://localhost:8000"
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -109,7 +106,7 @@ async function refreshTokens(refreshToken: string): Promise<AuthTokens | undefin
   if (pending) return pending
 
   const request = (async () => {
-    const response = await fetch(`${apiBaseUrl()}/v1/auth/refresh`, {
+    const response = await fetch(`${apiUrl()}/v1/auth/refresh`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       // A request body, not a response: the refresh endpoint accepts
@@ -217,7 +214,7 @@ export function createFetcher(
       headers.set("Content-Type", "application/json")
     }
 
-    const response = await fetch(`${apiBaseUrl()}${path}`, {
+    const response = await fetch(`${apiUrl()}${path}`, {
       ...requestOptions,
       headers,
       cache: "no-store",

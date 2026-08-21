@@ -16,8 +16,8 @@ import {
 import { Field, FieldLabel } from "@/components/ui/field"
 import { toast } from "@/components/ui/toast"
 import { updateNodeVisibility } from "@/lib/actions/nodes"
-import { classifyErrorCode } from "@/lib/api/error-taxonomy"
 import type { NodeRead } from "@/lib/api/types"
+import { toastApiError } from "@/lib/feedback/toast-api-error"
 import { GlobeIcon, LockIcon, WarningIcon } from "@/lib/icons"
 
 import { nodeTypeLabel } from "./node-icon"
@@ -67,10 +67,7 @@ export function VisibilityDialog({
       })
 
       if (!result.success) {
-        toast.add({
-          title: "Could not change visibility",
-          description: classifyErrorCode(result.code).message,
-        })
+        toastApiError(result, "Could not change visibility")
         return
       }
 

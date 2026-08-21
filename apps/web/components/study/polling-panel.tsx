@@ -96,20 +96,16 @@ export function StalledPanel({
   message,
   onRetry,
   onLeave,
-  retrying,
 }: {
   message: string
   onRetry: () => void
   onLeave: () => void
-  retrying: boolean
 }) {
   return (
     <WaitingFrame title="Still waiting on the server" detail={message}>
       <div className="flex flex-wrap items-center justify-center gap-3">
-        <Button onClick={onRetry} disabled={retrying}>
-          Keep waiting
-        </Button>
-        <Button onClick={onLeave} variant="outline" disabled={retrying}>
+        <Button onClick={onRetry}>Keep waiting</Button>
+        <Button onClick={onLeave} variant="outline">
           End session
         </Button>
       </div>
