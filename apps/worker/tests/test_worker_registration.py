@@ -3,6 +3,7 @@
 import asyncio
 
 import pytest
+from shared.tasks.contract import JOB_NAME_FOR_KIND, JOB_NAME_GRADE_ANSWER_V1
 from sqlalchemy import inspect
 
 from pycil_worker import main
@@ -35,17 +36,34 @@ def test_worker_startup_registers_every_referenced_table(module, model):
 
 
 def test_pending_grade_reconciliation_is_registered():
-    assert {function.__name__ for function in WorkerSettings.functions} >= {
-        "generate_word_task",
-        "prepare_questions",
+    registered = {function.__name__ for function in WorkerSettings.functions}
+    # Every job the api can enqueue resolves to a handler here. main.py enforces
+    # the same coverage at import time; this asserts it against the registry
+    # directly so the set itself is pinned in a test.
+    assert {*JOB_NAME_FOR_KIND.values(), JOB_NAME_GRADE_ANSWER_V1} <= registered
+    assert {
         "heartbeat",
-        "grade_answer_v1",
         "reconcile_pending_grades",
         "reconcile_async_tasks",
         "reconcile_expired_assistant_actions",
         "reconcile_assistant_retention",
-    }
+    } <= registered
     assert WorkerSettings.cron_jobs
+
+
+def test_the_bare_supply_warmup_is_not_registered():
+    """`prepare_questions` runs only inside its durable wrapper.
+
+    It was registered alongside `prepare_questions_task`, which let a bare
+    enqueue warm supply with no task row — work the learner's client could never
+    subscribe to, since the subscribe proxy admits only `async:{task_id}`.
+    Nothing has ever enqueued the bare name; keeping it unregistered turns an
+    accidental enqueue into an immediate unknown-job error instead of unwatched
+    generation.
+    """
+    registered = {function.__name__ for function in WorkerSettings.functions}
+    assert "prepare_questions" not in registered
+    assert "prepare_questions_task" in registered
 
 
 def test_word_generation_has_exactly_one_registered_handler():

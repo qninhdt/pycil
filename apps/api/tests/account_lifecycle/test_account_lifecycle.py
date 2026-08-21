@@ -20,6 +20,12 @@ from pycil.auth.refresh_sessions import issue
 from pycil.hierarchy.infra.models import Node, NodeType, Visibility
 from pycil.learning.infra.models import SessionSummary, UserLearningSettings
 from pycil.tasks.application import service as task_service
+from pycil.tasks.domain.vocabulary import (
+    TASK_KIND_GRADING,
+    TASK_KIND_WORD,
+    GradingDispatch,
+    WordDispatch,
+)
 from pycil.tasks.domain.work_keys import grading_work_key, word_work_key
 
 pytestmark = pytest.mark.asyncio
@@ -137,23 +143,23 @@ async def test_delete_erases_every_table_that_references_the_user(client, sessio
     # test cannot drift from the shape production actually writes.
     await task_service.submit_or_join(
         session,
-        kind="word",
+        kind=TASK_KIND_WORD,
         server_work_key=word_work_key("resilient", "fingerprint"),
         requester_id=user.id,
         command_kind="word.generate",
         command_id="cmd-word-1",
         provenance="word-search",
-        dispatch={"query": "resilient"},
+        dispatch=WordDispatch(query="resilient", owner_id=str(user.id)),
     )
     await task_service.submit_or_join(
         session,
-        kind="grading",
+        kind=TASK_KIND_GRADING,
         server_work_key=grading_work_key("11111111-1111-4111-8111-111111111111"),
         requester_id=user.id,
         command_kind="grading.submit",
         command_id="11111111-1111-4111-8111-111111111111",
         provenance="response-owner",
-        dispatch={"owner_id": str(user.id), "response_id": "x"},
+        dispatch=GradingDispatch(owner_id=str(user.id), response_id="x"),
     )
     session.add(
         UserLearningSettings(
@@ -227,23 +233,23 @@ async def test_delete_keeps_reusable_word_work_another_learner_still_shares(clie
     shared_key = word_work_key("resilient", "fingerprint")
     first = await task_service.submit_or_join(
         session,
-        kind="word",
+        kind=TASK_KIND_WORD,
         server_work_key=shared_key,
         requester_id=leaver.id,
         command_kind="word.generate",
         command_id="cmd-leaver",
         provenance="word-search",
-        dispatch={"query": "resilient"},
+        dispatch=WordDispatch(query="resilient", owner_id=str(leaver.id)),
     )
     second = await task_service.submit_or_join(
         session,
-        kind="word",
+        kind=TASK_KIND_WORD,
         server_work_key=shared_key,
         requester_id=stayer.id,
         command_kind="word.generate",
         command_id="cmd-stayer",
         provenance="word-search",
-        dispatch={"query": "resilient"},
+        dispatch=WordDispatch(query="resilient", owner_id=str(stayer.id)),
     )
     # Both learners must really be on one task, or this proves nothing.
     assert first.task.id == second.task.id
@@ -288,13 +294,13 @@ async def test_delete_removes_a_grading_task_and_its_personal_feedback(client, s
     response_id = "22222222-2222-4222-8222-222222222222"
     submission = await task_service.submit_or_join(
         session,
-        kind="grading",
+        kind=TASK_KIND_GRADING,
         server_work_key=grading_work_key(response_id),
         requester_id=user.id,
         command_kind="grading.submit",
         command_id=response_id,
         provenance="response-owner",
-        dispatch={"owner_id": str(user.id), "response_id": response_id},
+        dispatch=GradingDispatch(owner_id=str(user.id), response_id=response_id),
     )
     grading_task_id = submission.task.id
     raw_refresh, _ = await issue(session, user.id)
@@ -342,24 +348,24 @@ async def test_delete_keeps_a_grading_task_a_second_interest_still_references(cl
     response_id = "33333333-3333-4333-8333-333333333333"
     submission = await task_service.submit_or_join(
         session,
-        kind="grading",
+        kind=TASK_KIND_GRADING,
         server_work_key=grading_work_key(response_id),
         requester_id=leaver.id,
         command_kind="grading.submit",
         command_id=response_id,
         provenance="response-owner",
-        dispatch={"owner_id": str(leaver.id), "response_id": response_id},
+        dispatch=GradingDispatch(owner_id=str(leaver.id), response_id=response_id),
     )
     grading_task_id = submission.task.id
     second = await task_service.submit_or_join(
         session,
-        kind="grading",
+        kind=TASK_KIND_GRADING,
         server_work_key=grading_work_key(response_id),
         requester_id=auditor.id,
         command_kind="grading.observe",
         command_id=f"observe:{response_id}",
         provenance="support-review",
-        dispatch={"owner_id": str(leaver.id), "response_id": response_id},
+        dispatch=GradingDispatch(owner_id=str(leaver.id), response_id=response_id),
     )
     assert second.task.id == grading_task_id
 

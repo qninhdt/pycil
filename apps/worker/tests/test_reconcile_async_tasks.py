@@ -11,6 +11,15 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+from shared.tasks.contract import (
+    JOB_NAME_FOR_KIND,
+    TASK_KIND_GRADING,
+    TASK_KIND_QUESTION_SUPPLY,
+    TASK_KIND_WORD,
+    GradingDispatch,
+    SupplyDispatch,
+    WordDispatch,
+)
 
 from pycil_worker.jobs.reconcile_async_tasks import reconcile_async_tasks
 
@@ -41,23 +50,23 @@ async def test_reconciliation_reenqueues_each_live_task_kind(monkeypatch):
     tasks = [
         SimpleNamespace(
             id=uuid4(),
-            kind="word",
-            dispatch={"query": "run", "owner_id": "word-owner"},
+            kind=TASK_KIND_WORD,
+            dispatch=WordDispatch(query="run", owner_id="word-owner").to_dispatch(),
         ),
         SimpleNamespace(
             id=uuid4(),
-            kind="grading",
-            dispatch={"owner_id": "owner", "response_id": "response"},
+            kind=TASK_KIND_GRADING,
+            dispatch=GradingDispatch(owner_id="owner", response_id="response").to_dispatch(),
         ),
         SimpleNamespace(
             id=uuid4(),
-            kind="question_supply",
-            dispatch={
-                "owner_id": "supply-owner",
-                "session_id": "abc123",
-                "round_index": 2,
-                "demands": [[41, 1, 1]],
-            },
+            kind=TASK_KIND_QUESTION_SUPPLY,
+            dispatch=SupplyDispatch(
+                owner_id="supply-owner",
+                session_id="abc123",
+                round_index=2,
+                demands=[(41, 1, 1)],
+            ).to_dispatch(),
         ),
     ]
     redis = _Redis()
@@ -76,9 +85,14 @@ async def test_reconciliation_reenqueues_each_live_task_kind(monkeypatch):
     # while waiting. So a supply row whose enqueue was lost is not a slow session but
     # a stopped one, and this branch is the entire backstop for that.
     assert redis.enqueued == [
-        ("generate_word_task", str(tasks[0].id), "run", "word-owner"),
-        ("grade_answer_task", str(tasks[1].id), "owner", "response"),
-        ("prepare_questions_task", str(tasks[2].id), "supply-owner", [[41, 1, 1]]),
+        (JOB_NAME_FOR_KIND[TASK_KIND_WORD], str(tasks[0].id), "run", "word-owner"),
+        (JOB_NAME_FOR_KIND[TASK_KIND_GRADING], str(tasks[1].id), "owner", "response"),
+        (
+            JOB_NAME_FOR_KIND[TASK_KIND_QUESTION_SUPPLY],
+            str(tasks[2].id),
+            "supply-owner",
+            [[41, 1, 1]],
+        ),
     ]
 
 
@@ -93,7 +107,9 @@ async def test_a_word_row_reenqueues_with_the_owner_that_was_charged(monkeypatch
     """
     tasks = [
         SimpleNamespace(
-            id=uuid4(), kind="word", dispatch={"query": "legacy", "owner_id": "word-owner"}
+            id=uuid4(),
+            kind=TASK_KIND_WORD,
+            dispatch=WordDispatch(query="legacy", owner_id="word-owner").to_dispatch(),
         )
     ]
     redis = _Redis()
@@ -104,7 +120,9 @@ async def test_a_word_row_reenqueues_with_the_owner_that_was_charged(monkeypatch
     )
 
     assert result == {"status": "reconciled", "count": 1, "unhandled": 0}
-    assert redis.enqueued == [("generate_word_task", str(tasks[0].id), "legacy", "word-owner")]
+    assert redis.enqueued == [
+        (JOB_NAME_FOR_KIND[TASK_KIND_WORD], str(tasks[0].id), "legacy", "word-owner")
+    ]
 
 
 async def test_a_word_row_missing_its_owner_fails_loudly(monkeypatch):
@@ -121,7 +139,7 @@ async def test_a_word_row_missing_its_owner_fails_loudly(monkeypatch):
     a change to the reconciler's error contract, which belongs with the task
     dispatch work, not here.
     """
-    tasks = [SimpleNamespace(id=uuid4(), kind="word", dispatch={"query": "no-owner"})]
+    tasks = [SimpleNamespace(id=uuid4(), kind=TASK_KIND_WORD, dispatch={"query": "no-owner"})]
     redis = _Redis()
     _patch_tasks(monkeypatch, tasks)
 
@@ -140,7 +158,9 @@ async def test_a_kind_with_no_handler_is_counted_and_not_enqueued(monkeypatch):
     """
     tasks = [
         SimpleNamespace(
-            id=uuid4(), kind="word", dispatch={"query": "run", "owner_id": "o"}
+            id=uuid4(),
+            kind=TASK_KIND_WORD,
+            dispatch=WordDispatch(query="run", owner_id="o").to_dispatch(),
         ),
         SimpleNamespace(id=uuid4(), kind="something_removed", dispatch={}),
     ]
@@ -152,7 +172,9 @@ async def test_a_kind_with_no_handler_is_counted_and_not_enqueued(monkeypatch):
     )
 
     assert result == {"status": "reconciled", "count": 1, "unhandled": 1}
-    assert redis.enqueued == [("generate_word_task", str(tasks[0].id), "run", "o")]
+    assert redis.enqueued == [
+        (JOB_NAME_FOR_KIND[TASK_KIND_WORD], str(tasks[0].id), "run", "o")
+    ]
 
 
 async def test_an_unhandled_kind_does_not_stop_the_rest_of_the_batch(monkeypatch):
@@ -160,7 +182,9 @@ async def test_an_unhandled_kind_does_not_stop_the_rest_of_the_batch(monkeypatch
     tasks = [
         SimpleNamespace(id=uuid4(), kind="gone", dispatch={}),
         SimpleNamespace(
-            id=uuid4(), kind="word", dispatch={"query": "after", "owner_id": "o"}
+            id=uuid4(),
+            kind=TASK_KIND_WORD,
+            dispatch=WordDispatch(query="after", owner_id="o").to_dispatch(),
         ),
     ]
     redis = _Redis()
@@ -171,7 +195,9 @@ async def test_an_unhandled_kind_does_not_stop_the_rest_of_the_batch(monkeypatch
     )
 
     assert result["count"] == 1
-    assert redis.enqueued == [("generate_word_task", str(tasks[1].id), "after", "o")]
+    assert redis.enqueued == [
+        (JOB_NAME_FOR_KIND[TASK_KIND_WORD], str(tasks[1].id), "after", "o")
+    ]
 
 
 async def test_question_pool_is_gone_and_would_now_be_reported(monkeypatch):

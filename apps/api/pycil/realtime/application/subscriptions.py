@@ -5,12 +5,12 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from pydantic import BaseModel, Field
+from shared.realtime.channels import ASYNC_TASK_PREFIX
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pycil.tasks.infra.models import AsyncTaskEvent, AsyncTaskInterest
 
-_CHANNEL_PREFIX = "async:"
 _DENIED = {"error": {"code": 103, "message": "permission denied"}}
 
 # How the caller answers "what token_version does this user currently have?".
@@ -33,13 +33,13 @@ class SubscribeProxyRequest(BaseModel):
 
 
 def _resource_id(channel: str) -> UUID | None:
-    if not channel.startswith(_CHANNEL_PREFIX):
+    if not channel.startswith(ASYNC_TASK_PREFIX):
         return None
     try:
-        task_id = UUID(channel.removeprefix(_CHANNEL_PREFIX))
+        task_id = UUID(channel.removeprefix(ASYNC_TASK_PREFIX))
     except ValueError:
         return None
-    return task_id if channel == f"{_CHANNEL_PREFIX}{task_id}" else None
+    return task_id if channel == f"{ASYNC_TASK_PREFIX}{task_id}" else None
 
 
 async def authorize_subscription(

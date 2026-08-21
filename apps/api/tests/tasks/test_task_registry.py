@@ -7,6 +7,11 @@ from sqlalchemy import select
 
 from pycil.auth.models import User
 from pycil.tasks.application import service
+from pycil.tasks.domain.vocabulary import (
+    TASK_KIND_GRADING,
+    TASK_KIND_WORD,
+    WordDispatch,
+)
 from pycil.tasks.infra.models import (
     AsyncTaskEvent,
     AsyncTaskOutbox,
@@ -29,7 +34,7 @@ async def test_same_work_joins_one_task_with_separate_interests_and_receipts(ses
     first_user = await _user(session, "first-task-interest@example.com")
     second_user = await _user(session, "second-task-interest@example.com")
     kwargs = {
-        "kind": "word",
+        "kind": TASK_KIND_WORD,
         "server_work_key": "word:example:dataset-v1",
         "command_kind": "word.generate",
         "provenance": "word-search",
@@ -61,15 +66,16 @@ async def test_same_work_joins_one_task_with_separate_interests_and_receipts(ses
 
 async def test_queued_dispatch_payload_is_private_and_recoverable(session):
     user = await _user(session, "task-dispatch@example.com")
+    dispatch = WordDispatch(query="run", owner_id=str(user.id))
     submission = await service.submit_or_join(
         session,
-        kind="word",
+        kind=TASK_KIND_WORD,
         server_work_key="word:dispatch:dataset-v1",
         requester_id=user.id,
         command_kind="word.generate",
         command_id="dispatch-command",
         provenance="word-search",
-        dispatch={"query": "run"},
+        dispatch=dispatch,
     )
 
     event = await session.scalar(
@@ -79,7 +85,7 @@ async def test_queued_dispatch_payload_is_private_and_recoverable(session):
 
     assert event is not None and event.snapshot["result"] is None
     assert recoverable == [submission.task]
-    assert recoverable[0].dispatch == {"query": "run"}
+    assert recoverable[0].dispatch == dispatch.to_dispatch()
     # `result` describes the outcome only. It used to carry the dispatch payload as
     # well, which is what let a requeue transition erase it.
     assert recoverable[0].result is None
@@ -98,15 +104,16 @@ async def test_a_requeue_transition_preserves_the_dispatch_payload(session):
     rows for a task that had just asked to be retried.
     """
     user = await _user(session, "task-requeue-dispatch@example.com")
+    dispatch = WordDispatch(query="probe", owner_id=str(user.id))
     submission = await service.submit_or_join(
         session,
-        kind="word",
+        kind=TASK_KIND_WORD,
         server_work_key="word:requeue:dataset-v1",
         requester_id=user.id,
         command_kind="word.generate",
         command_id="requeue-command",
         provenance="word-search",
-        dispatch={"query": "probe", "owner_id": str(user.id)},
+        dispatch=dispatch,
     )
     claimed = await service.claim_task(session, submission.task.id, "worker-a")
     assert claimed is not None
@@ -120,7 +127,7 @@ async def test_a_requeue_transition_preserves_the_dispatch_payload(session):
     )
 
     assert requeued is not None
-    assert requeued.dispatch == {"query": "probe", "owner_id": str(user.id)}
+    assert requeued.dispatch == dispatch.to_dispatch()
     # And the reconciler can still find it, which is the point. The requeue sets
     # `next_attempt_at` one second out (the first retry delay), so the sweep has to
     # be looked at past that backoff rather than immediately.
@@ -135,15 +142,16 @@ async def test_a_requeue_transition_preserves_the_dispatch_payload(session):
 async def test_a_terminal_outcome_does_not_overwrite_the_dispatch(session):
     """A settled task keeps its dispatch: the columns are independent now."""
     user = await _user(session, "task-terminal-dispatch@example.com")
+    dispatch = WordDispatch(query="settled", owner_id=str(user.id))
     submission = await service.submit_or_join(
         session,
-        kind="word",
+        kind=TASK_KIND_WORD,
         server_work_key="word:terminal:dataset-v1",
         requester_id=user.id,
         command_kind="word.generate",
         command_id="terminal-command",
         provenance="word-search",
-        dispatch={"query": "settled"},
+        dispatch=dispatch,
     )
     claimed = await service.claim_task(session, submission.task.id, "worker-a")
     assert claimed is not None
@@ -159,14 +167,14 @@ async def test_a_terminal_outcome_does_not_overwrite_the_dispatch(session):
 
     assert settled is not None
     assert settled.result == {"wordId": 7, "senseIds": [1]}
-    assert settled.dispatch == {"query": "settled"}
+    assert settled.dispatch == dispatch.to_dispatch()
 
 
 async def test_fenced_transition_writes_one_versioned_event_and_outbox(session):
     user = await _user(session, "task-fence@example.com")
     submission = await service.submit_or_join(
         session,
-        kind="grading",
+        kind=TASK_KIND_GRADING,
         server_work_key="grading:response-id",
         requester_id=user.id,
         command_kind="grading.submit",
@@ -214,7 +222,7 @@ async def test_outbox_retry_preserves_event_identity_until_acknowledged(session)
     user = await _user(session, "outbox@example.com")
     await service.submit_or_join(
         session,
-        kind="word",
+        kind=TASK_KIND_WORD,
         server_work_key="word:outbox:dataset-v1",
         requester_id=user.id,
         command_kind="word.generate",

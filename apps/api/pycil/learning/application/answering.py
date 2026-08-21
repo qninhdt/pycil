@@ -40,6 +40,7 @@ from pycil.learning.infra import session_store
 from pycil.learning.infra.models import Response
 from pycil.ports.lexi import LexiReader
 from pycil.tasks.application import service as task_service
+from pycil.tasks.domain.vocabulary import JOB_NAME_FOR_KIND, TASK_KIND_GRADING, GradingDispatch
 from pycil.tasks.domain.work_keys import grading_work_key
 
 
@@ -377,24 +378,24 @@ async def _defer(
     # raised by any of them still sees the row as committed.
     claim.value = _Claim.COMMITTED
     await session_store.set_awaiting_grade(redis, session_id, bound.sense_id, True)
+    dispatch = GradingDispatch(owner_id=str(user.id), response_id=str(response.id))
     submission = await task_service.submit_or_join(
         session,
-        kind="grading",
+        kind=TASK_KIND_GRADING,
         server_work_key=grading_work_key(str(response.id)),
         requester_id=user.id,
         command_kind="grading.submit",
         command_id=str(response.id),
         provenance="response-owner",
-        dispatch={"owner_id": str(user.id), "response_id": str(response.id)},
+        dispatch=dispatch,
     )
     if submission.task_created:
         try:
             pool = await get_arq_pool()
             await pool.enqueue_job(
-                "grade_answer_task",
+                JOB_NAME_FOR_KIND[TASK_KIND_GRADING],
                 str(submission.task.id),
-                str(user.id),
-                str(response.id),
+                *dispatch.job_args(),
             )
         except Exception:  # durable worker reconciliation retries the enqueue
             pass

@@ -20,6 +20,7 @@ from pycil.hierarchy.application import cache
 from pycil.hierarchy.application.viewer_stats import get_folder_stats_for_viewer
 from pycil.ports.lexi_provider import get_lexi_client
 from pycil.tasks.application import service as task_service
+from pycil.tasks.domain.vocabulary import JOB_NAME_FOR_KIND, TASK_KIND_WORD, WordDispatch
 from pycil.tasks.domain.work_keys import word_work_key
 
 MAX_RESULTS = 50
@@ -218,11 +219,12 @@ async def request_word_generation(query: str, runtime: ToolRuntime[AssistantCont
             code="word_generation_quota_exceeded",
             retry_after=3600,
         )
+    dispatch = WordDispatch(query=trimmed, owner_id=str(owner_id))
     async with async_session_factory() as session:
         try:
             submission = await task_service.submit_or_join(
                 session,
-                kind="word",
+                kind=TASK_KIND_WORD,
                 server_work_key=word_work_key(
                     generation_quota.normalize_query(trimmed),
                     settings.lexi_reference_dataset_fingerprint,
@@ -231,7 +233,7 @@ async def request_word_generation(query: str, runtime: ToolRuntime[AssistantCont
                 command_kind="word.generate",
                 command_id=f"word:{uuid4()}",
                 provenance="assistant",
-                dispatch={"query": trimmed, "owner_id": str(owner_id)},
+                dispatch=dispatch,
             )
         except Exception:
             await generation_quota.release_inflight_quota(redis, owner_id)
@@ -241,7 +243,9 @@ async def request_word_generation(query: str, runtime: ToolRuntime[AssistantCont
     else:
         try:
             await (await get_arq_pool()).enqueue_job(
-                "generate_word_task", str(submission.task.id), trimmed, str(owner_id)
+                JOB_NAME_FOR_KIND[TASK_KIND_WORD],
+                str(submission.task.id),
+                *dispatch.job_args(),
             )
         except Exception:
             # The durable reconciler will enqueue this committed task.

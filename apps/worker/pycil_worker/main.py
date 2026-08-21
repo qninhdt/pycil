@@ -26,11 +26,12 @@ from lexi_ai import Lexicon
 from pycil.config import settings
 from pycil.ports.lexi import LexiReader, LexiWorkerEngine
 from pycil.ports.lexi_embedded import create_lexicon_reader
+from shared.tasks.contract import JOB_NAME_FOR_KIND, JOB_NAME_GRADE_ANSWER_V1
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from pycil_worker.context import ReadyWorkerContext, WorkerContext
 from pycil_worker.jobs.dispatch_task_outbox import dispatch_task_outbox
-from pycil_worker.jobs.generate_question import prepare_questions, prepare_questions_task
+from pycil_worker.jobs.generate_question import prepare_questions_task
 from pycil_worker.jobs.generate_word import generate_word_task
 from pycil_worker.jobs.grade_answer import grade_answer_task, grade_answer_v1
 from pycil_worker.jobs.heartbeat import heartbeat
@@ -115,7 +116,6 @@ async def on_shutdown(ctx: WorkerContext) -> None:
 class WorkerSettings:
     functions = [
         generate_word_task,
-        prepare_questions,
         prepare_questions_task,
         grade_answer_v1,
         grade_answer_task,
@@ -138,3 +138,20 @@ class WorkerSettings:
     on_shutdown = on_shutdown
     max_tries = 2  # grade_answer is idempotent, so a single retry is safe
     redis_settings = RedisSettings.from_dsn(settings.redis_url)
+
+
+# A queued job whose handler name is not registered is redelivered until arq
+# gives up on it, invisibly. Both services read job names from the shared
+# contract, and this is the worker half of keeping that honest: registering
+# less than the contract promises must fail startup here rather than surface
+# as jobs that expire unhandled. Checked at import time because that is when
+# `arq pycil_worker.main.WorkerSettings` resolves the function list.
+_UNREGISTERED_CONTRACT_JOBS = (
+    {*JOB_NAME_FOR_KIND.values(), JOB_NAME_GRADE_ANSWER_V1}
+    - {function.__name__ for function in WorkerSettings.functions}
+)
+if _UNREGISTERED_CONTRACT_JOBS:
+    raise RuntimeError(
+        "WorkerSettings.functions is missing contract jobs: "
+        f"{sorted(_UNREGISTERED_CONTRACT_JOBS)}"
+    )

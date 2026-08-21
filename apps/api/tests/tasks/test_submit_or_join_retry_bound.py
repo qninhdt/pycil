@@ -23,6 +23,7 @@ from sqlalchemy.exc import IntegrityError
 from pycil.auth.models import User
 from pycil.common.errors import AppError
 from pycil.tasks.application import service
+from pycil.tasks.domain.vocabulary import TASK_KIND_WORD
 
 pytestmark = pytest.mark.asyncio
 
@@ -65,7 +66,7 @@ async def test_persistent_receipt_conflict_gives_up_instead_of_recursing(session
     with pytest.raises(AppError) as exc_info:
         await service.submit_or_join(
             session,
-            kind="word",
+            kind=TASK_KIND_WORD,
             server_work_key="word:recursion:probe",
             requester_id=user.id,
             command_kind="word.generate",
@@ -91,7 +92,7 @@ async def test_recursion_error_is_never_the_failure_mode(session):
     try:
         await service.submit_or_join(
             session,
-            kind="word",
+            kind=TASK_KIND_WORD,
             server_work_key="word:no-recursion:probe",
             requester_id=user.id,
             command_kind="word.generate",

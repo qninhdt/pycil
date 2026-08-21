@@ -11,6 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from pycil.common.errors import ConflictError
 from pycil.common.retry import next_attempt_delay
+from pycil.tasks.domain.vocabulary import (
+    GradingDispatch,
+    SupplyDispatch,
+    WordDispatch,
+)
 from pycil.tasks.infra.models import (
     AsyncCommandReceipt,
     AsyncTask,
@@ -129,12 +134,15 @@ async def submit_or_join(
     provenance: str,
     expires_at: datetime | None = None,
     max_attempts: int = 4,
-    dispatch: dict | None = None,
+    dispatch: WordDispatch | GradingDispatch | SupplyDispatch | None = None,
 ) -> TaskSubmission:
     """Persist one command receipt, interest, and reusable task atomically.
 
     Callers must have already authorized the source and derived the work key;
     this intentionally accepts neither a client task ID nor an untrusted key.
+    ``dispatch`` is one of the typed payloads from the shared job contract; it
+    is serialized to its storage form here, so no caller can write a dict whose
+    keys the reconciler does not know how to read back.
 
     ``expires_at`` defaults to ``INTEREST_TTL_SECONDS`` from now rather than to
     None. A None expiry authorizes the channel forever, which is what both
@@ -180,7 +188,7 @@ async def _try_submit_or_join(
     provenance: str,
     expires_at: datetime,
     max_attempts: int,
-    dispatch: dict | None,
+    dispatch: WordDispatch | GradingDispatch | SupplyDispatch | None,
 ) -> TaskSubmission | None:
     """One attempt. Returns None when a racing replay means it is worth retrying."""
     existing_receipt = await session.scalar(
@@ -220,7 +228,7 @@ async def _try_submit_or_join(
             kind=kind,
             work_key=server_work_key,
             max_attempts=max_attempts,
-            dispatch=dispatch,
+            dispatch=dispatch.to_dispatch() if dispatch is not None else None,
         )
         session.add(task)
         try:

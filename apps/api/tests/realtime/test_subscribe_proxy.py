@@ -4,11 +4,13 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
+from shared.realtime.channels import ASYNC_TASK_PREFIX
 
 from pycil.auth.models import User
 from pycil.realtime.application.subscriptions import SubscribeProxyRequest, authorize_subscription
 from pycil.realtime.router import _current_token_version
 from pycil.tasks.application import service
+from pycil.tasks.domain.vocabulary import TASK_KIND_GRADING
 from pycil.tasks.infra.models import AsyncTaskStatus
 
 pytestmark = pytest.mark.asyncio
@@ -31,7 +33,7 @@ async def _user(session, email: str) -> User:
 async def _task(session, user: User):
     return await service.submit_or_join(
         session,
-        kind="grading",
+        kind=TASK_KIND_GRADING,
         server_work_key="grading:response-1",
         requester_id=user.id,
         command_kind="grading.submit",
@@ -43,7 +45,7 @@ async def _task(session, user: User):
 def _request(user: User, task_id, **meta) -> SubscribeProxyRequest:
     return SubscribeProxyRequest(
         user=str(user.id),
-        channel=f"async:{task_id}",
+        channel=f"{ASYNC_TASK_PREFIX}{task_id}",
         meta={
             "tokenVersion": user.token_version,
             "expiresAt": int(datetime.now(UTC).timestamp()) + 60,
@@ -62,7 +64,7 @@ async def test_subscribe_returns_current_persisted_snapshot(session):
         "schema": "async-task.v1",
         "eventId": result["result"]["data"]["eventId"],
         "taskId": str(submission.task.id),
-        "kind": "grading",
+        "kind": TASK_KIND_GRADING,
         "status": "queued",
         "version": 1,
         "result": None,

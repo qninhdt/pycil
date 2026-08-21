@@ -20,6 +20,7 @@ import pytest_asyncio
 from pycil.auth.models import User
 from pycil.db.models import target_metadata
 from pycil.learning.infra.models import GradeStatus, Response
+from shared.tasks.contract import JOB_NAME_GRADE_ANSWER_V1
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from pycil_worker.jobs.reconcile_pending_grades import (
@@ -206,7 +207,8 @@ async def test_an_unleased_pending_row_is_requeued(factory):
     )
 
     assert result["requeued"] == 1
-    assert redis.jobs == [("grade_answer_v1", str(user.id), str(orphan.id))]
+    # The handler grades off the response row alone; only its id travels.
+    assert redis.jobs == [(JOB_NAME_GRADE_ANSWER_V1, str(orphan.id))]
 
 
 async def test_a_leased_row_is_not_requeued(factory):

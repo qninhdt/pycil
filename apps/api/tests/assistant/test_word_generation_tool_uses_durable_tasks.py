@@ -21,6 +21,7 @@ from pycil.assistant.application import tools
 from pycil.auth.models import User
 from pycil.common.errors import AppError, TooManyRequestsError
 from pycil.content.application import generation_quota
+from pycil.tasks.domain.vocabulary import JOB_NAME_FOR_KIND, TASK_KIND_WORD, WordDispatch
 from pycil.tasks.infra.models import AsyncTask
 
 pytestmark = pytest.mark.asyncio
@@ -82,12 +83,19 @@ async def test_the_tool_creates_a_durable_task_and_enqueues_the_shared_job(
     result = await _generate("serendipity", _runtime(user))
 
     task = (await session.execute(select(AsyncTask))).scalars().one()
-    assert task.kind == "word"
+    assert task.kind == TASK_KIND_WORD
     assert result == f"generation_requested:{task.id}"
     # The dispatch payload is what the reconciler re-enqueues from, so a task the
     # arq enqueue never reached is still recoverable.
-    assert task.dispatch == {"query": "serendipity", "owner_id": str(user.id)}
-    assert enqueued == [("generate_word_task", str(task.id), "serendipity", str(user.id))]
+    assert task.dispatch == WordDispatch(query="serendipity", owner_id=str(user.id)).to_dispatch()
+    assert enqueued == [
+        (
+            JOB_NAME_FOR_KIND[TASK_KIND_WORD],
+            str(task.id),
+            "serendipity",
+            str(user.id),
+        )
+    ]
 
 
 async def test_both_producers_join_one_task_for_the_same_word(

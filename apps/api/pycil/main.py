@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, PlainTextResponse
+from shared.tasks.contract import WORKER_HEARTBEAT_KEY
 from sqlalchemy import text
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -35,8 +36,6 @@ from pycil.ports.centrifugo import RealtimeControl, close_centrifugo, get_centri
 from pycil.ports.lexi_provider import close_lexi_client, get_lexi_client
 from pycil.realtime.router import router as realtime_router
 from pycil.realtime.router import subscribe_proxy_router
-
-_WORKER_HEARTBEAT_KEY = "worker:heartbeat"
 
 
 @asynccontextmanager
@@ -112,7 +111,7 @@ def create_app() -> FastAPI:
                 await connection.execute(text("SELECT 1"))
             redis = get_redis()
             await redis.ping()
-            if not await redis.get(_WORKER_HEARTBEAT_KEY):
+            if not await redis.get(WORKER_HEARTBEAT_KEY):
                 raise RuntimeError("worker_heartbeat_missing")
         except Exception as exc:  # noqa: BLE001 - readiness must collapse dependency details
             raise ServiceUnavailableError("core_dependency_unavailable") from exc

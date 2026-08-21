@@ -38,6 +38,7 @@ from pycil.policy.sense_state import UserSenseStats
 from pycil.ports.lexi import LexiReader, SenseView
 from pycil.ports.lexi_provider import get_lexi_client
 from pycil.tasks.application import service as task_service
+from pycil.tasks.domain.vocabulary import JOB_NAME_FOR_KIND, TASK_KIND_WORD, WordDispatch
 from pycil.tasks.domain.work_keys import word_work_key
 
 logger = logging.getLogger(__name__)
@@ -87,10 +88,11 @@ async def request_word(
             code="word_generation_quota_exceeded",
             retry_after=3600,
         )
+    dispatch = WordDispatch(query=body.query, owner_id=str(user.id))
     try:
         submission = await task_service.submit_or_join(
             session,
-            kind="word",
+            kind=TASK_KIND_WORD,
             server_work_key=word_work_key(
                 generation_quota.normalize_query(body.query),
                 settings.lexi_reference_dataset_fingerprint,
@@ -99,7 +101,7 @@ async def request_word(
             command_kind="word.generate",
             command_id=idempotency_key or f"word:{uuid4()}",
             provenance="word-search",
-            dispatch={"query": body.query, "owner_id": str(user.id)},
+            dispatch=dispatch,
         )
     except Exception:
         await generation_quota.release_inflight_quota(redis, user.id)
@@ -111,7 +113,9 @@ async def request_word(
         try:
             pool = await get_arq_pool()
             await pool.enqueue_job(
-                "generate_word_task", str(submission.task.id), body.query, str(user.id)
+                JOB_NAME_FOR_KIND[TASK_KIND_WORD],
+                str(submission.task.id),
+                *dispatch.job_args(),
             )
         except Exception:  # noqa: BLE001 - durable reconciliation handles enqueue outages
             pass

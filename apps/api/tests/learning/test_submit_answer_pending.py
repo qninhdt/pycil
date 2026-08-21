@@ -45,6 +45,7 @@ from pycil.learning.infra import session_store
 from pycil.learning.infra.models import Response
 from pycil.main import create_app
 from pycil.ports.lexi_provider import get_lexi_client
+from pycil.tasks.domain.vocabulary import JOB_NAME_FOR_KIND, TASK_KIND_GRADING
 from tests.learning.fakes import RUBRIC_AT_EVERY_LEVEL, FakeLexiReader
 
 # A free-text sense: `use_in_sentence` is the fake's LLM type, so evaluating it
@@ -264,7 +265,9 @@ async def test_a_grading_job_is_enqueued_for_the_created_task(llm_client):
     )
     task_id = answered.json()["taskId"]
 
-    grading_jobs = [job for job in pool.jobs if job[0] == "grade_answer_task"]
+    grading_jobs = [
+        job for job in pool.jobs if job[0] == JOB_NAME_FOR_KIND[TASK_KIND_GRADING]
+    ]
     assert len(grading_jobs) == 1
     assert grading_jobs[0][1] == str(task_id)
 

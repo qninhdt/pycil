@@ -46,7 +46,7 @@ async def test_grade_answer_returns_the_settled_verdict(monkeypatch, worker_cont
     monkeypatch.setattr(grade_answer.service, "apply_verdict", resolve)
     monkeypatch.setattr(grade_answer.task_service, "find_live_task", no_task)
 
-    result = await grade_answer.grade_answer_v1(worker_context, "owner", str(outcome.response_id))
+    result = await grade_answer.grade_answer_v1(worker_context, str(outcome.response_id))
 
     assert result == {"status": "graded", "is_correct": True, "task": "no-task"}
 
@@ -90,7 +90,7 @@ async def test_reconciled_grade_converges_the_task_snapshot(monkeypatch, worker_
     monkeypatch.setattr(grade_answer.task_service, "claim_task", claim_task)
     monkeypatch.setattr(grade_answer.task_service, "transition_task", transition_task)
 
-    result = await grade_answer.grade_answer_v1(worker_context, "owner", str(response_id))
+    result = await grade_answer.grade_answer_v1(worker_context, str(response_id))
 
     assert result["status"] == "graded"
     assert result["task"] == "converged"
@@ -128,7 +128,7 @@ async def test_grade_convergence_failure_does_not_fail_the_grade(monkeypatch, wo
     monkeypatch.setattr(grade_answer.task_service, "find_live_task", find_live_task)
     monkeypatch.setattr(grade_answer.task_service, "claim_task", claim_task)
 
-    result = await grade_answer.grade_answer_v1(worker_context, "owner", str(response_id))
+    result = await grade_answer.grade_answer_v1(worker_context, str(response_id))
 
     assert result["status"] == "graded"
     assert result["task"] == "not-claimable"
@@ -146,7 +146,7 @@ async def test_grade_answer_retry_settles_nothing_a_second_time(monkeypatch, wor
 
     monkeypatch.setattr(grade_answer.service, "apply_verdict", resolve)
 
-    result = await grade_answer.grade_answer_v1(worker_context, "owner", str(uuid4()))
+    result = await grade_answer.grade_answer_v1(worker_context, str(uuid4()))
     assert result == {"status": "duplicate"}
 
 

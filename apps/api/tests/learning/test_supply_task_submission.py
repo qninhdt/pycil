@@ -22,6 +22,11 @@ import pytest
 from pycil.auth.models import User
 from pycil.learning.application import session_flow
 from pycil.learning.infra import session_store
+from pycil.tasks.domain.vocabulary import (
+    JOB_NAME_FOR_KIND,
+    TASK_KIND_QUESTION_SUPPLY,
+    SupplyDispatch,
+)
 from pycil.tasks.domain.work_keys import supply_work_key
 from pycil.tasks.infra.models import AsyncTask
 
@@ -100,17 +105,24 @@ async def test_a_supply_request_creates_a_task_the_client_can_subscribe_to(sessi
 
     task = await session.get(AsyncTask, result.task_id)
     assert task is not None
-    assert task.kind == "question_supply"
+    assert task.kind == TASK_KIND_QUESTION_SUPPLY
     assert task.work_key == supply_work_key(session_id, 1)
     # The reconciler re-enqueues from `dispatch` alone, so anything missing here is
     # a task that can never be recovered once its enqueue is lost.
-    assert task.dispatch == {
-        "owner_id": str(owner_id),
-        "session_id": session_id,
-        "round_index": 1,
-        "demands": [[11, 1, 2]],
-    }
-    assert pool.jobs == [("prepare_questions_task", str(task.id), str(owner_id), [(11, 1, 2)])]
+    assert task.dispatch == SupplyDispatch(
+        owner_id=str(owner_id),
+        session_id=session_id,
+        round_index=1,
+        demands=[(11, 1, 2)],
+    ).to_dispatch()
+    assert pool.jobs == [
+        (
+            JOB_NAME_FOR_KIND[TASK_KIND_QUESTION_SUPPLY],
+            str(task.id),
+            str(owner_id),
+            [(11, 1, 2)],
+        )
+    ]
 
 
 async def test_two_requests_in_one_round_join_one_task_rather_than_buying_two(session, pool):

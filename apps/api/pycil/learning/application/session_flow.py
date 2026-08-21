@@ -42,6 +42,11 @@ from pycil.learning.domain.resolver import ResolvedQuestion
 from pycil.learning.infra import session_store
 from pycil.ports.lexi import LexiReader
 from pycil.tasks.application import service as task_service
+from pycil.tasks.domain.vocabulary import (
+    JOB_NAME_FOR_KIND,
+    TASK_KIND_QUESTION_SUPPLY,
+    SupplyDispatch,
+)
 from pycil.tasks.domain.work_keys import supply_work_key
 
 # How many times session creation re-plans when a structural mutation lands mid-flight.
@@ -235,7 +240,9 @@ async def request_supply(
     # subscribe to" and falls back to asking again. That is the exact case a reload
     # produces: the wait is re-established, the task is mid-flight, and the learner
     # would poll until the budget stalls while their questions were being written.
-    live = await task_service.find_live_task(session, kind="question_supply", work_key=work_key)
+    live = await task_service.find_live_task(
+        session, kind=TASK_KIND_QUESTION_SUPPLY, work_key=work_key
+    )
     if live is not None:
         return SupplyRequest("requested", live.id)
 
@@ -247,9 +254,15 @@ async def request_supply(
     if state != "claimed":
         return SupplyRequest("exhausted")
 
+    dispatch = SupplyDispatch(
+        owner_id=str(owner_id),
+        session_id=session_id,
+        round_index=round_index,
+        demands=demands,
+    )
     submission = await task_service.submit_or_join(
         session,
-        kind="question_supply",
+        kind=TASK_KIND_QUESTION_SUPPLY,
         server_work_key=work_key,
         requester_id=owner_id,
         command_kind="question_supply.request",
@@ -257,21 +270,15 @@ async def request_supply(
         # already started instead of receipting a second one.
         command_id=f"{session_id}:{round_index}",
         provenance="session-owner",
-        dispatch={
-            "owner_id": str(owner_id),
-            "session_id": session_id,
-            "round_index": round_index,
-            "demands": [list(demand) for demand in demands],
-        },
+        dispatch=dispatch,
     )
     if submission.task_created:
         try:
             pool = await get_arq_pool()
             await pool.enqueue_job(
-                "prepare_questions_task",
+                JOB_NAME_FOR_KIND[TASK_KIND_QUESTION_SUPPLY],
                 str(submission.task.id),
-                str(owner_id),
-                demands,
+                *dispatch.job_args(),
             )
         except Exception:  # the durable row is committed; the reconciler retries
             pass

@@ -3,6 +3,7 @@
 from datetime import UTC, datetime, timedelta
 
 from pycil.learning.infra.models import GradeStatus, Response
+from shared.tasks.contract import JOB_NAME_GRADE_ANSWER_V1
 from sqlalchemy import or_, select, update
 
 from pycil_worker.context import ReadyWorkerContext
@@ -92,7 +93,8 @@ async def reconcile_pending_grades(ctx: ReadyWorkerContext) -> dict:
         )
         await session.commit()
     for response in rows:
-        await ctx["redis"].enqueue_job("grade_answer_v1", str(response.user_id), str(response.id))
+        # The handler grades off the response row alone; only its id travels.
+        await ctx["redis"].enqueue_job(JOB_NAME_GRADE_ANSWER_V1, str(response.id))
     return {
         "requeued": len(rows),
         "purged": purged.rowcount,

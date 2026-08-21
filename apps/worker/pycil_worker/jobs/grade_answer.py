@@ -18,6 +18,7 @@ from pycil.tasks.application import service as task_service
 from pycil.tasks.domain.work_keys import grading_work_key
 from pycil.tasks.infra.models import AsyncTaskStatus
 from shared.realtime.payloads import GradingResult
+from shared.tasks.contract import TASK_KIND_GRADING
 
 from pycil_worker.context import ReadyWorkerContext
 
@@ -74,7 +75,7 @@ async def _converge_task_snapshot(ctx: ReadyWorkerContext, response_id: str, res
     """
     async with ctx["session_factory"]() as session:
         task = await task_service.find_live_task(
-            session, kind="grading", work_key=grading_work_key(response_id)
+            session, kind=TASK_KIND_GRADING, work_key=grading_work_key(response_id)
         )
         if task is None:
             return "no-task"
@@ -94,7 +95,7 @@ async def _converge_task_snapshot(ctx: ReadyWorkerContext, response_id: str, res
     return "converged" if updated else "stale"
 
 
-async def grade_answer_v1(ctx: ReadyWorkerContext, owner_uid: str, response_id: str) -> dict:
+async def grade_answer_v1(ctx: ReadyWorkerContext, response_id: str) -> dict:
     """Grade by response id, for the pending-grade reconciler.
 
     One function rather than the three that used to spell this: `grade_answer`
@@ -106,6 +107,9 @@ async def grade_answer_v1(ctx: ReadyWorkerContext, owner_uid: str, response_id: 
     `grade_answer_task` remains separate and is what producers enqueue. This entry
     point exists only because the reconciler re-enqueues by response id, which is
     also why `_converge_task_snapshot` has to go looking for the task afterwards.
+    The owner was once passed through as well but read by nothing — grading is
+    keyed on the response row alone — so the argument is gone rather than
+    threading a dead value into a job that ignores it.
     """
     redis = get_redis()
     grader = ctx["lexi_engine"]
