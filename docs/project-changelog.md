@@ -41,7 +41,10 @@ shared-py/web suites. See
   owned_children_page`) now serves both the hierarchy route and the assistant
   facade, retiring the facade's separate created-at cursor scheme; the resume
   cursor is the last returned row id. (The bounded offset slice on
-  `/folders/{id}/items` deliberately stays.)
+  `/folders/{id}/items` deliberately stays.) Assistant listing cursors are now
+  opaque like the route's: a stale or foreign cursor shifts where the caller's
+  own scan resumes instead of answering `assistant_cursor_not_in_collection`;
+  owner scoping is unchanged and pinned by test.
 - **One process-wide Centrifugo client** (`ports/centrifugo.py`) across API and
   worker; the worker's outbox relay consumes publishing through the injected
   job context instead of building a fresh HTTP client per invocation.
