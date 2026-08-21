@@ -5,6 +5,7 @@ from collections.abc import Callable
 from typing import Any, NotRequired, TypedDict
 
 from lexi_ai import Lexicon
+from pycil.ports.centrifugo import CentrifugoControl
 from pycil.ports.lexi import LexiReader, LexiWorkerEngine
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
@@ -26,6 +27,7 @@ class WorkerContext(TypedDict, total=False):
     task_outbox_drain_lock: Lock
     task_outbox_listener: Any
     task_outbox_notification_callback: Callable[..., Any]
+    centrifugo: CentrifugoControl
 
 
 class ReadyWorkerContext(TypedDict):
@@ -42,3 +44,4 @@ class ReadyWorkerContext(TypedDict):
     task_outbox_listener: NotRequired[Any]
     task_outbox_notification_callback: NotRequired[Callable[..., Any]]
     job_try: NotRequired[int]
+    centrifugo: CentrifugoControl

@@ -199,6 +199,60 @@ async def test_a_transport_failure_is_a_failed_disconnect():
 
 
 @pytest.mark.asyncio
+async def test_publish_posts_the_channel_and_payload_with_the_api_key():
+    """The publish request carries channel and data on the shared client's terms."""
+    calls: list[httpx.Request] = []
+
+    def ok(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(200, json={})
+
+    adapter = client.CentrifugoControl(httpx.AsyncClient(transport=httpx.MockTransport(ok)))
+    await adapter.publish("async:task-1", {"eventId": "event"})
+    assert len(calls) == 1
+    assert str(calls[0].url) == f"{settings.centrifugo_url}/api/publish"
+    assert calls[0].headers["X-API-Key"] == settings.centrifugo_api_key
+    assert json.loads(calls[0].content) == {
+        "channel": "async:task-1",
+        "data": {"eventId": "event"},
+    }
+    await adapter.close()
+
+
+@pytest.mark.asyncio
+async def test_publish_raises_on_http_and_command_level_rejections():
+    """Publication has no degraded answer: every rejection raises for the caller."""
+
+    def http_error(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503)
+
+    adapter = client.CentrifugoControl(
+        httpx.AsyncClient(transport=httpx.MockTransport(http_error))
+    )
+    try:
+        await adapter.publish("async:task-1", {})
+        raised = False
+    except httpx.HTTPError:
+        raised = True
+    assert raised
+    await adapter.close()
+
+    def command_error(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"error": {"code": 103}})
+
+    adapter = client.CentrifugoControl(
+        httpx.AsyncClient(transport=httpx.MockTransport(command_error))
+    )
+    try:
+        await adapter.publish("async:task-1", {})
+        raised = False
+    except RuntimeError:
+        raised = True
+    assert raised
+    await adapter.close()
+
+
+@pytest.mark.asyncio
 async def test_readiness_reports_reachability_without_publishing():
     """`/health/ready` needs a yes/no, and must not emit an event to get it."""
     seen: list[httpx.Request] = []

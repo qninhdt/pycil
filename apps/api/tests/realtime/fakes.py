@@ -15,6 +15,7 @@ Postgres and a live socket only shortens how long a stale connection lingers.
 """
 
 import time
+from typing import Any
 from uuid import UUID
 
 import jwt
@@ -38,6 +39,7 @@ class FakeRealtimeControl:
         self._disconnects = disconnects
         self.disconnected: list[str] = []
         self.minted: list[tuple[str, int]] = []
+        self.published: list[tuple[str, dict[str, Any]]] = []
         self.readiness_calls = 0
 
     async def readiness(self) -> bool:
@@ -60,3 +62,6 @@ class FakeRealtimeControl:
     async def disconnect_user(self, user_id: UUID | str) -> bool:
         self.disconnected.append(str(user_id))
         return self._disconnects
+
+    async def publish(self, channel: str, data: dict[str, Any]) -> None:
+        self.published.append((channel, data))

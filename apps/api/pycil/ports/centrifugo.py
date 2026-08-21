@@ -30,7 +30,7 @@ needs; the function was a standing invitation to reintroduce that race.
 """
 
 import time
-from typing import Protocol
+from typing import Any, Protocol
 from uuid import UUID
 
 import httpx
@@ -59,6 +59,9 @@ class RealtimeControl(Protocol):
 
     async def disconnect_user(self, user_id: UUID | str) -> bool:
         """Close every connection belonging to a user. False if that did not land."""
+
+    async def publish(self, channel: str, data: dict[str, Any]) -> None:
+        """Deliver one message on a channel. Raises when the broker rejects it."""
 
 
 class CentrifugoControl:
@@ -113,6 +116,23 @@ class CentrifugoControl:
         except (httpx.HTTPError, ValueError):
             return False
         return isinstance(payload, dict) and not payload.get("error")
+
+    async def publish(self, channel: str, data: dict[str, Any]) -> None:
+        """Publish one message through Centrifugo's HTTP API.
+
+        Unlike `disconnect_user` there is no degraded "carry on locally" answer:
+        the caller (the worker's outbox relay) owns at-least-once semantics, so
+        every rejection — transport, HTTP status, or a command-level error inside
+        a 200 — raises and the caller decides what a retry means.
+        """
+        response = await self._client.post(
+            f"{settings.centrifugo_url}/api/publish",
+            headers={"X-API-Key": settings.centrifugo_api_key},
+            json={"channel": channel, "data": data},
+        )
+        response.raise_for_status()
+        if response.json().get("error"):
+            raise RuntimeError("centrifugo_command_rejected")
 
     async def close(self) -> None:
         await self._client.aclose()

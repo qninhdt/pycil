@@ -24,6 +24,7 @@ from arq.connections import RedisSettings
 from arq.cron import cron
 from lexi_ai import Lexicon
 from pycil.config import settings
+from pycil.ports.centrifugo import CentrifugoControl
 from pycil.ports.lexi import LexiReader, LexiWorkerEngine
 from pycil.ports.lexi_embedded import create_lexicon_reader
 from shared.tasks.contract import JOB_NAME_FOR_KIND, JOB_NAME_GRADE_ANSWER_V1
@@ -81,6 +82,10 @@ async def _start_task_outbox_listener(ctx: ReadyWorkerContext) -> None:
 
 async def on_startup(ctx: WorkerContext) -> None:
     ctx["worker_id"] = str(uuid4())
+    # One broker client for the whole process: the outbox relay fires it on every
+    # pg notification and cron sweep, so per-invocation clients would multiply
+    # connections for no reuse.
+    ctx["centrifugo"] = CentrifugoControl()
     lexicon, reader, worker_engine = create_embedded_lexi_worker_engine()
     ctx["lexicon"] = lexicon
     ctx["lexi_reader"] = reader
@@ -108,6 +113,9 @@ async def on_shutdown(ctx: WorkerContext) -> None:
     lexicon = ctx.get("lexicon")
     if lexicon is not None:
         await close_embedded_lexicon(lexicon)
+    centrifugo = ctx.get("centrifugo")
+    if centrifugo is not None:
+        await centrifugo.close()
     engine = ctx.get("engine")
     if engine is not None:
         await engine.dispose()

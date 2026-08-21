@@ -33,7 +33,12 @@ def _port_methods() -> set[str]:
 
 def test_the_port_declares_the_methods_pycil_actually_calls():
     """A guard on the guard: an empty port would make every check below vacuous."""
-    assert _port_methods() == {"readiness", "mint_connection_token", "disconnect_user"}
+    assert _port_methods() == {
+        "readiness",
+        "mint_connection_token",
+        "disconnect_user",
+        "publish",
+    }
 
 
 def test_every_implementation_provides_the_whole_port():
