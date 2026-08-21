@@ -5,16 +5,17 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pycil.assistant.application.hierarchy_facade import _owned_node
 from pycil.common.errors import ConflictError, NotFoundError
 from pycil.content.application import service
 from pycil.content.infra.models import DeckSense
-from pycil.hierarchy.infra.models import NodeType
+from pycil.hierarchy.application.access import ActorRef, require_node_access
+from pycil.hierarchy.infra.models import Node, NodeType
 from pycil.ports.lexi_provider import get_lexi_client
 
 
-async def _owned_deck(session: AsyncSession, actor_id: UUID, deck_id: UUID):
-    deck = await _owned_node(session, actor_id, deck_id)
+async def _require_deck(session: AsyncSession, actor_id: UUID, deck_id: UUID) -> Node:
+    """Resolve a tool-supplied deck id through the canonical ownership gate."""
+    deck = await require_node_access(session, deck_id, ActorRef(actor_id), write=True)
     if deck.type != NodeType.DECK:
         raise ConflictError("deck_senses_require_deck")
     return deck
@@ -23,7 +24,7 @@ async def _owned_deck(session: AsyncSession, actor_id: UUID, deck_id: UUID):
 async def list_deck_items(
     session: AsyncSession, actor_id: UUID, deck_id: UUID, limit: int, cursor: int | None = None
 ) -> dict:
-    await _owned_deck(session, actor_id, deck_id)
+    await _require_deck(session, actor_id, deck_id)
     query = select(DeckSense).where(DeckSense.node_id == deck_id)
     if cursor is not None:
         cursor_row = await session.get(DeckSense, cursor)
@@ -47,7 +48,7 @@ async def list_deck_items(
 
 
 async def add_sense(session: AsyncSession, actor_id: UUID, deck_id: UUID, sense_id: int) -> dict:
-    await _owned_deck(session, actor_id, deck_id)
+    await _require_deck(session, actor_id, deck_id)
     row = await service.add_sense(session, deck_id, sense_id)
     return {"id": row.id, "sense_id": row.sense_id}
 
@@ -55,5 +56,5 @@ async def add_sense(session: AsyncSession, actor_id: UUID, deck_id: UUID, sense_
 async def remove_sense(
     session: AsyncSession, actor_id: UUID, deck_id: UUID, sense_id: int, *, commit: bool = True
 ) -> None:
-    await _owned_deck(session, actor_id, deck_id)
+    await _require_deck(session, actor_id, deck_id)
     await service.remove_sense(session, deck_id, sense_id, commit=commit)

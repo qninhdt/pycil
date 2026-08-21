@@ -1,7 +1,9 @@
 """Actor-aware hierarchy operations for assistant tools.
 
-The assistant never calls node-ID-only services directly. This facade repeats
-ownership checks at the application boundary so prompt-selected IDs are safe.
+The assistant never calls node-ID-only services directly. Every id entering
+through a tool argument is resolved through the same ``require_node_access``
+gate the HTTP routes use, so prompt-selected ids cannot reach another user's
+nodes.
 """
 
 from uuid import UUID
@@ -11,14 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from pycil.common.errors import NotFoundError
 from pycil.hierarchy.application import service
+from pycil.hierarchy.application.access import ActorRef, require_node_access
 from pycil.hierarchy.infra.models import Node, NodeType, Visibility
-
-
-async def _owned_node(session: AsyncSession, actor_id: UUID, node_id: UUID) -> Node:
-    node = await session.get(Node, node_id)
-    if node is None or node.deleted_at is not None or node.author_id != actor_id:
-        raise NotFoundError("node_not_found")
-    return node
 
 
 def node_payload(node: Node) -> dict:
@@ -40,14 +36,14 @@ async def list_nodes(
     cursor: UUID | None = None,
 ) -> dict:
     if parent_id is not None:
-        await _owned_node(session, actor_id, parent_id)
+        await require_node_access(session, parent_id, ActorRef(actor_id), write=True)
     conditions = [
         Node.author_id == actor_id,
         Node.parent_node_id == parent_id,
         Node.deleted_at.is_(None),
     ]
     if cursor is not None:
-        cursor_node = await _owned_node(session, actor_id, cursor)
+        cursor_node = await require_node_access(session, cursor, ActorRef(actor_id), write=True)
         if cursor_node.parent_node_id != parent_id:
             raise NotFoundError("assistant_cursor_not_in_collection")
         conditions.append(
@@ -69,14 +65,16 @@ async def list_nodes(
 
 
 async def get_node(session: AsyncSession, actor_id: UUID, node_id: UUID) -> dict:
-    return node_payload(await _owned_node(session, actor_id, node_id))
+    return node_payload(
+        await require_node_access(session, node_id, ActorRef(actor_id), write=True)
+    )
 
 
 async def create_folder(
     session: AsyncSession, actor_id: UUID, name: str, parent_id: UUID | None
 ) -> dict:
     if parent_id is not None:
-        await _owned_node(session, actor_id, parent_id)
+        await require_node_access(session, parent_id, ActorRef(actor_id), write=True)
     node = await service.create_node(
         session,
         actor_id,
@@ -92,7 +90,7 @@ async def create_deck(
     session: AsyncSession, actor_id: UUID, name: str, parent_id: UUID | None
 ) -> dict:
     if parent_id is not None:
-        await _owned_node(session, actor_id, parent_id)
+        await require_node_access(session, parent_id, ActorRef(actor_id), write=True)
     node = await service.create_node(
         session,
         actor_id,
@@ -104,7 +102,7 @@ async def create_deck(
 
 
 async def rename_node(session: AsyncSession, actor_id: UUID, node_id: UUID, name: str) -> dict:
-    node = await _owned_node(session, actor_id, node_id)
+    node = await require_node_access(session, node_id, ActorRef(actor_id), write=True)
     node.name = name
     await session.commit()
     await session.refresh(node)
@@ -119,21 +117,21 @@ async def move_node(
     *,
     commit: bool = True,
 ) -> dict:
-    node = await _owned_node(session, actor_id, node_id)
+    node = await require_node_access(session, node_id, ActorRef(actor_id), write=True)
     if parent_id is not None:
-        await _owned_node(session, actor_id, parent_id)
+        await require_node_access(session, parent_id, ActorRef(actor_id), write=True)
     return node_payload(await service.move_node(session, node, parent_id, commit=commit))
 
 
 async def set_private(session: AsyncSession, actor_id: UUID, node_id: UUID) -> dict:
-    node = await _owned_node(session, actor_id, node_id)
+    node = await require_node_access(session, node_id, ActorRef(actor_id), write=True)
     return node_payload(await service.set_visibility(session, node, Visibility.PRIVATE))
 
 
 async def publish_node(
     session: AsyncSession, actor_id: UUID, node_id: UUID, *, commit: bool = True
 ) -> dict:
-    node = await _owned_node(session, actor_id, node_id)
+    node = await require_node_access(session, node_id, ActorRef(actor_id), write=True)
     return node_payload(
         await service.set_visibility(
             session, node, Visibility.PUBLIC, confirm_subtree_publication=True, commit=commit
@@ -145,5 +143,7 @@ async def delete_node(
     session: AsyncSession, actor_id: UUID, node_id: UUID, *, commit: bool = True
 ) -> None:
     await service.soft_delete_node(
-        session, await _owned_node(session, actor_id, node_id), commit=commit
+        session,
+        await require_node_access(session, node_id, ActorRef(actor_id), write=True),
+        commit=commit,
     )

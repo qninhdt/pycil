@@ -64,7 +64,7 @@ async def _run_until_interrupt(engine, monkeypatch, owner, thread, run, tool, ar
     ]
 
 
-async def test_confirmation_names_the_owned_node_it_would_act_on(engine, session, monkeypatch):
+async def test_confirmation_names_the_owned_target_it_would_act_on(engine, session, monkeypatch):
     owner = await create_user(session)
     thread = await create_thread(session, owner.id)
     run = await create_run(session, thread.id, owner.id, __import__("uuid").uuid4())

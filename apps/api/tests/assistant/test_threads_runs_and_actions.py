@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from pycil.assistant.application import hierarchy_facade
+from pycil.assistant.application import content_facade, hierarchy_facade
 from pycil.assistant.application import tools as assistant_tools
 from pycil.assistant.application.hitl import (
     claim_decision,
@@ -23,8 +23,8 @@ from pycil.assistant.infra.models import (
     AssistantActionAudit,
     RunStatus,
 )
-from pycil.common.errors import ConflictError, NotFoundError
-from pycil.hierarchy.infra.models import Node, NodeType
+from pycil.common.errors import ConflictError, ForbiddenError, NotFoundError
+from pycil.hierarchy.infra.models import Node, NodeType, Visibility
 
 from .conftest import create_run, create_thread, create_user, expired_at
 
@@ -38,6 +38,37 @@ async def test_thread_helper_does_not_leak_cross_owner_thread(session):
 
     with pytest.raises(NotFoundError, match="assistant_thread_not_found"):
         await require_owned_thread(session, thread.id, intruder.id)
+
+
+async def test_assistant_tool_calls_reject_foreign_nodes_like_hierarchy_routes(session):
+    """Tool-supplied ids go through the same ownership gate as the HTTP routes.
+
+    A public folder grants strangers inherited read access — never write access.
+    Both facades must deny a foreign deck with the routes' ``not_node_owner``
+    error, while the owner keeps full access through the same gate.
+    """
+    owner = await create_user(session)
+    intruder = await create_user(session, "intruder-gate@example.test")
+    folder = Node(
+        author_id=owner.id,
+        type=NodeType.FOLDER,
+        name="shared",
+        visibility=Visibility.PUBLIC,
+    )
+    session.add(folder)
+    await session.flush()
+    deck = Node(author_id=owner.id, type=NodeType.DECK, name="nested", parent_node_id=folder.id)
+    session.add(deck)
+    await session.commit()
+    await session.refresh(deck)
+
+    with pytest.raises(ForbiddenError, match="not_node_owner"):
+        await hierarchy_facade.rename_node(session, intruder.id, deck.id, "hijacked")
+    with pytest.raises(ForbiddenError, match="not_node_owner"):
+        await content_facade.list_deck_items(session, intruder.id, deck.id, 10)
+
+    renamed = await hierarchy_facade.rename_node(session, owner.id, deck.id, "mine")
+    assert renamed["name"] == "mine"
 
 
 async def test_duplicate_message_replays_same_run_and_active_run_is_rejected(session):

@@ -1,11 +1,13 @@
-"""Node ownership/visibility guard — the single IDOR gate for node routes.
+"""Node ownership/visibility guard — the single IDOR gate for node access.
 
-Every node/deck route resolves access through ``require_node_access`` so a caller
-can never touch a node they don't own (write) or can't see (read). Read allows
-owner-or-public; write is owner-only. A missing node is a 404, not a 403, so the
-guard doesn't leak existence of private nodes to non-owners.
+Every node/deck route resolves access through ``require_node_access``, and the
+assistant tool facades delegate to it too, so a caller can never touch a node
+they don't own (write) or can't see (read). Read allows owner-or-public; write
+is owner-only. A missing node is a 404, not a 403, so the guard doesn't leak
+existence of private nodes to non-owners.
 """
 
+from dataclasses import dataclass
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,10 +17,17 @@ from pycil.common.errors import ForbiddenError, NotFoundError
 from pycil.hierarchy.infra.models import Node, NodeType, Visibility
 
 
+@dataclass(frozen=True)
+class ActorRef:
+    """Id-only principal for callers that hold just the actor's UUID."""
+
+    id: UUID
+
+
 async def require_node_access(
     session: AsyncSession,
     node_id: UUID,
-    user: CurrentUser | None,
+    user: CurrentUser | ActorRef | None,
     *,
     write: bool = False,
 ) -> Node:
