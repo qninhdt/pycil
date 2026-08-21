@@ -29,7 +29,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from pycil.auth.schemas import CurrentUser
 from pycil.common.errors import ConflictError, NotFoundError, ServiceUnavailableError
-from pycil.db.redis import get_arq_pool
 from pycil.hierarchy.application.access import require_node_access
 from pycil.hierarchy.infra.models import Node
 from pycil.learning.application import (
@@ -42,11 +41,8 @@ from pycil.learning.domain.resolver import ResolvedQuestion
 from pycil.learning.infra import session_store
 from pycil.ports.lexi import LexiReader
 from pycil.tasks.application import service as task_service
-from pycil.tasks.domain.vocabulary import (
-    JOB_NAME_FOR_KIND,
-    TASK_KIND_QUESTION_SUPPLY,
-    SupplyDispatch,
-)
+from pycil.tasks.application.dispatch import submit_and_dispatch
+from pycil.tasks.domain.vocabulary import TASK_KIND_QUESTION_SUPPLY, SupplyDispatch
 from pycil.tasks.domain.work_keys import supply_work_key
 
 # How many times session creation re-plans when a structural mutation lands mid-flight.
@@ -260,7 +256,7 @@ async def request_supply(
         round_index=round_index,
         demands=demands,
     )
-    submission = await task_service.submit_or_join(
+    submission = await submit_and_dispatch(
         session,
         kind=TASK_KIND_QUESTION_SUPPLY,
         server_work_key=work_key,
@@ -272,16 +268,6 @@ async def request_supply(
         provenance="session-owner",
         dispatch=dispatch,
     )
-    if submission.task_created:
-        try:
-            pool = await get_arq_pool()
-            await pool.enqueue_job(
-                JOB_NAME_FOR_KIND[TASK_KIND_QUESTION_SUPPLY],
-                str(submission.task.id),
-                *dispatch.job_args(),
-            )
-        except Exception:  # the durable row is committed; the reconciler retries
-            pass
     return SupplyRequest("requested", submission.task.id)
 
 

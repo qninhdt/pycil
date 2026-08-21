@@ -21,6 +21,7 @@ from pycil.assistant.application import tools
 from pycil.auth.models import User
 from pycil.common.errors import AppError, TooManyRequestsError
 from pycil.content.application import generation_quota
+from pycil.tasks.application import dispatch as task_dispatch
 from pycil.tasks.domain.vocabulary import JOB_NAME_FOR_KIND, TASK_KIND_WORD, WordDispatch
 from pycil.tasks.infra.models import AsyncTask
 
@@ -45,7 +46,11 @@ def _runtime(user: User) -> SimpleNamespace:
 
 @pytest.fixture
 def enqueued(monkeypatch) -> list[tuple]:
-    """Capture arq enqueues without a Redis queue."""
+    """Capture arq enqueues without a Redis queue.
+
+    The enqueue lives in the shared dispatch helper now, so that is the seam to
+    replace — no producer imports the pool itself any more.
+    """
     calls: list[tuple] = []
 
     class Pool:
@@ -55,7 +60,7 @@ def enqueued(monkeypatch) -> list[tuple]:
     async def get_pool():
         return Pool()
 
-    monkeypatch.setattr(tools, "get_arq_pool", get_pool)
+    monkeypatch.setattr(task_dispatch, "get_arq_pool", get_pool)
     return calls
 
 
@@ -180,7 +185,7 @@ async def test_a_failed_submission_does_not_keep_the_quota_slot(
     async def boom(*_args, **_kwargs):
         raise RuntimeError("submission failed")
 
-    monkeypatch.setattr(tools.task_service, "submit_or_join", boom)
+    monkeypatch.setattr(task_dispatch.task_service, "submit_or_join", boom)
 
     with pytest.raises(RuntimeError, match="submission failed"):
         await _generate("serendipity", _runtime(user))

@@ -65,9 +65,8 @@ async def learning_client(engine, monkeypatch):
     async def _fake_arq_pool():
         return fake_pool
 
-    # Both modules enqueue: session_flow for supply warm-up, answering for grading.
-    monkeypatch.setattr("pycil.learning.application.session_flow.get_arq_pool", _fake_arq_pool)
-    monkeypatch.setattr("pycil.learning.application.answering.get_arq_pool", _fake_arq_pool)
+    # Both flows enqueue through the shared dispatch helper.
+    monkeypatch.setattr("pycil.tasks.application.dispatch.get_arq_pool", _fake_arq_pool)
 
     async def override_session():
         async with factory() as s:

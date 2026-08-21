@@ -7,7 +7,7 @@ content is resolved through the LexiReader port at read time.
 
 import logging
 from typing import Annotated
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query
 from sqlalchemy.exc import SQLAlchemyError
@@ -15,9 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from pycil.auth.deps import current_user, optional_current_user
 from pycil.auth.schemas import CurrentUser
-from pycil.common.errors import NotFoundError, TooManyRequestsError
-from pycil.config import settings
-from pycil.content.application import generation_quota, service
+from pycil.common.errors import NotFoundError
+from pycil.content.application import generation, service
 from pycil.content.domain.schemas import (
     GenerationCreateRead,
     SenseAddRequest,
@@ -29,7 +28,7 @@ from pycil.content.domain.schemas import (
     WordRequest,
     WordSearchRead,
 )
-from pycil.db.redis import get_arq_pool, get_redis
+from pycil.db.redis import get_redis
 from pycil.db.session import get_session
 from pycil.hierarchy.application import subtree
 from pycil.hierarchy.application.access import require_node_access
@@ -37,9 +36,6 @@ from pycil.policy.policy import mastery_stage, mastery_stage_name
 from pycil.policy.sense_state import UserSenseStats
 from pycil.ports.lexi import LexiReader, SenseView
 from pycil.ports.lexi_provider import get_lexi_client
-from pycil.tasks.application import service as task_service
-from pycil.tasks.domain.vocabulary import JOB_NAME_FOR_KIND, TASK_KIND_WORD, WordDispatch
-from pycil.tasks.domain.work_keys import word_work_key
 
 logger = logging.getLogger(__name__)
 
@@ -80,48 +76,15 @@ async def request_word(
     session: AsyncSession = Depends(get_session),
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> GenerationCreateRead:
-    redis = get_redis()
-    if not await generation_quota.reserve_quota(redis, user.id):
-        # Kept as an existing domain exception until the API-wide 429 mapping lands.
-        raise TooManyRequestsError(
-            "word_generation_quota_exceeded",
-            code="word_generation_quota_exceeded",
-            retry_after=3600,
-        )
-    dispatch = WordDispatch(query=body.query, owner_id=str(user.id))
-    try:
-        submission = await task_service.submit_or_join(
-            session,
-            kind=TASK_KIND_WORD,
-            server_work_key=word_work_key(
-                generation_quota.normalize_query(body.query),
-                settings.lexi_reference_dataset_fingerprint,
-            ),
-            requester_id=user.id,
-            command_kind="word.generate",
-            command_id=idempotency_key or f"word:{uuid4()}",
-            provenance="word-search",
-            dispatch=dispatch,
-        )
-    except Exception:
-        await generation_quota.release_inflight_quota(redis, user.id)
-        raise
-    if not submission.task_created:
-        await generation_quota.release_inflight_quota(redis, user.id)
-    else:
-        # The committed task is the source of truth for the subscriber receipt.
-        try:
-            pool = await get_arq_pool()
-            await pool.enqueue_job(
-                JOB_NAME_FOR_KIND[TASK_KIND_WORD],
-                str(submission.task.id),
-                *dispatch.job_args(),
-            )
-        except Exception:  # noqa: BLE001 - durable reconciliation handles enqueue outages
-            pass
-    return GenerationCreateRead(
-        task_id=submission.task.id,
+    task_id = await generation.request_word_generation(
+        session,
+        get_redis(),
+        owner_id=user.id,
+        query=body.query,
+        provenance="word-search",
+        idempotency_key=idempotency_key,
     )
+    return GenerationCreateRead(task_id=task_id)
 
 
 @router.get("/words/search", response_model=list[WordSearchRead])

@@ -3,7 +3,7 @@
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from langchain.tools import ToolRuntime, tool
 
@@ -11,17 +11,13 @@ from pycil.assistant.application import content_facade, hierarchy_facade
 from pycil.assistant.application.persistence import revalidate_actor
 from pycil.assistant.domain.context import AssistantContext
 from pycil.assistant.infra.models import ActionStatus, AssistantAction, AssistantActionAudit
-from pycil.common.errors import AppError, TooManyRequestsError
-from pycil.config import settings
-from pycil.content.application import generation_quota
-from pycil.db.redis import get_arq_pool, get_redis
+from pycil.common.errors import AppError
+from pycil.content.application import generation
+from pycil.db.redis import get_redis
 from pycil.db.session import async_session_factory
 from pycil.hierarchy.application import cache
 from pycil.hierarchy.application.viewer_stats import get_folder_stats_for_viewer
 from pycil.ports.lexi_provider import get_lexi_client
-from pycil.tasks.application import service as task_service
-from pycil.tasks.domain.vocabulary import JOB_NAME_FOR_KIND, TASK_KIND_WORD, WordDispatch
-from pycil.tasks.domain.work_keys import word_work_key
 
 MAX_RESULTS = 50
 
@@ -211,46 +207,15 @@ async def request_word_generation(query: str, runtime: ToolRuntime[AssistantCont
             "word_generation_query_invalid",
             code="word_generation_query_invalid",
         )
-    owner_id = runtime.context.user_id
-    redis = get_redis()
-    if not await generation_quota.reserve_quota(redis, owner_id):
-        raise TooManyRequestsError(
-            "word_generation_quota_exceeded",
-            code="word_generation_quota_exceeded",
-            retry_after=3600,
-        )
-    dispatch = WordDispatch(query=trimmed, owner_id=str(owner_id))
     async with async_session_factory() as session:
-        try:
-            submission = await task_service.submit_or_join(
-                session,
-                kind=TASK_KIND_WORD,
-                server_work_key=word_work_key(
-                    generation_quota.normalize_query(trimmed),
-                    settings.lexi_reference_dataset_fingerprint,
-                ),
-                requester_id=owner_id,
-                command_kind="word.generate",
-                command_id=f"word:{uuid4()}",
-                provenance="assistant",
-                dispatch=dispatch,
-            )
-        except Exception:
-            await generation_quota.release_inflight_quota(redis, owner_id)
-            raise
-    if not submission.task_created:
-        await generation_quota.release_inflight_quota(redis, owner_id)
-    else:
-        try:
-            await (await get_arq_pool()).enqueue_job(
-                JOB_NAME_FOR_KIND[TASK_KIND_WORD],
-                str(submission.task.id),
-                *dispatch.job_args(),
-            )
-        except Exception:
-            # The durable reconciler will enqueue this committed task.
-            pass
-    return f"generation_requested:{submission.task.id}"
+        task_id = await generation.request_word_generation(
+            session,
+            get_redis(),
+            owner_id=runtime.context.user_id,
+            query=trimmed,
+            provenance="assistant",
+        )
+    return f"generation_requested:{task_id}"
 
 
 @tool

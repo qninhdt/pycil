@@ -32,15 +32,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from pycil.auth.schemas import CurrentUser
 from pycil.common.errors import ConflictError
-from pycil.db.redis import get_arq_pool
 from pycil.learning.application import service
 from pycil.learning.application.question_delivery import render_format
 from pycil.learning.domain import grading
 from pycil.learning.infra import session_store
 from pycil.learning.infra.models import Response
 from pycil.ports.lexi import LexiReader
-from pycil.tasks.application import service as task_service
-from pycil.tasks.domain.vocabulary import JOB_NAME_FOR_KIND, TASK_KIND_GRADING, GradingDispatch
+from pycil.tasks.application.dispatch import submit_and_dispatch
+from pycil.tasks.domain.vocabulary import TASK_KIND_GRADING, GradingDispatch
 from pycil.tasks.domain.work_keys import grading_work_key
 
 
@@ -378,8 +377,7 @@ async def _defer(
     # raised by any of them still sees the row as committed.
     claim.value = _Claim.COMMITTED
     await session_store.set_awaiting_grade(redis, session_id, bound.sense_id, True)
-    dispatch = GradingDispatch(owner_id=str(user.id), response_id=str(response.id))
-    submission = await task_service.submit_or_join(
+    submission = await submit_and_dispatch(
         session,
         kind=TASK_KIND_GRADING,
         server_work_key=grading_work_key(str(response.id)),
@@ -387,18 +385,8 @@ async def _defer(
         command_kind="grading.submit",
         command_id=str(response.id),
         provenance="response-owner",
-        dispatch=dispatch,
+        dispatch=GradingDispatch(owner_id=str(user.id), response_id=str(response.id)),
     )
-    if submission.task_created:
-        try:
-            pool = await get_arq_pool()
-            await pool.enqueue_job(
-                JOB_NAME_FOR_KIND[TASK_KIND_GRADING],
-                str(submission.task.id),
-                *dispatch.job_args(),
-            )
-        except Exception:  # durable worker reconciliation retries the enqueue
-            pass
     return Deferred(
         response_id=response.id,
         sense_id=bound.sense_id,

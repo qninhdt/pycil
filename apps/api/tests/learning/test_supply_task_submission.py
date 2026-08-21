@@ -22,6 +22,7 @@ import pytest
 from pycil.auth.models import User
 from pycil.learning.application import session_flow
 from pycil.learning.infra import session_store
+from pycil.tasks.application import dispatch as task_dispatch
 from pycil.tasks.domain.vocabulary import (
     JOB_NAME_FOR_KIND,
     TASK_KIND_QUESTION_SUPPLY,
@@ -50,7 +51,9 @@ def pool(monkeypatch) -> _Pool:
     async def get_pool():
         return recorder
 
-    monkeypatch.setattr(session_flow, "get_arq_pool", get_pool)
+    # The enqueue lives in the shared dispatch helper now, so that is the seam to
+    # replace — no producer imports the pool itself any more.
+    monkeypatch.setattr(task_dispatch, "get_arq_pool", get_pool)
     return recorder
 
 
@@ -252,7 +255,7 @@ async def test_a_lost_enqueue_still_leaves_a_recoverable_task(session, monkeypat
     async def broken_pool():
         raise ConnectionError("redis unavailable")
 
-    monkeypatch.setattr(session_flow, "get_arq_pool", broken_pool)
+    monkeypatch.setattr(task_dispatch, "get_arq_pool", broken_pool)
 
     result = await session_flow.request_supply(
         session, redis, session_id=session_id, owner_id=owner_id,
