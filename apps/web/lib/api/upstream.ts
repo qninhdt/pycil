@@ -25,12 +25,14 @@ export interface ProxyOptions {
    */
   headers?: Record<string, string>
   /**
-   * Answer with the server-sent-event framing the assistant contract expects.
+   * Whether to answer with the server-sent-event framing the assistant
+   * contract expects.
    *
-   * Defaults to true because both current proxies carry streams; a plain JSON
-   * passthrough can opt out explicitly.
+   * Deliberately required: the framing changes the response's Content-Type
+   * regardless of what the API answered with, so a caller that means to pass
+   * JSON through must say so rather than inherit a stream default.
    */
-  stream?: boolean
+  stream: boolean
 }
 
 /**
@@ -43,7 +45,7 @@ export interface ProxyOptions {
 export async function proxyToApi(
   request: Request,
   path: string,
-  options: ProxyOptions = {}
+  options: ProxyOptions
 ): Promise<Response> {
   const backendRes = await fetch(`${apiUrl()}${path}`, {
     method: request.method,

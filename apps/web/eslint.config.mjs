@@ -8,9 +8,13 @@ import nextTs from "eslint-config-next/typescript";
  * component import them couples render trees to transport details and invites
  * secrets into the bundle. `@/lib/api/types` and `@/lib/api/error-taxonomy`
  * are the intended surface and stay open.
+ *
+ * The leading double-star segments match relative specifiers
+ * (`../../lib/api/request`) as well as the alias, so the alias form alone
+ * is not a bypass.
  */
 const apiInternalsPattern = {
-  group: ["@/lib/api/**", "!@/lib/api/types", "!@/lib/api/error-taxonomy"],
+  group: ["**/lib/api/**", "!**/lib/api/types", "!**/lib/api/error-taxonomy"],
   message:
     "Import only the public lib/api surfaces (@/lib/api/types, @/lib/api/error-taxonomy); the rest of lib/api is server-side.",
 };

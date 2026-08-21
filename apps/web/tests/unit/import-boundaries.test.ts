@@ -35,6 +35,14 @@ describe("import boundaries", () => {
     expect(violations).toBeGreaterThan(0)
   })
 
+  it("flags the same violation through a relative specifier", async () => {
+    const violations = await restrictedImportCount(
+      path.join(webRoot, "components/library/boundary-probe.ts"),
+      'import { createFetcher } from "../../lib/api/request"\n'
+    )
+    expect(violations).toBeGreaterThan(0)
+  })
+
   it("keeps the public lib/api surfaces open to components", async () => {
     const violations = await restrictedImportCount(
       path.join(webRoot, "components/library/boundary-probe.ts"),
