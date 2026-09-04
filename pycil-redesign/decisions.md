@@ -6,7 +6,7 @@ reasoning is stated inline. `uncalibrated` means a value must be measured before
 it is trusted; the measurement that settles it is named.
 
 Prefixes: `A` architecture · `B` learning · `C` content and supply ·
-`D` hierarchy · `E` realtime · `F` messaging · `G` agent · `H` auth ·
+`D` hierarchy · `E` delivery · `F` messaging · `G` assistant · `H` auth ·
 `P` plans and credit · `I` frontend · `N` testing and CI · `O` ops ·
 `Q` deliberately absent.
 
@@ -18,7 +18,7 @@ folder. They are fixed first, independently of any decision below.
 | # | Condition | Evidence | Fix |
 |---|---|---|---|
 | P0.1 | The CI gate has been red on `main` since 2026-08-08; the last green run was 2026-07-25. `test-web` has never passed on `main`. `Deploy` was skipped on all four failing runs, so no image has reached the registry in six weeks | `gh run list --workflow=Tests --branch=main`: four consecutive `failure` | `SESSION_PASSWORD` is required with no default in Compose and the CI job supplies none. Supply it in the workflow environment |
-| P0.2 | Production refuses to boot. `validate_production_settings` requires `LEXI_REFERENCE_DATASET_FINGERPRINT` and `CENTRIFUGO_SUBSCRIBE_PROXY_SECRET`; Compose passes neither to `api` or `worker`, and the image excludes `.env` | Compose references only `LEXI_REFERENCE_DATASET_PATH`; the proxy secret is absent from `.env.example` and its Compose default is the literal the placeholder check rejects | One artefact-identity variable reaches both containers (`O5`); the proxy secret is declared and documented |
+| P0.2 | Production refuses to boot. `validate_production_settings` requires `LEXI_REFERENCE_DATASET_FINGERPRINT`; Compose passes it to neither `api` nor `worker`, and the image excludes `.env` | Compose references only `LEXI_REFERENCE_DATASET_PATH` | One artefact-identity variable reaches both containers (`O5`). The second half of this precondition — a realtime proxy secret whose Compose default was the literal the placeholder check rejects — is resolved by deletion instead: `E1` removes the gateway |
 | P0.3 | Restore cannot run. `restore.sh` hard-requires `BACKUP_ID`; the `backup` service declares it nowhere, and `docker compose run` does not forward an undeclared host variable. Backup defaults its own id, so only restore breaks — the path with no second chance | Resolved `docker compose config` shows the `backup` service environment without `BACKUP_ID` | Declare it on the service |
 
 A green gate is the baseline this redesign is verified against. Without P0.1
@@ -31,7 +31,7 @@ there is nothing to compare a change to.
 | A1 | One FastAPI application, not services | One team of one, one database, one deployment. Module boundaries are enforced by tests, not by network hops | judgment — a service boundary costs a wire contract and a failure mode per call; nothing here needs independent scaling | Modules are already the split line if one is ever extracted |
 | A2 | **Flat module layout**: `module/{models,service,router,schemas}.py` | The three-tier `domain/application/infra` split was enforced by import-linter contracts that are now deleted, and the most security-sensitive module (`auth`, 1,027 LOC) is already flat with no ill effect. Layering that only convention enforces is layering that drifts | judgment | A module that genuinely outgrows four files splits by **concern**, never by architectural tier |
 | A3 | `policy/` holds read models more than one module reads | `UserSenseStats` is written by learning and read by content and hierarchy. A shared home is what removed the `content ↔ hierarchy ↔ learning` cycle. `policy/` may import no domain, so behaviour cannot accumulate there | judgment | — |
-| A4 | Postgres is canonical. Redis is coordination, cache, and Centrifugo engine — never business state | A cache that is authoritative is a cache that loses data on eviction | `[R19]` | — |
+| A4 | Postgres is canonical. Redis is coordination and cache — never business state | A cache that is authoritative is a cache that loses data on eviction. The reference server draws the same line: Postgres is the system of record, Redis "stores only ephemeral data" | `[R40]`, `[R41]` | — |
 | A5 | Lexi stays an **embedded library** owning schema `lexi`; Pycil stores opaque `sense_id` bigints with no FK | Lexi is a lazily-generating dictionary that can serve another application: own README, hermetic tests, portable schema. A service boundary would add HTTP for a library call | judgment — the boundary is a package, and it is verified by an invariant, not by a network | Its published contract is the seam if it is ever deployed separately |
 | A6 | Alembic is **squashed to one baseline** | Pre-production, no data. The existing chain contains three verified churn cycles (a table created, indexed, leased, then dropped; another created then dropped; an expand/validate/enum-add split whose entire purpose is zero-downtime rollout against live data that does not exist) plus 14 raise-only downgrades | judgment | Normal incremental migrations resume from the baseline |
 | A7 | `db/models.py` imports every model module explicitly | Alembic autogenerate needs every table imported. An explicit aggregator is the conventional monolith pattern and is one file to update. Every schema change in this redesign touches it, so it is a step in the migration procedure, not a hidden coupling | judgment | — |
@@ -84,21 +84,29 @@ Detail: [modules/hierarchy.md](./modules/hierarchy.md).
 | D6 | Exact top-K in Postgres: at most `2K` rows, `ORDER BY … LIMIT K`, never load and sort all candidates | Due rank is an order-preserving key over FSRS recall, so the formula is not duplicated in SQL | judgment | — |
 | D7 | Analytics is **one route per metric with an optional node scope**, not a folder route beside a `/me` route | The client already chose between them with a ternary, so the split bought nothing at the call site. Two functions per metric also had to agree by hand on what "learned" means | judgment | — |
 
-## E — Realtime
+## E — Delivery to the client
 
-Detail: [cross-cutting/realtime.md](./cross-cutting/realtime.md).
+Detail: [cross-cutting/delivery.md](./cross-cutting/delivery.md).
+
+The reference implementation is LangGraph's own Agent Server, whose default
+self-hosted runtime is one process: *"single host: the API server manages the task
+queue directly with no separate queue workers"* `[R40]`. Its container executes
+runs inline unless `N_JOBS_PER_WORKER=0` tells it to stop claiming them `[R43]`.
+Redis appears there only as *"a pub-sub broker to enable streaming real time output
+from background runs"* `[R41]` — a bridge from a worker that holds no client
+connection back to the API process that does. With the run executing in the
+request, there is nothing to bridge.
 
 | # | Decision | Rationale | Ref | Seam |
 |---|---|---|---|---|
-| E1 | HTTPS for every command. **One** Centrifugo connection for server-to-client, WebSocket primary, bidirectional SSE fallback | `uni_sse` cannot subscribe after connect, and the channel model requires dynamic subscription | `[R14]`, `[R15]` | — |
-| E2 | Channels: `personal:#<userId>`, `job:<jobId>`, `thread:<threadId>` | The `#` form binds the personal channel to the authenticated subject, so a client cannot widen it | `[R16]`, `[R20]` | Future `workspace:` is the same shape |
-| E3 | The agent channel is **thread-scoped, not run-scoped**. `runId` travels in the payload | A run-scoped channel forces a fresh subscribe every turn, and each subscribe is an authorization round-trip | `[R17]` | — |
-| E4 | **Per-namespace history policy.** `job` snapshot-shaped; `thread` bounded with a short TTL; `personal` bounded and recoverable | With one shared namespace a long agent reply evicts job frames a client still needs | `[R18]` | A separate Centrifugo deployment for `thread` is the scaling lever |
-| E5 | **Two recovery layers, and both are required**: Centrifugo history, then a canonical HTTP read | Centrifugo's own documentation: history "is a cache, not your source of truth" and "can be empty, truncated, or lost at any moment" — always keep a backend fallback | `[R18]` | — |
-| E6 | `partial_output` persistence is **mandatory** | The checkpointer writes at node boundaries, so a reconnect mid-call would otherwise find nothing to refetch and show a blank pane. This is the one recovery piece that must be built rather than configured | `[R18]`, `[R27]` | — |
-| E7 | `recovered: false` is **expected, not exceptional**; the client refetches canonical state | A bounded buffer is sometimes outrun. `wasRecovering` says only that recovery was attempted | `[R18]` | — |
-| E8 | Subscribe is **default-deny**, authorized per namespace by a backend proxy. No subscription JWTs | A valid subscription token *is* an authorization decision and short-circuits the proxy | `[R16]`, `[R17]` | Short-lived single-channel tokens if proxy load ever demands it |
-| E9 | Revocation calls Centrifugo's server API. Publication is best-effort and never fails a mutation | Without revocation, a removed reader keeps receiving frames on an established subscription — channel splitting would become a security regression | `[R17]` | — |
+| E1 | **No realtime gateway.** Server-to-client delivery is SSE from the API process, plus polling for durable jobs | The gateway carried exactly one message shape — a job snapshot the client can `GET`. Its cost was a service, a config file, an edge carve-out, three secrets, a subscribe-proxy, an event table, an outbox, a relay, and a client library, all to avoid one poll. The reference server needs a pub-sub broker only because its worker cannot reach the client; ours can | `[R40]`, `[R41]`, `[R43]` | A gateway returns as an additive delivery layer if fan-out to several readers is ever needed |
+| E2 | **Assistant tokens stream over SSE on the request that created the run** | This is `POST /threads/{id}/runs/stream` in the reference API, and the transport it uses is `text/event-stream` `[R42]` | — | `GET .../runs/{runId}/stream` (join) is the seam for a background run |
+| E3 | Durable jobs — word generation, question supply — are **polled**: `GET /v1/jobs/{jobId}` | The reference server's own background-run guide polls `GET /threads/{tid}/runs/{rid}` and reads `status` `[R44]`. Generation is not interactive: a learner asked for a word and will read it when it exists | `[R44]` | A webhook field on the job row, which that API also carries |
+| E4 | **Free-text grading is synchronous** under a hard timeout, returning a typed refusal on expiry | A deferred grade cost a pending row, a lease, a fence, a reconciler, an outbox row, and a push — to save the learner a few seconds. The refusal is honest and the learner resubmits | judgment — the timeout is `uncalibrated`; it needs measured p99 of the rubric call | The job substrate already exists if measurement says otherwise |
+| E5 | **A dropped client connection cancels the run** | `cancel_on_disconnect` in the reference API, and inline execution makes it the only coherent option: the ASGI task *is* the run. The alternative is a run nothing is reading | `[R42]` | `on_disconnect: continue` needs a worker, which is `E1`'s seam |
+| E6 | **No `partial_output` column.** A reload mid-answer loses that answer | The reference server does not persist partial output either: `stream_resumable` defaults to **`false`**, joining a run mid-flight states *"output is not buffered, so any output produced before joining will not be received"*, and when resumability is enabled the buffer lives in **Redis** under `RESUMABLE_STREAM_TTL_SECONDS` (default 120s) `[R42]`, `[R45]`. Their own advice on a failed rejoin is to fetch thread history — which is the checkpoint | `[R42]`, `[R45]` | A short-TTL Redis buffer, exactly as they do it. A column was the wrong shape |
+| E7 | **Checkpoint at the message boundary**, not at every node: `durability="exit"` | A reload mid-run loses the turn in flight, which is accepted because one turn is short. Verified against `langgraph` 1.2.9: `durability="exit"` still writes a checkpoint at an `interrupt()` and `Command(resume=…)` continues from it, so HITL is unaffected | `[R42]`, verified by probe | `durability="async"` is a one-word change per run |
+
 
 ## F — Messaging and durable jobs
 
@@ -108,37 +116,44 @@ Detail: [cross-cutting/messaging.md](./cross-cutting/messaging.md).
 |---|---|---|---|---|
 | F1 | **Taskiq** over **Redis Streams** (`RedisStreamBroker`) | arq is in maintenance-only mode. Of the three Redis brokers only Streams has consumer groups and acknowledgement; the list broker is what arq already was | `[R21]`, `[R24]`, `[R25]` | The broker class is the swap point for NATS or RabbitMQ |
 | F2 | **Ack after the durable claim** (`--ack-type when_received`) | The broker holds nothing in flight for minutes; recovery is the reaper, not redelivery | `[R21]` | — |
-| F3 | **Retry off** for agent runs. Payload is `{runId}` only | Library retry restarts a task from its arguments, which is a rerun from input. A run is not idempotent: rerunning one that produced half an answer bills twice and emits garbage. Anything beyond the id in the payload lets a redelivery restart from it | `[R22]` | — |
-| F4 | **Exactly one authoritative retry counter**: `attempt` on the domain row | Three counters for one concept, two of them unaware of checkpoints, is how a run gets rerun when it should have failed | judgment | — |
-| F5 | Transactional outbox: state and message commit together; a relay claims with `FOR UPDATE SKIP LOCKED` | Solves exactly one problem — dual write. It does not give exactly-once, which is why consumers must be idempotent | `[R31]`, `[R35]`, `[R36]` | — |
-| F6 | The relay runs **in-process** in every replica; no leader election | `SKIP LOCKED` guarantees two relays never claim one row. An external relay cannot join the producer's transaction, which recreates the dual write it exists to prevent | `[R31]`, `[R35]` | — |
+| F3 | **Job payload is the id alone** | Anything beyond the id lets a redelivery restart from arguments rather than from the durable row | `[R22]` | — |
+| F4 | **Exactly one authoritative retry counter**: `attempt` on the domain row | Three counters for one concept is how work gets rerun when it should have failed. The reference server has one too — `BG_JOB_MAX_RETRIES`, requeueing to resume *"from the last checkpointed step"* | judgment, `[R45]` | — |
+| F5 | **No transactional outbox.** A command commits its state and enqueues best-effort; a reconciler re-enqueues what the queue lost | The outbox existed to make a *publication* atomic with a state change, and `E1` deletes publication. Dispatch was already best-effort-plus-reconciler and never went through it. The reference server likewise keeps its queue in Postgres and notifies Redis outside the transaction `[R41]` | `[R41]` | The pattern returns with the gateway if fan-out is ever needed |
+| F6 | Redis holds **no durable work**: queue state and job identity are Postgres rows | The reference server states this outright — Postgres *"manage[s] the state of the background task queue with 'exactly once' semantics"* while Redis *"stores only ephemeral data — no user or run data persists"* | `[R40]`, `[R41]` | — |
 | F7 | A **dedup store is needed only when the effect is append or increment.** A conditional update, a unique-key insert, or an absolute overwrite is already idempotent | Most consumers are idempotent through a domain constraint. A separate inbox table adds a second write to the hot path | `[R35]` | — |
 | F8 | Each consumer **declares** its mechanism and has a test proving duplicate delivery causes no double effect | There is no generic inbox library to hide behind | judgment | — |
 | F9 | The **scheduler is a separate process** | Periodic work in the worker's own slots starves when the pool is full — and the heartbeat that gates readiness is periodic work | `[R23]` | — |
 
-## G — Agent runtime
+## G — Assistant runtime
 
-Detail: [modules/agent.md](./modules/agent.md).
+Detail: [modules/assistant.md](./modules/assistant.md).
+
+Pycil's assistant is an LLM agent with a bounded tool set over the learner's own
+library, plus approval on the destructive tools. That is exactly the problem
+LangGraph's Agent Server solves, so its shape is adopted rather than reinvented,
+and every deviation below is named with a reason.
 
 | # | Decision | Rationale | Ref | Seam |
 |---|---|---|---|---|
-| G1 | A Run is a **durable queued row**, claimed by a worker. Never inline in the request | Inline means the request is held for the run deadline, a client disconnect severs generation, approval needs a second stream because the first died with its request, and a deploy kills everything in flight | `[R29]` | — |
-| G2 | The command **returns a handle**; tokens travel over the connection the client already has | A disconnect changes no state | `[R29]` | — |
-| G3 | Agent runs take a **separate queue and worker process** | Two workload classes with service times an order of magnitude apart on one FIFO is head-of-line blocking: a grade lands behind every queued run. Routing long work to a dedicated queue with its own worker is the documented arrangement, not an optimisation. Drain windows also differ by the same order | `[R21]`, `[R22]` | Split further only on measured starvation |
-| G4 | Worker concurrency (`--max-async-tasks`) **is** the global admission bound. Per-learner fairness is checked at enqueue | One knob enforced by the runtime beats two places asserting the same number. Admitting before enqueue is what keeps the queue from holding a deep backlog | `[R21]`, `[R29]` | `uncalibrated` — needs queue depth and wait time per kind |
-| G5 | Claim with `FOR UPDATE SKIP LOCKED`, hold a **lease with a heartbeat**, **fence** every write | Admission alone wedges a thread when a worker dies, so a lease is needed. A lease alone lets a paused worker wake and overwrite its successor, so a fence is needed | `[R29]`, `[R31]` | — |
-| G6 | Recovery is a **reaper**: lease expired → back to `queued` → another worker resumes **from the checkpoint** | Not from input. The checkpointer is the resume mechanism, so a tool that already ran has its result in state | `[R27]`, `[R29]` | — |
-| G7 | Lease expiry is **not terminal** | Terminal is reached only when `attempt` is exhausted, and then it is a failure with a reason. A status meaning "the lease ran out" would be a second retry counter | judgment (follows `F4`) | — |
-| G8 | **Cancellation is a column** on the run row, observed at the next yield point | Terminating a process cannot know whether the target already moved on | `[R29]` | — |
-| G9 | HITL is **kept**, because the agent has destructive tools over the learner's own library | The reference design that removes approval entirely has an assistant that structurally cannot write. This one can move, publish, delete, and remove content | judgment | — |
-| G10 | HITL is `interrupt()` + a **popup in the agent panel** + one resume endpoint. Approve executes; reject delivers a rejection the agent can respond to | The pause state lives in the checkpoint, which is the state machine. An action table, a TTL, an expiry reconciler, a freshness check, and an audit row add five components that chain nothing: the tool re-checks ownership when it finally runs, and Postgres holds the truth | `[R26]` | — |
-| G11 | A waiting approval **holds no worker slot** | The job ends, the checkpoint persists, approval enqueues a new job. Otherwise a human lunch break occupies capacity | `[R26]`, `[R27]` | — |
+| G1 | A Run is a **durable row**, executed **inline in the request** that created it | The reference server's default self-hosted runtime is one process managing its own queue, and its image executes runs in-process unless told to stop claiming them. A turn is a few tool calls and one to three model calls | `[R40]`, `[R43]` | `G2`'s queue plus a worker entrypoint, which is their split mode — a config change and one process, no schema change |
+| G2 | The row is durable **so that a background queue is a later config change, not a rewrite**: `status`, `error_code`, `cancel_requested_at`, `attempt` | Their split mode reads the same Postgres rows the inline mode writes. Keeping the row means the seam is real rather than aspirational | `[R40]`, `[R43]` | — |
+| G3 | **No lease, no fence, no heartbeat, no reaper** | Verified absent from the reference server: no environment variable containing HEARTBEAT or SWEEP exists in either published reference, and recovery is `BG_JOB_MAX_RETRIES` plus checkpoint-resume. With inline execution there is no worker that can stall while holding a claim — the request either completes, errors, or its connection drops | `[R44]`, `[R45]` | A lease belongs with the worker in `G1`'s seam, and `job_tasks` already carries one for domain work |
+| G4 | **One active Run per Thread**, a unique partial index, answering `409` | This is their `multitask_strategy="reject"`. Their default is `enqueue`; `reject` is the honest one for a single-user chat panel, and two tabs is the case it exists for | `[R42]` | `enqueue` is the documented alternative on the same field |
+| G5 | Concurrency is bounded **per learner at admission**, not by a worker pool | With no pool there is no `N_JOBS_PER_WORKER` to set. A per-learner bound is what keeps one learner from occupying the API's capacity | judgment — `uncalibrated` | Their per-worker job cap is the seam |
+| G6 | **Cancellation is a column**, observed at the next yield point, plus a cancel endpoint | `POST .../runs/{runId}/cancel`, and they distinguish `action=interrupt` (stop, keep checkpoints) from `action=rollback` (stop, delete them). Pycil takes `interrupt` only | `[R42]` | `rollback` is a query parameter away |
+| G7 | Status vocabulary is **theirs**: `pending · running · interrupted · success · error`, plus `cancelled` | Two deviations, both deliberate: `cancelled` is separate because they overload `interrupted` for "manually stopped" while a *thread* being `interrupted` means "awaiting a human", and those must be distinguishable; `timeout` is not adopted because a deadline is `error` with `error_code`, and a status for what a column records is a second counter wearing a name | `[R42]` | — |
+| G8 | **HITL is kept**, because the agent has destructive tools over the learner's own library | Approval is `interrupt()` inside the tool node; the pause state is `ThreadState.interrupts` read from the checkpoint. No action table, no TTL, no expiry reconciler, no freshness check, no audit row — five components in front of state the checkpointer already holds | `[R26]`, `[R42]` | — |
+| G9 | Approval resumes on a **second request**, not a held one: `POST /v1/assistant/runs/{runId}/resume` → `Command(resume=…)` | The first request ends at the interrupt, so a waiting decision occupies nothing — no worker slot *and* no open connection. Approve executes the tool; reject delivers a refusal the agent can answer | `[R42]` | — |
+| G10 | Decisions are **their four**: `approve · edit · reject · respond` | The installed middleware already accepts all four; Pycil allowed two. `edit` is the one that matters for a destructive tool — correcting a target beats rejecting and re-asking | `[R26]` | — |
+| G11 | The checkpointer **owns its own schema** via `setup()` | Its ten migrations are published and versioned by the library. Hand-copying the DDL into a Pycil migration means a library upgrade silently disagrees with the tables it is given | `[R27]` | — |
 | G12 | **Compaction is mandatory**, triggered by a ratio of the context window. Never split a tool call from its result | A per-message cap bounds one message; nothing bounds a thread. A long enough thread exceeds the window and the failure is at the provider | `[R30]` | — |
 | G13 | **Every external string is wrapped** so the model treats it as data | Node names, deck names, and dictionary text are author-controlled and flow into tool results. A folder named like an instruction, next to a delete tool, is a real injection path | `[R37]` | — |
 | G14 | Prompt caching is **prefix stability**: no timestamp or random id in the system prompt, a tool list that never changes mid-session, deterministic JSON, thinking blocks returned with tool results, compaction as the deliberate invalidation point | Cache prefix order is `tools → system → messages`, so anything unstable early invalidates everything after it | `[R30]` | — |
 | G15 | Log `cache_read_input_tokens` per call | A read that is always zero is a cost bug, and nothing else surfaces it | `[R30]` | — |
 | G16 | The system prompt is written **against a corpus of real ones**, not hand-written short | Shape, length, and how tools and boundaries are described are the hard parts, and there is a reference body of work | `[R39]` | — |
 | G17 | **No sandbox.** The agent executes no code | Its tools are library operations and dictionary reads. A container boundary protects against a capability the agent does not have | judgment | The seam is the tool registry: code execution would need one before it could be added |
+| G18 | **No assistant registry, no versions, no store, no crons, no stateless runs, no A2A, no MCP surface** | Their API carries 49 paths because it is a platform hosting arbitrary graphs for arbitrary tenants. Pycil has one graph, one tool set, one tenant model — `assistant_id` would be a column with one value | `[R42]` | Each is an additive resource on the same shape |
+
 
 ## H — Auth
 
@@ -146,7 +161,7 @@ Detail: [cross-cutting/auth.md](./cross-cutting/auth.md).
 
 | # | Decision | Rationale | Ref | Seam |
 |---|---|---|---|---|
-| H1 | **No BFF.** The browser calls FastAPI directly on the same public origin | Same-origin is load-bearing beyond tidiness: the cookie stays first-party and the API hands the browser a realtime URL verbatim, so a separate origin makes every subscribe cross-origin | judgment | — |
+| H1 | **No BFF.** The browser calls FastAPI directly on the same public origin | Same-origin is load-bearing beyond tidiness: the cookie stays first-party, and the SSE stream is an ordinary route on that same origin rather than a second host to authorize against | judgment | — |
 | H2 | Access JWT in an `HttpOnly` `Secure` cookie for the browser; **`Authorization: Bearer` for mobile**. Both present → reject as ambiguous | One API, two credential shapes. Letting filter precedence pick an identity is how an ambiguity becomes a bypass | `[R04]`, `[R07]` | — |
 | H3 | **HS256** stays | Asymmetric signing exists so a verifier cannot forge. With one verifier that property buys nothing, and it costs key distribution and rotation machinery | judgment | `tokens.py` is the only module that signs or verifies, so the algorithm is a one-file change |
 | H4 | JWT validation pins the algorithm allow-list and requires `iss`, `aud`, `typ`, `sub`, `exp`, `iat` | Never trust the token's own `alg` — that is algorithm confusion. A token type claim is what stops an access token being replayed where a different purpose is expected | `[R06]`, `[R07]` | — |
@@ -157,8 +172,8 @@ Detail: [cross-cutting/auth.md](./cross-cutting/auth.md).
 | H9 | A rotated token replayed **outside a bounded grace window revokes the whole family** | Inside the window it recovers its deterministic successor, so overlapping tabs and a retry after a crash converge instead of logging the user out | `[R04]` | — |
 | H10 | Refresh has **both idle and absolute** expiry | An absolute limit alone lets an abandoned session stay valid for its whole lifetime | `[R04]` | — |
 | H11 | CSRF: a token on unsafe methods **plus** an exact origin check. `SameSite` is not the boundary | Cookies are attached automatically; `SameSite` is a defence, not the boundary | `[R04]` | — |
-| H12 | Cookie paths are narrow: access at `/`, refresh **only** at the refresh endpoint | A refresh credential must never reach a resource route, a log, or the realtime layer | `[R04]` | — |
-| H13 | The realtime connection token is a **separate short-lived token**, not the API access token | A realtime-token compromise must not be an API compromise. The realtime layer is configured with its own expected audience | `[R16]` | — |
+| H12 | Cookie paths are narrow: access at `/`, refresh **only** at the refresh endpoint | A refresh credential must never reach a resource route or a log | `[R04]` | — |
+| H13 | **No separate realtime token.** The SSE stream is an ordinary authenticated route under the access cookie | `E1` deletes the gateway, and with it the only consumer of a second token. A short-lived scoped token was the right answer to a third party validating a signature itself; it is dead weight when the API is the one serving the stream | `[R40]` | A gateway would reintroduce it |
 | H14 | Errors are **RFC 9457 Problem Details** | The current standard for HTTP error shape, and a generated client derives the error enum from the schema rather than a second generator maintaining a copy | `[R08]` | — |
 
 ## P — Plans and credit
@@ -217,17 +232,17 @@ Detail: [ops/devops.md](./ops/devops.md).
 | # | Decision | Rationale | Ref | Seam |
 |---|---|---|---|---|
 | O1 | Docker Compose, one VPS, one compose file plus a production override | No orchestrator to operate, one file to read, and a second compose project can run beside the live one for a rehearsal | judgment | Container-per-process, env-only config, and stdout logs are what keep an orchestrator a config change |
-| O2 | **Caddy is the only public ingress**, with an explicit non-compression carve-out and unbuffered proxying for the realtime path | Compression buffers a realtime publication; a proxy that buffers defeats streaming entirely. The catch-all must be last or nothing after it is reachable | `[R34]` | — |
+| O2 | **Caddy is the only public ingress**, with an explicit non-compression carve-out and unbuffered proxying for the SSE routes | Compression buffers a token stream; a proxy that buffers defeats streaming entirely. The carve-out now names Pycil's own SSE paths rather than a gateway's. The catch-all must be last or nothing after it is reachable | `[R34]` | — |
 | O3 | **The web app is deployed here**, behind Caddy, sharing the API origin | Required by `H1`. Any document claiming an API-only stack is stale | judgment | — |
 | O4 | **Migration is a blocking one-shot** that asserts the dictionary schema head, then applies the application schema. Nothing takes traffic against an unmigrated database | A healthy database is not a migrated database | judgment | — |
 | O5 | **One variable names the reference artefact's identity** | Two names for one value, with two consumers and no assertion that they agree, means a rotation that updates one leaves work keys claiming the wrong artefact | judgment | — |
 | O6 | A service with a **missing required variable fails to boot**, reporting every missing name at once | A container that starts and then rejects every request looks healthy while doing nothing | judgment | — |
 | O7 | **No observability stack.** Structured logs to stdout | Seven processes for one operator. Accepted consequence, stated plainly: three values in this folder stay `uncalibrated` until it returns | judgment | Logs to stdout plus stable error codes are the seam for a scraper or an error tracker |
 | O8 | Readiness is distinct from liveness, and the **worker heartbeat threshold exceeds the slowest legitimate task** plus the poll interval | Otherwise a slow-but-healthy worker is killed mid-task | judgment | — |
-| O9 | **Graceful drain**: stop claiming, finish or checkpoint in flight, relay finishes its batch. `stop_grace_period` exceeds the longest acceptable drain | Lease and fence recovery is the failure path, never normal load balancing. Drain is what keeps a deploy from looking like a fleet of crashes | `[R29]` | — |
+| O9 | **Graceful drain**: the API stops accepting, finishes assistant runs in flight, and the domain worker stops claiming. `stop_grace_period` exceeds the longest acceptable drain on each | Inline execution moves this constraint onto the API: a deploy must not sever a turn a learner is reading. The reference server's equivalent knob is `BG_JOB_SHUTDOWN_GRACE_PERIOD_SECS`, default 180s, and its own guidance is to raise it to the typical run duration | `[R45]` | — |
 | O10 | Backup covers **both schemas in one dump**, taken with the write path stopped, and **restore is rehearsed** | Pycil stores opaque ids owned by the dictionary schema, so a schema-selective dump restores to a broken referential state. An unverified backup is the largest single operational risk | judgment | — |
 | O11 | Foreign-key delete rules stay **`NO ACTION`** with hand-ordered deletion | Two schemas share one database and the cross-schema reference is a plain integer with no constraint, so a cascade cannot traverse it. Explicit cascades there would be false safety. Loud failure on a forgotten table is the property worth keeping — and it is an invariant on the checklist, not a script | judgment | — |
-| O12 | A **runbook table**: situation → first move | The knowledge that a reaper is load-bearing, or that a realtime gateway warns instead of failing on a misspelt variable, is what disappears when it is not written down | judgment | — |
+| O12 | A **runbook table**: situation → first move | The knowledge that a stuck job needs a named query, or that the API's drain window bounds a deploy, is what disappears when it is not written down | judgment | — |
 
 ## Q — Deliberately absent
 
@@ -236,10 +251,10 @@ Detail: [ops/devops.md](./ops/devops.md).
 | Q1 | Observability stack, metrics endpoint | `O7`. Three values stay `uncalibrated` as a stated consequence |
 | Q2 | Nightly real-model evaluation | `N6`. Returns when there is a secret and a budget cap |
 | Q3 | Story gallery in the gate | `N11` |
-| Q4 | Durable run event table with a cursor | A third recovery layer covering nothing the second misses. `E5`, `E6` |
-| Q5 | HITL action table, TTL, expiry reconciler, freshness check, audit row | `G10` |
+| Q4 | Durable run event table with a cursor | The canonical read plus the checkpoint covers everything it would. `E2`, `E6` |
+| Q5 | HITL action table, TTL, expiry reconciler, freshness check, audit row | `G8` |
 | Q6 | Agent sandbox | `G17` |
-| Q7 | Long-term agent memory store | The library is the durable record and the learner owns it |
+| Q7 | Long-term agent memory store | The library is the durable record and the learner owns it. The reference server's cross-thread `store` is the shape if it is ever wanted |
 | Q8 | A third plan tier | `P2`. A larger bucket first |
 | Q9 | Credit reservation ledger | `P7` |
 | Q10 | Per-deck settings | Session shape describes the person, not the material |
@@ -247,3 +262,7 @@ Detail: [ops/devops.md](./ops/devops.md).
 | Q12 | Staging environment, Kubernetes manifests, second broker | `A8`, `O1`, `F1` seam |
 | Q13 | Public discovery of shared decks | Publishing means link readability, not a marketplace |
 | Q14 | Mobile app | Designed for by `H2`; not built |
+| Q15 | Realtime gateway, subscribe proxy, channel namespaces, per-namespace history | `E1`. One message shape did not justify a service, and the reference server needs its pub-sub only to bridge a worker to a client |
+| Q16 | Transactional outbox, event table, relay | `F5`. Publication is what an outbox made atomic, and there is no publication |
+| Q17 | Assistant registry, assistant versions, cross-thread store, crons, stateless runs, batch runs, A2A, MCP surface | `G18`. Present in the reference API because it is a multi-tenant platform for arbitrary graphs; Pycil has one graph |
+| Q18 | Agent worker process, its queue, its drain window | `G1`. Returns as their split mode: one entrypoint, no schema change |

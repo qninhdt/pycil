@@ -225,14 +225,14 @@ owns the behaviour:
 | File | Invariants |
 |---|---|
 | [../modules/learning.md](../modules/learning.md) §12 | the two axes, re-ask, session shape |
-| [../modules/agent.md](../modules/agent.md) §13 | run lifecycle, single-writer, approval |
+| [../modules/assistant.md](../modules/assistant.md) §12 | run lifecycle, single-writer, approval |
 | [../modules/hierarchy.md](../modules/hierarchy.md) §9 | readability, generation, top-K |
 | [../modules/content.md](../modules/content.md) §9 | supply, answer safety |
 | [../modules/account.md](../modules/account.md) §9 | identity, credit, export, deletion |
 | [../modules/web.md](../modules/web.md) §10 | client obligations |
 | [../cross-cutting/auth.md](../cross-cutting/auth.md) §12 | tokens, refresh, CSRF |
-| [../cross-cutting/realtime.md](../cross-cutting/realtime.md) §12 | subscribe authorization, recovery |
-| [../cross-cutting/messaging.md](../cross-cutting/messaging.md) §11 | outbox, idempotency, work keys |
+| [../cross-cutting/delivery.md](../cross-cutting/delivery.md) §7 | SSE, polling, disconnect, reload |
+| [../cross-cutting/messaging.md](../cross-cutting/messaging.md) §11 | job identity, idempotency, work keys |
 | [../cross-cutting/security.md](../cross-cutting/security.md) §10 | answer key, wrapping, boundaries |
 | [devops.md](./devops.md) §13 | boot, migration, health, drain, restore |
 

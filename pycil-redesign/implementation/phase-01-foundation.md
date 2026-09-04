@@ -77,11 +77,12 @@ chain. It must hold:
 | Drop table `deck_attributes` | removed #24 |
 | `external_identities (issuer, subject)` unique | `H7` |
 | `user_credits`, `credit_debits` with `UNIQUE (kind, reference_id)` | `P8` |
-| `partial_output` on the Run row | `E6` |
-| Run row: `lease_owner`, `lease_expires_at`, `fence`, `attempt`, `cancel_requested_at`, unique active-Run-per-Thread index | `G5` |
-| Rename `assistant_*` → `agent_*`, `async_*` → `job_*` | vocabulary |
+| No `partial_output` column; an interrupted turn is recovered from the checkpoint | `E6` |
+| Run row: `attempt`, `cancel_requested_at`, and a unique active-Run-per-Thread index | `G2`, `G4` |
+| Run status vocabulary: `pending`, `running`, `interrupted`, `success`, `error`, `cancelled` | `G7` |
+| Rename `async_*` → `job_*` | vocabulary |
+| Drop `assistant_run_events`, `assistant_actions`, and `assistant_action_audit` | `Q4`, `Q5` |
 | Drop the lease-exhaustion status value, `revoked_at` on interests, `schema_name` on events | removed #15-17 |
-| Drop the HITL action table | removed #10 |
 
 `db/models.py` is updated in the same commit (`A7`) — every model module imported,
 because Alembic autogenerate needs it and this is the one file every schema change
