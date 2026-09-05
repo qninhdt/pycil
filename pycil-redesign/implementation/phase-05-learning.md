@@ -126,8 +126,8 @@ later round as an ungraded item at the level that was failed. That item writes
 8. Derive session length; keep the break as a state the server names.
 9. Change "learned" to `status = scheduled` in every reader.
 10. Delete the checkpoint machinery and every test whose subject it was.
-11. Loosen session completion so a pending grade does not block it — the grade is
-    durable, leased, reconciled, and pushed.
+11. Grade free text synchronously under the delivery timeout; timeout writes no
+    answer, review, strength, or depth effect and leaves the item answerable.
 
 ## Todo
 
@@ -143,7 +143,7 @@ later round as an ungraded item at the level that was failed. That item writes
 - [ ] Session length derived
 - [ ] "Learned" is `status = scheduled`
 - [ ] Checkpoint machinery and its tests deleted
-- [ ] A pending grade no longer blocks completion
+- [ ] Free-text success is settled before completion; timeout leaves no partial effect
 - [ ] FSRS module diff empty
 - [ ] `learning.md` §12 covered by named tests
 

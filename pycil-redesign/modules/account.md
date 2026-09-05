@@ -248,28 +248,28 @@ bought, and it is an invariant on the checklist rather than a script to maintain
 
 ```text
 1  revoke every refresh family and bump the token version
-2  disconnect the realtime session          best-effort, logged on failure
-3  cancel non-terminal agent Runs           a running Run must not outlive its owner
-4  delete agent threads, runs, checkpoints
-5  delete learning records: responses, review log, learner-sense state,
+2  cancel non-terminal assistant Runs       inline work must not outlive its owner
+3  delete assistant threads, runs, checkpoints
+4  delete learning records: responses, review log, learner-sense state,
    settings, session summaries
-6  delete credit ledger and plan
-7  delete jobs owned solely by this requester
+5  delete credit ledger and plan
+6  delete jobs owned solely by this requester
    leave shared jobs alone; delete only this requester's interests
-8  delete deck membership, then references pointing at this owner's nodes,
+7  delete deck membership, then references pointing at this owner's nodes,
    then nodes
-9  delete external identities, then the user
+8  delete external identities, then the user
 ```
 
 Three steps carry a reason that is not obvious:
 
-- **Step 3 precedes deletion.** A Run holding a lease and writing on a fence will
-  write after its owner is gone; cancelling first is what makes step 4 final.
-- **Step 7 distinguishes shared from owned.** A word-generation job may have other
-  authorized readers. Deleting the job would break their subscription; deleting
+- **Run cancellation precedes deletion.** Inline execution observes the
+  cancellation marker before its next write, so work cannot continue after its
+  owner has gone.
+- **Step 6 distinguishes shared from owned.** A word-generation job may have other
+  authorized readers. Deleting the job would break their polling access; deleting
   only *this* requester's interest is correct. A job with **no** remaining
   interest is reclaimed by ordinary retention, not by deletion.
-- **Step 8 removes references *pointing at* this owner** before the nodes. A
+- **Step 7 removes references *pointing at* this owner** before the nodes. A
   reference whose target row is gone has no meaning, and leaving it would leave a
   dangling edge in someone else's tree.
 
@@ -309,5 +309,5 @@ deletion aborts loudly when a referencing table is forgotten
 deletion leaves shared jobs intact and removes only this requester's interest
 deletion removes references pointing at the deleted owner's nodes
 deletion leaves the dictionary intact
-a deleted user's realtime session is disconnected
+a deleted user's non-terminal assistant Runs are cancelled before owned rows go
 ```

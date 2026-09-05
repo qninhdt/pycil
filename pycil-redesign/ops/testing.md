@@ -84,8 +84,7 @@ dependency's behaviour:
 
 | Needs real Postgres | Why |
 |---|---|
-| Claim under concurrency (`SKIP LOCKED`) | The primitive is the point |
-| Fence rejection of a stale write | Ordering under contention |
+| Job claim under concurrency | The conditional update is the execution boundary |
 | A unique index preventing a double effect | The constraint is the mechanism |
 | Delete rules and hand-ordered deletion | See §7 |
 | The migration chain applying to head | An ORM-built schema proves nothing about it |
@@ -93,9 +92,9 @@ dependency's behaviour:
 
 | Needs real Redis | Why |
 |---|---|
-| Broker claim, acknowledgement, reclaim after a timeout | Stream semantics |
+| Broker delivery and acknowledgement | Stream semantics |
 | A counter released atomically | The script is the mechanism |
-| Session state surviving a reconnect | Expiry behaviour |
+| Refresh coordination surviving a reconnect | Expiry behaviour |
 
 Everything else is a unit test. FSRS arithmetic, the depth ladder, the sampling
 table, session-length derivation, the credit balance calculation, error mapping —
@@ -108,15 +107,16 @@ One end-to-end path (`N2`), in the gate:
 ```text
 sign in
   → create a folder, then a deck inside it
-  → add a word: request generation, receive the job frame
+  → add a word: request generation, poll the job to completion
   → study: exposure, a graded item, a wrong answer, its ungraded re-ask,
-    a break, a free-text answer returning a receipt
-  → recap, with one answer still being graded
-  → open the agent, rename the deck, approve a proposed deletion
+    a break, a synchronously graded free-text answer
+  → recap, with every submitted answer settled
+  → open the assistant, stream a turn, reload at approval, resume a decision
 ```
 
 One journey, proven end to end. It touches every subsystem once: auth, hierarchy,
-content, the job substrate, realtime, learning's two axes, the agent, and approval.
+content, the job substrate, direct delivery, learning's two axes, the assistant,
+and approval.
 
 Thirteen separate browser specs are not thirteen times the confidence. They are
 thirteen times the maintenance, and the previous ones had not executed at all.
@@ -151,9 +151,9 @@ This is also what makes the `NO ACTION` decision (`O11`) verifiable: hand-ordere
 deletion depends on a forgotten table **aborting** the delete. That property lives
 in the migrated schema, so only a migrated schema can prove it.
 
-**Two workers on one queue.** At one worker the double-execution path never runs, so
-without this test single-writer is a claim rather than a property — and it would be
-discovered in production at the moment a second worker was added.
+**Two domain workers on one queue.** At one worker the duplicate-claim path never
+runs. The test proves the durable conditional claim prevents a second effect when
+horizontal scaling is enabled.
 
 ## 8. Ratio
 
@@ -229,12 +229,12 @@ owns the behaviour:
 | [../modules/hierarchy.md](../modules/hierarchy.md) §9 | readability, generation, top-K |
 | [../modules/content.md](../modules/content.md) §9 | supply, answer safety |
 | [../modules/account.md](../modules/account.md) §9 | identity, credit, export, deletion |
-| [../modules/web.md](../modules/web.md) §10 | client obligations |
+| [../modules/web.md](../modules/web.md) §7 | client obligations |
 | [../cross-cutting/auth.md](../cross-cutting/auth.md) §12 | tokens, refresh, CSRF |
 | [../cross-cutting/delivery.md](../cross-cutting/delivery.md) §7 | SSE, polling, disconnect, reload |
-| [../cross-cutting/messaging.md](../cross-cutting/messaging.md) §11 | job identity, idempotency, work keys |
+| [../cross-cutting/messaging.md](../cross-cutting/messaging.md) §8 | job identity, idempotency, work keys |
 | [../cross-cutting/security.md](../cross-cutting/security.md) §10 | answer key, wrapping, boundaries |
-| [devops.md](./devops.md) §13 | boot, migration, health, drain, restore |
+| [devops.md](./devops.md) §9 | boot, migration, health, drain, restore |
 
 Keeping them beside the behaviour is deliberate: a checklist in one file drifts from
 the design, and a checklist inside the design cannot.

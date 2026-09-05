@@ -35,9 +35,8 @@ the edge. The UI layer holds no credential and proxies nothing.
 Same-origin is load-bearing beyond tidiness:
 
 - the session cookie stays **first-party**;
-- the API hands the browser its realtime URL verbatim, so a separate origin makes
-  every subscribe cross-origin and requires an allowed-origin list maintained in
-  lockstep;
+- assistant SSE and job polling use the same API origin, so cookie and origin
+  policy stay uniform on every page;
 - there is no server-side token custody to secure, and no forwarding layer that
   can leak one.
 
@@ -168,7 +167,7 @@ invalidate live tokens on every rotation.
 | Reachable from JavaScript | never | never |
 
 The narrow refresh path is deliberate: that credential must never reach a resource
-route, a log, the realtime layer, or telemetry.
+route, a log, a delivery stream, or telemetry.
 
 Refresh **rotates cookies and returns no token in the response body.** Nothing in
 the browser can read either credential — no local storage, no session storage, no
@@ -256,7 +255,6 @@ all, and it stores **no credential** — only which attempt is leading.
 
 ```text
 logout   revoke the refresh family, clear both cookies, bump the token version
-         then call the realtime server API to disconnect that user
 ```
 
 Mobile revokes the same session by presenting its refresh credential to a
@@ -266,10 +264,9 @@ unit of revocation.
 Bumping the version is what makes the access token die immediately rather than at
 expiry — which matters because there is no per-request denylist.
 
-The realtime disconnect is **best-effort and logged on failure** (`E9`): the
-realtime connection token carries no revocation list, so that log is the only
-signal that a socket outlived a revocation, and the token's short TTL is the bound
-if the call is missed.
+An open assistant stream observes cancellation or connection loss at its next
+yield point. Every later request re-reads `token_version`, so logout needs no
+external disconnect call.
 
 Account deletion does the same, then removes data in a hand-ordered sequence — see
 [../modules/account.md](../modules/account.md).
@@ -281,13 +278,13 @@ token signing secret        the API only
 previous signing secret     the API only, during a rotation overlap
 refresh pepper              the API only
 Google client secret        the API only
-realtime signing secret     the API (mint) + the realtime gateway (verify)
-realtime internal secret    the API + the realtime gateway
-provider keys               the workers only
+assistant provider key      the API only
+content provider keys       the domain worker only
 ```
 
-The workers hold no browser-credential secret and the API holds no provider key.
-That split is enforced by which service each variable is injected into (`O6`).
+The domain worker holds no browser-credential secret. The API holds only the
+assistant provider key because it executes Runs inline. That split is enforced
+by which service each variable is injected into (`O6`).
 
 A **missing required secret fails the boot** with every missing name reported at
 once. A service that starts and then rejects every request looks healthy while
@@ -351,6 +348,6 @@ an unsafe method without a CSRF token rejected
 an unsafe method from a foreign origin rejected
 cookie + bearer together → rejected as ambiguous
 the refresh credential never appears in a response body
-logout revokes the family and disconnects the realtime session
+logout revokes the family and invalidates subsequent API and SSE requests
 a missing required secret fails the boot, naming every missing variable
 ```

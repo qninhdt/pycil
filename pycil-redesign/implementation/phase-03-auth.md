@@ -28,8 +28,7 @@ auth requires. The BFF is already gone from phase 1, so this is what replaces it
 - Idle **and** absolute refresh expiry (`H10`).
 - CSRF token plus an exact origin check on every unsafe method (`H11`).
 - Errors as RFC 9457 Problem Details (`H14`).
-- Logout revokes the family, bumps the token version, and calls the realtime
-  disconnect — logged when it fails.
+- Logout revokes the family, bumps the token version, and clears both cookies.
 
 **Non-functional**
 
@@ -119,8 +118,8 @@ follow.
    alongside an exact origin check.
 9. Convert the error envelope to Problem Details, keeping the domain code as an
    extension member.
-10. Wire the realtime disconnect into logout and log its failure — it is the only
-    signal that a socket outlived a revocation.
+10. Verify an existing access token and every subsequent SSE request fail after
+    logout bumps the token version.
 
 ## Todo
 
@@ -133,7 +132,7 @@ follow.
 - [ ] Idle expiry beside absolute
 - [ ] CSRF token plus exact origin check
 - [ ] Problem Details envelope
-- [ ] Logout: revoke, bump, disconnect, log on failure
+- [ ] Logout: revoke, bump, clear cookies, reject subsequent API and SSE requests
 - [ ] `auth.md` §12 covered by named tests
 
 ## Success Criteria

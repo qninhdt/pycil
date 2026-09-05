@@ -78,16 +78,15 @@ thing that pauses is the top rung.
 
 ```text
 1  revoke every refresh family, bump the token version
-2  disconnect the realtime session          best-effort, logged
-3  cancel non-terminal agent Runs           ← a leased Run writes after its owner is gone
-4  delete threads, runs, checkpoints
-5  delete learning records
-6  delete credit ledger and plan
-7  delete jobs owned solely by this requester
+2  cancel non-terminal assistant Runs       ← inline work must not outlive its owner
+3  delete assistant threads, runs, checkpoints
+4  delete learning records
+5  delete credit ledger and plan
+6  delete jobs owned solely by this requester
    leave shared jobs; delete only this requester's interest   ← others are still reading
-8  delete deck membership, then references pointing AT this owner's nodes, then nodes
+7  delete deck membership, then references pointing AT this owner's nodes, then nodes
                                              ← a dangling edge in someone else's tree
-9  delete external identities, then the user
+8  delete external identities, then the user
 ```
 
 ## Related Code Files
@@ -100,7 +99,7 @@ thing that pauses is the top rung.
 **Modify**
 
 - `apps/api/pycil/account_lifecycle/` → `apps/api/pycil/account/` (flat, `A2`)
-- its deletion service — the nine steps, and remove the reference to the table phase 1
+- its deletion service — the eight steps, and remove the reference to the table phase 1
   dropped
 - its export service — add credit and plan; keep dictionary content out
 - the learning answer path — check balance at submit, debit at completion
@@ -123,7 +122,7 @@ thing that pauses is the top rung.
    table already handles as a supply shortfall.
 6. Move per-day generation limits into the plan, keeping them a rate limit rather than
    an economic one — paying must not remove a safety bound.
-7. Rewrite deletion as the nine steps, with the shared-job distinction explicit.
+7. Rewrite deletion as the eight steps, with the shared-job distinction explicit.
 8. Extend export with plan and credit; assert dictionary content stays out.
 9. Verify the abort-on-forgotten-table property by adding a table and **not** adding
    its deletion step — the deletion must fail. That is the test.
@@ -178,7 +177,7 @@ rows (silent). Signal: step 9's test is what surfaces it. Response: that test ad
 table and omits its step, asserting the failure — an unusual test worth writing
 because it verifies a property rather than a behaviour.
 
-**Cancelling Runs before deleting their thread is easy to reorder.** A leased Run
-writes on a fence after its owner is gone. Signal: a foreign-key violation, or worse,
-a successful write to a deleted owner's row. Response: step 3 precedes step 4, and
+**Cancelling Runs before deleting their thread is easy to reorder.** Inline work
+may reach another yield point after its owner is gone. Signal: a foreign-key violation,
+or a successful write to a deleted owner's row. Response: cancellation precedes deletion, and
 the order is a named test.

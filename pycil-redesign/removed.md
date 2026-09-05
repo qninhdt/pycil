@@ -30,17 +30,17 @@ column.
 | 5 | code | The component whose sole job was to warn a learner that a correct answer would be recorded as a miss | It existed to apologise for a defect. Under `B7` a correct answer is never recorded as a miss, so there is nothing to warn about | Nothing | |
 | 6 | code | Two competing definitions of "learned", both rendered on one screen | One required a review to have happened; the other also accepted any nonzero strength. Same learner, two numbers | `status = scheduled` `B12` | |
 
-## Agent runtime
+## Assistant runtime
 
 | # | Source | Item | Why removed | Replaced by | LOC |
 |---|---|---|---|---|---|
-| 7 | code | The graph loop running inside the HTTP request | A request held open for the full run deadline, a client disconnect severing generation, approval needing a second stream because the first died with its request, and a deploy killing everything in flight | A durable queued Run claimed by a worker `G1` | |
-| 8 | code | Native application SSE for the agent | A second streaming path beside a realtime gateway that already carries job snapshots, with reconnect, resume, and authorization hand-written | One thread channel on the existing connection `E3` | |
-| 9 | code, notes | Durable run-event table, event cursor, after-sequence endpoint | A third recovery layer covering nothing the second misses, at the cost of a table, an endpoint, and sequence discipline | Bounded history plus a canonical read with `partial_output` `E5`, `E6` | |
+| 7 | code, infra | Assistant worker process and queue | A dedicated process, lease, fence, heartbeat, reaper, and drain window for work the API can execute directly | Inline Run execution with a durable row `G1`–`G3` | |
+| 8 | infra, code | Realtime gateway, tokens, channels, subscribe proxy, publication adapters | One pushed job snapshot did not justify a service and authorization protocol | Job polling plus direct assistant SSE `E1`–`E3` | |
+| 9 | code, notes | Durable run-event table, cursor endpoint, and `partial_output` | Checkpoints and canonical Run/Thread reads already recover terminal or interrupted state; partial streaming is deliberately transient | Canonical reads after connection loss `E5`, `E6` | |
 | 10 | code | HITL: action table as a state machine, a dedicated confirm endpoint, action time-to-live, an expiry reconciler, a checkpoint-freshness check | The pause state lives in the checkpoint, which **is** the state machine. Five components chaining nothing: the tool re-checks ownership when it finally runs, and a paused run holds no worker slot so nothing needs expiring | `interrupt()`, a popup, one resume endpoint `G10` | |
 | 11 | code | HITL action audit rows | Postgres holds the state and the popup is the safety mechanism. An audit row blocks nothing | Nothing `G10` | |
 | 12 | code | Per-turn assistant cost knobs: monthly budget, estimated cost per thousand tokens, requests per minute | Superseded rather than dead. A budget expressed in currency breaks when a provider reprices, and a request rate is not what is being spent | The credit ledger `P5`–`P9` | |
-| 13 | code | A global concurrency constant asserted in application code | Two places asserting one number. The runtime enforces it | Worker concurrency configuration `G4` | |
+| 13 | code | A global concurrency constant asserted in application code | One global number does not stop one learner consuming API capacity | Per-learner admission `G5` | |
 
 ## Messaging
 
@@ -52,7 +52,7 @@ column.
 | 17 | code | `schema_name` on the event row **`DESTRUCTIVE`** | Never read. The version string that is consumed lives inside the payload — the column is a second, unread copy | The payload field | |
 | 18 | code | Two re-export layers over the job contract | The outer layer has **zero importers**; the inner one is bypassed by five modules importing the source directly. A facade nothing uses, in front of a facade nothing honours | Direct import of the contract | |
 | 19 | code | Two near-identical worker context types bridged by a cast | One shape with optional keys covers both | One type | |
-| 20 | code | Periodic work inside the worker pool | The heartbeat that gates readiness and the relay that delivers realtime frames are periodic. Starved of a slot, readiness fails while the system is healthy and realtime delivery stops **silently** | A scheduler process `F9` | |
+| 20 | code | Periodic work inside the worker pool | Heartbeat, redispatch reconciliation, and retention must run even when job slots are full | A scheduler process `F9` | |
 
 ## Content and dictionary boundary
 
@@ -166,7 +166,6 @@ the linked file.
 |---|---|
 | FSRS arithmetic, with every published weight index | Pure, tested against reference values. Indices must stay aligned with the reference implementation even where a term is unemitted `B2` |
 | The dictionary-library contract as a set of protocols | The implementation is an external package pinned to a commit, and the whole suite substitutes it. Trim unused members; keep the seam `A5` |
-| The realtime control protocol, and the deliberate **absence** of an unsubscribe method | Its docstring records the race that method would reintroduce, and the substitution point it protects `E9` |
 | Four separate rate limiters | Each guards a different resource with a different release rule. Only the release *idiom* was duplicated `P11` |
 | Four idempotency mechanisms | They key on four identities at four layers — a client answer, a command replay, shared work, a worker projection. Not one concept four times `F7` |
 | Advisory locks keyed on the high bits of an identifier | A docstring records the **measured** collision rate of the cheaper alternative `D5` |
@@ -174,16 +173,14 @@ the linked file.
 | Two retry schedules of different orders of magnitude | Seconds for durable jobs, sub-millisecond jitter for compare-and-swap. Different failure modes |
 | Answer-safety assertions | A per-variant field allowlist. Its failure is **silent**: nothing breaks, assessment just stops meaning anything `C6` |
 | The scripted deterministic provider | It is what makes agent-behaviour tests possible at all `N5` |
-| `partial_output` persistence | The backend fallback the realtime gateway's own guidance requires `E6` |
 | Compaction | Mandatory. Nothing else bounds a thread `G12` |
 | The migration gate and its head assertion | A healthy database is not a migrated database `O4` |
 | The migration-chain test against a fresh database | The suite builds its schema from the models, so nothing else observes what a migration produces — including the delete rules deletion depends on `ops/testing.md` §7 |
 | `NO ACTION` foreign keys with hand-ordered deletion | Two schemas, one database, and a cross-schema reference with no constraint. A cascade cannot traverse it, so declaring one is false safety `O11` |
 | The coordinated both-schema dump, taken with writes stopped | A schema-selective dump restores to a broken referential state `O10` |
 | Workers health-gated before the API on deploy | Jobs are written by the API and consumed by a worker `O4` |
-| The verbose realtime configuration block | The gateway **warns rather than fails** on an unrecognised variable, so a misspelt key is silently inert — and the costly one made every subscribe fail with nothing saying why `ops/devops.md` §4 |
 | Parameterised, loopback-bound host ports | A hardcoded port makes the restore rehearsal and the live stack mutually exclusive on one host `ops/devops.md` §1 |
-| The edge's non-compression and non-buffering carve-out for the realtime path | Compression buffers, and a buffered publication has not arrived `O2` |
+| The edge's non-compression and non-buffering carve-out for assistant SSE | Compression buffers streaming frames `O2` |
 | Zero retries and one worker in the golden journey | Quota is a per-learner budget and answering mutates session state. A spec passing only on the second attempt is reporting a real recovery defect `ops/testing.md` §6 |
 | The rendered-value wait before an automated contrast scan | The scan reads *rendered* colour; one engine reports an animation finished at a still-transparent value. Measured, not guessed `ops/testing.md` §10 |
 | Keyboard operability and visible focus on the study loop | Used hundreds of times by one person. A capability, not a scan `modules/web.md` §9 |

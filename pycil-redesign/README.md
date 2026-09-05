@@ -64,9 +64,9 @@ is a comparison Pycil wins by giving up generality.
 
 ## 3. Target shape
 
-One FastAPI application, two worker processes, one scheduler, Next.js for UI
-only, Postgres, Redis, Centrifugo, Caddy. Docker Compose, one VPS, one
-environment. See [architecture.md](./architecture.md).
+One FastAPI application that executes assistant Runs inline, one domain worker,
+one scheduler, Next.js for UI only, Postgres, Redis, and Caddy. Docker Compose,
+one VPS, one environment. See [architecture.md](./architecture.md).
 
 ## 4. Rules every document here follows
 
@@ -87,10 +87,9 @@ Consequences:
 
 ### R1 — Scale from MVP; DevOps changes config, not code
 
-Not "refactor later to scale". Horizontal scaling of API, workers, and
-Centrifugo must work now, and an operator must only change configuration to use
-it. No sticky sessions. No state in a container. Every value from the
-environment.
+Not "refactor later to scale". Horizontal scaling of the API and domain workers
+must work now, and an operator must only change configuration to use it. No
+sticky sessions. No state in a container. Every value from the environment.
 
 ### R2 — Every MVP choice leaves an upgrade seam
 
@@ -140,7 +139,7 @@ A **design target**. Implementation is separate work.
 
 | Area | State |
 |---|---|
-| Learning engine, agent runtime, realtime, messaging, auth | Brainstormed and locked |
+| Learning engine, assistant runtime, direct delivery, messaging, auth | Brainstormed and locked |
 | Hierarchy, content, account | Boundary locked; internals derived from the domain |
 | Plans and credit | Shape locked; three values await measurement |
 | Values to measure | Named with constraints, never invented |
@@ -163,8 +162,8 @@ fixed first.
 | **Depth** | How demanding a retrieval is: recognition through production. `depth_level` 0–4. |
 | **Session** | One study activity over a planned set of senses. |
 | **Round** | A bounded group of items followed by a break. UI pagination only. |
-| **Thread** | One agent conversation. Also the checkpoint namespace and the realtime channel. |
-| **Run** | One execution of the agent graph on a Thread. |
+| **Thread** | One assistant conversation and its checkpoint namespace. |
+| **Run** | One execution of the assistant graph on a Thread. |
 | **Job** | One durable asynchronous unit of domain work. |
 | **Credit** | The consumable that meters LLM work not shareable between learners. |
 | **Lexi** | The embedded `lexi-ai` dictionary library. Owns schema `lexi`. |

@@ -2,276 +2,111 @@
 
 Docker Compose, one VPS, one environment. Decisions `O1`–`O12`.
 
-## 1. Shape
+## 1. Stack
 
 ```text
-infra/
-├── compose.yml          the stack
-├── compose.prod.yml     override: images by digest, restart policy, limits
-├── .env.example         every variable, documented, no real values
-└── caddy/ · centrifugo/ configuration, mounted read-only
+caddy          public 80/443   TLS, routing, SSE pass-through
+web            internal        Next.js UI only
+api            internal        FastAPI, assistant execution and SSE
+domain-worker  internal        durable content jobs
+scheduler      internal        heartbeat, reconciliation, retention
+postgres       internal        public + lexi + checkpointer schemas
+redis          internal        Streams broker, cache, coordination
+migrate        one-shot        blocking schema gate
+backup         profile         coordinated dump and restore
 ```
 
-One compose file plus a production override (`O1`). No staging stack (`A8`) — a
-second environment nobody operates loses to one that is, and it costs a second way
-for the stack to boot.
+Only Caddy publishes ports. API, domain worker, and scheduler share one image
+with different entrypoints. The production override pins image digests, resource
+limits, restart policy, and drain windows.
 
-A second compose **project** on the same host is how a fresh-schema rehearsal runs
-beside the live stack. That is why every host port is parameterised (§4): a
-hardcoded port makes the rehearsal and the live stack mutually exclusive.
+## 2. State and configuration
 
-## 2. Services
+Postgres is canonical. Redis persistence remains enabled to reduce redispatch,
+but losing Redis cannot lose a job, Run, or learner state. Postgres, Redis, and
+Caddy certificates use named volumes.
+
+Every value comes from the environment. Missing required values and placeholder
+values fail boot with all offending names reported together. Debug ports are
+parameterized and loopback-bound so a second Compose project can rehearse restore
+beside the live stack.
+
+## 3. Secret boundaries
 
 ```text
-caddy            80 · 443       TLS · routing · the only published ports
-web              internal       Next.js, UI only
-api              internal       FastAPI + outbox relay
-agent-worker     internal       agent runs, own queue, long drain
-domain-worker    internal       jobs, own queue, short drain
-scheduler        internal       periodic only
-centrifugo       internal       realtime
-postgres         internal       volume · public + lexi schemas
-redis            internal       volume · broker, cache, coordination, engine
-migrate          one-shot       blocking gate, not a long-lived service
-
-profile: backup  on demand      coordinated dump and restore
+api             signing secrets, refresh pepper, OAuth secret,
+                assistant provider key
+domain-worker   content-generation provider keys
+scheduler       no browser or provider credentials
+web/caddy       no application credentials
 ```
 
-Only the edge publishes ports; everything else is reachable on the internal network
-only. That is part of the trust argument in
-[../cross-cutting/security.md](../cross-cutting/security.md) §6.
+No secret appears in an image, repository, or log.
 
-**The web app is deployed here** (`O3`), behind the edge, sharing the API origin.
-Any document claiming an API-only stack is stale — same-origin is required by `H1`.
+## 4. Edge delivery
 
-Four processes share one image (`api`, both workers, `scheduler`): same code,
-different entrypoint and queue.
+Assistant SSE routes disable proxy buffering and compression and allow a timeout
+longer than the application Run deadline. Ordinary API and web responses keep
+normal compression and caching policy. Job reads are ordinary authenticated HTTP.
 
-## 3. Volumes
+## 5. Deploy
 
 ```text
-postgres-data
-redis-data          append-only persistence on: the broker's queue is durable work
-caddy-data          certificates
+1  CI builds once and pushes by digest
+2  host pulls exact digests and takes the pre-deploy database snapshot
+3  new image runs Lexi setup/head assertion, checkpointer setup, then Alembic
+4  start and health-gate domain worker and scheduler
+5  start and health-gate API
+6  start web and Caddy
+7  run smoke and golden journey
+8  on failure restore the previous digest; restore data only when schema requires it
 ```
 
-Postgres is the only stateful component that matters. Redis holds nothing canonical
-(`A4`), but its persistence is on because a broker queue is durable work in flight
-— losing it means losing dispatch, and the reconcilers then have to re-derive
-everything.
+Migration is a blocking one-shot service. The squashed Pycil baseline is applied
+to an empty pre-production database; incremental migrations resume after it.
+Every schema change updates the explicit model aggregator.
 
-## 4. Configuration
+## 6. Health and drain
 
-Every value from the environment (`R1`). Nothing derived from a hostname, a
-container name, or a replica index — that is what keeps "an orchestrator is a
-config change" true rather than aspirational.
+Liveness checks the process. Readiness checks required configuration and reachable
+dependencies. API readiness covers Postgres and Redis; job-system readiness also
+requires a recent domain-worker heartbeat. It has no gateway dependency.
 
-**A service with a missing required variable fails to boot** (`O6`), reporting
-**every** missing name at once. A container that starts and then rejects every
-request looks healthy while doing nothing, and fixing one variable per restart is
-how a ten-minute deploy becomes an hour.
+On `SIGTERM`, the API stops accepting new requests and gives active assistant
+streams their bounded drain window. The domain worker stops claiming and finishes
+or records interruption for current jobs. The scheduler stops between ticks.
+`stop_grace_period` exceeds each component's application deadline.
 
-A **placeholder value is rejected as if absent.** A copied template must not reach
-production silently.
+## 7. Backup and restore
 
-Host ports are parameterised and loopback-bound: the database, cache, API, and web
-debug ports exist for a shell on the host, not for the internet.
+One coordinated Postgres dump covers public, Lexi, and checkpointer schemas. The
+write path is stopped for the dump and restored even if the command fails. Restore
+is rehearsed into an empty second Compose project. Any schema or data change runs
+only after a verified backup when persistent data exists.
 
-Two configuration traps worth writing down because both fail **silently**:
-
-| Trap | Consequence |
-|---|---|
-| The realtime gateway **warns rather than fails** on an unrecognised configuration variable | A misspelt key is inert and the default applies. A wrong subscribe-proxy secret means the API rejects every authorization call and **no channel can be subscribed at all** — with nothing in the failure path saying why. After any rename, read the startup log for unknown-variable warnings |
-| The gateway does not interpolate variables inside its own config file | Its secrets must arrive as mapped environment variables, not as placeholders in the mounted file |
-
-## 5. Secrets
-
-Injected by environment or file secret; never in an image, never in the repository.
-Which process holds what is the control (`O6`, security §6):
-
-```text
-api              token signing + previous, refresh pepper, OAuth client secret,
-                 realtime signing secret, internal proxy secret
-centrifugo       realtime signing secret, internal proxy secret
-workers          model provider keys
-scheduler        neither credentials nor provider keys
-```
-
-The API cannot spend money; a worker cannot mint a session.
-
-## 6. Deploy
-
-```text
-1  build once in CI, push by digest                          (N8)
-2  on the host: pull those exact digests
-3  run migrations to completion                              ← BLOCKS
-4  start the workers and the realtime gateway, health-gate them
-5  start the API, health-gate it
-6  start web and the edge
-7  smoke: the golden journey
-8  on failure: previous digest, up again
-```
-
-**Build once, promote by digest.** Rebuilding at deploy means the artefact tested is
-not the artefact deployed. A tag can be moved; a digest cannot.
-
-**Migration blocks** (`O4`). It applies the dictionary library's schema, **asserts
-the installed head matches the expected one**, then applies the application schema.
-That assertion is what stops a half-migrated database from booting. Nothing takes
-traffic against an unmigrated schema — a healthy database is not a migrated
-database.
-
-The chain starts from **one squashed baseline** (`A6`): pre-production with no data
-to preserve, and the previous chain had accumulated three churn cycles plus fourteen
-refuse-only reversals. Normal incremental migrations resume from it. Every schema
-change also touches the model aggregator (`A7`) — that is a step in the procedure,
-not a surprise.
-
-The migration runs in the **new** image **before** anything swaps, so a failure
-costs nothing and the old containers are untouched.
-
-**Workers start before the API** (step 4). Jobs are written by the API and consumed
-by a worker, so starting the API first opens a window where work is enqueued that
-nothing can consume at the current schema version.
-
-A pre-deploy database snapshot is taken and a small number retained.
-
-Two preflight checks run before anything swaps: the realtime configuration and the
-edge configuration are both validated by their own tools. Both are mounted files
-that fail at runtime rather than at parse time otherwise.
-
-Rollback is the previous digest. A migration that cannot be reversed is written to
-be **forward-compatible with the previous image**, so a rollback does not require a
-schema reversal. Pre-production this is trivial; it stops being trivial the moment
-there is data, which is why the habit starts now.
-
-## 7. Health
-
-```text
-liveness    the process is alive
-readiness   dependencies reachable AND required configuration present
-```
-
-Distinct, because they answer different questions (`O8`). A process alive but
-unable to reach the database must not receive traffic.
-
-API readiness checks: database, cache, **a live worker heartbeat**, and the realtime
-gateway. The heartbeat is what makes "the API is up but nothing is being processed"
-visible.
-
-**The heartbeat threshold must exceed the slowest legitimate task plus the poll
-interval** (`O8`), or a slow-but-healthy worker is killed mid-task. This is also
-why periodic work runs outside the worker pool (`F9`): a heartbeat that cannot get
-a slot reports a failure that is not happening.
-
-## 8. Graceful drain
-
-```text
-SIGTERM
-├── stop claiming new work
-├── in flight: finish, or checkpoint and release the lease
-├── the outbox relay finishes its current batch
-└── exit
-```
-
-`stop_grace_period` **exceeds the longest acceptable drain** (`O9`). The two workers
-differ by an order of magnitude here — an agent run may take minutes, a domain job
-seconds — which is one of the reasons they are separate processes (`G3`). One
-process would force one window for both, and the window would have to be the long
-one.
-
-Lease and fence recovery exists as the **failure** path, never as normal load
-balancing. Drain is what keeps a deploy from looking like a fleet of crashes.
-
-## 9. Backup
-
-```text
-postgres       scheduled dump, retained, restore REHEARSED not assumed
-```
-
-One dump covers **both schemas** (`O10`). Pycil stores opaque ids owned by the
-dictionary schema with no foreign key across (`A5`), so a schema-selective dump
-restores to a broken referential state — rows pointing at senses that no longer
-exist.
-
-The dump is taken with the **write path stopped** so it is one consistent point,
-and the services are restored afterwards **even if the dump failed**.
-
-**Restore is rehearsed, not assumed.** An unverified backup of the only stateful
-component is the largest single operational risk in this deployment, and a restore
-path that has never run is a restore path that does not work. The rehearsal is a
-second compose project on the same host restoring into an empty database — which is
-what all those parameterised ports are for.
-
-Any schema or data change is taken **after** a verified backup.
-
-## 10. Runbook
-
-`O12`. Situation → first move. This table is the knowledge that disappears when it
-is not written down.
+## 8. Runbook
 
 | Situation | First move |
 |---|---|
-| Jobs queued, none running | A worker is down, or every worker is at its concurrency limit |
-| Jobs stuck running | Lease expiry and the reaper. **If the reaper is not running, nothing recovers** |
-| Realtime silent, HTTP fine | Is the gateway up? Is its Redis engine reachable? Is realtime-token minting working? Check the gateway's startup log for unknown-variable warnings |
-| Nothing arriving over realtime, jobs completing | The outbox relay. Query the oldest unpublished row: a relay that died leaves them accumulating with the API still committing |
-| Readiness failing, everything looks fine | The worker heartbeat. Either a worker is down, or periodic work cannot get a slot |
-| A learner reports a wrong verdict on free text | The rubric grader. This is also the measurement `P12` is waiting for — record it |
-| Credit balance looks wrong | The period may not have rolled: it rolls **lazily on the next debit** (`P9`), so an idle account shows last period's usage until it spends |
-| Agent replies are slow, grading is fine | The agent worker's concurrency limit, or a provider. They are separate queues on purpose (`G3`) |
-| Model cost rising with no traffic rise | Cache reads. Always-zero means the prompt prefix broke — a timestamp in the system prompt, a changed tool list, non-deterministic serialisation (`G14`) |
-| Disk filling | Which volume: Postgres, Redis persistence, or certificates |
-| Deploy aborted at migration | Correct behaviour. The old containers are untouched; read the migration output |
-| Production refuses to start | A required variable or a placeholder value. The boot error names **every** missing one (`O6`) |
+| Jobs pending, none running | Check domain-worker health and Redis Streams; scheduler will redispatch |
+| Job stuck running | Inspect its attempt and timestamps; run the reconciliation tick |
+| Job UI stale | Read `GET /v1/jobs/{id}`; Postgres is canonical |
+| Assistant stream drops | Read Run and Thread; resume only if state says interrupted |
+| Assistant capacity exhausted | Inspect per-learner admission and API concurrency |
+| API healthy, jobs unavailable | Check the worker heartbeat age |
+| Migration fails | Keep old services, fix the new image or restore the verified snapshot |
+| Restore fails | Repair the rehearsed restore procedure before deployment |
 
-## 11. Observability
-
-There is none (`O7`). Structured logs to stdout, and stable error codes inside
-them.
-
-Stated as a cost rather than a gap:
-
-- three values in this folder stay `uncalibrated` (`P12`);
-- a dead outbox relay is invisible until a client notices missing updates — the
-  runbook query above is the mitigation, not a metric;
-- concurrency limits are set by judgment, not by queue depth (`G4`).
-
-The seam is logs to stdout plus stable codes: a scraper, a trace backend, or an
-error tracker attaches without a code change. Seven processes for one operator is
-the cost that was refused, not observability itself.
-
-## 12. Toward an orchestrator
-
-Not used (`O1`). What keeps it a configuration change rather than a rewrite:
+## 9. Operational invariants
 
 ```text
-every value from the environment
-no host paths
-no state inside a container
-logs to stdout
-readiness distinct from liveness
-graceful SIGTERM drain
-one process per container
-no dependency on container names or start order beyond declared gates
-```
-
-Every item is already required by `R1`, so orchestrator readiness is a
-**consequence** rather than separate work.
-
-## 13. Invariants for the checklist
-
-```text
-a missing required variable fails the boot, naming every missing one
-a placeholder value is rejected as if absent
-migration blocks: no container takes traffic against an unmigrated schema
-the migration asserts the dictionary schema head before applying the application schema
-readiness fails when the worker heartbeat is stale
-readiness fails when a dependency is unreachable
-the heartbeat threshold exceeds the slowest legitimate task
-SIGTERM drains in flight work rather than dropping it
-the realtime path is neither compressed nor buffered at the edge
-one dump restores both schemas to a consistent state
-restore into an empty database reproduces a working stack   ← rehearsed
-a deploy aborts before swapping when migration fails
+only Caddy publishes ports
+SSE is unbuffered and uncompressed at the edge
+the API can execute assistant Runs and the domain worker cannot mint sessions
+Redis loss cannot erase canonical state
+a committed undispatched job is recovered by the scheduler
+readiness distinguishes API health from job-worker health
+migration completion blocks new application startup
+the deployed image digest is the tested digest
+one backup contains every Postgres schema and restore is rehearsed
 ```

@@ -17,7 +17,7 @@ cannot drift into invention, then caches — so every later lookup costs nothing
 | words, senses, examples, collocations, forms, references, relations | a learner |
 | tags, themes | learning progress or FSRS state |
 | the question pool and its grading | the node tree |
-| its own schema, its own migration chain | sessions, jobs, realtime |
+| its own schema, its own migration chain | sessions, jobs, delivery |
 
 The boundary is one rule: **Pycil stores a sense id as a plain integer with no
 foreign key**, never joins across, never writes a dictionary table.

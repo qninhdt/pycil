@@ -110,8 +110,8 @@ Server-side, on every request, from the row — never from a claim (`H5`).
 | Transport | The edge terminates TLS; nothing else publishes a port |
 | Authentication | One credential source, verified (`H2`) |
 | Node authorization | **One** set-based readability query serving single-node, batch, and breadcrumb (`D3`) |
-| Realtime | Default-deny subscribe, authorized per namespace, failing closed (`E8`) |
-| Agent tools | Ownership re-checked **inside** the tool, independent of approval |
+| Delivery | Same-origin cookie auth for SSE and owner-scoped authorization for job reads |
+| Assistant tools | Ownership re-checked **inside** the tool, independent of approval |
 
 One readability implementation rather than three is a security decision, not a
 tidiness one: three encodings of one predicate is three places to over-grant, and
@@ -133,16 +133,15 @@ them leaks existence.
 Which process holds what is the control, and it is enforced by injection (`O6`):
 
 ```text
-API only         token signing secret, previous signing secret,
-                 refresh pepper, OAuth client secret
-API + gateway    realtime signing secret, internal proxy secret
-workers only     model provider keys
+API              token signing secret, previous signing secret, refresh pepper,
+                 OAuth client secret, assistant provider key
+domain worker    content provider keys
 neither          nothing else
 ```
 
-The API holds **no provider key** — it cannot spend money. The workers hold **no
-browser-credential secret** — a worker compromise cannot mint a session. That split
-is why the boundary is worth drawing at all.
+The API holds the assistant provider key because Runs execute inline. The domain
+worker holds **no browser-credential secret**, so a worker compromise cannot mint
+a session.
 
 Rules:
 
@@ -151,8 +150,7 @@ Rules:
 - a placeholder value is rejected as if absent, so a copied template cannot reach
   production;
 - no secret in an image, a repository, or a log;
-- the internal authorization endpoint authenticates its caller with a dedicated
-  secret and is **not exposed at the edge**.
+- no internal authorization endpoint is exposed at the edge.
 
 ## 7. Deletion and data ownership
 
@@ -203,7 +201,7 @@ Stated so a later reader does not mistake absence for oversight:
 
 ## 10. Invariants for the checklist
 
-Beyond the auth and realtime lists in their own files:
+Beyond the auth and delivery lists in their own files:
 
 ```text
 an answer-shaped field never appears in any presentation schema   ← allowlist, per variant
@@ -215,10 +213,9 @@ an external string in a tool result is wrapped
 a node named like an instruction does not cause a destructive tool call
 a destructive tool cannot execute before approval
 a tool re-checks ownership at execution, independent of approval
-the API process holds no provider key
-a worker process holds no signing secret or pepper
+the API process holds no content-generation provider key
+the domain worker process holds no signing secret or pepper
 a placeholder secret is rejected as if absent
-the internal authorization endpoint is unreachable from the edge
 account deletion leaves the shared dictionary intact
 account deletion aborts loudly if a table is forgotten
 export returns the learner's own data on every plan

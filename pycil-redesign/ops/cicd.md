@@ -63,7 +63,7 @@ bad day.
 2  push them to the registry
 3  on the host: pull those exact digests
 4  run migrations to completion            ← BLOCKS
-5  start workers and the realtime gateway, health-gate them
+5  start the domain worker and scheduler, health-gate them
 6  start the API, health-gate it
 7  start web and the edge
 8  smoke: the golden journey

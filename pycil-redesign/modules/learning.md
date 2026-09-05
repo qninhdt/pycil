@@ -253,7 +253,7 @@ Ten senses, cap of eight items. Round 1:
 | 3 | I | new | — | exposure | ungraded | — | — |
 | 4 | B | 3 | L3 | cloze | right | Good | streak 2 → **depth 4** |
 | 5 | E | 1 | L1 | MCQ | right | Good | streak 2 → **depth 2** |
-| 6 | D | 4 | L4 | use-in-sentence | free text | **pending** | deferred |
+| 6 | D | 4 | L4 | use-in-sentence | free text | Good | 4 → 4 |
 | 7 | J | new | — | exposure | ungraded | — | — |
 | 8 | F | 3 | L3 | **no supply** → L2 | right | Good | 3 → 3, depth-capped |
 
@@ -272,10 +272,9 @@ Cap reached, break announced. Round 2:
 Fifteen items: **ten graded, exactly one per admitted sense**, two exposures,
 three ungraded re-asks. Then a durable summary and the recap.
 
-D's grade is still pending and **the session completes anyway**. The recap shows
-one answer as being graded and the realtime layer updates it; if it settles wrong,
-D's depth moves at that point. Blocking a session on a model call buys no safety:
-the grade is durable, leased, reconciled, and pushed.
+D's free-text grade returns synchronously before the response is committed. A
+provider timeout returns an error and leaves the item answerable; no pending
+grade state appears in the session or recap.
 
 ## 10. Named consequence
 
@@ -296,7 +295,7 @@ Per R4:
   not double-count.
 - The answer key never reaches the client; the server re-fetches what it issued
   and grades that, so a submitted payload cannot carry its own answer.
-- A grade for free text is durable, leased, and reconciled if a worker dies.
+- A free-text grade is synchronous and atomic; timeout writes no grading effect.
 - An aborted answer reopens its delivery so the sense is not lost for the rest of
   the session.
 - The write path for one answer stays a constant number of primary-key statements
