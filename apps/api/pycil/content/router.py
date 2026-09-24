@@ -32,7 +32,7 @@ from pycil.db.redis import get_redis
 from pycil.db.session import get_session
 from pycil.hierarchy.application import subtree
 from pycil.hierarchy.application.access import require_node_access
-from pycil.policy.policy import mastery_stage, mastery_stage_name
+from pycil.policy.policy import strength_stage, strength_stage_name
 from pycil.policy.sense_state import UserSenseStats
 from pycil.ports.lexi import LexiReader, SenseView
 from pycil.ports.lexi_provider import get_lexi_client
@@ -60,8 +60,8 @@ def _sense_content(view: SenseView, state: UserSenseStats | None = None) -> Sens
     )
     if state is not None:
         content.mastery = state.mastery
-        content.mastery_stage = mastery_stage(state.mastery)
-        content.mastery_stage_name = mastery_stage_name(state.mastery)
+        content.mastery_stage = strength_stage(state.mastery)
+        content.mastery_stage_name = strength_stage_name(state.mastery)
         content.next_review_date = state.next_review_date
         content.review_count = state.review_count
         content.lapse_count = state.lapse_count

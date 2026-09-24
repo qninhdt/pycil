@@ -1,5 +1,15 @@
 name: Tests
 
+# Four levels, as directory roots: unit, integration, system, browser. The level a
+# test runs at is where its file lives, so a test cannot be collected at one level
+# and reported at another.
+#
+# The system and browser levels need a Cambridge reference artifact that is a
+# licensed 142 MB SQLite file, not a build output. It is therefore supplied as a
+# secret-hosted download rather than generated in CI. When the secret is absent the
+# job fails loudly instead of skipping: a gate that reports green while proving
+# nothing is worse than a red one. See `docs/testing-setup.md`.
+
 on:
   pull_request:
     branches: [main, dev]
@@ -7,236 +17,47 @@ on:
     branches: [main]
 
 jobs:
-  lint:
+  lint-python:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: api
-            dir: apps/api
-          - name: worker
-            dir: apps/worker
-          - name: shared
-            dir: packages/shared-py
+        dir: [apps/api, apps/worker]
     steps:
       - uses: actions/checkout@v7
-      - name: Install uv
-        uses: astral-sh/setup-uv@v9.0.0
+      - uses: astral-sh/setup-uv@v9.0.0
         with:
           enable-cache: true
-      - name: Set up Python
-        run: uv python install 3.12
-      - name: Sync dev deps for ${{ matrix.name }}
+      - run: uv python install 3.12
+      - run: uv sync --locked --extra dev
         working-directory: ${{ matrix.dir }}
-        run: uv sync --locked --extra dev
-      - name: Ruff
+      - run: uv run ruff check .
         working-directory: ${{ matrix.dir }}
-        run: uv run ruff check .
 
-      # Import boundaries. Only api and worker declare contracts; shared-py is a
-      # single pure-logic package with no internal boundary to enforce, so it is
-      # skipped rather than given an empty config that would always pass.
-      #
-      # Every contract in those two packages was observed FAILING against a
-      # deliberate violation before being committed. That matters here: this repo
-      # previously carried two import-linter contracts that had rotted into naming
-      # deleted modules while missing every added one, and both still reported
-      # KEPT. A contract nobody has watched fail proves nothing.
-      - name: Import boundaries
-        if: matrix.name != 'shared'
+  # Level 1. No database, no Redis, no network: a unit test that needed a service
+  # would be an integration test in the wrong directory.
+  test-unit:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: [apps/api, apps/worker]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --locked --extra dev
         working-directory: ${{ matrix.dir }}
-        run: uv run lint-imports
+      - run: uv run pytest tests/unit -q
+        working-directory: ${{ matrix.dir }}
 
-      # The web client's ERROR_TAXONOMY is `Record<ApiErrorCode, ...>`, keyed off
-      # the generated file. So a new API error code does not fail typecheck — the
-      # key set simply never grew, and the UI falls through to a generic message
-      # for a case someone deliberately named. Nothing regenerated or verified the
-      # file before this step; measured at the time it was added, three raised
-      # codes were missing from it.
-      #
-      # Regenerating and failing on a dirty tree makes the omission a red build in
-      # the phase that introduced it, rather than a surprise for whoever next
-      # touches the frontend.
-      # A doc that names a file makes a checkable claim, and this repo had
-      # accumulated false ones from three superseded eras. Historical documents
-      # are exempt; the rest must cite paths that exist.
-      # Runs at the workspace root, where the path is `scripts/...`. It was written
-      # as `../../scripts/...` with no working-directory, which resolves outside the
-      # checkout and dies with "can't open file" before reading a single document —
-      # a gate that cannot start cannot fail for the reason it exists.
-      - name: Documentation cites real paths
-        if: matrix.name == 'api'
-        run: python3 scripts/check-doc-paths.py
-
-      - name: Error codes are regenerated
-        if: matrix.name == 'api'
-        working-directory: apps/api
-        run: |
-          uv run python ../../scripts/extract-error-codes.py
-          git diff --exit-code ../../apps/web/lib/api/error-codes.generated.ts \
-            || { echo "::error::error-codes.generated.ts is stale — run scripts/extract-error-codes.py and commit"; exit 1; }
-
-      # The mastery bands and the grading payload are defined in Python and were
-      # re-declared by hand in TypeScript. Neither TS suite could catch a rename:
-      # the band table was mirrored with only a comment asking editors to keep it
-      # in step, and every grading field was read by bare string key through a
-      # defensive cast, so a renamed field produced a blank verdict for a learner
-      # who had just answered — nothing thrown, nothing red.
-      #
-      # Stdlib-only and AST-based, like check-doc-paths.py, so it needs no
-      # configured Python environment to run here.
-      - name: Realtime and policy contracts are regenerated
-        if: matrix.name == 'api'
-        run: |
-          python3 scripts/extract-realtime-contracts.py
-          git diff --exit-code \
-            apps/web/lib/design/mastery.generated.ts \
-            apps/web/lib/realtime/grading-result.generated.ts \
-            || { echo "::error::generated contracts are stale — run scripts/extract-realtime-contracts.py and commit"; exit 1; }
-
-  test-shared:
-    # Pure-logic tests (FSRS math, packages/shared-py/shared/fsrs) — no DB, no I/O.
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - name: Install uv
-        uses: astral-sh/setup-uv@v9.0.0
-        with:
-          enable-cache: true
-      - name: Set up Python
-        run: uv python install 3.12
-      - name: Sync dev deps
-        working-directory: packages/shared-py
-        run: uv sync --locked --extra dev
-      - name: Assert tests collected (no silent gap)
-        working-directory: packages/shared-py
-        run: |
-          uv run pytest --collect-only -q >/dev/null \
-            || { echo "no tests collected (or collection error)"; exit 1; }
-      - name: Run tests
-        working-directory: packages/shared-py
-        # The threshold is passed here rather than in the package's addopts: there
-        # it would also judge a single-file run, which fails with every test
-        # passing. Matches COV_SHARED in scripts/verify-baseline.sh.
-        run: uv run pytest -q --cov-fail-under=78
-
-  test-api:
-    # Full suite against a real Postgres + fakeredis (autouse fixture, see
-    # apps/api/tests/conftest.py) — LexiClient faked at the port boundary only.
-    # No unit/integration marker split: per Phase 12's no-mocked-DB rule nearly
-    # every test writes through real Postgres, so there's no meaningful "fast
-    # unit" tier to isolate here (that tier is test-shared, above).
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: pycil
-          POSTGRES_PASSWORD: pycil
-          POSTGRES_DB: pycil_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 10
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v9.0.0
-        with:
-          enable-cache: true
-
-      - name: Set up Python
-        run: uv python install 3.12
-
-      - name: Sync dev deps
-        working-directory: apps/api
-        run: uv sync --locked --extra dev
-
-      - name: Assert tests collected (no silent gap)
-        working-directory: apps/api
-        run: |
-          uv run pytest --collect-only -q >/dev/null \
-            || { echo "no tests collected (or collection error)"; exit 1; }
-
-      # 82, against a measured 83%. A gate below actual lets coverage rot down to
-      # the slack silently, so it tracks the measurement and moves up deliberately.
-      # Kept in step with COV_API in scripts/verify-baseline.sh, which is the same
-      # gate for a local run.
-      - name: Run pytest with coverage
-        working-directory: apps/api
-        env:
-          # conftest.py reads TEST_DB_URL directly (not pydantic Settings) —
-          # must match the service container above.
-          TEST_DB_URL: postgresql+asyncpg://pycil:pycil@localhost:5432/pycil_test
-        run: |
-          uv run pytest --cov=pycil --cov-fail-under=82 \
-            --cov-report=xml -q --maxfail=5
-
-      - name: Upload coverage XML
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: coverage-api
-          path: apps/api/coverage.xml
-
-  test-worker:
-    # Execute worker behaviour tests separately; lint alone cannot catch an
-    # unregistered job or an API-package import failure in the worker image.
-    runs-on: ubuntu-latest
-    # Postgres because the reconciler tests need one. Without it they call
-    # `pytest.skip`, and the six tests standing between the 24h purge and a
-    # learner's answer text — the purge nulls `raw_answer`, and the bug was that
-    # it did so under a live grading lease — never ran here at all. A job that
-    # skips its most consequential tests reports the same green as one that
-    # passes them.
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: pycil
-          POSTGRES_PASSWORD: pycil
-          POSTGRES_DB: pycil_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 10
-    steps:
-      - uses: actions/checkout@v7
-      - name: Install uv
-        uses: astral-sh/setup-uv@v9.0.0
-        with:
-          enable-cache: true
-      - name: Set up Python
-        run: uv python install 3.12
-      - name: Sync dev deps
-        working-directory: apps/worker
-        run: uv sync --locked --extra dev
-      - name: Assert tests collected
-        working-directory: apps/worker
-        run: uv run pytest --collect-only -q >/dev/null
-      - name: Run worker tests
-        working-directory: apps/worker
-        env:
-          # The reconciler tests skip themselves without this, silently.
-          TEST_DB_URL: postgresql+asyncpg://pycil:pycil@localhost:5432/pycil_test
-        # See the shared-py job: the threshold belongs at the whole-suite
-        # invocation. Matches COV_WORKER in scripts/verify-baseline.sh.
-        #
-        # `-rs` prints the skip reasons: this job's whole point is that a skip
-        # here is a coverage hole, so it must be visible in the log rather than
-        # summarised as a number.
-        run: uv run pytest -q -rs --cov-fail-under=81
-
-  migration-head:
-    # A metadata create_all test does not prove Alembic's actual upgrade path.
+  # Level 2. Real PostgreSQL; Redis is faked in-process where the assertions are
+  # about Pycil's use of it rather than about Redis itself. The worker's delivery
+  # tests assert real Streams semantics — pending entries, reclaim after an idle
+  # threshold, consumer-group ownership — so that job also gets a real Redis.
+  test-integration:
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -247,22 +68,60 @@ jobs:
           POSTGRES_DB: pycil_test
         ports: ["5432:5432"]
         options: >-
-          --health-cmd pg_isready
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 10
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 3s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s
+          --health-timeout 3s --health-retries 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - dir: apps/api
+            paths: tests/integration
+          - dir: apps/worker
+            paths: tests/integration
     steps:
       - uses: actions/checkout@v7
-      - name: Install uv
-        uses: astral-sh/setup-uv@v9.0.0
+      - uses: astral-sh/setup-uv@v9.0.0
         with:
           enable-cache: true
-      - name: Set up Python
-        run: uv python install 3.12
-      - name: Sync runtime deps
+      - run: uv python install 3.12
+      - run: uv sync --locked --extra dev
+        working-directory: ${{ matrix.dir }}
+      - run: uv run pytest ${{ matrix.paths }} -q -rs
+        working-directory: ${{ matrix.dir }}
+        env:
+          TEST_DB_URL: postgresql+asyncpg://pycil:pycil@localhost:5432/pycil_test
+          TEST_REDIS_URL: redis://localhost:6379/15
+
+  # The migration chain, exercised from empty and from the currently deployed
+  # revision. Two directions because they are genuinely different: a fresh baseline
+  # proves the head is reachable, and the deployed-revision path proves no already
+  # released database is stranded.
+  migration-head:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: pycil
+          POSTGRES_PASSWORD: pycil
+          POSTGRES_DB: pycil_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 3s --health-retries 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v9.0.0
+      - run: uv python install 3.12
+      - run: uv sync --locked
         working-directory: apps/api
-        run: uv sync --locked
-      - name: Upgrade a fresh PostgreSQL database to head
+      - name: Upgrade fresh database to the single head
         working-directory: apps/api
         env:
           DB_URL: postgresql+asyncpg://pycil:pycil@localhost:5432/pycil_test
@@ -271,111 +130,222 @@ jobs:
           LEXI_ALEMBIC="$(uv run python -c 'import pathlib, lexi_ai.migrations; print(pathlib.Path(lexi_ai.migrations.__file__).parent / "alembic.ini")')"
           uv run alembic -c "$LEXI_ALEMBIC" upgrade head
           uv run alembic upgrade head
-          # Assert a single un-branched head and that the database actually sits on
-          # it. The revision id used to be spelled out here, which rotted the moment
-          # 0016/0017 landed: this step kept asserting 0015 and the job stayed red
-          # for a week while proving nothing.
-          heads="$(uv run alembic heads)"
-          test "$(printf '%s\n' "$heads" | grep -c .)" -eq 1 \
-            || { echo "branched migration history:"; printf '%s\n' "$heads"; exit 1; }
-          current="$(uv run alembic current)"
-          test "$current" = "$heads" \
-            || { echo "database at '$current', expected '$heads'"; exit 1; }
+          test "$(uv run alembic current)" = "$(uv run alembic heads)"
 
-      # The only place a *migrated* schema exists. `tests/conftest.py` builds its
-      # schema from the ORM with `create_all`, so a delete rule that differs
-      # between a migration and the model is invisible to every test — including
-      # the account-deletion test, which reads whatever the ORM declares.
-      #
-      # `NO ACTION` is the deliberate default here (see the script), so this pins
-      # the rules rather than demanding cascades: a migration that quietly turns
-      # one into CASCADE removes the loud failure account deletion depends on.
-      - name: Assert no foreign-key delete rule changed silently
-        working-directory: apps/api
-        run: |
-          uv run --with 'psycopg[binary]' python ../../scripts/extract-fk-delete-rules.py \
-            "postgresql://pycil:pycil@localhost:5432/pycil_test"
-
-  build-images:
-    # Ensure both runtime images build from the pinned Lexi VCS dependency.
+  # Level 3. A real API process, a real worker process, PostgreSQL, Redis, a stub
+  # JWKS serving genuine RS256 tokens over HTTP, and a deterministic LLM gateway.
+  # Only Clerk and the model provider are substituted, and only at their network
+  # boundary; nothing about Pycil's own code is faked.
+  test-system:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - name: Build API image
-        run: docker build -f apps/api/Dockerfile -t pycil-api:ci .
-      - name: Build worker image
-        run: docker build -f apps/worker/Dockerfile -t pycil-worker:ci .
-      - name: Validate Compose interpolation
+    services:
+      postgres:
+        image: postgres:16
         env:
           POSTGRES_USER: pycil
           POSTGRES_PASSWORD: pycil
-          POSTGRES_DB: pycil
-          REDIS_PASSWORD: redis-ci-password
-          REDIS_URL: redis://:redis-ci-password@redis:6379/0
-          LEXI_REFERENCE_DATASET_PATH: /tmp/cambridge.db
-          LEXI_REFERENCE_DATASET_FINGERPRINT: test-fingerprint
-          AUTH_JWT_SECRET: test-jwt-secret
-          REFRESH_TOKEN_PEPPER: test-refresh-token-pepper
-          INTERNAL_API_SECRET: test-internal-secret
-          CENTRIFUGO_API_KEY: test-centrifugo-api-key
-          CENTRIFUGO_TOKEN_HMAC_SECRET: test-centrifugo-token-secret
-          CENTRIFUGO_PUBLIC_SSE_URL: https://app.example.test/connection/sse
-          ALLOWED_ORIGINS: https://app.example.test
-        run: docker compose config -q
-      - name: Validate TLS/WSS ingress configuration
-        run: |
-          docker run --rm \
-            -e DOMAIN=app.example.test \
-            -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" \
-            caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
-
-  test-web:
-    # The web app's stack-independent gate: typecheck, lint, the Vitest unit
-    # layer (pure logic — the session reducer, error taxonomy, snapshot
-    # reconciliation, mastery mapping, the assistant transport), the mechanical
-    # design-system audit, the production build, and the Storybook build.
-    #
-    # No e2e here. Playwright needs the full `docker compose` stack (API, worker,
-    # Postgres, Redis, Centrifugo, Caddy) plus an LLM credential for the
-    # generation tier, which is too heavy per push; it belongs on the nightly
-    # workflow against a stood-up stack, not this PR gate.
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/web
+          POSTGRES_DB: pycil_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 3s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s
+          --health-timeout 3s --health-retries 10
     steps:
       - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --locked --extra dev
+        working-directory: apps/api
+      - name: Restore the Cambridge reference artifact
+        env:
+          REFERENCE_URL: ${{ secrets.LEXI_REFERENCE_DATASET_URL }}
+          REFERENCE_SHA256: ${{ secrets.LEXI_REFERENCE_DATASET_SHA256 }}
+        run: |
+          if [ -z "$REFERENCE_URL" ]; then
+            echo "::error::LEXI_REFERENCE_DATASET_URL is not configured."
+            echo "The system level needs the licensed Cambridge artifact and fails"
+            echo "rather than skipping, because a skipped gate reports green while"
+            echo "proving nothing. See docs/testing-setup.md."
+            exit 1
+          fi
+          curl --fail --location --retry 3 --output /tmp/cambridge.db "$REFERENCE_URL"
+          echo "${REFERENCE_SHA256}  /tmp/cambridge.db" | sha256sum --check --status \
+            || { echo "::error::reference artifact SHA-256 mismatch"; exit 1; }
+      - name: System journeys
+        working-directory: apps/api
+        env:
+          TEST_STACK_DB_URL: postgresql+asyncpg://pycil:pycil@localhost:5432/pycil_test
+          TEST_STACK_REDIS_URL: redis://localhost:6379/0
+          LEXI_REFERENCE_DATASET_PATH: /tmp/cambridge.db
+        run: uv run pytest tests/system -q -rs
+      - name: Upload failure traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: system-failure-traces
+          path: apps/api/tests/system/**/*.log
+          if-no-files-found: ignore
+          retention-days: 7
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Set up Node
-        uses: actions/setup-node@v5
+  # Level 4. The browser level starts Next.js itself from the production build, so
+  # there is no web image to publish. It is blocked on a Clerk test instance: with
+  # no publishable key the sign-in page renders nothing and no spec can reach a
+  # signed-in state. The job is present and non-optional so the gap is visible in
+  # every run rather than being a silently absent gate.
+  test-browser:
+    runs-on: ubuntu-latest
+    env:
+      # Set job-wide, not only on the test step: `NEXT_PUBLIC_*` is inlined into the
+      # bundle at build time, so a key supplied after `pnpm build` would be missing
+      # from the artifact the specs actually exercise.
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+      NEXT_PUBLIC_API_URL: ${{ vars.E2E_API_URL }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
-
-      - name: Install dependencies
-        # Lockfile is authoritative in CI: a drifted manifest fails rather than
-        # silently resolving a different tree than a developer ran against.
-        run: pnpm install --frozen-lockfile
+      - name: Check the browser preconditions are configured
+        env:
+          CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+          E2E_API_URL: ${{ vars.E2E_API_URL }}
+        run: |
+          missing=0
+          if [ -z "$CLERK_PUBLISHABLE_KEY" ]; then
+            echo "::error::CLERK_PUBLISHABLE_KEY is not configured. The browser"
+            echo "journeys cannot reach a signed-in state without a Clerk test"
+            echo "instance. See docs/testing-setup.md."
+            missing=1
+          fi
+          if [ -z "$E2E_API_URL" ]; then
+            echo "::error::E2E_API_URL is not configured. The specs need a running"
+            echo "backend origin; starting that five-service stack from this job is"
+            echo "not automated yet. See docs/testing-setup.md."
+            missing=1
+          fi
+          # Fails rather than skips: a gate that reports green while proving
+          # nothing is worse than a red one.
+          exit $missing
+      - run: pnpm install --frozen-lockfile
         working-directory: .
+      - run: pnpm typecheck
+        working-directory: apps/web
+      - run: pnpm lint
+        working-directory: apps/web
+      - run: pnpm test:unit
+        working-directory: apps/web
+      - run: pnpm test:integration
+        working-directory: apps/web
+      - run: pnpm build
+        working-directory: apps/web
+      - name: Browser journeys
+        working-directory: apps/web
+        run: pnpm test:e2e
+      - name: Upload Playwright traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: apps/web/test-results
+          if-no-files-found: ignore
+          retention-days: 7
 
-      - name: Typecheck
-        run: pnpm typecheck
+  # Backend images, plus the web image until web leaves Compose.
+  #
+  # The design has web as a Vercel build rather than a container, so this job
+  # should eventually build two images. It still builds three because the removal
+  # is sequenced: `docker-compose.yml` runs a `web` service, Caddy proxies to it,
+  # and `scripts/deploy.sh` requires a `WEB_IMAGE` digest. Dropping the build now
+  # would break `docker compose pull` and the deploy script while nothing had
+  # replaced them. The web container leaves Compose together with its image, once
+  # the Vercel path exists.
+  build-images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker build -f apps/api/Dockerfile -t pycil-api:ci .
+      - run: docker build -f apps/worker/Dockerfile -t pycil-worker:ci .
+      - run: docker build -f apps/web/Dockerfile -t pycil-web:ci .
+      - name: Validate Compose
+        env:
+          DOMAIN: app.example.test
+          ALLOWED_ORIGINS: https://app.example.test
+          POSTGRES_USER: pycil
+          POSTGRES_PASSWORD: ci-password
+          POSTGRES_DB: pycil
+          DATABASE_URL: postgresql://pycil:ci-password@postgres:5432/pycil
+          REDIS_PASSWORD: ci-redis-password
+          INTERNAL_API_SECRET: ci-internal-secret-at-least-32-bytes
+          LEXI_REFERENCE_DATASET_PATH: /tmp/cambridge.db
+        run: docker compose config -q
+      - name: Validate Caddy
+        run: >-
+          docker run --rm -e DOMAIN=app.example.test
+          -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro"
+          caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+      # `caddy validate` only proves the file parses, and it passes happily while
+      # the SSE routes are compressed and buffered — a turn then arrives as one
+      # blob instead of incrementally, which is how this defect shipped once.
+      # This asserts the property that matters: every streaming assistant route is
+      # inside the flush handler and outside the `encode` one.
+      - name: Assert assistant streams are not buffered or compressed
+        run: |
+          docker run --rm -e DOMAIN=app.example.test \
+            -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            caddy:2-alpine caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile \
+            | python3 -c '
+          import json, sys
 
-      - name: Lint
-        run: pnpm lint
+          # Every route that streams. A new one added to the API without a matching
+          # Caddyfile entry must fail here rather than degrade silently.
+          STREAMS = {"/v1/assistant/ag-ui", "/v1/assistant/threads/*/runs/stream"}
 
-      - name: Unit tests
-        run: pnpm test:unit
 
-      - name: Design-system audit
-        run: pnpm audit:design
+          def walk(node):
+              """Yield every route dict anywhere in the adapted config."""
+              if isinstance(node, dict):
+                  if "handle" in node:
+                      yield node
+                  for value in node.values():
+                      yield from walk(value)
+              elif isinstance(node, list):
+                  for item in node:
+                      yield from walk(item)
 
-      - name: Build
-        run: pnpm build
 
-      - name: Build Storybook
-        run: pnpm build-storybook
+          cfg = json.load(sys.stdin)
+
+          # A route positive `path` match is what its handlers apply to; paths
+          # under `not` are excluded from it. The `encode` route is written as
+          # `not <streams>`, so the streams appear under `not` and are therefore
+          # NOT encoded. A route matched by `path_regexp` yields no `path` key at
+          # all — which is exactly how the buffered-stream defect looked, so it
+          # counts as "not streamed".
+          encoded, streamed = set(), set()
+          for route in walk(cfg):
+              handlers = [h.get("handler") for h in route.get("handle", [])]
+              for match in route.get("match", []):
+                  positives = set(match.get("path", []))
+                  if "encode" in handlers:
+                      encoded |= positives
+                  if "subroute" in handlers and positives & STREAMS:
+                      streamed |= positives
+
+          missing = STREAMS - streamed
+          compressed = STREAMS & encoded
+          if missing:
+              sys.exit(f"streaming routes not in the SSE handler: {sorted(missing)}")
+          if compressed:
+              sys.exit(f"streaming routes would be compressed: {sorted(compressed)}")
+          print(f"ok: {sorted(STREAMS)} stream unbuffered and uncompressed")
+          '

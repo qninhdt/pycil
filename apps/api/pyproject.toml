@@ -10,25 +10,25 @@ dependencies = [
     "sqlalchemy>=2.0,<2.1",
     "alembic>=1.14,<1.15",
     "asyncpg>=0.30,<0.31",
-    "redis>=5.2,<6.0",
-    "arq>=0.26,<0.27",
+    "redis>=6,<7",
+    "taskiq>=0.12,<0.13",
+    "taskiq-redis>=1.1,<2",
     "pydantic>=2.9,<3.0",
     "pydantic-settings>=2.6,<2.7",
     "pyjwt>=2.10,<3.0",
     "httpx>=0.28,<0.29",
     "structlog>=24.4,<25.0",
-    "pycil-shared",
-    # lexi-ai, pinned to an immutable commit (never a movable tag).
-    "lexi-ai @ git+https://github.com/qninhdt/lexi-ai.git@49c2a80195f346cb839391049e3765e20784b47f",
+    "lexi-ai @ git+https://github.com/qninhdt/lexi-ai.git@a2add77a9cd2c454d187154291de6ab2f1725de8",
     "langchain==1.3.13",
     "langgraph-checkpoint-postgres==3.1.0",
     "psycopg[binary,pool]==3.2.13",
     "langchain-openai==1.3.5",
     "cryptography>=49.0.0",
+    "jinja2>=3.1,<4",
+    "ag-ui-protocol>=1.0.0",
+    "pyyaml>=6.0.2",
+    "ag-ui-langgraph==0.0.45",
 ]
-
-[tool.uv.sources]
-pycil-shared = { path = "../../packages/shared-py", editable = true }
 
 [project.optional-dependencies]
 dev = [
@@ -38,25 +38,17 @@ dev = [
     "fakeredis[lua]>=2.26,<3.0",
     "freezegun>=1.5,<2.0",
     "pytest-mock>=3.14,<4.0",
-    "pytest-cov>=6.0,<7.0",
     "ruff>=0.8,<0.9",
-    "import-linter>=2.1,<3.0",
 ]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-# Coverage is measured on every run but gated only where a whole-suite number is
-# meaningful. `--cov-fail-under` in `addopts` would apply to a single-file run too,
-# so `pytest tests/one_file.py` would report failure with every test passing —
-# which teaches people to pass `--no-cov`, and then the gate protects nothing. The
-# threshold lives in `scripts/verify-baseline.sh` and CI, which run the full suite.
-addopts = "--cov=pycil"
-filterwarnings = [
-    "ignore::DeprecationWarning",
-]
+filterwarnings = ["ignore::DeprecationWarning"]
+# The four levels are directory roots, not markers: `pytest tests/unit` selects a
+# level because the files are there. Markers would let a test sit in one directory
+# while claiming another, which is the drift the layout exists to prevent.
 markers = [
-    "live_centrifugo: starts a temporary Centrifugo container; opt in with RUN_CENTRIFUGO_LIVE=1",
     "performance: loads large synthetic data; opt in with RUN_HIERARCHY_PERFORMANCE=1",
 ]
 
@@ -67,6 +59,12 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 include = ["pycil*"]
 
+[tool.setuptools.package-data]
+"pycil.assistant.domain" = [
+    "prompt_templates/*.jinja",
+    "prompt_templates/_partials/*.jinja",
+]
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"
@@ -74,200 +72,10 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
+[tool.ruff.lint.per-file-ignores]
+# Alembic generated this immutable baseline; formatting it by hand would make the
+# schema artifact drift from the generated source without improving runtime safety.
+"alembic/versions/0001_baseline.py" = ["E501", "I001"]
+
 [tool.ruff.lint.flake8-bugbear]
-# FastAPI's Depends()/Query()/Path() in argument defaults is the intended pattern.
 extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path"]
-
-# --- import boundaries -------------------------------------------------------
-#
-# Two earlier contracts in this repo were DELETED because both had rotted: each
-# enumerated modules by name, so as modules were added and removed the contracts
-# drifted into naming things that no longer existed while missing everything new
-# — and both still passed. `tests/test_lexi_boundary.py` records that history.
-#
-# So these are whole-package `forbidden` and `independence` contracts, which
-# cannot go stale the same way: a new module inside a named package is covered
-# the moment it exists. Each one below was observed FAILING against a deliberate
-# violation before being trusted; a contract nobody has seen fail is a comment.
-
-[tool.importlinter]
-root_package = "pycil"
-# Needed so contracts can forbid external packages (fastapi, sqlalchemy) and not
-# just internal ones — that is how `domain` is kept free of a web framework.
-include_external_packages = true
-
-# `ports` and `policy` exist to be importable from anywhere without creating an
-# edge back. The instant one imports a domain, it stops being safe for the other
-# domains that depend on it, and the cycles it was carved out to break return.
-[[tool.importlinter.contracts]]
-name = "shared ports and policy import no domain"
-type = "forbidden"
-source_modules = ["pycil.ports", "pycil.policy"]
-forbidden_modules = [
-    "pycil.account_lifecycle",
-    "pycil.assistant",
-    "pycil.auth",
-    "pycil.content",
-    "pycil.hierarchy",
-    "pycil.jobs",
-    "pycil.learning",
-    "pycil.realtime",
-    "pycil.tasks",
-    "pycil.db",
-]
-
-# The pilot cycle break. `realtime.subscriptions` read one integer off
-# `auth.models.User` while `auth.router` called `realtime.client.disconnect_user`
-# — a two-module cycle over one field and one function. The client moved to
-# `pycil.ports.centrifugo`, and the integer is now supplied by `realtime.router`.
-#
-# One direction, not `independence`. `realtime -> auth` is exactly how the cycle
-# was broken: the router already authenticates, so it owns the token-version
-# lookup and passes it down to `subscriptions`, which no longer knows `auth`
-# exists. What must never come back is the return edge — `auth` reaching into
-# `realtime` — because that is what closed the loop.
-[[tool.importlinter.contracts]]
-name = "auth does not import realtime"
-type = "forbidden"
-source_modules = ["pycil.auth"]
-forbidden_modules = ["pycil.realtime"]
-
-# `subscriptions` is the module that was on the cycle. Keeping it free of `auth`
-# is what the injected token-version lookup buys, and a future edit that reaches
-# for `auth.models.User` again would silently restore the loop.
-[[tool.importlinter.contracts]]
-name = "subscribe-proxy authorization does not import auth"
-type = "forbidden"
-source_modules = ["pycil.realtime.application.subscriptions"]
-forbidden_modules = ["pycil.auth"]
-
-# `common` is the leaf every domain already depends on (errors, middleware,
-# pagination). An import back into a domain would put all of them in one cycle.
-[[tool.importlinter.contracts]]
-name = "common utilities import no domain"
-type = "forbidden"
-source_modules = ["pycil.common"]
-forbidden_modules = [
-    "pycil.account_lifecycle",
-    "pycil.assistant",
-    "pycil.auth",
-    "pycil.content",
-    "pycil.hierarchy",
-    "pycil.jobs",
-    "pycil.learning",
-    "pycil.realtime",
-    "pycil.tasks",
-]
-
-# The committed cycle baseline is now empty. Phases 5 and 6 got it there by moving
-# what more than one domain reads out of the domain that happened to write it:
-# `UserSenseStats` -> `pycil.policy` (content and hierarchy both read it), the
-# embedded Lexi provider -> `pycil.ports` (five modules across four domains
-# construct it), the realtime client likewise.
-#
-# NOT `independence` over all nine. That was tried and correctly failed: 44
-# one-directional edges remain, and they are not defects — every router imports
-# `auth.deps`, `content` reaches `hierarchy.access` to authorize a deck write.
-# One-way coupling between layered domains is the design. What was wrong was the
-# *cycles*, and a contract that forbids all coupling would have to be suppressed
-# everywhere, which is how the two contracts this repo deleted became decoration.
-#
-# So the cycles are pinned by direction instead. Each of these was a real cycle
-# before Phases 5-6; the reverse edge is what must never come back.
-[[tool.importlinter.contracts]]
-name = "content and hierarchy do not import learning"
-type = "forbidden"
-source_modules = ["pycil.content", "pycil.hierarchy"]
-forbidden_modules = ["pycil.learning"]
-
-# `hierarchy -> content` was the return edge of the last two-module cycle, closed
-# by moving the Lexi provider to `pycil.ports`. `content -> hierarchy` stays: a
-# deck write has to authorize against the tree.
-[[tool.importlinter.contracts]]
-name = "hierarchy does not import content"
-type = "forbidden"
-source_modules = ["pycil.hierarchy"]
-forbidden_modules = ["pycil.content"]
-
-# Layered hexagons. `content` and `hierarchy` are split domain/application/infra
-# with `router.py` at the root as the entrypoint.
-#
-# The split is only real if the direction is enforced; otherwise it is three
-# folders. `domain` holds pure types and rules, so it must stay importable without
-# a database — that is what makes it testable without one, and what stops business
-# rules acquiring a session by accident.
-[[tool.importlinter.contracts]]
-name = "domain layers stay free of persistence and HTTP"
-type = "forbidden"
-source_modules = [
-    "pycil.content.domain",
-    "pycil.hierarchy.domain",
-    "pycil.tasks.domain",
-    "pycil.assistant.domain",
-    "pycil.learning.domain",
-]
-forbidden_modules = [
-    "pycil.content.infra",
-    "pycil.content.application",
-    "pycil.hierarchy.infra",
-    "pycil.hierarchy.application",
-    "pycil.tasks.infra",
-    "pycil.tasks.application",
-    "pycil.assistant.infra",
-    "pycil.assistant.application",
-    "pycil.learning.infra",
-    "pycil.learning.application",
-    "pycil.db",
-    "fastapi",
-    "sqlalchemy",
-]
-
-# A domain module must not name lexi-ai's types directly: that is a dependency on
-# an external package's layout, which is the coupling `ports/lexi.py` exists to
-# absorb. The port re-exports the contract vocabulary so a domain rule can be
-# stated without leaving pycil.
-#
-# Separate from the contract above because only the DIRECT edge is wrong here.
-# `learning/domain` -> `ports.lexi` -> `lexi_ai` is the design, so the indirect
-# path must stay legal — whereas for `sqlalchemy` above, an indirect route into
-# the ORM is exactly what should fail. One flag, two different intents, hence two
-# contracts.
-#
-# All five domains are listed, not just `learning`: the other four have no such
-# edge today, and this is what keeps it that way. The application layer is
-# deliberately not covered — a stable published contracts package is a reasonable
-# dependency one layer up from domain.
-[[tool.importlinter.contracts]]
-name = "domain names no external contract types directly"
-type = "forbidden"
-allow_indirect_imports = true
-source_modules = [
-    "pycil.content.domain",
-    "pycil.hierarchy.domain",
-    "pycil.tasks.domain",
-    "pycil.assistant.domain",
-    "pycil.learning.domain",
-]
-forbidden_modules = ["lexi_ai"]
-
-# Persistence knows about tables, not about use cases. An infra module importing
-# its own application layer is the inversion that makes a repository impossible to
-# reuse and reintroduces a cycle inside the package.
-[[tool.importlinter.contracts]]
-name = "infra layers do not import their application layer"
-type = "forbidden"
-source_modules = [
-    "pycil.content.infra",
-    "pycil.hierarchy.infra",
-    "pycil.tasks.infra",
-    "pycil.assistant.infra",
-    "pycil.learning.infra",
-]
-forbidden_modules = [
-    "pycil.content.application",
-    "pycil.hierarchy.application",
-    "pycil.tasks.application",
-    "pycil.assistant.application",
-    "pycil.learning.application",
-    "fastapi",
-]

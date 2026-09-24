@@ -9,9 +9,8 @@ import random
 #
 # Starts at 1s because the first failure is usually a lost race or a cold dependency
 # that clears immediately, and ends at 300s because anything still failing after five
-# minutes needs a human rather than a tighter loop. Taken from the outbox table, which
-# was the more considered of the two: it has the fast first retry that word generation
-# lacked.
+# minutes needs a human rather than a tighter loop. The schedule is shared by every
+# durable job so retries have one owner.
 RETRY_DELAYS_SECONDS: tuple[int, ...] = (1, 5, 30, 120, 300)
 
 

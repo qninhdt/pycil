@@ -6,11 +6,7 @@ Lexi domain library in the same PostgreSQL cluster under its own schema.
 
 from urllib.parse import urlsplit
 
-from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
-REFRESH_COORDINATION_LOCK_TTL_SECONDS = 15
-REFRESH_COORDINATION_WAIT_TIMEOUT_SECONDS = REFRESH_COORDINATION_LOCK_TTL_SECONDS + 1
 
 
 class Settings(BaseSettings):
@@ -26,39 +22,19 @@ class Settings(BaseSettings):
     db_url: str = "postgresql+asyncpg://pycil:changeme@postgres:5432/pycil"
     redis_url: str = "redis://redis:6379/0"
 
-    # --- auth ----------------------------------------------------------------
-    jwt_secret: str = "changeme-base64-32-bytes"
-    jwt_secret_previous: str = ""
-    jwt_max_age_seconds: int = 900
-    refresh_token_pepper: str = "changeme-refresh-token-pepper"
-    refresh_token_ttl_seconds: int = Field(default=2_592_000, gt=0)
-    # A bounded reuse interval lets concurrent callers recover the same successor
-    # after a process/Redis failure without turning an old token into a permanent
-    # credential. Reuse after this interval revokes the refresh family.
-    refresh_token_replay_grace_seconds: int = Field(default=60, ge=32, le=300)
-    google_client_id: str = ""
-    google_client_secret: str = ""
-    oauth_redirect_uris: str = ""
-    dev_identity_enabled: bool = False
-    dev_identity_email: str = "dev@pycil.local"
+    # --- auth (Clerk) --------------------------------------------------------
+    # Clerk issues and validates sessions; Pycil verifies the bearer token against
+    # Clerk's JWKS and maps the subject to an internal UUID. There is no local
+    # signing secret, so nothing here can mint a credential.
+    clerk_secret_key: str = ""
+    clerk_jwks_url: str = ""
+    clerk_issuer: str = ""
+    clerk_audience: str = ""
     internal_secret: str = "changeme-base64-32-bytes"
 
     # --- CORS / origins ------------------------------------------------------
     allowed_origins: str = "http://localhost,https://localhost"
     max_body_bytes: int = 1_048_576
-
-    # --- Centrifugo ----------------------------------------------------------
-    centrifugo_url: str = "http://centrifugo:8000"
-    centrifugo_api_key: str = "changeme-centrifugo-api-key"
-    centrifugo_token_hmac_secret: str = "changeme-centrifugo-token-secret"
-    centrifugo_public_sse_url: str = "https://localhost/connection/sse"
-    centrifugo_subscribe_proxy_secret: str = "changeme-centrifugo-subscribe-proxy-secret"
-
-    # --- generation safety ---------------------------------------------------
-    word_generation_requests_per_hour: int = 5
-    word_generation_max_inflight_per_user: int = 10
-    word_generation_max_inflight_global: int = 500
-    word_generation_daily_limit: int = 1_000
 
     # --- Embedded Lexi identity ----------------------------------------------
     # The fingerprint namespaces content work keys across immutable reference
@@ -66,24 +42,21 @@ class Settings(BaseSettings):
     lexi_reference_dataset_fingerprint: str = ""
 
     # --- assistant (isolated OpenAI-compatible provider + durable state) ----
+    # Connection and credential only. The model, its reasoning effort and the
+    # turn budget are product policy and live in config/config.yaml, so a model
+    # or budget change is a config edit rather than a redeploy of environment
+    # values across every replica.
     assistant_api_key: str = ""
-    assistant_model: str = "gpt-4o-mini"
     assistant_base_url: str = ""
-    assistant_reasoning_effort: str = ""
     assistant_checkpoint_db_url: str = ""
-    assistant_timeout_seconds: int = 45
     assistant_run_deadline_seconds: int = 120
-    assistant_max_output_tokens: int = 800
-    assistant_max_tool_calls: int = 12
     assistant_max_message_chars: int = 8000
-    assistant_per_user_concurrency: int = 2
-    assistant_global_concurrency: int = 50
-    assistant_action_ttl_seconds: int = 900
+    # Fallback window for a model whose catalog entry is unavailable. The
+    # catalog's own per-model ``context_window`` is what normally bounds a
+    # request; this only covers the case where no entry can be resolved.
+    assistant_context_window_tokens: int = 8_192
+    # Concurrent runs per learner are bounded by plan (account.plans), not here.
     assistant_retention_days: int = 30
-    assistant_audit_retention_days: int = 90
-    assistant_monthly_budget_usd: float = 0.0
-    assistant_estimated_cost_per_1k_tokens_usd: float = 0.01
-    assistant_requests_per_minute: int = 30
 
     @property
     def assistant_psycopg_url(self) -> str:
@@ -94,10 +67,6 @@ class Settings(BaseSettings):
     @property
     def cors_origins(self) -> list[str]:
         return [o.strip() for o in self.allowed_origins.split(",") if o.strip()]
-
-    @property
-    def allowed_oauth_redirect_uris(self) -> set[str]:
-        return {uri.strip() for uri in self.oauth_redirect_uris.split(",") if uri.strip()}
 
     @property
     def is_production(self) -> bool:
@@ -112,55 +81,30 @@ class Settings(BaseSettings):
         and having one property means a future third guard cannot disagree with
         these two.
 
-        Deliberately still a denylist, and `is_development` below is the allowlist
-        counterpart. The asymmetry is the point: this guard decides whether to
-        *demand* real secrets, and demanding them from an unrecognised environment
-        name would refuse to boot a deployment nobody meant to harden. The guard
-        that hands out credentials cannot afford that latitude, so it asks the
-        other question.
+        Deliberately a denylist rather than an allowlist: this guard decides whether
+        to *demand* real secrets, and demanding them from an unrecognised environment
+        name would refuse to boot a deployment nobody meant to harden.
         """
         return self.environment.strip().lower() in {"production", "prod"}
-
-    @property
-    def is_development(self) -> bool:
-        """Whether this process may mint a credential out of thin air.
-
-        An allowlist, not the negation of `is_production`. Those differ for every
-        name neither set mentions — `staging`, `preview`, `qa`, a typo — and the
-        difference is that `is_production` answers "must secrets be real?" while
-        this answers "may anyone with shell access become any learner?". A staging
-        box holding real learners' data would answer no to the first and, under a
-        denylist, yes to the second.
-
-        So an unrecognised name gets development's *restrictions* rather than its
-        latitude. Adding an environment is then a deliberate edit here, which is
-        the failure mode worth having: a new name that cannot seed a local identity
-        announces itself immediately, while one that silently can does not.
-        """
-        return self.environment.strip().lower() in {"development", "dev", "local", "test"}
 
 
 def validate_production_settings(config: Settings) -> None:
     """Fail closed for deploy-time placeholders without impairing local tests.
 
     Development intentionally has convenient defaults; production must provide
-    real secrets, exact browser origins, and an explicit OAuth callback allowlist.
+    real secrets and exact browser origins. Clerk credentials are deliberately not
+    required here: the JWKS URL and issuer are what verification needs, and a
+    deployment that only *verifies* tokens (never calls the Clerk management API)
+    is legitimate. The verifier itself refuses to run unconfigured.
     """
     if not config.is_production:
         return
 
     required = {
-        "JWT_SECRET": config.jwt_secret,
         "DB_URL": config.db_url,
-        "REFRESH_TOKEN_PEPPER": config.refresh_token_pepper,
         "REDIS_URL": config.redis_url,
         "INTERNAL_SECRET": config.internal_secret,
-        "CENTRIFUGO_API_KEY": config.centrifugo_api_key,
-        "CENTRIFUGO_TOKEN_HMAC_SECRET": config.centrifugo_token_hmac_secret,
-        "CENTRIFUGO_SUBSCRIBE_PROXY_SECRET": config.centrifugo_subscribe_proxy_secret,
         "LEXI_REFERENCE_DATASET_FINGERPRINT": config.lexi_reference_dataset_fingerprint,
-        "GOOGLE_CLIENT_ID": config.google_client_id,
-        "GOOGLE_CLIENT_SECRET": config.google_client_secret,
     }
     placeholders = ("changeme", "replace-with", "redis-dev-only")
     unsafe = [
@@ -169,29 +113,9 @@ def validate_production_settings(config: Settings) -> None:
         if (
             not value
             or any(marker in value.lower() for marker in placeholders)
-            or (
-                name
-                in {
-                    "JWT_SECRET",
-                    "REFRESH_TOKEN_PEPPER",
-                    "INTERNAL_SECRET",
-                    "CENTRIFUGO_API_KEY",
-                    "CENTRIFUGO_TOKEN_HMAC_SECRET",
-                    "CENTRIFUGO_SUBSCRIBE_PROXY_SECRET",
-                }
-                and len(value) < 32
-            )
+            or (name == "INTERNAL_SECRET" and len(value) < 32)
         )
     ]
-    if config.jwt_secret_previous and (
-        len(config.jwt_secret_previous) < 32
-        or any(marker in config.jwt_secret_previous.lower() for marker in placeholders)
-    ):
-        unsafe.append("JWT_SECRET_PREVIOUS")
-    if config.refresh_token_replay_grace_seconds <= REFRESH_COORDINATION_WAIT_TIMEOUT_SECONDS:
-        unsafe.append("REFRESH_TOKEN_REPLAY_GRACE_SECONDS")
-    if config.refresh_token_ttl_seconds <= 0:
-        unsafe.append("REFRESH_TOKEN_TTL_SECONDS")
     if not _is_authenticated_redis_url(config.redis_url):
         unsafe.append("REDIS_URL")
     origins = config.cors_origins
@@ -200,18 +124,8 @@ def validate_production_settings(config: Settings) -> None:
         for origin in origins
     ):
         unsafe.append("ALLOWED_ORIGINS")
-    if not config.allowed_oauth_redirect_uris or any(
-        not _is_https_url(uri) or "localhost" in uri.lower()
-        for uri in config.allowed_oauth_redirect_uris
-    ):
-        unsafe.append("OAUTH_REDIRECT_URIS")
     if not config.domain or config.domain.lower() == "localhost":
         unsafe.append("DOMAIN")
-    if (
-        not _is_https_url(config.centrifugo_public_sse_url)
-        or "localhost" in config.centrifugo_public_sse_url.lower()
-    ):
-        unsafe.append("CENTRIFUGO_PUBLIC_SSE_URL")
     if unsafe:
         raise RuntimeError(f"unsafe production configuration: {', '.join(sorted(unsafe))}")
 

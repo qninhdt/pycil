@@ -1,7 +1,7 @@
 ---
 phase: 11
 title: "Verify and Deploy"
-status: pending
+status: in_progress
 priority: P1
 effort: "2-3d"
 dependencies: [10]
@@ -16,7 +16,7 @@ rehearse full Postgres restore, and deploy the verified stack.
 
 ## Preconditions
 
-- Supply CI's required session setting.
+- Supply CI's required Compose validation values.
 - Inject one Lexi artifact identity into API and domain worker.
 - Declare `BACKUP_ID` on the backup/restore service.
 - No Centrifugo, gateway secret, assistant worker, or publication relay remains.

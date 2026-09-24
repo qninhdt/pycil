@@ -1,5 +1,3 @@
-import "server-only"
-
 import { createApiClient, type ApiClient } from "@/lib/api/client"
 import { ApiError } from "@/lib/api/errors"
 import type {
@@ -10,20 +8,19 @@ import type {
   NodeRead,
   WeakSense,
 } from "@/lib/api/types"
-import { getSession } from "@/lib/auth/session"
 import { historyWindow, type HistoryPreset } from "@/lib/progress/history-window"
 
 /**
  * The Progress screen's reads, at either scope.
  *
- * Plain server-only functions rather than server actions: nothing here mutates and
- * nothing calls them from the browser, so marking them `"use server"` would publish
- * callable endpoints for no reason.
+ * Plain browser reads over the direct API; no proxy endpoint is needed.
  *
- * The same five shapes are served globally under `/v1/me/...` and per subtree under
- * `/v1/folders/{nodeId}/...`, so one reader covers both and the scope only picks the
- * path. Fanning out over roots on the client was rejected: a sense in two decks would
- * be counted twice, which is why the API resolves its sense set with `SELECT DISTINCT`.
+ * The same five shapes are served at two scopes by one route each: `/v1/me/...`
+ * with an optional `nodeId` query parameter. Absent means the whole account,
+ * present means that folder's readable subtree, so one reader covers both and the
+ * scope only picks the parameter. Fanning out over roots on the client was
+ * rejected: a sense in two decks would be counted twice, which is why the API
+ * resolves its sense set with `SELECT DISTINCT`.
  */
 
 export interface ProgressData {
@@ -48,7 +45,7 @@ export async function readProgressData(
   days: HistoryPreset,
   asOf: Date,
 ): Promise<ProgressData> {
-  const client = createApiClient(await getSession())
+  const client = createApiClient()
   const { from, to } = historyWindow(days, asOf)
 
   // Every read is independent, so they overlap rather than queue. The history read is

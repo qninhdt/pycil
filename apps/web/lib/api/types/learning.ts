@@ -116,13 +116,13 @@ export interface NextQuestionBreak {
 /**
  * Questions are being generated.
  *
- * `taskId` is the durable supply task: subscribe to it and wait, rather than
- * calling `/next` again. That call mutates — it advances rounds and reserves
- * deliveries — so repeating it while waiting is exactly what the event replaces.
+ * `taskId` is the durable supply task: poll it, rather than calling `/next` again.
+ * That call mutates — it advances rounds and reserves deliveries — so repeating it
+ * while waiting is exactly what polling the job replaces.
  *
  * Null when no task was started: the per-learner generation slot refused the
- * request, or it is still inside its cooldown. Nothing to subscribe to, so the
- * bounded fallback applies. Null means "ask again shortly", not "nothing coming".
+ * request, or it is still inside its cooldown. Nothing to poll, so the bounded
+ * fallback applies. Null means "ask again shortly", not "nothing coming".
  */
 export interface NextQuestionPreparing {
   state: "preparing"
@@ -164,12 +164,9 @@ export interface SessionSenseProgress {
   senseId: number
   /** Why the sense is in this session: newly introduced, or due for review. */
   purpose: string
-  passed: number
-  required: number
-  /** A formatted score, not a number: the API renders it for display. */
-  score: string
+  graded: boolean
   exposed: boolean
-  awaitingGrade: boolean
+  reaskPending: boolean
   terminal: boolean
   terminalReason: string
 }
@@ -192,7 +189,6 @@ export interface SessionState {
   senses?: SessionSenseProgress[]
   sensesAdmitted?: number
   sensesCompleted?: number
-  sensesExhausted?: number
   answersTotal?: number
   answersCorrect?: number
   roundsUsed?: number
@@ -250,23 +246,27 @@ export interface Reveal {
 /**
  * The result of an answer.
  *
- * Two modes. `graded` carries the verdict, the reveal, and the mastery
- * transition inline. `pending` carries a `taskId` instead: the grade is running
- * asynchronously and settles through a realtime snapshot.
+ * Free-text grading is synchronous; every successful response is settled.
  */
 export interface GradeResult {
-  responseId: string
-  gradeStatus: "graded" | "pending" | "expired"
+  /**
+   * Present only when a response row was written. A graded answer carries it; an
+   * ungraded re-ask omits it, because the API drops null fields
+   * (`response_model_exclude_none`) and the re-ask persists nothing to reference.
+   */
+  responseId?: string | null
+  gradeStatus: "graded" | "ungraded"
   senseId: number
   renderFormat: RenderFormat
-  /** Present only when `gradeStatus` is "pending". */
-  taskId?: string | null
-  isCorrect?: boolean | null
+  isCorrect?: boolean
   gradeScore?: number | null
   gradeFeedback?: string | null
   reveal?: Reveal | null
   masteryBefore?: number | null
   masteryAfter?: number | null
+  depthBefore?: number | null
+  depthAfter?: number | null
+  depthStageName?: string
 }
 
 /**

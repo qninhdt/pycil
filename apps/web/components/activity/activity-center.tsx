@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/popover"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { BellIcon } from "@/lib/icons"
-import { useActivitySubscriptions } from "@/lib/realtime/use-activity-subscriptions"
+import { useActivitySubscriptions } from "@/lib/jobs/use-activity-subscriptions"
 import { isUnsettled } from "@/lib/stores/activity-store"
 import {
   useActivityActions,
@@ -27,7 +27,6 @@ import {
 } from "@/lib/stores/store-provider"
 
 import { ActivityTaskRow } from "./activity-task-row"
-import { RealtimeStateNotice } from "./realtime-state-notice"
 
 /**
  * The bell and its unsettled count.
@@ -69,7 +68,6 @@ function ActivityBody() {
 
   return (
     <div className="flex flex-col gap-3">
-      <RealtimeStateNotice />
       {tasks.length === 0 ? (
         <Empty className="border-none py-6">
           <EmptyTitle>Nothing running</EmptyTitle>

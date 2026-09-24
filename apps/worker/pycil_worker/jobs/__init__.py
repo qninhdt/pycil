@@ -1,3 +1,6 @@
-from pycil_worker.jobs.reconcile_pending_grades import reconcile_pending_grades
+"""Content jobs and the retention sweep.
 
-__all__ = ["reconcile_pending_grades"]
+`reconcile_assistant_retention` is deliberately **not** in the worker's handler
+registry: the registry holds the kinds the API publishes, and nothing publishes a
+retention job. It is invoked as an operator action.
+"""

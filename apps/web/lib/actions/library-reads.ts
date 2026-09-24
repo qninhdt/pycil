@@ -1,5 +1,3 @@
-import "server-only"
-
 import { createApiClient } from "@/lib/api/client"
 import { ApiError } from "@/lib/api/errors"
 import type {
@@ -10,14 +8,11 @@ import type {
   SenseContent,
   SenseDetail,
 } from "@/lib/api/types"
-import { getSession } from "@/lib/auth/session"
 
 /**
- * The server-side reads the library and sense routes render from.
+ * Direct API reads used by the library and sense routes.
  *
- * These are plain server-only functions rather than server actions. Nothing here
- * mutates and nothing calls them from the browser, so marking them `"use server"`
- * would publish callable endpoints for no reason.
+ * Nothing here mutates, so there is no proxy endpoint to maintain.
  *
  * Every one of them works without a session. The API authorises node, deck item,
  * folder and sense reads with an optional caller, so a public item is readable by
@@ -25,22 +20,9 @@ import { getSession } from "@/lib/auth/session"
  * whatever session exists instead of refusing when there is none.
  */
 
-/**
- * The instant the server rendered by, in epoch milliseconds.
- *
- * Deck rows compare review dates against this to decide whether a word reads as
- * "Due now" or as a date. Those rows render on the client as well, so a clock read
- * during their render would let the two passes disagree and hydrate one label into
- * the other. Taking the reading here — outside any component, in the module that
- * already owns what the server saw — gives both passes the same number.
- */
-export async function readServerNow(): Promise<number> {
-  return Date.now()
-}
-
 /** Null when the node is absent, private to someone else, or soft-deleted. */
 export async function readNode(nodeId: string): Promise<NodeRead | null> {
-  const client = createApiClient(await getSession())
+  const client = createApiClient()
   return notFoundToNull(() => client.hierarchy.getNode(nodeId))
 }
 
@@ -48,11 +30,14 @@ export async function readNode(nodeId: string): Promise<NodeRead | null> {
 export async function readNodeChildren(
   parentNodeId: string | null,
 ): Promise<NodePage> {
-  const session = await getSession()
-  if (!session.isLoggedIn) return { items: [], nextCursor: null }
-
-  const client = createApiClient(session)
-  return client.hierarchy.listNodes(parentNodeId)
+  try {
+    return await createApiClient().hierarchy.listNodes(parentNodeId)
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 401) {
+      return { items: [], nextCursor: null }
+    }
+    throw error
+  }
 }
 
 /**
@@ -71,10 +56,7 @@ export async function readNodeChildren(
  * rename dialog in front of someone who cannot rename anything.
  */
 export async function canEditNode(nodeId: string): Promise<boolean> {
-  const session = await getSession()
-  if (!session.isLoggedIn) return false
-
-  const client = createApiClient(session)
+  const client = createApiClient()
   try {
     await client.hierarchy.listNodes(nodeId)
     return true
@@ -87,7 +69,7 @@ export async function canEditNode(nodeId: string): Promise<boolean> {
 }
 
 export async function readDeckItems(nodeId: string): Promise<SenseContent[]> {
-  const client = createApiClient(await getSession())
+  const client = createApiClient()
   return (await notFoundToNull(() => client.hierarchy.getDeckItems(nodeId))) ?? []
 }
 
@@ -105,7 +87,7 @@ export interface FolderContents {
  * aggregate is a reason to omit a figure, not to fail the page.
  */
 export async function readFolderContents(nodeId: string): Promise<FolderContents> {
-  const client = createApiClient(await getSession())
+  const client = createApiClient()
 
   const [stats, items, children] = await Promise.all([
     notFoundToNull(() => client.analytics.getFolderStats(nodeId)),
@@ -118,7 +100,7 @@ export async function readFolderContents(nodeId: string): Promise<FolderContents
 
 /** Null when the sense is unknown, unreferenced, or in no readable deck. */
 export async function readSenseDetail(senseId: number): Promise<SenseDetail | null> {
-  const client = createApiClient(await getSession())
+  const client = createApiClient()
   return notFoundToNull(() => client.content.getSense(senseId))
 }
 

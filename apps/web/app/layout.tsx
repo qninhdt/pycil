@@ -1,10 +1,10 @@
 import type { Metadata, Viewport } from "next"
 import { Geist, Geist_Mono, Newsreader } from "next/font/google"
+import { ClerkProvider } from "@clerk/nextjs"
 
 import { ThemeProvider } from "@/components/theme/theme-provider"
 import { IconWeightProvider } from "@/components/theme/icon-weight-provider"
 import { Toaster } from "@/components/ui/toast"
-import { CentrifugoProvider } from "@/lib/realtime/provider"
 import { StoreProvider } from "@/lib/stores/store-provider"
 
 import "./globals.css"
@@ -67,31 +67,25 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    // `suppressHydrationWarning` is required by next-themes: it writes the
-    // resolved class onto <html> before React hydrates, so the server and
-    // client markup differ by design on exactly this element.
-    <html
-      lang="en"
-      suppressHydrationWarning
-      className={`${geistSans.variable} ${geistMono.variable} ${newsreader.variable}`}
-    >
-      <body className="min-h-dvh bg-background text-foreground antialiased">
-        <ThemeProvider>
-          <IconWeightProvider>
-            {/* Stores and the realtime connection both mount here and nowhere
-                else. Mounting either inside a route group would fork it per
-                segment, so an outstanding task registered by the palette would be
-                invisible to the study screen — and the assistant conversation
-                would not survive the breakpoint that swaps its two surfaces. */}
-            <StoreProvider>
-              <CentrifugoProvider>
+    <ClerkProvider>
+      <html
+        lang="en"
+        suppressHydrationWarning
+        className={`${geistSans.variable} ${geistMono.variable} ${newsreader.variable}`}
+      >
+        <body className="min-h-dvh bg-background text-foreground antialiased">
+          <ThemeProvider>
+            <IconWeightProvider>
+              {/* Stores mount once at the root so jobs and assistant state survive
+                  route changes and responsive surface swaps. */}
+              <StoreProvider>
                 {children}
                 <Toaster />
-              </CentrifugoProvider>
-            </StoreProvider>
-          </IconWeightProvider>
-        </ThemeProvider>
-      </body>
-    </html>
+              </StoreProvider>
+            </IconWeightProvider>
+          </ThemeProvider>
+        </body>
+      </html>
+    </ClerkProvider>
   )
 }

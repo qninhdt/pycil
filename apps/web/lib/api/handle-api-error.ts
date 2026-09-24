@@ -1,25 +1,20 @@
-import { redirect } from "next/navigation";
-import { ApiError } from "./errors";
+import { ApiError } from "./errors"
 
 export type ActionResult<T> =
   | { success: true; data: T }
-  | { success: false; error: string; code: string };
+  | { success: false; error: string; code: string }
 
 export async function handleAction<T>(fn: () => Promise<T>): Promise<ActionResult<T>> {
   try {
-    const data = await fn();
-    return { success: true, data };
-  } catch (err) {
-    if (err instanceof ApiError && err.status === 401) {
-      redirect("/login");
-    }
-    if (err instanceof ApiError) {
-      return { success: false, error: err.message, code: err.code };
+    return { success: true, data: await fn() }
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return { success: false, error: error.message, code: error.code }
     }
     return {
       success: false,
-      error: err instanceof Error ? err.message : "An unexpected error occurred",
+      error: error instanceof Error ? error.message : "An unexpected error occurred",
       code: "unknown",
-    };
+    }
   }
 }

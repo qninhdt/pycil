@@ -1,10 +1,26 @@
 # The sole public ingress. Caddy provisions HTTPS automatically for a real
 # DOMAIN and uses its local CA for localhost development.
 {$DOMAIN:localhost} {
-	# SSE must not be compressed or buffered: each Centrifugo publication needs
-	# to reach the browser immediately for recovery to converge.
-	@non_sse not path /connection/sse* /emulation*
+	# Both assistant routes stream `text/event-stream`. `/ag-ui` is the browser's
+	# chat transport and `/threads/{id}/runs/stream` is the plain-message variant;
+	# leaving either out would let the edge compress and buffer a stream, which
+	# arrives as one blob after the turn ends instead of incrementally.
+	@assistant_sse path /v1/assistant/ag-ui /v1/assistant/threads/*/runs/stream
+	@non_sse not path /v1/assistant/ag-ui /v1/assistant/threads/*/runs/stream
 	encode @non_sse zstd gzip
+
+	handle @assistant_sse {
+		header {
+			Cache-Control "no-cache"
+			X-Accel-Buffering "no"
+		}
+		reverse_proxy api:8000 {
+			flush_interval -1
+			transport http {
+				response_header_timeout 3m
+			}
+		}
+	}
 
 	@api path /v1/* /health /health/* /openapi.json /docs* /redoc*
 	handle @api {
@@ -13,19 +29,6 @@
 			max_size 1MB
 		}
 		reverse_proxy api:8000
-	}
-
-	# Centrifugo exposes only SSE plus its HTTP command emulation endpoint. The
-	# subscribe proxy remains container-internal at /internal/realtime/subscribe.
-	@centrifugo path /connection/sse* /emulation*
-	handle @centrifugo {
-		header {
-			Cache-Control "no-cache"
-			X-Accel-Buffering "no"
-		}
-		reverse_proxy centrifugo:8000 {
-			flush_interval -1
-		}
 	}
 
 	# Everything else is the Next app. This has to be last: it is the catch-all,

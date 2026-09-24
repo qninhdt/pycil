@@ -12,101 +12,117 @@ approval on the destructive ones. That is what LangGraph's Agent Server exists t
 run, so its shape is adopted and every deviation is named with a reason (`G18`).
 
 ```text
+GET    /v1/assistant/models                               model catalog
 POST   /v1/assistant/threads                              create
 GET    /v1/assistant/threads                              list
 GET    /v1/assistant/threads/{threadId}                   read
 DELETE /v1/assistant/threads/{threadId}                   delete
 GET    /v1/assistant/threads/{threadId}/state             messages + interrupts
+POST   /v1/assistant/ag-ui                                AG-UI turn or resume
 POST   /v1/assistant/threads/{threadId}/runs/stream       new turn, SSE
-GET    /v1/assistant/runs/{runId}                         canonical run read
-POST   /v1/assistant/runs/{runId}/resume                  approve · edit · reject · respond
-POST   /v1/assistant/runs/{runId}/cancel                  request cancellation
 ```
 
-Nine routes against their 49 `[R42]`. What is dropped and why (`G18`):
+`/ag-ui` is the browser's transport: it accepts a `RunAgentInput` and handles both
+a fresh turn and a resume, because a resume carries a `resume` entry on the same
+input shape. `/runs/stream` starts a turn from a plain message for a client that
+does not drive AG-UI itself; both funnel through the same `_streamed_events`.
+
+**There are no `/runs/{runId}` routes.** Earlier revisions listed a canonical run
+read, a resume endpoint and a cancel endpoint. The `assistant_runs` table was
+dropped (migration `0007`), the resume decision rides `/ag-ui`, and the run status
+a client needs is derived from the checkpoint rather than stored. See §4.
+
+What is dropped from the reference server and why (`G18`):
 
 | Theirs | Dropped because |
 |---|---|
 | `/assistants`, versions, `/latest`, `/graph`, `/schemas`, `/subgraphs` | one graph. `assistant_id` would be a column with one value |
 | `/runs` (stateless), `/runs/batch`, `/runs/wait` | every turn belongs to a Thread; there is no batch caller |
+| `/runs/{id}`, `/runs/{id}/resume`, `/runs/{id}/cancel` | no run row to address. The checkpoint holds the pause and `/ag-ui` carries the decision |
 | `/store/*` | long-term memory is the learner's library (`Q7`) |
-| `/runs/crons/*` | the scheduler owns periodic work (`F9`) |
+| `/runs/crons/*` | no periodic work exists to schedule (`F9` is withdrawn; see [../cross-cutting/messaging.md](../cross-cutting/messaging.md) §6) |
 | `/a2a/*`, `/mcp/` | no second agent and no external tool host |
 | `/threads/{id}/copy`, `/history`, `/state/checkpoint` | time travel is a platform feature, not a product one |
 
-Kept from their shape, verbatim where it fits: `text/event-stream` on the run
-route, `cancel` as a POST with a run id, `resume` carrying a decision, and a
-canonical run read that a reload can rebuild from.
+Kept from their shape, verbatim where it fits: `text/event-stream` on the turn
+route, `resume` carrying a decision, and a state read a reload rebuilds from.
 
-## 2. The Run is a durable row, executed inline
+## 2. A turn executes inline in its request
 
 `G1`. Their default self-hosted runtime is one process managing its own queue
 `[R40]`, and their image executes runs in-process until told not to `[R43]`. A
 Pycil turn is one to three model calls and a few tool calls.
 
 ```text
-POST /v1/assistant/threads/{threadId}/runs/stream
-  BEGIN
-    INSERT runs(status='pending', thread_id)
-      ← unique partial index rejects a second active Run → 409     (G4)
-  COMMIT
-  → 200 text/event-stream
-       UPDATE runs SET status='running'
+POST /v1/assistant/ag-ui  (or /threads/{id}/runs/stream)
+  acquire the per-learner turn lease        -> 409 if one is active
+  require a positive credit balance
+  -> 200 text/event-stream
        graph.astream(...)  ← in this request's task
          message.delta · tool.started · tool.completed  → SSE frames
-         interrupt()  → status='interrupted', emit approval.required, END STREAM
-       UPDATE runs SET status='success' | 'error'
+         interrupt()  → emit approval frame, END STREAM
+       release the lease (or extend it when a pause is pending)
 ```
 
-The row is durable even though nothing else reads it (`G2`), because that is what
-makes the queue a later config change instead of a rewrite: their split mode reads
-the same rows the inline mode writes. Without the row, adding a worker later means
-designing the persistence at the same time.
+**There is no Run row, and no second source of truth for turn state.** A turn
+either completes in this request, errors, or its connection drops. That is what
+makes `G2`'s "the row exists so a background queue is a later config change"
+unnecessary: there is nothing to keep in sync, and the checkpoint already holds
+everything a resumed turn needs.
 
-## 3. No lease, no fence, no heartbeat, no reaper
+The one durable per-turn record is the **turn lease**, and it is Redis, not
+Postgres. It is a resource bound rather than a billing record: PostgreSQL's unique
+`(kind, reference_id)` ledger key stays the correctness boundary, so a Redis
+outage costs at most a little parallel overspend rather than a wrong balance. It is
+keyed **per learner**, not per thread — two tabs on two threads are the same
+overspend risk as two tabs on one.
+
+A paused turn extends the lease to the thread retention window rather than
+releasing it, so an approval that arrives later still has an owner.
+
+## 3. No reaper
 
 `G3`. Verified against both published references: **no environment variable
 containing HEARTBEAT or SWEEP exists** `[R44]`, `[R45]`. Their recovery is
 `BG_JOB_MAX_RETRIES` (default 3), requeueing so a run *"resumes from the last
-checkpointed step"* — a retry counter plus checkpoint-resume, not a lease with a
-fence.
+checkpointed step"*.
 
-Inline execution removes the failure that lease and fence exist for. There is no
-worker that can stall while holding a claim; the request completes, errors, or its
-connection drops, and all three are observable in the same process. A stalled
-worker waking to overwrite its successor cannot happen when there is no worker.
+Inline execution removes the failure a reaper exists for. There is no worker that
+can stall while holding a claim; the request completes, errors, or its connection
+drops, and all three are observable in the same process.
 
 | Failure | Handling |
 |---|---|
-| Provider error mid-turn | `status='error'`, `error_code`, the stream carries `run.failed` |
-| Deadline exceeded | same, `error_code='deadline_exceeded'` (`G7`: no separate `timeout` status) |
-| Client disconnects | the ASGI task is cancelled → `cancelled` (`E5`) |
-| API process killed mid-turn | the row is left `running`. A startup sweep marks orphans `error`; the checkpoint holds the thread up to the last completed message |
-| Two tabs, two turns | the unique index rejects the second → `409` (`G4`) |
+| Provider error mid-turn | the stream carries a terminal `RunErrorEvent`; the checkpoint holds the thread to the last completed message |
+| Deadline exceeded | the same, with a deadline error code |
+| Client disconnects | the ASGI task is cancelled (`E5`) |
+| API process killed mid-turn | the turn is simply gone; the lease expires on its own TTL. The checkpoint holds everything up to the last completed message, and re-asking is the recovery |
+| Two tabs | the second turn is refused with `409 assistant_turn_in_progress` |
 
 The last row is the honest cost of inline, and it is bounded: one turn, one
 learner, recoverable by re-asking.
 
-## 4. Status
+**A stream error does not truncate the response.** `_streamed_events` catches a
+provider or graph exception, logs it, and emits a terminal `RunErrorEvent` frame
+rather than letting the exception propagate. A propagated exception closes the SSE
+body with no terminal frame, which a client cannot distinguish from a dropped
+connection.
 
-`G7`. Their vocabulary `[R42]`, with two deliberate deviations.
+## 4. Status is derived, not stored
+
+`G7`. There is no status column. What a client needs is computed from the
+checkpoint:
 
 ```text
-pending      row created, not yet executing
-running      the graph is streaming
-interrupted  awaiting a human decision — holds nothing
-success      completed
-error        failed; error_code carries the reason
-cancelled    stopped deliberately or by disconnect
+interrupted  the checkpoint holds a pending interrupt — awaiting a human decision
+idle         no pending interrupt; the turn either finished or never started
 ```
 
-`cancelled` is separate because they overload `interrupted` for "manually
-stopped" while a **thread** being `interrupted` means "awaiting a human", and
-those two must be distinguishable in a product where one is a normal pause and
-the other is an abort.
-
-`timeout` is not adopted: a deadline is `error` with `error_code`, and a status
-for what a column already records is a second counter wearing a name.
+`GET /threads/{id}/state` sets that field from `state.interrupts`. The older
+vocabulary (`pending · running · interrupted · success · error · cancelled`) was
+the reference server's run-row status set; with no row, five of those six describe
+something no longer recorded anywhere, and inventing columns to hold them would
+be a second counter wearing a name.
 
 ## 5. Approval
 
@@ -117,21 +133,27 @@ interrupts live on the **thread state**, not on the run row `[R42]`.
 ```text
 tool call needs approval
   → interrupt() pauses inside the node; the checkpointer writes
-  → status = interrupted; the request ENDS
+  → the request ENDS
   → the panel renders a popup from the interrupt payload
-       approve → POST /v1/assistant/runs/{runId}/resume {decision:"approve"}
-       edit    → …{decision:"edit", editedAction:{name, args}}
-       reject  → …{decision:"reject", message?}   agent receives a refusal, CONTINUES
-       respond → …{decision:"respond", message}   answer without calling the tool
+       approve → POST /v1/assistant/ag-ui {resume:[{interrupt_id, status, payload}]}
+       edit    → …decision:"edit", editedAction:{name, args}
+       reject  → …decision:"reject", message?   agent receives a refusal, CONTINUES
+       respond → …decision:"respond", message}  answer without calling the tool
   → Command(resume={"decisions":[…]}) on a NEW request, streaming again
 ```
 
-Four decisions, not two (`G10`): the installed middleware already accepts
-`approve · edit · reject · respond` `[R26]`, and `edit` is the one that matters
-for a destructive tool — correcting a target beats rejecting and re-asking.
+The four decisions are the installed middleware's `approve · edit · reject ·
+respond` `[R26]`; `edit` is the one that matters for a destructive tool —
+correcting a target beats rejecting and re-asking.
 
 A waiting decision occupies **nothing** (`G9`): no worker slot, and no open
 connection either. The first request has already returned.
+
+**The AG-UI resume shape is translated.** AG-UI sends a `ResumeEntry`
+(`interrupt_id`, `status`, `payload`); `HumanInTheLoopMiddleware` reads
+`{"decisions": [{"type": "approve"}]}`. `_with_graph_resume` in the router
+converts one into the other, and `/ag-ui` refuses a request carrying more than one
+resume entry.
 
 What this does not need (`Q5`):
 
@@ -180,9 +202,14 @@ Four constraints from how provider streams actually behave `[R28]`:
 | Thinking is a separate stream | The client may collapse it. Never merge it into text |
 | Keepalive frames carry no content | Ignore rather than emitting an empty event |
 
-Recovery is one layer: `GET /v1/assistant/runs/{runId}` returns status, the
-interrupt payload when interrupted, and the thread's completed messages. There is
-no event table (`Q4`) and no partial buffer (`E6`).
+Recovery is one layer: `GET /v1/assistant/threads/{threadId}/state` returns the
+thread's completed messages and its pending interrupts, read from the checkpoint.
+There is no event table (`Q4`) and no partial buffer (`E6`).
+
+The browser-facing route emits AG-UI `RUN_STARTED`, `TEXT_MESSAGE_*`, `TOOL_CALL_*`,
+`CUSTOM` approval, and `RUN_FINISHED` or `RUN_ERROR` events. The assistant-ui
+runtime parses that stream. A resume entry carries the interrupt id and the
+approval decision.
 
 ## 8. Tools
 
@@ -250,33 +277,31 @@ cached, and that is a cost bug nothing else surfaces.
 
 Per R4:
 
-- One active Run per Thread, enforced by a unique index rather than by
+- One active turn per learner, enforced by a Redis lease rather than by
   convention. Tested as a lock, not as a safety net.
 - Resume from the checkpoint, never a rerun from input.
-- Cancellation observable mid-generation.
 - Approval before any destructive tool executes.
 - Ownership re-checked inside every tool, independent of approval.
 - Untrusted content wrapped.
-- An interrupted Run readable over HTTP, so a reload rebuilds the popup.
+- A pending interrupt readable over HTTP, so a reload rebuilds the popup.
 
 ## 12. Invariants for the checklist
 
 ```text
-a second Run on the same Thread → 409
+a second turn for the same learner while one is active → 409
 a destructive tool cannot execute before approval
 reject → the agent receives a refusal and continues
 edit → the tool executes with the edited arguments, never the original
-an interrupted Run holds no connection and no slot
-a reload during approval rebuilds the popup from GET /runs/{runId}
+a paused turn holds no connection and no worker slot
+a reload during approval rebuilds the popup from GET /threads/{id}/state
 a node deleted during approval → the tool raises; the agent handles it
-cancel mid-generation → stops at the next yield point
-a client disconnect cancels the run
+a provider failure emits a terminal RunErrorEvent instead of truncating the stream
 durability="exit" still checkpoints at an interrupt
 resume continues from the checkpoint, not from the original input
 compaction never splits a tool call from its result
 untrusted content is wrapped
 a tool refusal does not change the tool list
-an orphaned running Run is swept to error at startup
+the turn lease expires on its own, so a killed process cannot lock a learner out
 ```
 
 ## 13. To verify at implementation time

@@ -1,7 +1,3 @@
-"use server"
-
-import { revalidatePath } from "next/cache"
-
 import type { ActionResult } from "@/lib/api/handle-api-error"
 import type { LearningSettings } from "@/lib/api/types"
 
@@ -23,6 +19,5 @@ export async function updateLearningSettings(
   // The saved values are read back by the settings page on its next render, so the
   // cached render has to go. Nothing else displays them: a live session carries the
   // plan it was created with, and the study screen never re-reads this.
-  if (result.success) revalidatePath("/settings")
   return result
 }

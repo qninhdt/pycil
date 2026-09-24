@@ -55,7 +55,8 @@ class UserSenseStats(SQLModel, table=True):
     review_count: int = Field(default=0)
     lapse_count: int = Field(default=0)
     status: SenseStatus = Field(default=SenseStatus.new)
-    buried_until: datetime | None = Field(default=None, sa_type=TZDateTime)
+    depth_level: int = Field(default=0)
+    depth_streak: int = Field(default=0)
     created_at: datetime | None = Field(
         default=None, sa_type=TZDateTime, sa_column_kwargs={"server_default": text("NOW()")}
     )

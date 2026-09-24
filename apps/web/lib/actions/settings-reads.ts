@@ -1,15 +1,10 @@
-import "server-only"
-
 import { createApiClient } from "@/lib/api/client"
 import type { LearningSettings, Viewer } from "@/lib/api/types"
-import { getSession } from "@/lib/auth/session"
 
 /**
  * The signed-in profile, read for the settings screen.
  *
- * A plain server-only function rather than a server action: nothing mutates and nothing
- * calls it from the browser, so `"use server"` would publish a callable endpoint for no
- * reason.
+ * A direct browser read; no proxy endpoint is involved.
  *
  * Read from the API rather than from the session cookie. The cookie holds a snapshot
  * taken at sign-in, so a name or picture changed upstream since then would be stale
@@ -18,7 +13,7 @@ import { getSession } from "@/lib/auth/session"
  * half-rendered settings page.
  */
 export async function readViewer(): Promise<Viewer> {
-  return createApiClient(await getSession()).auth.getViewer()
+  return createApiClient().auth.getViewer()
 }
 
 /**
@@ -32,5 +27,5 @@ export async function readViewer(): Promise<Viewer> {
  * to the policy defaults, so this always describes what the next session will do.
  */
 export async function readLearningSettings(): Promise<LearningSettings> {
-  return createApiClient(await getSession()).learning.getLearningSettings()
+  return createApiClient().learning.getLearningSettings()
 }

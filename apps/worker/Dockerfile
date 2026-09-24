@@ -15,9 +15,14 @@ RUN apt-get update \
 
 # Build context = repo root (see docker-compose.yml). The worker reuses the API
 # package for learning services and embeds the Lexi domain library.
-COPY packages/shared-py /app/packages/shared-py
 COPY apps/api /app/apps/api
 COPY apps/worker /app/apps/worker
+
+# Same fixed policy path as the API image, so one release has one catalog and a
+# worker can never bill or bound a turn against a different revision than the
+# process that admitted it.
+COPY config/config.yaml /app/config/config.yaml
+ENV PYCIL_CONFIG_PATH=/app/config/config.yaml
 
 WORKDIR /app/apps/worker
 
@@ -39,9 +44,9 @@ ENV NLTK_DATA=/usr/local/nltk_data
 RUN python -m nltk.downloader -d "$NLTK_DATA" wordnet \
     && python -c "from nltk.corpus import wordnet; assert wordnet.synsets('resilient')"
 
-# Drop root: arq needs no privileged ports or writes outside the venv.
+# Domain jobs need no privileged ports.
 RUN useradd --create-home --uid 10001 appuser \
     && chown -R appuser:appuser /app
 USER appuser
 
-CMD ["arq", "pycil_worker.main.WorkerSettings"]
+CMD ["taskiq", "worker", "pycil_worker.main:broker", "--workers", "1"]

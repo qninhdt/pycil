@@ -218,12 +218,13 @@ an unstudied sense reports no learning state, distinct from zero
 a missing sense is a state, not a server error
 ```
 
-## 10. Open, and it must be closed deliberately
+## 10. Decisions
 
-Both from §5, both product decisions with a real cost either way:
-
-1. **Is the per-demand item count honoured, or removed from the contract?**
-   Honouring it needs a variation source per type. Removing it means the consumer
-   must know that supply at a level equals the number of types at that level.
-2. **May a learner meet the same item across sessions?** A durable exclusion set
-   grows without bound; a session-scoped one allows an assessment to be memorised.
+1. **One item per `(sense, level)` demand.** The public `PrepareDemand` contains
+   only the sense and level; Lexi prepares one item for each registered type at that
+   level. The internal worker payload may still carry a round's remaining count,
+   but it is not presented as a library contract or silently ignored by it.
+2. **Exclusion is session-scoped.** A new session may see an item served in an
+   earlier session. This keeps exclusion bounded and makes repeated assessment a
+   deliberate spaced-review trade-off; durable cross-session exclusion is deferred
+   until a product rule and retention policy justify its unbounded state.

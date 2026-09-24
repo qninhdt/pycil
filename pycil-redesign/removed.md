@@ -52,7 +52,7 @@ column.
 | 17 | code | `schema_name` on the event row **`DESTRUCTIVE`** | Never read. The version string that is consumed lives inside the payload — the column is a second, unread copy | The payload field | |
 | 18 | code | Two re-export layers over the job contract | The outer layer has **zero importers**; the inner one is bypassed by five modules importing the source directly. A facade nothing uses, in front of a facade nothing honours | Direct import of the contract | |
 | 19 | code | Two near-identical worker context types bridged by a cast | One shape with optional keys covers both | One type | |
-| 20 | code | Periodic work inside the worker pool | Heartbeat, redispatch reconciliation, and retention must run even when job slots are full | A scheduler process `F9` | |
+| 20 | code | Periodic work inside the worker pool | Heartbeat, redispatch reconciliation, and retention must run even when job slots are full | **Superseded.** No scheduler was built; the worker refreshes its own heartbeat in-process, and no other periodic work runs | |
 
 ## Content and dictionary boundary
 
@@ -69,10 +69,31 @@ column.
 
 | # | Source | Item | Why removed | Replaced by | LOC |
 |---|---|---|---|---|---|
-| 27 | code | Identity keyed on email | The provider documents that email changes and that the subject is stable. Keying on email means an email change creates a second account and abandons the learner's memory state | `(issuer, subject)` `H7`, `[R13]` | |
-| 28 | code | The universal BFF: sealed session cookie, credential forwarding, a proxy route per surface | It existed for one reason — the token lived server-side. With the browser holding a cookie against the same origin, the reason is gone | Direct calls, cookies set by the API `H1`, `H2` | ~1,334 |
-| 29 | code | An unreachable branch in refresh coordination | The encoder produces two outcomes and the decoder raises on anything else; the third branch cannot be reached | Nothing | |
+| 27 | code | Identity keyed on email | The provider documents that email changes and that the subject is stable. Keying on email means an email change creates a second account and abandons the learner's memory state | The Clerk subject `H7`, `[R13]` | |
+| 28 | code | The universal BFF: sealed session cookie, credential forwarding, a proxy route per surface | It existed for one reason — the token lived server-side. Clerk's SDK holds the session in the browser, so the reason is gone | Direct calls with a bearer header `H1`, `H2` | ~1,334 |
+| 29 | code | An unreachable branch in refresh coordination | The encoder produces two outcomes and the decoder raises on anything else; the third branch cannot be reached | Nothing — refresh is Clerk's | |
 | 30 | code | A capability flag hardcoded to one value, read by nothing | A flag with one value is a constant with extra steps | Nothing | |
+
+## Superseded during execution
+
+These were **specified by this folder and then not built** — or built and dropped.
+They are not code that existed before the redesign. They are recorded because a
+design document that silently loses a decision cannot be audited, and because each
+one changed a guarantee a reader may still be relying on.
+
+| # | Item | Why it did not survive | What holds instead |
+|---|---|---|---|
+| 31 | Pycil-issued HS256 access tokens, rotating refresh sessions, cookie credentials, token version, CSRF | The Clerk decision replaced the local issuer. Every mechanism here existed to make a local issuer safe — with no local issuer there is nothing to rotate, revoke or bind | Clerk verification and a subject→UUID mapping `H2`–`H12` |
+| 32 | The `assistant_runs` table and its run-status vocabulary | A row nothing read, kept only to make a future background queue a config change. The checkpoint already holds everything a resume needs, so the row was a second source of truth for one question | Checkpoint state, plus a Redis turn lease for the per-learner bound `G1`, `G2`, `G7` |
+| 33 | The `job_tasks` table: claim, `attempt` counter, interest rows, dispatch reconciliation | Nothing reconciled from it, and the receipt clients poll is Redis. Keeping both would be two records of one job | The owner-scoped Redis receipt with a 24h TTL `F4`–`F6` |
+| 34 | A scheduler process | Never built. Its only indispensable duty — the heartbeat readiness reads — is an in-process task in the worker | `_heartbeat_loop` in the worker entrypoint `F9` |
+
+**The cost of 32–34 together.** With no run row, no job row and no scheduler, there
+is no reconciliation anywhere in the system: a lost content job is lost, and the
+learner's retry is the recovery. That is the accepted trade — graded learning never
+depends on a job — but it is a real reduction from what this folder originally
+promised, and [cross-cutting/messaging.md](./cross-cutting/messaging.md) §4 and §6
+state it rather than leaving it to be discovered.
 
 ## Frontend
 

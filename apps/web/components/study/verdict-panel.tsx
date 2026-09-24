@@ -21,7 +21,7 @@ function VerdictTag({ isCorrect }: { isCorrect: boolean | null }) {
       ? "bg-wash-success text-on-wash-success"
       : isCorrect === false
         ? "bg-wash-danger text-on-wash-danger"
-        // DESIGN.md's neutral tag is `surface-sunken`, which the theme wires to
+        // The neutral tag maps to `surface-sunken`, which the theme wires to
         // `--muted`. Naming the token directly would reference a class that has
         // no rule.
         : "bg-muted text-muted-foreground"

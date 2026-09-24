@@ -1,5 +1,5 @@
 /**
- * Generated from apps/api/pycil/policy/policy.py by scripts/extract-realtime-contracts.py. Do not edit.
+ * Generated from apps/api/pycil/policy/policy.py. Do not edit.
  *
  * Source fingerprint: e07921786315
  *
@@ -13,7 +13,7 @@
  * The band-resolving functions live in `mastery.ts` and stay hand-written.
  * The numbers are the cross-language contract; the lookup logic is not.
  *
- * Regenerate with:  python3 scripts/extract-realtime-contracts.py
+ * Regenerate from the API learning policy when that contract changes.
  */
 
 export type MasteryStage = 1 | 2 | 3 | 4 | 5

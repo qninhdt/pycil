@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useTransition } from "react"
+import { useRouter } from "next/navigation"
 
 import {
   AlertDialog,
@@ -41,6 +42,7 @@ const CONFIRMATION = "DELETE"
  * themselves are not deleted — only this account's relationship to them.
  */
 export function DeleteAccountDialog() {
+  const router = useRouter()
   const [open, setOpen] = useState(false)
   const [typed, setTyped] = useState("")
   const [problem, setProblem] = useState<string | null>(null)
@@ -56,7 +58,8 @@ export function DeleteAccountDialog() {
       // Only a failure can return: the action redirects on success, and a redirect
       // throws, so there is no success branch to handle here.
       const result = await deleteAccount()
-      setProblem(result.error)
+      if (result.success) router.push("/login")
+      else setProblem(result.error)
     })
   }
 

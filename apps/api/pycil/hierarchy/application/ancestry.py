@@ -1,42 +1,40 @@
-"""The one upward walk of the node tree.
-
-``subtree.py`` descends; this ascends. Three copies of the ascent existed before
-(generation bumping, move-cycle detection, and the breadcrumb path this module was
-extracted for), each free to disagree about cycle handling.
-
-Cycle policy is deliberately non-raising: a node already seen terminates the walk
-and the partial chain is returned. The generation-bump path runs inside structural
-mutations and the breadcrumb path runs on every node read, so a corrupted tree must
-degrade rather than 500.
-
-``access.py`` keeps its own two walks. They are not duplicates of this one: they
-need whole ``Node`` rows and make a per-hop authorization decision that stops early,
-whereas this returns the full chain of ids and lets the caller decide.
-"""
+"""Set-based ancestor resolution used by structural writes."""
 
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pycil.hierarchy.infra.models import Node
+from pycil.hierarchy.application.access import MAX_HIERARCHY_DEPTH
+
+_ANCESTOR_CHAIN_SQL = text(
+    """
+    WITH RECURSIVE chain AS (
+        SELECT id, parent_node_id, 0 AS depth, ARRAY[id]::uuid[] AS path
+        FROM nodes
+        WHERE id = :node_id
+
+        UNION ALL
+
+        SELECT parent.id, parent.parent_node_id, chain.depth + 1, chain.path || parent.id
+        FROM chain
+        JOIN nodes parent ON parent.id = chain.parent_node_id
+        WHERE chain.depth < :max_depth
+          AND parent.id <> ALL(chain.path)
+    )
+    SELECT id FROM chain ORDER BY depth DESC
+    """
+)
 
 
 async def ancestor_chain(session: AsyncSession, node_id: UUID) -> list[UUID]:
-    """Return ``node_id`` and its ancestors, ROOT FIRST.
+    """Return ``node_id`` and its ancestors, root first.
 
-    The node itself is the last element, so the result reads as a breadcrumb. A
-    root node yields a single-element list. Terminates on a repeat rather than
-    raising; see the module docstring.
+    The recursive query stops at a repeated id and at the hierarchy depth cap, so
+    corrupted trees degrade to the reachable chain instead of looping forever.
     """
-    chain: list[UUID] = []
-    seen: set[UUID] = set()
-    current: UUID | None = node_id
-    while current is not None and current not in seen:
-        seen.add(current)
-        chain.append(current)
-        current = (
-            await session.execute(select(Node.parent_node_id).where(Node.id == current))
-        ).scalar_one_or_none()
-    chain.reverse()
-    return chain
+    result = await session.execute(
+        _ANCESTOR_CHAIN_SQL,
+        {"node_id": str(node_id), "max_depth": MAX_HIERARCHY_DEPTH},
+    )
+    return list(result.scalars())

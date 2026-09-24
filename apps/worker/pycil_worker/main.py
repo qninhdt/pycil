@@ -1,165 +1,214 @@
-"""arq worker entrypoint.
+"""Worker startup: resources, job registration and liveness.
 
-Run with: ``arq pycil_worker.main.WorkerSettings``
+One broker, one consumer group, two registered handlers. The resources a job needs
+(Redis, the database session factory, the embedded Lexi engine) are built once at
+startup and handed to handlers through the broker's state, so a handler never
+opens its own connections and a test can substitute them.
 
-Startup embeds one Lexicon and exposes its reader and worker-engine capabilities
-separately. Lexi owns all dictionary storage and generation; Pycil's worker only
-orchestrates its own jobs.
+The worker registers exactly the handlers named by the shared contract's registry
+and fails at import if it does not cover every kind — a missing registration would
+otherwise leave a queued job unhandled forever, which looks to a learner like a
+job stuck in `queued`.
 """
 
-# Register every ORM model in SQLModel metadata before any job runs. The worker
-# writes rows the API would have registered through its routers at application
-# startup — the grading job's ReviewLog needs both `users` and `nodes`, and the
-# task tables need `users`. A foreign key is not resolved when its model is
-# imported but when the flush sorts tables, so a missing registration surfaces as
-# a NoReferencedTableError on the first write rather than at import, and only for
-# whichever job happens to run first on a cold worker.
+from __future__ import annotations
+
 import asyncio
-from typing import cast
+import logging
+import signal
+from contextlib import suppress
+from typing import Any
 from uuid import uuid4
 
-import asyncpg
-import pycil.db.models  # noqa: F401
-from arq.connections import RedisSettings
-from arq.cron import cron
+import pycil.db.models  # noqa: F401 - register ORM metadata before any job writes
 from lexi_ai import Lexicon
 from pycil.config import settings
-from pycil.ports.centrifugo import CentrifugoControl
-from pycil.ports.lexi import LexiReader, LexiWorkerEngine
 from pycil.ports.lexi_embedded import create_lexicon_reader
-from shared.tasks.contract import JOB_NAME_FOR_KIND, JOB_NAME_GRADE_ANSWER_V1
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-
-from pycil_worker.context import ReadyWorkerContext, WorkerContext
-from pycil_worker.jobs.dispatch_task_outbox import dispatch_task_outbox
-from pycil_worker.jobs.generate_question import prepare_questions_task
-from pycil_worker.jobs.generate_word import generate_word_task
-from pycil_worker.jobs.grade_answer import grade_answer_task, grade_answer_v1
-from pycil_worker.jobs.heartbeat import heartbeat
-from pycil_worker.jobs.reconcile_assistant_retention import reconcile_assistant_retention
-from pycil_worker.jobs.reconcile_async_tasks import reconcile_async_tasks
-from pycil_worker.jobs.reconcile_expired_assistant_actions import (
-    reconcile_expired_assistant_actions,
+from pycil.queue.contracts import (
+    JOB_NAME_FOR_KIND,
+    PAYLOAD_VERSION,
+    WORKER_HEARTBEAT_KEY,
+    WORKER_HEARTBEAT_TTL_SECONDS,
 )
-from pycil_worker.jobs.reconcile_pending_grades import reconcile_pending_grades
+from pycil.queue.receipts import (
+    STATUS_DONE,
+    STATUS_FAILED,
+    STATUS_RUNNING,
+    update_job_status,
+)
+from redis.asyncio import Redis
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from taskiq import TaskiqEvents
+
+from pycil_worker.broker import broker
+from pycil_worker.jobs.generate_question import prepare_questions
+from pycil_worker.jobs.generate_word import generate_word
 from pycil_worker.lexi_library import create_lexicon_worker_engine
 
-_OUTBOX_NOTIFICATION_CHANNEL = "async_task_outbox"
+logger = logging.getLogger(__name__)
+
+HEARTBEAT_INTERVAL_SECONDS = 10.0
 
 
-def create_embedded_lexi_worker_engine() -> tuple[Lexicon, LexiReader, LexiWorkerEngine]:
-    """Build one Lexicon with isolated read and provider-enabled capabilities."""
+async def _build_resources() -> dict[str, Any]:
+    """Construct the long-lived resources every job shares."""
     lexicon = Lexicon.from_settings()
-    return lexicon, create_lexicon_reader(lexicon), create_lexicon_worker_engine(lexicon)
-
-
-async def close_embedded_lexicon(lexicon: Lexicon) -> None:
-    """Release resources owned by an embedded Lexicon instance."""
-    await lexicon.close()
-
-
-def _asyncpg_url(database_url: str) -> str:
-    return database_url.replace("postgresql+asyncpg://", "postgresql://", 1)
-
-
-async def _drain_task_outbox(ctx: ReadyWorkerContext) -> None:
-    lock = ctx["task_outbox_drain_lock"]
-    if lock.locked():
-        return
-    async with lock:
-        await dispatch_task_outbox(ctx)
-
-
-async def _start_task_outbox_listener(ctx: ReadyWorkerContext) -> None:
-    async def on_notification(_connection, _pid, _channel, _payload) -> None:
-        await _drain_task_outbox(ctx)
-
-    connection = await asyncpg.connect(_asyncpg_url(settings.db_url))
-    await connection.add_listener(_OUTBOX_NOTIFICATION_CHANNEL, on_notification)
-    ctx["task_outbox_listener"] = connection
-    ctx["task_outbox_notification_callback"] = on_notification
-
-
-async def on_startup(ctx: WorkerContext) -> None:
-    ctx["worker_id"] = str(uuid4())
-    # One broker client for the whole process: the outbox relay fires it on every
-    # pg notification and cron sweep, so per-invocation clients would multiply
-    # connections for no reuse.
-    ctx["centrifugo"] = CentrifugoControl()
-    lexicon, reader, worker_engine = create_embedded_lexi_worker_engine()
-    ctx["lexicon"] = lexicon
-    ctx["lexi_reader"] = reader
-    ctx["lexi_engine"] = worker_engine
+    redis = Redis.from_url(settings.redis_url)
     engine = create_async_engine(settings.db_url, pool_pre_ping=True)
-    ctx["engine"] = engine
-    ctx["session_factory"] = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    ctx["task_outbox_drain_lock"] = asyncio.Lock()
-    ready_ctx = cast(ReadyWorkerContext, ctx)
-    await heartbeat(ready_ctx)
-    await _start_task_outbox_listener(ready_ctx)
-    # Register LISTEN before the initial sweep so a committed event cannot slip
-    # between them and wait for the periodic recovery sweep.
-    await _drain_task_outbox(ready_ctx)
-    await reconcile_async_tasks(ready_ctx)
+    await redis.ping()
+    return {
+        "worker_id": str(uuid4()),
+        "redis": redis,
+        "engine": engine,
+        "session_factory": async_sessionmaker(engine, expire_on_commit=False),
+        "lexicon": lexicon,
+        "lexi_reader": create_lexicon_reader(lexicon),
+        "lexi_engine": create_lexicon_worker_engine(lexicon),
+    }
 
 
-async def on_shutdown(ctx: WorkerContext) -> None:
-    listener = ctx.get("task_outbox_listener")
-    callback = ctx.get("task_outbox_notification_callback")
-    if listener is not None:
-        if callback is not None:
-            await listener.remove_listener(_OUTBOX_NOTIFICATION_CHANNEL, callback)
-        await listener.close()
-    lexicon = ctx.get("lexicon")
-    if lexicon is not None:
-        await close_embedded_lexicon(lexicon)
-    centrifugo = ctx.get("centrifugo")
-    if centrifugo is not None:
-        await centrifugo.close()
-    engine = ctx.get("engine")
-    if engine is not None:
+async def _close_resources(resources: dict[str, Any]) -> None:
+    if lexicon := resources.get("lexicon"):
+        await lexicon.close()
+    if engine := resources.get("engine"):
         await engine.dispose()
+    if redis := resources.get("redis"):
+        await redis.aclose()
 
 
-class WorkerSettings:
-    functions = [
-        generate_word_task,
-        prepare_questions_task,
-        grade_answer_v1,
-        grade_answer_task,
-        reconcile_pending_grades,
-        reconcile_async_tasks,
-        reconcile_expired_assistant_actions,
-        reconcile_assistant_retention,
-        heartbeat,
-        dispatch_task_outbox,
-    ]
-    cron_jobs = [
-        cron(reconcile_pending_grades, minute={0, 10, 20, 30, 40, 50}),
-        cron(reconcile_async_tasks, minute=set(range(60))),
-        cron(reconcile_expired_assistant_actions, minute={0, 10, 20, 30, 40, 50}),
-        cron(reconcile_assistant_retention, hour={3}, minute={15}),
-        cron(heartbeat, minute=set(range(60))),
-        cron(dispatch_task_outbox, minute=set(range(60))),
-    ]
-    on_startup = on_startup
-    on_shutdown = on_shutdown
-    max_tries = 2  # grade_answer is idempotent, so a single retry is safe
-    redis_settings = RedisSettings.from_dsn(settings.redis_url)
+async def _heartbeat_loop(resources: dict[str, Any]) -> None:
+    """Refresh the liveness key the API readiness probe reads.
+
+    A worker that dies stops refreshing and the key expires, so readiness fails
+    rather than reporting healthy against a broker nothing is consuming.
+    """
+    redis = resources["redis"]
+    while True:
+        try:
+            await redis.setex(
+                WORKER_HEARTBEAT_KEY,
+                WORKER_HEARTBEAT_TTL_SECONDS,
+                resources["worker_id"],
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("worker_heartbeat_failed")
+        await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS)
 
 
-# A queued job whose handler name is not registered is redelivered until arq
-# gives up on it, invisibly. Both services read job names from the shared
-# contract, and this is the worker half of keeping that honest: registering
-# less than the contract promises must fail startup here rather than surface
-# as jobs that expire unhandled. Checked at import time because that is when
-# `arq pycil_worker.main.WorkerSettings` resolves the function list.
-_UNREGISTERED_CONTRACT_JOBS = (
-    {*JOB_NAME_FOR_KIND.values(), JOB_NAME_GRADE_ANSWER_V1}
-    - {function.__name__ for function in WorkerSettings.functions}
-)
-if _UNREGISTERED_CONTRACT_JOBS:
-    raise RuntimeError(
-        "WorkerSettings.functions is missing contract jobs: "
-        f"{sorted(_UNREGISTERED_CONTRACT_JOBS)}"
+#: Which handler serves each kind. The keys must equal the shared contract's
+#: registry; the assertion below turns a mismatch into a startup failure rather
+#: than a job that sits queued forever.
+_HANDLERS = {
+    "word": generate_word,
+    "question_supply": prepare_questions,
+}
+
+
+def _register_jobs() -> None:
+    """Register one handler per contract kind, refusing to start on a gap."""
+    if set(_HANDLERS) != set(JOB_NAME_FOR_KIND):
+        missing = sorted(set(JOB_NAME_FOR_KIND) - set(_HANDLERS))
+        extra = sorted(set(_HANDLERS) - set(JOB_NAME_FOR_KIND))
+        raise RuntimeError(f"worker_handler_registry_mismatch missing={missing} extra={extra}")
+
+    for kind, handler in _HANDLERS.items():
+        broker.register_task(
+            _make_receipted_handler(kind, handler),
+            task_name=JOB_NAME_FOR_KIND[kind],
+        )
+
+
+def _make_receipted_handler(kind: str, handler):
+    """Wrap one job so it records its own receipt transitions.
+
+    The receipt is written to `running` before the effect and to a terminal state
+    after, so a polling client sees progress rather than one jump. A handler
+    failure is recorded with a bounded error code — never the raw exception text,
+    which can carry provider URLs or prompt fragments.
+    """
+
+    async def run(job_id: str, payload: dict, payload_version: int) -> dict:
+        if payload_version != PAYLOAD_VERSION:
+            raise RuntimeError(f"unsupported_payload_version: {payload_version}")
+        resources = _resources()
+        redis = resources["redis"]
+        await update_job_status(redis, job_id, STATUS_RUNNING)
+        try:
+            result = await handler(resources, payload)
+        except Exception as exc:
+            logger.exception("job_failed", extra={"kind": kind})
+            await update_job_status(redis, job_id, STATUS_FAILED, error=_error_code(exc))
+            raise
+        await update_job_status(redis, job_id, STATUS_DONE, result=result)
+        return result
+
+    run.__name__ = f"run_{kind}"
+    return run
+
+
+def _error_code(exc: Exception) -> str:
+    """A stable, non-sensitive error code for the receipt.
+
+    The exception's own message is deliberately not used: a provider error can
+    embed the request URL, a key fragment or part of the prompt.
+    """
+    text = str(exc)
+    if text == "question_supply_unavailable":
+        return text
+    return "job_failed"
+
+
+def _resources() -> dict[str, Any]:
+    state = broker.state
+    if not hasattr(state, "worker"):
+        raise RuntimeError("worker_resources_not_initialized")
+    return state.worker
+
+
+@broker.on_event(TaskiqEvents.WORKER_STARTUP)
+async def _startup(state) -> None:
+    resources = await _build_resources()
+    state.worker = resources
+    resources["heartbeat_task"] = asyncio.create_task(_heartbeat_loop(resources))
+    logger.info("worker_started", extra={"worker_id": resources["worker_id"]})
+
+
+@broker.on_event(TaskiqEvents.WORKER_SHUTDOWN)
+async def _shutdown(state) -> None:
+    resources = getattr(state, "worker", None)
+    if not resources:
+        return
+    if pulse := resources.get("heartbeat_task"):
+        pulse.cancel()
+        with suppress(asyncio.CancelledError):
+            await pulse
+    await _close_resources(resources)
+
+
+_register_jobs()
+
+
+def main() -> None:
+    """Run the worker until a termination signal arrives."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
+    stop = asyncio.Event()
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        with suppress(NotImplementedError):
+            loop.add_signal_handler(sig, stop.set)
+    try:
+        loop.run_until_complete(broker.startup())
+        loop.run_until_complete(stop.wait())
+    finally:
+        loop.run_until_complete(broker.shutdown())
+        loop.close()
+
+
+if __name__ == "__main__":
+    main()

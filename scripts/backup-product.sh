@@ -8,7 +8,7 @@ PYCIL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BACKUP_ID="${BACKUP_ID:-$(date -u +%Y%m%dT%H%M%SZ)}"
 
 restore_services() {
-  (cd "$PYCIL_DIR" && docker compose up -d worker api caddy)
+  (cd "$PYCIL_DIR" && docker compose up -d worker api web caddy)
 }
 trap restore_services EXIT
 

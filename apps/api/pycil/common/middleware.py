@@ -10,12 +10,12 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 from uuid import uuid4
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import JSONResponse, Response
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
-from pycil.common.errors import ErrorDetail, ErrorEnvelope
+from pycil.common.errors import error_envelope
 from pycil.config import settings
 from pycil.observability import metrics
 
@@ -31,18 +31,15 @@ def _request_id(request: Request) -> str:
 
 
 def _middleware_error(request: Request, status_code: int, code: str, message: str) -> JSONResponse:
+    request_id = _request_id(request)
     response = JSONResponse(
         status_code=status_code,
-        content={
-            "error": {
-                "code": code,
-                "message": message,
-                "details": {},
-                "requestId": _request_id(request),
-            }
-        },
+        content=error_envelope(
+            request, status=status_code, code=code, message=message
+        ).model_dump(by_alias=True, exclude_none=True),
+        media_type="application/problem+json",
     )
-    response.headers["X-Request-ID"] = _request_id(request)
+    response.headers["X-Request-ID"] = request_id
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "no-referrer"
@@ -51,7 +48,7 @@ def _middleware_error(request: Request, status_code: int, code: str, message: st
 
 def _asgi_error_headers(request_id: str) -> list[tuple[bytes, bytes]]:
     return [
-        (b"content-type", b"application/json"),
+        (b"content-type", b"application/problem+json"),
         (b"x-request-id", request_id.encode()),
         (b"x-content-type-options", b"nosniff"),
         (b"x-frame-options", b"DENY"),
@@ -105,7 +102,11 @@ class BodySizeLimitMiddleware:
         async def replay_receive() -> dict:
             if messages:
                 return messages.pop(0)
-            return {"type": "http.disconnect"}
+            # Keep the original receive channel alive after replaying the buffered
+            # body. Streaming responses use it to distinguish a real client
+            # disconnect from the end of the request body; returning disconnect
+            # here cancels every SSE generator immediately after its 200 headers.
+            return await receive()
 
         await self.app(scope, replay_receive, send)
 
@@ -113,13 +114,15 @@ class BodySizeLimitMiddleware:
         import json
 
         payload = json.dumps(
-            ErrorEnvelope(
-                error=ErrorDetail(
-                    code="payload_too_large",
-                    message="Body too large",
-                    request_id=request_id,
-                )
-            ).model_dump(by_alias=True),
+            {
+                "type": "about:blank",
+                "title": "Request Entity Too Large",
+                "status": 413,
+                "detail": "Body too large",
+                "code": "payload_too_large",
+                "details": {},
+                "requestId": request_id,
+            },
             separators=(",", ":"),
         ).encode()
         await send(
@@ -133,41 +136,82 @@ class BodySizeLimitMiddleware:
         await send({"type": "http.response.body", "body": payload})
 
 
-class SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        response: Response = await call_next(request)
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
-        response.headers["Referrer-Policy"] = "no-referrer"
-        return response
+def _state(scope: dict[str, Any]) -> dict[str, Any]:
+    return scope.setdefault("state", {})
 
 
-class RequestIdMiddleware(BaseHTTPMiddleware):
+class SecurityHeadersMiddleware:
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_with_headers(message):
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                headers.extend(
+                    [
+                        (b"x-content-type-options", b"nosniff"),
+                        (b"x-frame-options", b"DENY"),
+                        (b"referrer-policy", b"no-referrer"),
+                    ]
+                )
+                message = {**message, "headers": headers}
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)
+
+
+class RequestIdMiddleware:
     """Attach an opaque correlation id to every response and error envelope."""
 
-    async def dispatch(self, request: Request, call_next):
-        request.state.request_id = request.headers.get("X-Request-ID") or uuid4().hex
-        response: Response = await call_next(request)
-        response.headers["X-Request-ID"] = request.state.request_id
-        metrics.increment("pycil_http_requests_total")
-        metrics.increment(f"pycil_http_status_{response.status_code}_total")
-        return response
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        headers = {key.lower(): value for key, value in scope.get("headers", [])}
+        request_id = headers.get(b"x-request-id", b"").decode() or uuid4().hex
+        _state(scope)["request_id"] = request_id
+
+        async def send_with_request_id(message):
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                headers.append((b"x-request-id", request_id.encode()))
+                message = {**message, "headers": headers}
+                metrics.increment("pycil_http_requests_total")
+                metrics.increment(f"pycil_http_status_{message['status']}_total")
+            await send(message)
+
+        await self.app(scope, receive, send_with_request_id)
 
 
-class InternalSecretMiddleware(BaseHTTPMiddleware):
+class InternalSecretMiddleware:
     """Constant-time guard on /internal/* routes; empty/missing secret rejected."""
 
-    async def dispatch(self, request: Request, call_next):
-        if request.url.path.startswith(INTERNAL_PREFIX):
-            if request.url.path == "/internal/realtime/subscribe":
-                presented = request.headers.get("X-Centrifugo-Subscribe-Proxy-Secret", "")
-                expected = settings.centrifugo_subscribe_proxy_secret
-            else:
-                presented = request.headers.get("X-Internal-Secret", "")
-                expected = settings.internal_secret
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        path = scope.get("path", "")
+        headers = {key.lower(): value for key, value in scope.get("headers", [])}
+        if path.startswith(INTERNAL_PREFIX):
+            presented = headers.get(b"x-internal-secret", b"").decode()
+            expected = settings.internal_secret
             if not presented or not expected or not hmac.compare_digest(presented, expected):
-                return _middleware_error(request, 401, "unauthorized", "Bad internal secret")
-        return await call_next(request)
+                request = Request(scope, receive=receive)
+                response = _middleware_error(request, 401, "unauthorized", "Bad internal secret")
+                await response(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
 
 
 def install_middleware(app: FastAPI) -> None:
@@ -178,7 +222,7 @@ def install_middleware(app: FastAPI) -> None:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
-        allow_credentials=False,
+        allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )

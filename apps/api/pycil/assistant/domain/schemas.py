@@ -1,14 +1,88 @@
-"""Assistant HTTP contracts; API field names remain camelCase."""
+"""Assistant HTTP contracts."""
 
 from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import AliasChoices, BaseModel, Field
+from pydantic import BaseModel, Field
 
 
 class ThreadCreate(BaseModel):
     title: str = Field(default="New conversation", min_length=1, max_length=200)
+
+
+class ModelPricingRead(BaseModel):
+    """The tariffs a client may show, in USD per million tokens.
+
+    Exposed so a selector can explain a relative cost without the client ever
+    supplying a price: the server prices every call from its own catalog.
+    """
+
+    input_usd_per_m: float = Field(serialization_alias="inputUsdPerM")
+    output_usd_per_m: float = Field(serialization_alias="outputUsdPerM")
+    cached_read_usd_per_m: float = Field(serialization_alias="cachedReadUsdPerM")
+
+
+class ModelRead(BaseModel):
+    """One selectable model, with only the metadata a client needs.
+
+    Credentials, provider routes and any internal field stay server-side; this is
+    a projection of the enabled catalog, not the catalog itself.
+    """
+
+    id: str
+    name: str
+    provider: str
+    vision: bool
+    reasoning: bool
+    supported_efforts: list[str] = Field(serialization_alias="supportedEfforts")
+    context_window: int = Field(serialization_alias="contextWindow")
+    max_output_tokens: int = Field(serialization_alias="maxOutputTokens")
+    pricing: ModelPricingRead
+    is_default: bool = Field(serialization_alias="isDefault")
+
+
+class ModelCatalogRead(BaseModel):
+    """The allowlist a client may choose from, plus the current default."""
+
+    default_model: str = Field(serialization_alias="defaultModel")
+    default_reasoning_effort: str = Field(serialization_alias="defaultReasoningEffort")
+    models: list[ModelRead]
+
+    @classmethod
+    def from_config(cls) -> "ModelCatalogRead":
+        """Project the enabled catalog into the client-safe shape.
+
+        Only enabled models appear: a disabled entry is a considered model kept on
+        record, and offering it would let a learner select something the gateway
+        cannot run.
+        """
+        from pycil.product_config import system_config
+
+        assistant = system_config.assistant
+        return cls(
+            default_model=assistant.default_model,
+            default_reasoning_effort=assistant.default_reasoning_effort,
+            models=[
+                ModelRead(
+                    id=model.id,
+                    name=model.name,
+                    provider=model.provider,
+                    vision=model.features.vision,
+                    reasoning=model.features.reasoning,
+                    supported_efforts=list(model.supported_efforts),
+                    context_window=model.context_window,
+                    max_output_tokens=model.max_output_tokens,
+                    pricing=ModelPricingRead(
+                        input_usd_per_m=model.pricing.input_usd_per_m,
+                        output_usd_per_m=model.pricing.output_usd_per_m,
+                        cached_read_usd_per_m=model.pricing.cached_read_usd_per_m,
+                    ),
+                    is_default=model.id == assistant.default_model,
+                )
+                for model in system_config.enabled_models()
+            ],
+        )
 
 
 class ThreadRead(BaseModel):
@@ -28,51 +102,30 @@ class MessageCreate(BaseModel):
     model_config = {"populate_by_name": True}
 
 
-class ActionDecision(BaseModel):
-    decision: Literal["approve", "reject"]
+class ResumeDecision(BaseModel):
+    """One approval decision: approve or reject, nothing else.
 
-
-class RunRead(BaseModel):
-    id: UUID
-    thread_id: UUID = Field(serialization_alias="threadId")
-    status: str
-    event_cursor: int = Field(serialization_alias="eventCursor")
-    error_code: str | None = Field(default=None, serialization_alias="errorCode")
-
-    model_config = {"from_attributes": True}
-
-
-class RunEventRead(BaseModel):
-    """One persisted run event, as replayed by the two non-streaming reads.
-
-    Both aliases are declared for a reason. `serialization_alias` alone names only
-    the *output* field, so a keyword built from the camelCase name failed
-    validation and the endpoint answered 500 on its first row. And `payload` is
-    stored as `sanitized_payload`, so validating straight off the ORM row needs
-    that name accepted too — which is what lets the router hand over the row
-    itself instead of restating every field at two call sites.
+    An edit would let a client substitute tool arguments the server never
+    previewed, and a free-text respond would bypass the decision entirely, so
+    both are absent rather than merely discouraged.
     """
 
-    id: UUID
-    # `sequence` is only unique *within* a run, because it is that run's
-    # `event_cursor`. The thread read returns every run's events in one list, so a
-    # consumer that ordered or de-duplicated on `sequence` alone would collide the
-    # second turn's first event with the first turn's. Carrying the run makes the
-    # real key `(runId, sequence)`, and it is also the only way a client learns a
-    # run id at all — which is what the recovery endpoint needs.
-    run_id: UUID = Field(
-        validation_alias=AliasChoices("run_id", "runId"),
-        serialization_alias="runId",
-    )
-    sequence: int
-    event_type: str = Field(
-        validation_alias=AliasChoices("event_type", "eventType"),
-        serialization_alias="eventType",
-    )
-    payload: dict = Field(validation_alias=AliasChoices("payload", "sanitized_payload"))
+    decision: Literal["approve", "reject"]
 
-    model_config = {"populate_by_name": True, "from_attributes": True}
+    model_config = {"populate_by_name": True}
+
+    def command(self) -> dict:
+        return {"type": self.decision}
 
 
-class RunRecoveryRead(RunRead):
-    events: list[RunEventRead]
+class ThreadStateRead(BaseModel):
+    """A thread's durable conversation, read from the checkpointer.
+
+    There is no run status: a turn is either still streaming, or the graph is
+    paused on a pending interrupt, or it finished. Only the last of those leaves
+    a trace worth reporting, and it is the interrupt itself.
+    """
+
+    status: str = Field(default="idle")
+    messages: list[dict] = Field(default_factory=list)
+    interrupts: list[dict] = Field(default_factory=list)

@@ -19,14 +19,6 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps/web/node_modules ./apps/web/node_modules
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/web ./apps/web
-# The build inlines NEXT_PUBLIC_* values, so the public app URL has to be known
-# here and not only at run time.
-ARG NEXT_PUBLIC_APP_URL
-ENV NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
-# A placeholder only for the build: the real secret is injected at run time.
-# Module-level validation in lib/auth/session.ts runs during the build, so an
-# absent value would fail the build rather than the deployment.
-ENV SESSION_PASSWORD=build-time-placeholder-not-used-at-runtime-32
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN pnpm --filter web build
 

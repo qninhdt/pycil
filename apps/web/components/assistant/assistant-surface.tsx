@@ -29,18 +29,15 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer"
 import { useIsBelowDesktop } from "@/hooks/use-mobile"
-import { useAssistantRun } from "@/hooks/use-assistant-run"
 import { listThreads } from "@/lib/actions/assistant"
 import { XIcon } from "@/lib/icons"
 import type { AssistantStore } from "@/lib/stores/assistant-store"
 import { useAssistantStore, useAssistantStoreApi, useUiStore } from "@/lib/stores/store-provider"
 import { cn } from "@/lib/utils"
 
-import { AssistantComposer } from "./assistant-composer"
 import { AssistantErrorNotice } from "./assistant-error-notice"
-import { RunRecoveryNotice } from "./run-recovery-notice"
+import { AssistantChat } from "./assistant-chat"
 import { ThreadList } from "./thread-list"
-import { ThreadTranscript } from "./thread-transcript"
 
 /**
  * Everything inside the surface, independent of which container holds it.
@@ -53,118 +50,31 @@ function AssistantBody() {
   const threads = useAssistantStore((state) => state.threads)
   const listProblem = useAssistantStore((state) => state.listProblem)
   const threadId = useAssistantStore((state) => state.openThreadId)
-  const lastSent = useAssistantStore((state) => state.lastSent)
-
-  // A plain read behind an explicit "have I read it yet" flag, rather than a query
-  // cache. It was a `useQuery` when this component owned its own state, which the
-  // cache made survivable across the drawer being reopened; now the state outlives
-  // the component itself, so the cache was providing only its own provider. The flag
-  // is what keeps a remount from refetching — which is the property that mattered.
-  //
-  // The flag is *released on failure*, which is the other half the cache used to
-  // provide. Holding it either way would make one blocked request permanent: the
-  // list would stay empty for the page's lifetime, and since a thread not in the
-  // list cannot be opened, the assistant would be unusable until a full reload.
-  useEffect(() => {
-    const { transport } = store.getState()
-    if (transport.listLoaded) return
-    transport.listLoaded = true
-    void refreshThreads(store).then((ok) => {
-      if (!ok) transport.listLoaded = false
-    })
-  }, [store])
-
-  // A deleted thread must not stay open behind a transcript it no longer owns.
-  //
-  // Conditioned on the list having actually been read, which is the whole
-  // subtlety. `threads` starts empty and is filled by the effect above, so an
-  // unconditional `threads.some(...)` reads "this thread does not exist" during the
-  // window before the answer arrives — and that window reopens on the far side of a
-  // breakpoint crossing, where a freshly mounted surface renders once before the
-  // store's list reaches it. The transient null then propagated into
-  // `useAssistantRun`, which read it as a thread change: it aborted the open
-  // stream, released the turn key, and re-read the transcript. Closing the very
-  // conversation this store exists to preserve.
   const listRead = useAssistantStore((state) => state.listRead)
-  const openThreadId =
-    threadId && (!listRead || threads.some((thread) => thread.id === threadId))
-      ? threadId
-      : null
+  const listLoaded = useAssistantStore((state) => state.listLoaded)
 
-  const { transcript, phase, problem, recovering, send, decide, recover, resetTurn } =
-    useAssistantRun(openThreadId)
+  useEffect(() => {
+    if (listLoaded) return
+    store.getState().setListLoaded(true)
+    void refreshThreads(store).then((ok) => {
+      if (!ok) store.getState().setListLoaded(false)
+    })
+  }, [listLoaded, store])
 
-  const submit = (content: string) => {
-    store.getState().setLastSent(content)
-    void send(content)
-  }
-
-  // A fresh turn carrying the same words. Not a transport retry: the abandoned run
-  // cannot be continued, so the hook mints a new key and the server starts over.
-  const resend = () => {
-    if (!lastSent) {
-      // Nothing held — this session never sent the turn, so the honest offer is just
-      // to unblock the composer rather than to promise a resend.
-      resetTurn()
-      return
-    }
-    void send(lastSent)
-  }
+  const openThreadId = threadId && (!listRead || threads.some((thread) => thread.id === threadId))
+    ? threadId
+    : null
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       {listProblem ? <AssistantErrorNotice code={listProblem} /> : null}
-
       <ThreadList
         threads={threads}
         activeThreadId={openThreadId}
         onOpen={(id) => store.getState().openThread(id)}
         onChanged={() => void refreshThreads(store)}
       />
-
-      {openThreadId ? (
-        <>
-          <ThreadTranscript
-            transcript={transcript}
-            onDecide={decide}
-            deciding={phase === "streaming"}
-          />
-
-          {/* Above the composer, since it is about the turn the learner just sent.
-              Retry resends the same content rather than asking them to retype it, and
-              the notice only offers it for codes where retrying can actually help. */}
-          {problem ? (
-            <AssistantErrorNotice
-              code={problem}
-              onRetry={lastSent ? () => resend() : undefined}
-            />
-          ) : null}
-
-          {/* Only when a stream ended without the run ending. The notice itself is
-              unconditional, so the decision of *whether* there is anything to recover
-              belongs here, where the phase lives. */}
-          {phase === "abandoned" ? (
-            <RunRecoveryNotice
-              onReplay={() => void recover()}
-              onResend={resend}
-              busy={recovering}
-            />
-          ) : null}
-
-          <AssistantComposer
-            onSend={submit}
-            // Blocked while a stream is open and while the run waits on a decision:
-            // the API rejects a second turn with `assistant_thread_run_active`, so
-            // this refuses locally rather than provoking that.
-            disabled={phase === "streaming" || transcript.awaitingApproval !== null}
-            disabledReason={
-              transcript.awaitingApproval !== null
-                ? "Answer the request above to carry on."
-                : undefined
-            }
-          />
-        </>
-      ) : null}
+      {openThreadId ? <AssistantChat /> : null}
     </div>
   )
 }
@@ -218,8 +128,8 @@ export function AssistantDrawer() {
       open={open}
       onOpenChange={(next) => (next ? openAssistant() : closeSurface())}
     >
-      {/* No `DrawerTrigger`: the trigger lives in the header, which phase 7 owns,
-          and is wired through the store instead. */}
+      {/* No `DrawerTrigger`: the trigger lives in the header and is wired
+          through the store instead. */}
       <DrawerContent
         // Capped rather than full height so the composer stays clear of the on-screen
         // keyboard at 320px. `dvh` follows the visual viewport, which is what shrinks

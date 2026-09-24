@@ -5,6 +5,7 @@ import { useStore } from "zustand"
 
 import { createActivityStore, type ActivityState, type ActivityStore } from "./activity-store"
 import { createAssistantStore, type AssistantState, type AssistantStore } from "./assistant-store"
+import { AssistantRuntimeBridge } from "@/components/assistant/assistant-runtime-bridge"
 import { createUiStore, type UiState, type UiStore } from "./ui-store"
 
 /**
@@ -35,20 +36,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     activityStore.getState().hydrate()
   }, [activityStore])
 
-  // The assistant's stream is deliberately not aborted when a surface unmounts —
-  // that is the breakpoint crossing the store exists to survive. This provider is
-  // the boundary where it *should* stop: past here nothing references the store, so
-  // an open SSE body would be read into state nobody can see.
-  useEffect(() => {
-    return () => {
-      assistantStore.getState().transport.abort?.abort()
-    }
-  }, [assistantStore])
-
   return (
     <ActivityStoreContext.Provider value={activityStore}>
       <AssistantStoreContext.Provider value={assistantStore}>
-        <UiStoreContext.Provider value={uiStore}>{children}</UiStoreContext.Provider>
+        <AssistantRuntimeBridge store={assistantStore}>
+          <UiStoreContext.Provider value={uiStore}>{children}</UiStoreContext.Provider>
+        </AssistantRuntimeBridge>
       </AssistantStoreContext.Provider>
     </ActivityStoreContext.Provider>
   )

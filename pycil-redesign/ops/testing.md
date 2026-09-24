@@ -26,12 +26,24 @@ testing something easy.
 SCOPE
 unit          no external dependency, in-process
 integration   real Postgres and Redis via containers                     (N2)
-e2e           the full stack, ONE golden journey                          (N2)
+system        API + worker + PG + Redis + test JWKS and gateway          (N2)
+browser       the real web app against that stack                        (N2)
 
 PURPOSE — cuts across scope
 contract      an assertion. Deterministic. Always runs in the gate
 measurement   a number. Never gates                                      (N4)
 ```
+
+**Four levels, as directory roots** — `tests/unit`, `tests/integration`,
+`tests/system`, `tests/e2e` — not as pytest markers. The level is a property of
+where a file lives, so a test cannot be collected at one level and reported at
+another. Phase 12 established the tree and Phase 13 filled the system level; the
+browser level is Phase 14.
+
+The system level is the one this folder originally got wrong: it specified a
+**single golden journey** through the whole stack. That was replaced by a set of
+journeys chosen from the product's distinct promises, because one path exercises
+one ordering and misses every failure mode that needs a second one.
 
 The assertion/measurement split is the distinction worth keeping. A measurement
 varies between identical runs, so gating on it makes the gate a coin flip. It
@@ -225,14 +237,14 @@ owns the behaviour:
 | File | Invariants |
 |---|---|
 | [../modules/learning.md](../modules/learning.md) §12 | the two axes, re-ask, session shape |
-| [../modules/assistant.md](../modules/assistant.md) §12 | run lifecycle, single-writer, approval |
+| [../modules/assistant.md](../modules/assistant.md) §12 | turn lifecycle, turn lease, approval |
 | [../modules/hierarchy.md](../modules/hierarchy.md) §9 | readability, generation, top-K |
 | [../modules/content.md](../modules/content.md) §9 | supply, answer safety |
 | [../modules/account.md](../modules/account.md) §9 | identity, credit, export, deletion |
 | [../modules/web.md](../modules/web.md) §7 | client obligations |
-| [../cross-cutting/auth.md](../cross-cutting/auth.md) §12 | tokens, refresh, CSRF |
+| [../cross-cutting/auth.md](../cross-cutting/auth.md) §10 | verification, subject mapping, UUID authorization |
 | [../cross-cutting/delivery.md](../cross-cutting/delivery.md) §7 | SSE, polling, disconnect, reload |
-| [../cross-cutting/messaging.md](../cross-cutting/messaging.md) §8 | job identity, idempotency, work keys |
+| [../cross-cutting/messaging.md](../cross-cutting/messaging.md) §8 | receipt, idempotency, ownership |
 | [../cross-cutting/security.md](../cross-cutting/security.md) §10 | answer key, wrapping, boundaries |
 | [devops.md](./devops.md) §9 | boot, migration, health, drain, restore |
 

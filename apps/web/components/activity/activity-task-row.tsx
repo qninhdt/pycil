@@ -28,7 +28,7 @@ function describe(task: ActivityTask): {
   tone: "pending" | "done" | "failed"
 } {
   switch (task.status) {
-    case "succeeded":
+    case "done":
       return { text: "Done", tone: "done" }
     case "failed":
       return {
@@ -38,6 +38,9 @@ function describe(task: ActivityTask): {
         tone: "failed",
       }
     case "expired":
+      // The receipt outlived its TTL, so the outcome is genuinely unknown. Saying
+      // "failed" would be a claim the server never made, and saying "done" would
+      // hide work the learner still has to redo.
       return { text: "Expired", tone: "failed" }
     case "queued":
       return { text: "Queued", tone: "pending" }

@@ -1,8 +1,8 @@
 /**
  * What each wire error code means to a person, and what the UI should do about it.
  *
- * The codes themselves come from `./error-codes.generated.ts`, extracted from the
- * API source. This file supplies the half a generator cannot: the category that
+ * The codes themselves come from `./error-codes.ts`, mirroring the API's error
+ * classes. This file supplies what the code list cannot: the category that
  * decides behaviour, and a sentence worth showing.
  *
  * A code the API can send with no entry here is a **compile** error, not a
@@ -18,7 +18,7 @@
 import {
   isKnownApiErrorCode,
   type ApiErrorCode,
-} from "./error-codes.generated"
+} from "./error-codes"
 
 /**
  * How a failure should be handled, independent of which endpoint produced it.
@@ -65,25 +65,13 @@ export const ERROR_TAXONOMY: Record<ApiErrorCode, ErrorTaxonomyEntry> = {
     category: "unauthorized",
     message: "Your session expired. Sign in again.",
   },
-  token_revoked: {
+  // A malformed `Authorization` header — not a bearer scheme, or a second
+  // credential smuggled into the same value. Clerk's SDK mints a correct one, so
+  // this is a hand-built request rather than a stale session; signing in again is
+  // still the recovery a person can act on.
+  invalid_authorization: {
     category: "unauthorized",
-    message: "This session was signed out elsewhere. Sign in again.",
-  },
-  missing_refresh_token: {
-    category: "unauthorized",
-    message: "Your session expired. Sign in again.",
-  },
-  invalid_refresh_token: {
-    category: "unauthorized",
-    message: "Your session expired. Sign in again.",
-  },
-  oauth_email_not_verified: {
-    category: "unauthorized",
-    message: "Verify your email with your provider, then sign in again.",
-  },
-  invalid_redirect_uri: {
-    category: "unexpected",
-    message: "Sign-in could not start. Try again from the sign-in page.",
+    message: "Sign in to continue.",
   },
   unauthorized: {
     category: "unauthorized",
@@ -98,6 +86,37 @@ export const ERROR_TAXONOMY: Record<ApiErrorCode, ErrorTaxonomyEntry> = {
   account_delete_confirmation_required: {
     category: "unauthorized",
     message: "Type DELETE exactly to confirm, and sign in again if asked.",
+  },
+  // Provisioning lost a race and the row is still absent. Signing in again is the
+  // retry, which is why this is not simply "your sign-in is invalid".
+  user_provisioning_failed: {
+    category: "retryable",
+    message: "Your account could not be set up. Sign in again in a moment.",
+  },
+  // Another Clerk subject already holds this email. Linking them would hand one
+  // learner's library to another, so the refusal is permanent for this identity.
+  identity_conflict: {
+    category: "conflict",
+    message: "That email is already linked to a different account. Sign in with the original one.",
+  },
+  // Deployment configuration, not a learner action. Retrying cannot help, and
+  // neither can signing in.
+  auth_not_configured: {
+    category: "unexpected",
+    message: "Sign-in is not available on this deployment.",
+  },
+  clerk_not_configured: {
+    category: "unexpected",
+    message: "Account deletion is not available on this deployment.",
+  },
+  // Clerk's own API rejected the delete. Retrying is the one thing that can help.
+  clerk_deletion_failed: {
+    category: "retryable",
+    message: "Your account could not be deleted just now. Try again in a moment.",
+  },
+  account_not_found: {
+    category: "not_found",
+    message: "Your account could not be found.",
   },
 
   // --- Hierarchy ------------------------------------------------------------
@@ -117,6 +136,10 @@ export const ERROR_TAXONOMY: Record<ApiErrorCode, ErrorTaxonomyEntry> = {
     category: "conflict",
     message: "A folder cannot be moved inside itself.",
   },
+  node_depth_exceeded: {
+    category: "conflict",
+    message: "Folders can only be nested so deep. Move this item somewhere shallower.",
+  },
   deck_not_found: {
     category: "not_found",
     message: "That deck no longer exists.",
@@ -127,15 +150,17 @@ export const ERROR_TAXONOMY: Record<ApiErrorCode, ErrorTaxonomyEntry> = {
   },
   reference_requires_target: {
     category: "conflict",
-    message: "Pick the deck this link should point to.",
+    message: "Pick the deck or folder this link should point to.",
   },
-  reference_must_target_deck: {
+  // A link to another link would be an indirection the resolver cannot bound, and
+  // a link to itself is meaningless.
+  reference_must_target_deck_or_folder: {
     category: "conflict",
-    message: "A link can only point at a deck.",
+    message: "A link can only point at a deck or a folder.",
   },
   reference_target_not_found: {
     category: "not_found",
-    message: "The linked deck no longer exists.",
+    message: "The linked item no longer exists.",
   },
   target_only_allowed_for_reference: {
     category: "conflict",
@@ -151,16 +176,8 @@ export const ERROR_TAXONOMY: Record<ApiErrorCode, ErrorTaxonomyEntry> = {
     category: "not_found",
     message: "That word is no longer available.",
   },
-  word_generation_query_invalid: {
-    category: "conflict",
-    message: "Enter a word or phrase up to 200 characters.",
-  },
-  word_generation_quota_exceeded: {
-    category: "quota",
-    message: "You have reached today's limit for adding new words.",
-  },
 
-  // --- Study session --------------------------------------------------------
+  // --- Study session and learning -------------------------------------------
   session_not_found: {
     category: "session_invalidated",
     message: "This study session has ended.",
@@ -168,6 +185,24 @@ export const ERROR_TAXONOMY: Record<ApiErrorCode, ErrorTaxonomyEntry> = {
   session_scope_changed: {
     category: "session_invalidated",
     message: "This deck changed while you were studying, so the session ended.",
+  },
+  // The stored session document is a version this build cannot read, which a
+  // rollout can produce. The document is per-session, so starting a new one works.
+  study_session_schema_unsupported: {
+    category: "session_invalidated",
+    message: "This study session can no longer be read. Start a new one.",
+  },
+  // Another writer changed the session document underneath this request, so the
+  // answer that was already committed is no longer the head of this session.
+  study_session_claim_lost: {
+    category: "session_invalidated",
+    message: "This session moved on while your answer was being saved.",
+  },
+  // A concurrent write lost its compare-and-swap. The session itself is intact,
+  // so the learner retries into the current state rather than losing the session.
+  study_session_changed: {
+    category: "conflict",
+    message: "This session was updated elsewhere. Try again.",
   },
   question_not_available: {
     category: "session_invalidated",
@@ -181,6 +216,18 @@ export const ERROR_TAXONOMY: Record<ApiErrorCode, ErrorTaxonomyEntry> = {
     category: "conflict",
     message: "This card is for reading, not answering.",
   },
+  // A second submit for one question while the first still holds its claim. The
+  // claim expires on its own, so the answer is not lost — only early.
+  question_submission_in_progress: {
+    category: "conflict",
+    message: "That answer is still being marked. Wait a moment.",
+  },
+  // The duplicate this guard exists to refuse: a second *graded* answer for one
+  // sense in one session. A re-ask is the opposite case and does not arrive here.
+  sense_already_graded: {
+    category: "conflict",
+    message: "You have already answered this card in this session.",
+  },
   question_preparation_exhausted: {
     category: "retryable",
     message: "Questions could not be prepared just now. Try again in a moment.",
@@ -193,17 +240,56 @@ export const ERROR_TAXONOMY: Record<ApiErrorCode, ErrorTaxonomyEntry> = {
     category: "retryable",
     message: "This question could not be shown. Try again in a moment.",
   },
+  free_text_grade_timeout: {
+    category: "retryable",
+    message: "Marking that answer took too long. Try again in a moment.",
+  },
+  free_text_grade_unavailable: {
+    category: "retryable",
+    message: "That answer could not be marked just now. Try again in a moment.",
+  },
   response_not_found: {
     category: "not_found",
     message: "That answer is no longer on record.",
   },
-  answer_grading_quota_exceeded: {
-    category: "quota",
-    message: "You have reached today's limit for graded answers.",
+  // The response row has no id after being flushed, which is an internal
+  // invariant rather than anything the learner did.
+  response_not_ready: {
+    category: "unexpected",
+    message: "That answer could not be recorded. Try again.",
+  },
+  // An ungraded re-ask reached settlement without the delivery id that keys its
+  // charge. Nothing the learner can act on.
+  reask_delivery_id_missing: {
+    category: "unexpected",
+    message: "That card could not be re-asked. Continue to the next one.",
   },
   history_window_invalid: {
     category: "conflict",
     message: "Pick a start date before the end date.",
+  },
+
+  // --- Credits --------------------------------------------------------------
+  // The only admission gate left is an assistant turn: exhausted credit degrades
+  // the learning path rather than refusing it, so this cannot arrive from study.
+  credit_exhausted: {
+    category: "quota",
+    message: "You have used your credits for this month. They renew at the start of the next one.",
+  },
+  // Accounting invariants: a reference id must be settled once, by one owner, for
+  // one amount. A disagreement means the ledger is inconsistent, not that the
+  // learner did something wrong.
+  credit_debit_reference_reused: {
+    category: "unexpected",
+    message: "That charge could not be recorded. Contact support if it persists.",
+  },
+  credit_debit_amount_mismatch: {
+    category: "unexpected",
+    message: "That charge could not be recorded. Contact support if it persists.",
+  },
+  assistant_usage_regressed: {
+    category: "unexpected",
+    message: "That turn's usage could not be recorded. Contact support if it persists.",
   },
 
   // --- Assistant ------------------------------------------------------------
@@ -215,68 +301,57 @@ export const ERROR_TAXONOMY: Record<ApiErrorCode, ErrorTaxonomyEntry> = {
     category: "not_found",
     message: "That conversation no longer exists.",
   },
-  assistant_thread_run_active: {
-    category: "conflict",
-    message: "Wait for the current reply to finish.",
-  },
-  assistant_run_not_found: {
+  assistant_cursor_not_in_collection: {
     category: "not_found",
-    message: "That reply is no longer available.",
+    message: "That part of the conversation is no longer available.",
   },
-  assistant_run_create_conflict: {
+  // One active turn per account is a consistency boundary for billing, not a
+  // paid-tier limit: a second turn is refused, not downgraded.
+  assistant_turn_in_progress: {
     category: "conflict",
     message: "Wait for the current reply to finish.",
   },
-  client_message_id_reused: {
+  // The lease was lost mid-stream, which means another turn for this account took
+  // it. The interrupted reply is not recoverable.
+  assistant_turn_lease_lost: {
     category: "conflict",
-    message: "That message was already sent.",
+    message: "This reply stopped because the same account started another one.",
+  },
+  // A run id that already has a saved turn. The earlier result is authoritative,
+  // so re-sending is the wrong move — reloading shows what actually landed.
+  assistant_run_id_reused: {
+    category: "conflict",
+    message: "That request was already handled. Refresh to see the result.",
+  },
+  // The run completed or failed, or its checkpoint holds no interrupt to answer.
+  assistant_run_not_resumable: {
+    category: "conflict",
+    message: "That reply can no longer be continued.",
+  },
+  // The pending metering record for a turn is unreadable, so the turn cannot be
+  // settled. Retrying the same settlement fails the same way.
+  assistant_metering_state_invalid: {
+    category: "unexpected",
+    message: "That turn could not be settled. Start a new one.",
   },
   assistant_message_too_long: {
     category: "conflict",
     message: "That message is too long. Shorten it and send again.",
   },
-  assistant_action_not_found: {
-    category: "not_found",
-    message: "That request is no longer pending.",
-  },
-  assistant_action_already_resolved: {
-    category: "conflict",
-    message: "You already answered that request.",
-  },
-  assistant_action_expired: {
-    category: "conflict",
-    message: "That request expired. Ask again.",
-  },
-  assistant_action_not_approved: {
-    category: "conflict",
-    message: "That action needs your approval first.",
-  },
-  assistant_action_invalid_arguments: {
-    category: "conflict",
-    message: "The assistant could not complete that action.",
-  },
-  assistant_action_stale: {
-    category: "conflict",
-    message: "Things changed since that request. Ask again.",
-  },
   assistant_actor_revoked: {
     category: "unauthorized",
     message: "Your sign-in changed. Sign in again to keep using the assistant.",
   },
-  assistant_capacity_exhausted: {
-    category: "retryable",
-    message: "The assistant is busy. Try again in a moment.",
-  },
-  assistant_cursor_not_in_collection: {
+
+  // --- Jobs -----------------------------------------------------------------
+  // Also the answer for another learner's job, deliberately: distinguishing the
+  // two would let a caller enumerate job ids.
+  job_not_found: {
     category: "not_found",
-    message: "That part of the conversation is no longer available.",
+    message: "That job is no longer available.",
   },
 
   // --- Infrastructure and generic -------------------------------------------
-  centrifugo_unavailable: {
-    category: "retryable",
-    message: "Live updates are unavailable. Your work still saves.",
-  },
   core_dependency_unavailable: {
     category: "retryable",
     message: "A service is temporarily unavailable. Try again in a moment.",
@@ -292,19 +367,6 @@ export const ERROR_TAXONOMY: Record<ApiErrorCode, ErrorTaxonomyEntry> = {
   internal_error: {
     category: "retryable",
     message: "Something went wrong on our side. Try again in a moment.",
-  },
-  // Two writers raced on the same command id. The other one won and its result is
-  // authoritative, so a retry of the same command is the wrong move — reloading
-  // shows what actually landed.
-  async_command_conflict: {
-    category: "conflict",
-    message: "That request was already handled. Refresh to see the result.",
-  },
-  // The provider rejected the authorization code exchange. Restarting sign-in is
-  // the only recovery; retrying the same callback URL cannot succeed.
-  oauth_exchange_failed: {
-    category: "unauthorized",
-    message: "Sign-in could not be completed. Try signing in again.",
   },
   too_many_requests: {
     category: "quota",

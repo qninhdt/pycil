@@ -1,7 +1,3 @@
-"use server"
-
-import { revalidatePath } from "next/cache"
-
 import type { ActionResult } from "@/lib/api/handle-api-error"
 import type {
   NodeCreate,
@@ -23,10 +19,6 @@ import { withClient } from "./authorized-action"
 
 export async function createNode(data: NodeCreate): Promise<ActionResult<NodeRead>> {
   const result = await withClient((client) => client.hierarchy.createNode(data))
-  if (result.success) {
-    revalidatePath("/library")
-    if (data.parentNodeId) revalidatePath(`/library/${data.parentNodeId}`)
-  }
   return result
 }
 
@@ -35,10 +27,6 @@ export async function updateNode(
   data: NodeUpdate,
 ): Promise<ActionResult<NodeRead>> {
   const result = await withClient((client) => client.hierarchy.updateNode(nodeId, data))
-  if (result.success) {
-    revalidatePath("/library")
-    revalidatePath(`/library/${nodeId}`)
-  }
   return result
 }
 
@@ -50,14 +38,6 @@ export async function moveNode(
   const result = await withClient((client) =>
     client.hierarchy.moveNode(nodeId, { parentNodeId }),
   )
-  if (result.success) {
-    // The origin is not known here — the API does not report where the node came
-    // from — so the listing root is revalidated as the one page guaranteed to show
-    // a stale position either way.
-    revalidatePath("/library")
-    revalidatePath(`/library/${nodeId}`)
-    if (parentNodeId) revalidatePath(`/library/${parentNodeId}`)
-  }
   return result
 }
 
@@ -76,16 +56,11 @@ export async function updateNodeVisibility(
   const result = await withClient((client) =>
     client.hierarchy.updateNodeVisibility(nodeId, data),
   )
-  if (result.success) {
-    revalidatePath("/library")
-    revalidatePath(`/library/${nodeId}`)
-  }
   return result
 }
 
 export async function deleteNode(nodeId: string): Promise<ActionResult<void>> {
   const result = await withClient((client) => client.hierarchy.deleteNode(nodeId))
-  if (result.success) revalidatePath("/library")
   return result
 }
 
@@ -96,7 +71,6 @@ export async function removeSenseFromDeck(
   const result = await withClient((client) =>
     client.hierarchy.removeSenseFromDeck(nodeId, senseId),
   )
-  if (result.success) revalidatePath(`/library/${nodeId}`)
   return result
 }
 

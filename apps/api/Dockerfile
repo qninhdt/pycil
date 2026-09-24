@@ -13,8 +13,14 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential git libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-COPY packages/shared-py /app/packages/shared-py
 COPY apps/api /app/apps/api
+
+# Product policy lives at one fixed path in the image rather than being resolved
+# from a working directory, so the API and the worker read the same revision
+# regardless of where their process was started. It holds no secrets; those
+# arrive through the environment.
+COPY config/config.yaml /app/config/config.yaml
+ENV PYCIL_CONFIG_PATH=/app/config/config.yaml
 
 WORKDIR /app/apps/api
 

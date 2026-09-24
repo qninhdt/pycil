@@ -1,11 +1,33 @@
+> Current architecture authority: [`../pycil-redesign/`](../pycil-redesign/README.md).
+
 # System Architecture
 
-See [current-system-architecture.md](./current-system-architecture.md) for the
-canonical deployment. Pycil embeds the GitHub-pinned `lexi_ai` as a pure domain library;
-Lexi owns the isolated `lexi` schema in the shared Postgres cluster. Pycil owns
-the application schema, task outbox, worker orchestration, and SSE delivery.
+Pycil is a single-VPS Compose product with the web app deployed separately:
 
-The API and worker create separate Lexi pools. Compose applies Lexi's domain
-migrations before Pycil's migrations. No Lexi HTTP/gRPC process, service
-deployment, service secrets, generic task-status polling, or WebSocket client path
-remains; durable grading responses still have an owner-scoped recovery read.
+```text
+Browser ── HTTPS/Caddy ── FastAPI API ── PostgreSQL (public + lexi + checkpoint)
+   │            │              │
+   │            │              └─ Redis (ephemeral session/cache/coordination)
+   │            └─ Taskiq domain worker
+   └── Vercel ── Next.js web ── bearer-authenticated direct calls to the API
+```
+
+The API owns application behavior and executes assistant turns inline, streaming
+AG-UI events over SSE. The worker owns the two durable content jobs — word
+generation and question supply — and refreshes the heartbeat the API's readiness
+probe reads. PostgreSQL is canonical; Redis holds disposable state and is not a
+source of business truth. Lexi is embedded behind the port in `apps/api/pycil/ports`
+and owns its isolated schema.
+
+The browser holds a Clerk session and sends it as a bearer token; it polls the
+owner-scoped job endpoint and consumes the assistant AG-UI stream. The
+assistant-ui React runtime renders chat and streamed tool calls; the FastAPI
+assistant keeps the LangGraph checkpoint and owner-scoped library tools.
+
+**The five-service target is not fully deployed yet.** Web and the backup service
+still run as Compose services; moving web to Vercel and backup to WAL-G is
+outstanding work. See `pycil-redesign/ops/devops.md`, which states current and
+target separately rather than describing the destination as deployed.
+
+For decisions and invariants, read `pycil-redesign/`. For operational commands,
+read the scripts in `scripts/` and `docs/disaster-recovery-runbook.md`.

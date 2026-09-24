@@ -21,7 +21,7 @@ export function contentResource(fetch: Fetcher) {
      * Requests a word the dictionary does not have yet.
      *
      * Returns a task id, not content: generation runs in the background and
-     * settles through a realtime snapshot.
+     * settles in the same response.
      */
     generateWord: (query: string) =>
       fetch<GenerationCreated>("/v1/word-generations", {

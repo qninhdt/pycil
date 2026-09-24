@@ -2,17 +2,38 @@
 
 Two workflows. Decisions `N6`–`N9`.
 
+**Status: rewritten, not yet green.** `.github/workflows/test.yml` now has one job
+per level — `lint-python`, `test-unit`, `test-integration`, `migration-head`,
+`test-system`, `test-browser`, `build-images` — and `deploy.yml` pins both the
+checkout and the image tag to the tested revision. Two gaps remain, and both are
+deliberate rather than overlooked:
+
+- **The system and browser jobs fail without their secrets.** `test-system` needs
+  `LEXI_REFERENCE_DATASET_URL` and its SHA-256 (the Cambridge artifact is a
+  licensed 142 MB file, not a build output), and `test-browser` needs
+  `CLERK_PUBLISHABLE_KEY` and an `E2E_API_URL`. Neither skips — see
+  [testing.md](./testing.md) §3 — so the gate is visible in every run instead of
+  silently absent. Setup: [`docs/testing-setup.md`](../../docs/testing-setup.md).
+- **`build-images` and `deploy.yml` still build the web image.** The design makes
+  web a Vercel build, but `docker-compose.yml` runs a `web` service, Caddy proxies
+  to it, and `scripts/deploy.sh` requires a `WEB_IMAGE` digest. Dropping the build
+  before Vercel exists would break `docker compose pull` and the deploy script
+  while nothing had replaced them. The image leaves with the container.
+
+The browser job also cannot start its own backend yet: the specs need a running
+five-service stack, and standing one up inside the job is not automated.
+
 ## 1. Shape
 
 ```text
-PR        lint · typecheck · unit · integration · agent contract · golden journey · build
-deploy    manual or tag → push by digest → pull → migrate → up → health gate → smoke
+PR        lint · unit · integration · migration · system · browser · build
+deploy    tested revision → build by digest → host pulls → migrate → worker → API → health gate
 ```
 
-Two, down from three (`N6`). The third was a nightly real-model evaluation that
-**skipped its only real work on every run**, because the repository holds no
-provider secret — a green badge for work that never happened. Under `N3` that
-outcome is a failure, not a pass.
+Two workflows, down from three (`N6`). The third was a nightly real-model
+evaluation that **skipped its only real work on every run**, because the repository
+holds no provider secret — a green badge for work that never happened. Under `N3`
+that outcome is a failure, not a pass. It has been removed.
 
 Measurement returns when there is a secret and a budget to cap it, as a recorded
 number rather than a gate (`N4`).
@@ -20,15 +41,21 @@ number rather than a gate (`N4`).
 ## 2. The PR gate
 
 ```text
-1  lint · format · typecheck            all languages
-2  unit                                 no external dependency
-3  integration                          Postgres + Redis via containers   (N2)
-4  agent contract                        scripted provider                 (N5)
-5  golden journey                        the full stack, one path          (N2)
-6  build images                          not pushed
+1  lint                                 ruff, eslint
+2  unit                                 no external dependency            (N2)
+3  integration                          PostgreSQL, Redis                 (N2)
+4  migration                            fresh database to the single head
+5  system                               API + worker + PG + Redis + stub JWKS/gateway
+6  browser E2E                          local webServer, same backend contract
+7  build images                         API, worker, web — not pushed
 ```
 
 Cheapest first: a formatting error must not wait for containers.
+
+The migration job runs the chain from **empty**, and the deployed-revision path was
+rehearsed by hand: `0006_assistant_run_pending_usage` → head produces the same
+schema as a fresh upgrade. Two directions because they are different questions —
+one proves the head is reachable, the other that no released database is stranded.
 
 Every step is **one command, runnable locally** (`N7`). A step that exists only in
 CI is a step nobody can debug — and the failure that matters is always the one that
@@ -63,9 +90,9 @@ bad day.
 2  push them to the registry
 3  on the host: pull those exact digests
 4  run migrations to completion            ← BLOCKS
-5  start the domain worker and scheduler, health-gate them
+5  start the worker, health-gate it
 6  start the API, health-gate it
-7  start web and the edge
+7  start the edge
 8  smoke: the golden journey
 9  on failure: the previous digest, up again
 ```

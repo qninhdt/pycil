@@ -18,16 +18,18 @@ from pycil.auth.schemas import CurrentUser
 from pycil.common.errors import NotFoundError
 from pycil.db.redis import get_redis
 from pycil.db.session import get_session
-from pycil.learning.application import (
+from pycil.learning import (
     answering,
     dashboard,
     planning,
+    recap,
     response_reads,
-    session_flow,
-    session_recap,
 )
-from pycil.learning.application.question_delivery import ready_question
-from pycil.learning.domain.schemas import (
+from pycil.learning import (
+    session as study_session,
+)
+from pycil.learning.delivery import ready_question
+from pycil.learning.schemas import (
     AnswerRequest,
     DashboardStatsRead,
     FSRSForecastDay,
@@ -121,8 +123,8 @@ async def start_session(
     user: Annotated[CurrentUser, Depends(current_user)],
     session: AsyncSession = Depends(get_session),
 ) -> SessionRead:
-    """Start a session. Planning and supply warm-up live in ``learning.session_flow``."""
-    started = await session_flow.start(
+    """Start a session. Planning and supply warm-up live in ``learning.session``."""
+    started = await study_session.start(
         session, get_redis(), user=user, node_id=body.node_id
     )
     return SessionRead(
@@ -150,7 +152,7 @@ async def read_session(
     has deleted that namespace, so the durable recap answers instead. 404 only when
     neither exists.
     """
-    live = await session_flow.read_live(
+    live = await study_session.read_live(
         session, get_redis(), session_id, user_id=user.id
     )
     if live is not None:
@@ -166,11 +168,9 @@ async def read_session(
                 SessionSenseProgressRead(
                     sense_id=item.sense_id,
                     purpose=item.purpose,
-                    passed=item.passed,
-                    required=item.required,
-                    score=item.score,
+                    graded=item.graded,
                     exposed=item.exposed,
-                    awaiting_grade=item.awaiting_grade,
+                    reask_pending=item.reask_pending,
                     terminal=item.terminal,
                     terminal_reason=item.terminal_reason,
                 )
@@ -178,13 +178,12 @@ async def read_session(
             ],
             senses_admitted=live.senses_admitted,
             senses_completed=live.senses_completed,
-            senses_exhausted=live.senses_exhausted,
             answers_total=live.answers_total,
             answers_correct=live.answers_correct,
             rounds_used=live.meta.round_index + 1,
         )
 
-    summary = await session_recap.load(session, user.id, session_id)
+    summary = await recap.load(session, user.id, session_id)
     if summary is None:
         raise NotFoundError("session_not_found")
     return SessionStateRead(
@@ -193,7 +192,6 @@ async def read_session(
         node_id=summary.node_id,
         senses_admitted=summary.senses_admitted,
         senses_completed=summary.senses_completed,
-        senses_exhausted=summary.senses_exhausted,
         answers_total=summary.answers_total,
         answers_correct=summary.answers_correct,
         rounds_used=summary.rounds_used,
@@ -220,17 +218,17 @@ async def next_question(
     """Advance the session by at most one delivery.
 
     A mutation modelled as a GET: it advances rounds, reserves deliveries and extends
-    the exclusion set. The scheduling itself lives in ``learning.session_flow``; this
+    the exclusion set. The scheduling itself lives in ``learning.session``; this
     only maps its outcome onto the wire.
     """
     redis = get_redis()
-    meta = await session_flow.authorize(session, redis, session_id, user)
-    outcome = await session_flow.next_question(
+    meta = await study_session.authorize(session, redis, session_id, user)
+    outcome = await study_session.next_question(
         session, redis, client, session_id=session_id, user=user, meta=meta
     )
-    if isinstance(outcome, session_flow.Delivered):
+    if isinstance(outcome, study_session.Delivered):
         return ready_question(outcome.resolved)
-    if isinstance(outcome, session_flow.RoundBreak):
+    if isinstance(outcome, study_session.RoundBreak):
         return NextQuestionBreak(round_index=outcome.round_index)
     if outcome.reason == "exhausted":
         return NextQuestionExhausted()
@@ -256,7 +254,7 @@ async def submit_answer(
     redis = get_redis()
     # Called for its guards, not its value: 404 unless the session is the caller's,
     # 409 if a structural mutation moved the scope out from under it.
-    await session_flow.authorize(session, redis, body.session_id, user)
+    await study_session.authorize(session, redis, body.session_id, user)
     outcome = await answering.submit(
         session,
         redis,
@@ -267,13 +265,16 @@ async def submit_answer(
         answer=body.answer,
         now=datetime.now(UTC),
     )
-    if isinstance(outcome, answering.Deferred):
+    if isinstance(outcome, answering.UngradedReask):
         return GradeResponse(
-            response_id=outcome.response_id,
-            grade_status="pending",
+            response_id=None,
+            grade_status="ungraded",
             sense_id=outcome.sense_id,
             render_format=outcome.render_format,
-            task_id=outcome.task_id,
+            is_correct=outcome.is_correct,
+            grade_score=outcome.grade_score,
+            grade_feedback=outcome.grade_feedback,
+            reveal=outcome.reveal,
         )
     return GradeResponse(
         response_id=outcome.response_id,
@@ -286,6 +287,9 @@ async def submit_answer(
         reveal=outcome.reveal,
         mastery_before=outcome.mastery_before,
         mastery_after=outcome.mastery_after,
+        depth_before=outcome.depth_before,
+        depth_after=outcome.depth_after,
+        depth_stage_name=outcome.depth_stage_name,
     )
 
 

@@ -1,7 +1,3 @@
-"use server"
-
-import { revalidatePath } from "next/cache"
-
 import type { ActionResult } from "@/lib/api/handle-api-error"
 import type { GenerationCreated, SenseAdded, WordSearchResult } from "@/lib/api/types"
 
@@ -60,6 +56,5 @@ export async function addSenseToDeck(
   const result = await withClient((client) =>
     client.hierarchy.addSenseToDeck(nodeId, senseId),
   )
-  if (result.success) revalidatePath(`/library/${nodeId}`)
   return result
 }

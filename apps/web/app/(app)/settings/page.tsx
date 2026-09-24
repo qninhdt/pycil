@@ -1,73 +1,53 @@
-import type { Metadata } from "next"
+"use client"
+
+import { useEffect, useState } from "react"
 
 import { AppearanceCard } from "@/components/settings/appearance-card"
 import { DataExportCard } from "@/components/settings/data-export-card"
-import { SessionShapeForm } from "@/components/settings/session-shape-form"
 import { DeleteAccountDialog } from "@/components/settings/delete-account-dialog"
 import { ProfileCard } from "@/components/settings/profile-card"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import { SessionShapeForm } from "@/components/settings/session-shape-form"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { readLearningSettings, readViewer } from "@/lib/actions/settings-reads"
+import type { LearningSettings, Viewer } from "@/lib/api/types"
+import { Spinner } from "@/components/ui/spinner"
 
-export const metadata: Metadata = { title: "Settings" }
+export default function SettingsPage() {
+  const [viewer, setViewer] = useState<Viewer | null>(null)
+  const [settings, setSettings] = useState<LearningSettings | null>(null)
+  const [failed, setFailed] = useState(false)
 
-/**
- * Profile, appearance, session shape, and the account itself.
- *
- * Session shape is one form because it is one setting on the account. It used to be
- * per deck, which meant the same person got a different session length depending on
- * which deck they opened, and a session started on a folder ignored the values
- * altogether. Reaching them also required walking the whole node tree, since the API
- * pages children one level at a time and has no flat deck listing.
- */
-export default async function SettingsPage() {
-  // Both reads are independent, so they overlap. A failure in either is left to the
-  // route's error boundary: a settings screen with no profile and no values is a blank
-  // frame of section headings, which is worse than one stated error.
-  const [viewer, learningSettings] = await Promise.all([
-    readViewer(),
-    readLearningSettings(),
-  ])
+  useEffect(() => {
+    void Promise.all([readViewer(), readLearningSettings()])
+      .then(([nextViewer, nextSettings]) => {
+        setViewer(nextViewer)
+        setSettings(nextSettings)
+      })
+      .catch(() => setFailed(true))
+  }, [])
+
+  if (failed) return <p className="text-sm text-muted-foreground">Settings could not load. Try again.</p>
+  if (!viewer || !settings) return <Spinner aria-label="Loading settings" />
 
   return (
     <div className="flex flex-col gap-8 lg:gap-12">
       <h1 className="text-2xl tracking-tight">Settings</h1>
-
       <ProfileCard viewer={viewer} />
-
       <AppearanceCard />
-
       <Card>
         <CardHeader>
           <CardTitle>Session shape</CardTitle>
-          <CardDescription>
-            How long a session runs and how it is broken into rounds. These apply to
-            every deck you study.
-          </CardDescription>
+          <CardDescription>How long a session runs and how it is broken into rounds. These apply to every deck you study.</CardDescription>
         </CardHeader>
-        <CardContent>
-          <SessionShapeForm settings={learningSettings} />
-        </CardContent>
+        <CardContent><SessionShapeForm settings={settings} /></CardContent>
       </Card>
-
       <DataExportCard />
-
       <Card>
         <CardHeader>
           <CardTitle>Delete account</CardTitle>
-          <CardDescription>
-            Removing your account erases your decks and your whole review history. Export
-            your data first if you want to keep a copy.
-          </CardDescription>
+          <CardDescription>Removing your account erases your decks and your whole review history. Export your data first if you want to keep a copy.</CardDescription>
         </CardHeader>
-        <CardContent>
-          <DeleteAccountDialog />
-        </CardContent>
+        <CardContent><DeleteAccountDialog /></CardContent>
       </Card>
     </div>
   )

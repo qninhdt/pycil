@@ -5,11 +5,11 @@
     "web:dev": "pnpm --filter web dev",
     "web:build": "pnpm --filter web build",
     "web:test": "pnpm --filter web test",
+    "web:openapi": "bash scripts/generate-web-openapi.sh",
     "api:dev": "cd apps/api && uv run alembic upgrade head && uv run uvicorn pycil.main:app --reload",
-    "worker:dev": "cd apps/worker && uv run arq pycil_worker.main.WorkerSettings",
+    "worker:dev": "cd apps/worker && uv run taskiq worker pycil_worker.main:broker --workers 1",
     "docker:up": "docker compose up --build",
-    "docker:down": "docker compose down",
-    "storybook": "pnpm --filter web storybook"
+    "docker:down": "docker compose down"
   },
 
   "packageManager": "pnpm@11.5.2+sha512.71c631e382066efc25625d5cf029075de07b61b37f6e27350fbd84b1bda5864c8c1967adc280776b45c30a715c0359a3be08fef42d5bb09e2b99029979692916"

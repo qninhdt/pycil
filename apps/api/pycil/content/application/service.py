@@ -46,29 +46,80 @@ async def add_sense(session: AsyncSession, node_id: UUID, sense_id: int) -> Deck
     next_pos = await _next_position(session, node_id)
     row = DeckSense(node_id=node_id, sense_id=sense_id, position=next_pos)
     session.add(row)
-    prior = await cache.bump_generations(session, [node_id])
+    await cache.bump_deck_content_generation(session, node_id)
     await session.commit()
     await session.refresh(row)
-    await cache.delete_prior_defsets_quietly(prior)
     return row
+
+
+async def add_senses(session: AsyncSession, node_id: UUID, sense_ids: list[int]) -> list[DeckSense]:
+    """Append many senses in ONE transaction.
+
+    A deck edit that named five words is one user action, so it commits once: N
+    separate commits would leave a half-applied deck if the fourth failed, and
+    would bump the deck's content generation N times for one edit.
+    """
+    await _require_live_deck(session, node_id)
+    if not sense_ids:
+        return []
+    present = set(
+        (
+            await session.execute(
+                select(DeckSense.sense_id).where(
+                    DeckSense.node_id == node_id, DeckSense.sense_id.in_(sense_ids)
+                )
+            )
+        ).scalars()
+    )
+    position = await _next_position(session, node_id)
+    added: list[DeckSense] = []
+    seen: set[int] = set()
+    for sense_id in sense_ids:
+        # A duplicate in the request is the same membership as the first, so it
+        # is skipped rather than rejected: the caller asked for a final state,
+        # not for an error about how they wrote it.
+        if sense_id in present or sense_id in seen:
+            continue
+        seen.add(sense_id)
+        row = DeckSense(node_id=node_id, sense_id=sense_id, position=position)
+        position += 1
+        session.add(row)
+        added.append(row)
+    if added:
+        await cache.bump_deck_content_generation(session, node_id)
+    await session.commit()
+    for row in added:
+        await session.refresh(row)
+    return added
+
+
+async def remove_senses(
+    session: AsyncSession, node_id: UUID, sense_ids: list[int], *, commit: bool = True
+) -> int:
+    """Remove many senses in ONE transaction, returning how many rows were deleted."""
+    await _require_live_deck(session, node_id)
+    if not sense_ids:
+        return 0
+    result = await session.execute(
+        delete(DeckSense).where(
+            DeckSense.node_id == node_id, DeckSense.sense_id.in_(set(sense_ids))
+        )
+    )
+    removed = result.rowcount or 0
+    if removed:
+        await cache.bump_deck_content_generation(session, node_id)
+    if commit:
+        await session.commit()
+    else:
+        await session.flush()
+    return removed
 
 
 async def remove_sense(
     session: AsyncSession, node_id: UUID, sense_id: int, *, commit: bool = True
 ) -> None:
-    await _require_live_deck(session, node_id)
-    await session.execute(
-        delete(DeckSense).where(DeckSense.node_id == node_id, DeckSense.sense_id == sense_id)
-    )
-    prior = await cache.bump_generations(session, [node_id])
-    if commit:
-        await session.commit()
-        await cache.delete_prior_defsets_quietly(prior)
-    else:
-        # The caller owns the commit, so it owns the cleanup: deleting here would
-        # let a concurrent reader repopulate the key from the pre-commit generation.
-        await session.flush()
-        cache.defer_invalidation(session, prior)
+    await remove_senses(session, node_id, [sense_id], commit=commit)
+
 
 
 async def list_sense_ids(session: AsyncSession, node_id: UUID) -> list[int]:

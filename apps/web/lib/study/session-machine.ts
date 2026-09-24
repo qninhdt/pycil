@@ -42,8 +42,6 @@ export type Phase =
       submitting: boolean
       /** Null until the answer is graded. Exposure never gets one. */
       verdict: Verdict | null
-      /** Set while an asynchronous grade is outstanding. */
-      pendingTaskId: string | null
       /** A recoverable problem stated in place, without leaving the question. */
       notice: string | null
     }
@@ -51,7 +49,7 @@ export type Phase =
   /**
    * Supply is being generated.
    *
-   * `taskId` is what the runner subscribes to. When it is null no task was
+   * `taskId` is what the runner polls. When it is null no task was
    * started — the generation slot refused, or the cooldown has not elapsed — and
    * the bounded backoff is the only way forward, which is why the poll machinery
    * below still exists rather than being deleted outright.
@@ -105,7 +103,7 @@ export type SessionEvent =
    */
   | { type: "poll_again" }
   /**
-   * The supply task the screen was subscribed to reached a terminal state.
+   * The supply task the screen was polling reached a terminal state.
    *
    * Distinct from `advance` for the same reason `poll_again` is: the counter must
    * survive. A supply task that settles without producing a deliverable question
@@ -188,7 +186,6 @@ function applyNext(state: SessionMachineState, next: NextQuestion): SessionMachi
           question: next,
           submitting: false,
           verdict: null,
-          pendingTaskId: null,
           notice: null,
         },
       }
@@ -262,19 +259,6 @@ function applyGrade(state: SessionMachineState, grade: GradeResult): SessionMach
   // not drop a free-text answer whose grade is still outstanding.
   const answered = state.answered + 1
 
-  if (grade.gradeStatus === "pending") {
-    return {
-      ...state,
-      answered,
-      phase: {
-        ...state.phase,
-        submitting: false,
-        pendingTaskId: grade.taskId ?? null,
-        verdict: null,
-      },
-    }
-  }
-
   return {
     ...state,
     answered,
@@ -282,7 +266,6 @@ function applyGrade(state: SessionMachineState, grade: GradeResult): SessionMach
     phase: {
       ...state.phase,
       submitting: false,
-      pendingTaskId: null,
       verdict: {
         isCorrect: grade.isCorrect ?? null,
         score: grade.gradeScore ?? null,
@@ -308,6 +291,29 @@ const DESYNC_CODES = new Set([
   "question_not_assessable",
 ])
 
+/**
+ * Whether a failed answer leaves the question on screen for another attempt.
+ *
+ * This is what decides if a resubmit of the same question is legal, and the server
+ * is what makes it so: `submit` releases its delivery claim on every failure path
+ * and only clears the binding once an answer is recorded, so a failure the learner
+ * can still see the question for is one they may send again. The three desync codes
+ * move to a fresh delivery instead, and the two session codes leave the question
+ * behind entirely.
+ *
+ * Derived from the same set the reducer branches on rather than restated, because
+ * the runner's submit guard and the reducer's phase decision have to agree: a code
+ * the reducer keeps on screen but the guard treats as spent leaves the learner
+ * looking at a question whose submit button does nothing.
+ */
+export function failureKeepsQuestion(code: string): boolean {
+  return (
+    !DESYNC_CODES.has(code) &&
+    code !== "session_scope_changed" &&
+    code !== "session_not_found"
+  )
+}
+
 function applyAnswerFailure(state: SessionMachineState, code: string): SessionMachineState {
   if (DESYNC_CODES.has(code)) {
     return { ...state, phase: { kind: "advancing" }, pollAttempt: 0 }
@@ -319,9 +325,10 @@ function applyAnswerFailure(state: SessionMachineState, code: string): SessionMa
     return { ...state, pollAttempt: 0, phase: { kind: "finished" } }
   }
 
-  // Everything else — the grading quota included — leaves the question on screen
-  // with the reason stated. A spent quota is not a broken session: the learner
-  // moves on and the session still reaches its end.
+  // Everything else leaves the question on screen with the reason stated. These
+  // are the transient ones — a provider that timed out, a concurrent submit that
+  // still holds the claim, a malformed request — and none of them is a broken
+  // session: the learner reads the reason and may send again.
   if (state.phase.kind !== "asking") return stop(state, code)
   return {
     ...state,
@@ -351,7 +358,6 @@ export function canSubmit(phase: Phase): boolean {
     phase.kind === "asking" &&
     !phase.submitting &&
     phase.verdict === null &&
-    phase.pendingTaskId === null &&
     phase.question.interactionMode !== "exposure" &&
     phase.question.questionId !== null
   )

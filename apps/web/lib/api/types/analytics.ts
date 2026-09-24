@@ -1,9 +1,10 @@
 /**
  * Dashboard figures and the folder-or-global analytics reads.
  *
- * Every shape here is served at two scopes: under `/v1/folders/{nodeId}/...` for
- * one subtree, and under `/v1/me/...` across everything the learner tracks. The
- * types are shared because the responses are identical; only the scope differs.
+ * Every shape here is served at two scopes by one route each: `/v1/me/...` with an
+ * optional `nodeId` query parameter. Absent means everything the learner tracks,
+ * present means one folder's readable subtree. The types are shared because the
+ * responses are identical; only the scope differs.
  */
 
 export interface FolderStats {

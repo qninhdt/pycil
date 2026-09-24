@@ -18,19 +18,29 @@ import { ArrowRightIcon, CoffeeIcon } from "@/lib/icons"
  * reserved deliveries. So this is an explicit action behind a button, and the session
  * id it returns becomes the URL the loop actually runs at.
  *
- * That is also why the deck view links here rather than straight to the runner. The
- * runner's route is keyed by session id precisely so that refreshing it resumes.
+ * That is also why the deck and folder views link here rather than straight to the
+ * runner. The runner's route is keyed by session id precisely so that refreshing it
+ * resumes.
+ *
+ * The source may be a deck or a folder. A folder session gathers every readable sense
+ * beneath it once, so a word reachable through two paths is still one item.
  */
 export function StartSessionPanel({
   nodeId,
-  deckTitle,
+  nodeName,
+  nodeType,
   itemCount,
 }: {
   nodeId: string
-  deckTitle: string
-  /** Words in the deck, which is not the same as words due right now. */
+  /** The deck or folder being studied. */
+  nodeName: string
+  /** Decides the copy: a folder gathers its whole readable subtree. */
+  nodeType: "DECK" | "FOLDER"
+  /** Words in scope, which is not the same as words due right now. */
   itemCount: number | null
 }) {
+  const noun = nodeType === "FOLDER" ? "folder" : "deck"
+  const scope = nodeType === "FOLDER" ? "this folder and everything inside it" : "this deck"
   const router = useRouter()
   const [starting, start] = useTransition()
   const [problem, setProblem] = useState<string | null>(null)
@@ -64,11 +74,11 @@ export function StartSessionPanel({
         <CoffeeIcon className="size-6 text-muted-foreground" aria-hidden />
         <h1 className="text-2xl tracking-tight">Nothing due right now</h1>
         <p className="max-w-prose text-sm text-muted-foreground">
-          Every word in {deckTitle} is either scheduled for a later day or already
+          Every word in {scope} is either scheduled for a later day or already
           finished. Coming back when a review falls due is what makes the schedule work.
         </p>
         <Button render={<Link href={`/library/${nodeId}`} />} variant="outline">
-          Back to the deck
+          Back to the {noun}
         </Button>
       </div>
     )
@@ -76,10 +86,10 @@ export function StartSessionPanel({
 
   return (
     <div className="flex flex-col items-center gap-4 text-center">
-      <h1 className="text-2xl tracking-tight">{deckTitle}</h1>
+      <h1 className="text-2xl tracking-tight">{nodeName}</h1>
       {itemCount != null ? (
         <p className="text-sm text-muted-foreground">
-          {itemCount} {itemCount === 1 ? "word" : "words"} in this deck. The session
+          {itemCount} {itemCount === 1 ? "word" : "words"} in this {noun}. The session
           picks what is due and what is new.
         </p>
       ) : null}

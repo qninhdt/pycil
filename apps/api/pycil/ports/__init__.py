@@ -8,10 +8,6 @@ These modules did not move because a layer diagram asked for it. Each was alread
 a leaf that two or more domains reached across a boundary to use, which is what
 turned four thin edges into import cycles:
 
-* `centrifugo` (was `realtime/client.py`) — `auth` and `account_lifecycle` both
-  call `disconnect_user`, and `main` calls `readiness`. Importing it from
-  `realtime` put `auth -> realtime` in place while `realtime` read
-  `auth.models.User`, closing a two-module cycle over one integer and one call.
 * `lexi` (was `content/lexi_port.py`) — a `Protocol`. `hierarchy` and `learning`
   imported it from `content`, which is most of what `-> content` meant.
 

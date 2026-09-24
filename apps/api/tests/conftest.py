@@ -42,15 +42,29 @@ async def fake_redis(monkeypatch):
 
 
 @pytest_asyncio.fixture
-async def engine(test_db_url: str):
+async def engine(test_db_url: str, monkeypatch):
+    """A disposable schema, plus the module-level handles bound to it.
+
+    Binding happens here rather than in an autouse fixture so that a pure test —
+    FSRS arithmetic, config validation, a schema shape — never provisions Postgres
+    at all. An autouse fixture would start a container for every test in the suite,
+    including the ones that provably touch no database, which is the difference
+    between a unit suite that runs in a second and one that cannot run without
+    Docker.
+    """
     eng = create_async_engine(test_db_url, poolclass=None)
     async with eng.begin() as conn:
+        await conn.exec_driver_sql("DROP SCHEMA IF EXISTS public CASCADE")
+        await conn.exec_driver_sql("CREATE SCHEMA public")
         await conn.exec_driver_sql('CREATE EXTENSION IF NOT EXISTS "pgcrypto"')
-        await conn.run_sync(target_metadata.drop_all)
         await conn.run_sync(target_metadata.create_all)
+    factory = async_sessionmaker(eng, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr("pycil.db.session.engine", eng)
+    monkeypatch.setattr("pycil.db.session.async_session_factory", factory)
     yield eng
     async with eng.begin() as conn:
-        await conn.run_sync(target_metadata.drop_all)
+        await conn.exec_driver_sql("DROP SCHEMA IF EXISTS public CASCADE")
+        await conn.exec_driver_sql("CREATE SCHEMA public")
     await eng.dispose()
 
 
@@ -63,13 +77,7 @@ async def session(engine) -> AsyncGenerator[AsyncSession, None]:
 
 @pytest_asyncio.fixture
 async def app(engine):
-    """The application under test, with its session bound to the test database.
-
-    Exposed separately from `client` so a test can install its own
-    `dependency_overrides` on the SAME app the client drives. Without this, a test
-    substituting a port had to monkeypatch the module the route imported from,
-    which reaches past the seam instead of through it.
-    """
+    """The application under test, with its session bound to the test database."""
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     async def _override() -> AsyncGenerator[AsyncSession, None]:
@@ -81,8 +89,15 @@ async def app(engine):
     return application
 
 
+
 @pytest_asyncio.fixture
 async def client(app) -> AsyncGenerator[AsyncClient, None]:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
+
+
+# The Clerk test issuer/JWKS lives in `tests/support/` because Phase 12 owns the
+# test-support tree; registering it here makes its fixtures available to every
+# test module without each one importing the module directly.
+pytest_plugins = ["tests.support.clerk_jwks"]

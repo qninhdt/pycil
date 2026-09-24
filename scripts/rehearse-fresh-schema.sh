@@ -30,9 +30,9 @@ trap cleanup EXIT
 
 cleanup
 "${compose[@]}" config -q
-"${compose[@]}" up -d --build postgres redis centrifugo
+"${compose[@]}" up -d --build postgres redis
 "${compose[@]}" run --rm migrate
-"${compose[@]}" up -d worker api
+"${compose[@]}" up -d worker api web caddy
 
 for _ in $(seq 1 30); do
   if "${compose[@]}" exec -T api python -c \
@@ -44,6 +44,6 @@ for _ in $(seq 1 30); do
   sleep 2
 done
 
-"${compose[@]}" logs --tail=100 api worker migrate >&2 || true
+"${compose[@]}" logs --tail=100 api worker web caddy migrate >&2 || true
 echo "rehearsal: API readiness did not succeed" >&2
 exit 1

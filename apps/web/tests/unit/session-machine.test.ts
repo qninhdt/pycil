@@ -4,6 +4,7 @@ import type { GradeResult, NextQuestion, ReadyQuestion } from "@/lib/api/types"
 import { backoffDelay, MAX_POLL_ATTEMPTS } from "@/lib/study/backoff"
 import {
   canSubmit,
+  failureKeepsQuestion,
   initialSessionState,
   sessionReducer,
   type Phase,
@@ -16,8 +17,8 @@ import {
  *
  * Every decision the study screen makes is a function of the previous state and one
  * event, so the whole lifecycle is asserted here without a server: each transition,
- * the fallback consequence, the consume-once desync recovery, the quota path, scope
- * invalidation, and the `question_not_assessable` desync.
+ * the fallback consequence, the consume-once desync recovery, scope invalidation,
+ * and the `question_not_assessable` desync.
  */
 
 /** A ready assessment question. Overridable so a test can vary one field. */
@@ -80,7 +81,6 @@ describe("next_received", () => {
     if (state.phase.kind === "asking") {
       expect(state.phase.submitting).toBe(false)
       expect(state.phase.verdict).toBeNull()
-      expect(state.phase.pendingTaskId).toBeNull()
       expect(state.phase.notice).toBeNull()
     }
   })
@@ -275,7 +275,6 @@ describe("answer lifecycle", () => {
     expect(state.correct).toBe(1)
     if (state.phase.kind === "asking") {
       expect(state.phase.submitting).toBe(false)
-      expect(state.phase.pendingTaskId).toBeNull()
       expect(state.phase.verdict?.isCorrect).toBe(true)
       expect(state.phase.verdict?.masteryAfter).toBe(35)
     }
@@ -294,25 +293,6 @@ describe("answer lifecycle", () => {
     expect(state.answered).toBe(1)
     expect(state.correct).toBe(0)
     if (state.phase.kind === "asking") expect(state.phase.verdict?.isCorrect).toBe(false)
-  })
-
-  it("counts a pending grade on submission and holds the task id without a verdict", () => {
-    let state = asking()
-    const grade: GradeResult = {
-      responseId: "resp-3",
-      gradeStatus: "pending",
-      senseId: 7,
-      renderFormat: "free_text",
-      taskId: "task-99",
-    }
-    state = sessionReducer(state, { type: "answer_graded", grade })
-    // Counted on submission so the running total never drops an outstanding grade.
-    expect(state.answered).toBe(1)
-    expect(state.correct).toBe(0)
-    if (state.phase.kind === "asking") {
-      expect(state.phase.pendingTaskId).toBe("task-99")
-      expect(state.phase.verdict).toBeNull()
-    }
   })
 
   it("ignores a grade that arrives when not asking", () => {
@@ -378,12 +358,13 @@ describe("answer_failed", () => {
     expect(state.phase.kind).toBe("finished")
   })
 
-  it("leaves the question on screen with a notice when the grading quota is spent", () => {
+  it("leaves the question on screen with a notice when marking is temporarily unavailable", () => {
     const state = sessionReducer(asking(), {
       type: "answer_failed",
-      code: "answer_grading_quota_exceeded",
+      code: "free_text_grade_timeout",
     })
-    // A spent quota is not a broken session: the learner reads the reason and moves on.
+    // A provider that timed out is not a broken session: the learner reads the
+    // reason and may send the same answer again.
     expect(state.phase.kind).toBe("asking")
     if (state.phase.kind === "asking") {
       expect(state.phase.submitting).toBe(false)
@@ -400,6 +381,51 @@ describe("answer_failed", () => {
   })
 })
 
+describe("failureKeepsQuestion", () => {
+  /**
+   * The runner's submit guard and the reducer's phase decision have to agree.
+   *
+   * A code the reducer keeps on screen but the guard treats as spent leaves the
+   * learner looking at a question whose submit button does nothing; the reverse
+   * lets a spent delivery be resubmitted, which the server refuses as a desync and
+   * which drops the question. The invariant is asserted against the reducer itself
+   * rather than restated as a list, so a code added to one side without the other
+   * fails here.
+   */
+  it("agrees with the reducer on which codes leave the question answerable", () => {
+    const codes = [
+      // The desync set: the reducer re-polls rather than keeping the question.
+      "question_not_issued_for_session",
+      "question_not_available",
+      "question_not_assessable",
+      "session_scope_changed",
+      "session_not_found",
+      "free_text_grade_timeout",
+      "question_submission_in_progress",
+      "http_error",
+    ]
+    for (const code of codes) {
+      const state = sessionReducer(asking(), { type: "answer_failed", code })
+      const stillAsking = state.phase.kind === "asking"
+      expect(failureKeepsQuestion(code), `${code} disagrees with the reducer`).toBe(
+        stillAsking,
+      )
+    }
+  })
+
+  it("keeps the question for a transient provider failure", () => {
+    expect(failureKeepsQuestion("free_text_grade_timeout")).toBe(true)
+    expect(failureKeepsQuestion("question_submission_in_progress")).toBe(true)
+  })
+
+  it("releases for every code the reducer moves past", () => {
+    expect(failureKeepsQuestion("session_scope_changed")).toBe(false)
+    expect(failureKeepsQuestion("session_not_found")).toBe(false)
+    expect(failureKeepsQuestion("question_not_assessable")).toBe(false)
+    expect(failureKeepsQuestion("question_not_issued_for_session")).toBe(false)
+  })
+})
+
 describe("canSubmit", () => {
   const base = ready()
 
@@ -409,7 +435,6 @@ describe("canSubmit", () => {
       question: base,
       submitting: false,
       verdict: null,
-      pendingTaskId: null,
       notice: null,
     }
     expect(canSubmit(phase)).toBe(true)
@@ -421,7 +446,6 @@ describe("canSubmit", () => {
       question: ready({ interactionMode: "exposure", questionId: null }),
       submitting: false,
       verdict: null,
-      pendingTaskId: null,
       notice: null,
     }
     expect(canSubmit(phase)).toBe(false)
@@ -430,14 +454,12 @@ describe("canSubmit", () => {
   it.each([
     ["while submitting", { submitting: true }],
     ["with a verdict already shown", { verdict: { isCorrect: true, score: null, feedback: null, reveal: null, masteryBefore: null, masteryAfter: null } }],
-    ["with a grade pending", { pendingTaskId: "task-1" }],
   ])("forbids submitting %s", (_label, patch) => {
     const phase: Phase = {
       kind: "asking",
       question: base,
       submitting: false,
       verdict: null,
-      pendingTaskId: null,
       notice: null,
       ...(patch as object),
     }

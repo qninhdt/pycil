@@ -6,6 +6,7 @@ free of HTTP plumbing.
 
 import logging
 import re
+from http import HTTPStatus
 from typing import Any
 
 from fastapi import HTTPException, Request
@@ -21,27 +22,30 @@ _CODE_SHAPED = re.compile(r"[a-z][a-z0-9]*(?:_[a-z0-9]+)*")
 logger = logging.getLogger(__name__)
 
 
-class ErrorDetail(BaseModel):
-    """The stable, client-facing shape carried by every API error."""
+class ProblemDetails(BaseModel):
+    """RFC 9457 problem document with Pycil's stable domain-code extension."""
 
     model_config = ConfigDict(populate_by_name=True)
 
+    type: str = "about:blank"
+    title: str
+    status: int
+    detail: str
+    instance: str | None = None
     code: str
-    message: str
     details: dict[str, Any] = Field(default_factory=dict)
     request_id: str | None = Field(default=None, alias="requestId")
 
 
-class ErrorEnvelope(BaseModel):
-    """Canonical non-success response body for the public API."""
-
-    error: ErrorDetail
-
-
 def error_responses(*status_codes: int) -> dict[int | str, dict[str, Any]]:
-    """OpenAPI response metadata that mirrors the runtime error envelope."""
+    """OpenAPI response metadata that mirrors the runtime problem document."""
     return {
-        status_code: {"model": ErrorEnvelope, "description": "Canonical API error."}
+        status_code: {
+            "description": "RFC 9457 Problem Details response.",
+            "content": {
+                "application/problem+json": {"schema": ProblemDetails.model_json_schema()}
+            },
+        }
         for status_code in status_codes
     }
 
@@ -123,15 +127,26 @@ class TooManyRequestsError(AppError):
 
 
 def error_envelope(
-    request: Request, *, code: str, message: str, details: dict[str, Any] | None = None
-) -> ErrorEnvelope:
-    return ErrorEnvelope(
-        error=ErrorDetail(
-            code=code,
-            message=message,
-            details=details or {},
-            request_id=getattr(request.state, "request_id", None),
-        )
+    request: Request,
+    *,
+    status: int = 400,
+    code: str,
+    message: str,
+    details: dict[str, Any] | None = None,
+) -> ProblemDetails:
+    """Build the public problem document."""
+    try:
+        title = HTTPStatus(status).phrase
+    except ValueError:
+        title = "HTTP error"
+    return ProblemDetails(
+        title=title,
+        status=status,
+        detail=message,
+        instance=request.url.path,
+        code=code,
+        details=details or {},
+        request_id=getattr(request.state, "request_id", None),
     )
 
 
@@ -141,22 +156,29 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
         headers["Retry-After"] = str(exc.retry_after)
     return JSONResponse(
         status_code=exc.status_code,
-        content=error_envelope(request, code=exc.code, message=exc.message).model_dump(
-            by_alias=True
-        ),
+        content=error_envelope(
+            request, status=exc.status_code, code=exc.code, message=exc.message
+        ).model_dump(by_alias=True, exclude_none=True),
+        media_type="application/problem+json",
         headers=headers,
     )
 
 
 async def validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    safe_errors = [
+        {key: value for key, value in error.items() if key not in {"input", "ctx"}}
+        for error in exc.errors()
+    ]
     return JSONResponse(
         status_code=422,
         content=error_envelope(
             request,
+            status=422,
             code="validation_error",
             message="Request validation failed",
-            details={"errors": exc.errors()},
-        ).model_dump(by_alias=True),
+            details={"errors": safe_errors},
+        ).model_dump(by_alias=True, exclude_none=True),
+        media_type="application/problem+json",
     )
 
 
@@ -165,8 +187,13 @@ async def http_error_handler(request: Request, exc: HTTPException) -> JSONRespon
     return JSONResponse(
         status_code=exc.status_code,
         content=error_envelope(
-            request, code=codes.get(exc.status_code, "http_error"), message=str(exc.detail)
-        ).model_dump(by_alias=True),
+            request,
+            status=exc.status_code,
+            code=codes.get(exc.status_code, "http_error"),
+            message=str(exc.detail),
+        ).model_dump(by_alias=True, exclude_none=True),
+        media_type="application/problem+json",
+        headers=exc.headers,
     )
 
 
@@ -192,7 +219,9 @@ async def unhandled_error_handler(request: Request, exc: Exception) -> JSONRespo
         status_code=500,
         content=error_envelope(
             request,
+            status=500,
             code="internal_error",
             message="An unexpected error occurred.",
-        ).model_dump(by_alias=True),
+        ).model_dump(by_alias=True, exclude_none=True),
+        media_type="application/problem+json",
     )

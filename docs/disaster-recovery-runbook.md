@@ -41,10 +41,18 @@ RESTIC_REPOSITORY='b2:bucket/product' \
 ./scripts/restore-product.sh
 ```
 
-The coordinator stops the Pycil stack, restores the shared dump, then starts the
-Lexi-domain and Pycil migration gates before API/worker. Before routing traffic,
-verify Pycil's `/health/ready`, perform one authenticated read, and record the
-drill result and recovery time.
+The coordinator stops the Pycil stack, restores the shared dump, then runs the
+migration gate before the worker and API start. Before routing traffic, verify
+Pycil's `/health/ready`, perform one authenticated read, and record the drill
+result and recovery time.
+
+## Planned replacement
+
+The accepted design moves to WAL-G base backups plus continuous WAL archiving to
+S3-compatible storage, which recovers within the actually archived window rather
+than to the last dump. **This runbook is still the operational route** and stays
+until a WAL-G restore has been rehearsed in isolation; a backup route is not
+replaced by a plan to replace it. See `pycil-redesign/ops/devops.md` §7.
 
 ## Recovery objective
 

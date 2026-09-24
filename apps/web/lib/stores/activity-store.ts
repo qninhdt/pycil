@@ -1,6 +1,6 @@
 import { createStore } from "zustand/vanilla"
 
-import type { AsyncTaskSnapshot } from "@/lib/realtime/task-snapshot"
+import type { JobSnapshot } from "@/lib/api/resources/jobs"
 
 /**
  * What kind of work a task represents, which decides how a settled snapshot is
@@ -15,14 +15,12 @@ export interface ActivityTask {
   senseId: number | null
   /** The query that started a word generation, so the row can name itself. */
   label: string | null
-  status: AsyncTaskSnapshot["status"] | "unknown"
-  /** Monotonic guard. A snapshot at or below this version is ignored. */
-  version: number
+  status: JobSnapshot["status"] | "unknown"
   errorCode: string | null
   /**
-   * True only when a re-subscribe was *denied*. A disconnect is not staleness:
-   * the subscribe proxy replays the latest persisted snapshot and recovery is
-   * enabled, so reconnecting settles the task on its own.
+   * True when the last poll for this task failed. Polling continues with backoff and
+   * the next successful snapshot clears it, so this marks a transient gap rather than
+   * a settled state.
    */
   stale: boolean
 }
@@ -35,7 +33,7 @@ export interface ActivityState {
     senseId?: number | null
     label?: string | null
   }) => void
-  applySnapshot: (snapshot: AsyncTaskSnapshot) => void
+  applySnapshot: (snapshot: JobSnapshot) => void
   markStale: (taskId: string) => void
   dismiss: (taskId: string) => void
   hydrate: () => void
@@ -46,7 +44,24 @@ export type ActivityStore = ReturnType<typeof createActivityStore>
 const STORAGE_KEY = "pycil.activity.outstanding"
 
 /** Terminal statuses. Only unsettled work needs to survive a reload. */
-const SETTLED: ReadonlySet<string> = new Set(["succeeded", "failed", "expired"])
+const SETTLED: ReadonlySet<string> = new Set(["done", "failed", "expired"])
+
+/**
+ * How far along a job is, which is all the ordering a receipt needs.
+ *
+ * A job's status only ever moves forward and a terminal one is final, so a snapshot
+ * that ranks at or below the status already held carries no new information and is
+ * dropped. That is what stops a slow poll response from resurrecting `running` after
+ * `done` — a real reordering, since each poll is its own request.
+ */
+const STATUS_ORDER: Record<string, number> = {
+  unknown: 0,
+  queued: 1,
+  running: 2,
+  done: 3,
+  failed: 3,
+  expired: 3,
+}
 
 export function isUnsettled(task: ActivityTask): boolean {
   return !SETTLED.has(task.status)
@@ -54,8 +69,8 @@ export function isUnsettled(task: ActivityTask): boolean {
 
 /**
  * Only the identity of unsettled work is persisted, never a snapshot payload.
- * On the next mount the ids are re-subscribed and the server replays the
- * authoritative state, so a stored status could only ever go stale.
+ * On the next mount the ids are re-polled and the server returns the authoritative
+ * snapshot, so a stored status could only ever go stale.
  */
 function persist(tasks: ActivityTask[]) {
   if (typeof window === "undefined") return
@@ -99,7 +114,6 @@ function readPersisted(): ActivityTask[] {
           senseId: typeof record.senseId === "number" ? record.senseId : null,
           label: typeof record.label === "string" ? record.label : null,
           status: "unknown",
-          version: -1,
           errorCode: null,
           stale: false,
         },
@@ -135,7 +149,6 @@ export function createActivityStore() {
               senseId,
               label,
               status: "unknown" as const,
-              version: -1,
               errorCode: null,
               stale: false,
             },
@@ -148,14 +161,11 @@ export function createActivityStore() {
     applySnapshot: (snapshot) => {
       set((state) => ({
         tasks: state.tasks.map((task) => {
-          if (task.taskId !== snapshot.taskId) return task
-          // Out-of-order and replayed deliveries both arrive in practice: the
-          // proxy replays the latest snapshot on every subscribe.
-          if (snapshot.version <= task.version) return task
+          if (task.taskId !== snapshot.jobId) return task
+          if (STATUS_ORDER[snapshot.status] <= STATUS_ORDER[task.status]) return task
           return {
             ...task,
             status: snapshot.status,
-            version: snapshot.version,
             errorCode: snapshot.errorCode,
             stale: false,
           }

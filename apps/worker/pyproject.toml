@@ -1,11 +1,12 @@
 [project]
 name = "pycil-worker"
 version = "0.1.0"
-description = "Pycil arq worker — three thin jobs delegating to lexi-ai + Centrifugo publish."
+description = "Pycil domain worker — durable Redis Streams jobs delegating to lexi-ai."
 requires-python = ">=3.12"
 dependencies = [
-    "arq>=0.26,<0.27",
-    "redis>=5.2,<6.0",
+    "redis>=6,<7",
+    "taskiq>=0.12,<0.13",
+    "taskiq-redis>=1.1,<2",
     "asyncpg>=0.30,<0.31",
     "pydantic>=2.9,<3.0",
     "pydantic-settings>=2.6,<2.7",
@@ -13,7 +14,6 @@ dependencies = [
     "httpx>=0.28,<0.29",
     "sqlalchemy>=2.0,<2.1",
     "sqlmodel>=0.0.38,<0.1",
-    "pycil-shared",
     # Lexi arrives THROUGH pycil-api, deliberately unpinned here. The worker used to
     # pin it too, and the two drifted through a Lexi bump: one build in the API, an
     # older one in the worker, against one database and one migrated schema. Nothing
@@ -23,7 +23,6 @@ dependencies = [
 ]
 
 [tool.uv.sources]
-pycil-shared = { path = "../../packages/shared-py", editable = true }
 pycil-api = { path = "../api", editable = true }
 
 [project.optional-dependencies]
@@ -76,17 +75,17 @@ extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path"]
 #
 # The worker is thin by design: jobs delegate to the api package and to lexi-ai.
 # The contract that matters is the direction of that dependency — the api must
-# never reach back into the worker, or a request-path import would drag arq and
-# the job registry into the web process.
+# never reach back into the worker, or a request-path import would drag taskiq
+# and the job registry into the web process.
 #
 [tool.importlinter]
 root_package = "pycil_worker"
 include_external_packages = true
 
-# Jobs are the only place allowed to touch arq. Everything else is library code
-# that must stay callable from a test without a broker.
+# Jobs are the only place allowed to touch taskiq. Everything else is library
+# code that must stay callable from a test without a broker.
 [[tool.importlinter.contracts]]
-name = "only the worker entrypoint and jobs know about arq"
+name = "only the worker entrypoint and jobs know about taskiq"
 type = "forbidden"
 source_modules = ["pycil_worker.lexi_library"]
-forbidden_modules = ["arq"]
+forbidden_modules = ["taskiq"]

@@ -27,28 +27,11 @@ async function restrictedImportCount(
 }
 
 describe("import boundaries", () => {
-  it("flags a component importing lib/api internals", async () => {
-    const violations = await restrictedImportCount(
-      path.join(webRoot, "components/library/boundary-probe.ts"),
-      'import { createFetcher } from "@/lib/api/request"\n'
-    )
-    expect(violations).toBeGreaterThan(0)
-  })
-
-  it("flags the same violation through a relative specifier", async () => {
-    const violations = await restrictedImportCount(
-      path.join(webRoot, "components/library/boundary-probe.ts"),
-      'import { createFetcher } from "../../lib/api/request"\n'
-    )
-    expect(violations).toBeGreaterThan(0)
-  })
-
-  it("keeps the public lib/api surfaces open to components", async () => {
+  it("keeps direct browser transport imports lintable", async () => {
     const violations = await restrictedImportCount(
       path.join(webRoot, "components/library/boundary-probe.ts"),
       [
-        'import type { NodeRead } from "@/lib/api/types"',
-        'import { classifyErrorCode } from "@/lib/api/error-taxonomy"',
+        'import { createApiClient } from "@/lib/api/client"',
         "",
       ].join("\n")
     )

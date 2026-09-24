@@ -3,6 +3,7 @@ packages:
 
 allowBuilds:
   esbuild: true
+  msw: true
   protobufjs: true
   sharp: true
   unrs-resolver: true
@@ -10,15 +11,3 @@ allowBuilds:
 # Without this the exclude list below is inert, because pnpm only consults the
 # exclusions when a minimum age is actually enforced.
 minimumReleaseAge: 1440
-minimumReleaseAgeExclude:
-  - '@storybook/addon-a11y@10.5.3'
-  - '@storybook/addon-docs@10.5.3'
-  - '@storybook/addon-vitest@10.5.3'
-  - '@storybook/builder-vite@10.5.3'
-  - '@storybook/csf-plugin@10.5.3'
-  - '@storybook/nextjs-vite@10.5.3'
-  - '@storybook/react-dom-shim@10.5.3'
-  - '@storybook/react-vite@10.5.3'
-  - '@storybook/react@10.5.3'
-  - eslint-plugin-storybook@10.5.3
-  - storybook@10.5.3

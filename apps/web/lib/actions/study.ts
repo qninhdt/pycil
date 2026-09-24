@@ -1,5 +1,3 @@
-"use server"
-
 import type { ActionResult } from "@/lib/api/handle-api-error"
 import type { GradeResult, NextQuestion, SessionState } from "@/lib/api/types"
 
@@ -71,9 +69,8 @@ export async function advanceSession(
  * it is shown rather than assessed; submitting one is refused with
  * `question_not_assessable`, so callers must not offer a submit control for it.
  *
- * Two settlement modes come back. `gradeStatus: "graded"` carries the verdict, the
- * reveal, and the mastery transition inline. `gradeStatus: "pending"` carries a
- * `taskId` instead, and the grade arrives later through a realtime snapshot.
+ * The synchronous response carries the verdict, reveal, and strength/depth
+ * transition inline.
  */
 export async function submitAnswer(
   sessionId: string,

@@ -53,22 +53,29 @@ POST /v1/assistant/threads/{threadId}/runs/stream
 request rather than offering a separate join, because a background run is what a
 join exists for and there is no background run.
 
-The connection carries the access cookie like any other route (`H13`). No second
-token: a scoped short-lived token is the right answer when a *third party*
+The connection carries the same bearer header as any other route (`H13`). No
+second token: a scoped short-lived token is the right answer when a *third party*
 validates the signature itself, and dead weight when the API serves the stream.
 
 ### Durable job — polling
 
 ```text
 POST /v1/content/words          → 202 { "jobId": … }
-GET  /v1/jobs/{jobId}           → { "status": "running" | "success" | "error", … }
+GET  /v1/jobs/{jobId}           → { "status": "queued"|"running"|"done"|"failed"|"expired", … }
 ```
 
 Their own background-run guide does exactly this: poll
 `GET /threads/{tid}/runs/{rid}` and read `status` `[R44]`. Word generation and
 question supply are not interactive — a learner asked for a word and will read it
-when it exists. `job_interests` still authorizes the read, so shared work stays
-shared: two learners waiting on one word both poll one job.
+when it exists. The receipt's `owner_id` authorizes the read, so a job is never
+readable by anyone but the learner who asked for it.
+
+**Each request gets its own receipt.** There is no shared-work join: two learners
+asking for the same word produce two receipts, and the duplicate provider call is
+prevented one layer down, by the worker's Redis singleflight. That is a real
+difference from the earlier design, which had the API join both callers onto one
+job through a server-derived work key. The cost is a second receipt for the same
+work; the benefit is that no cross-learner record exists to authorize.
 
 ### Free-text grade — synchronous
 
@@ -84,7 +91,7 @@ outbox row, and a push — to save the learner a few seconds. The timeout is
 | Mid-turn, before the reply completes | that turn | re-ask. The checkpoint holds the thread up to the last completed message (`E7`) |
 | While a job runs | nothing | the next poll |
 | Mid-grade | that submission | resubmit |
-| While an approval is pending | nothing | `GET .../runs/{runId}` returns the interrupt payload; the popup re-renders |
+| While an approval is pending | nothing | `GET /v1/assistant/threads/{id}/state` returns the interrupt payload; the popup re-renders |
 
 The reference server loses the same thing in its default configuration:
 `stream_resumable` defaults to **`false`**, and joining a run mid-flight states

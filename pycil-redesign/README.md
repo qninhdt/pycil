@@ -64,9 +64,16 @@ is a comparison Pycil wins by giving up generality.
 
 ## 3. Target shape
 
-One FastAPI application that executes assistant Runs inline, one domain worker,
-one scheduler, Next.js for UI only, Postgres, Redis, and Caddy. Docker Compose,
-one VPS, one environment. See [architecture.md](./architecture.md).
+One FastAPI application that executes assistant turns inline, one domain worker,
+Postgres, Redis, and Caddy. Next.js is UI only and deploys to Vercel. Docker
+Compose on one VPS, one environment. See [architecture.md](./architecture.md).
+
+**Status.** The redesign was executed as
+[an 18-phase plan](../plans/260924-0608-pycil-complete-redesign/plan.md). Phases
+1–13 are complete and verified. Phase 14 (browser journeys) is blocked on a Clerk
+test instance; Phases 15–16 (Vercel, WAL-G, CI) and 18 (production promotion) are
+outstanding. Where this folder and the code disagree, **the code is what runs** —
+the divergence is recorded in each document rather than smoothed over.
 
 ## 4. Rules every document here follows
 

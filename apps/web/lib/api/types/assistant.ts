@@ -1,19 +1,10 @@
 /**
- * Assistant threads, runs, and the SSE event stream.
+ * Assistant threads, the model catalog, and the credit projection.
  *
- * Event names are taken from the `append_event` call sites rather than from the
- * OpenAPI document, which types every payload as an open object. The previous
- * hand-authored union declared an `"action"` event that the API has never
- * emitted; the real name is `confirmation_required`.
+ * The stream itself has no type here: `@assistant-ui/react-ag-ui` consumes the
+ * AG-UI event protocol, and a hand-written event union alongside it would be a
+ * second, unvalidated description of the same wire format.
  */
-
-export type RunStatus =
-  | "pending"
-  | "running"
-  | "interrupted"
-  | "succeeded"
-  | "failed"
-  | "cancelled"
 
 export interface Thread {
   id: string
@@ -28,99 +19,63 @@ export interface ThreadCreate {
 }
 
 export interface MessageCreate {
-  /** Client-minted, and rejected on reuse with `client_message_id_reused`. */
   clientMessageId: string
   content: string
 }
 
 /**
- * What kind of run event arrived.
+ * One selectable model, from `GET /v1/assistant/models`.
  *
- * `token` streams assistant text. `tool_call` and `tool_result` narrate work.
- * `confirmation_required` is the human-in-the-loop pause: the run stops until the
- * action is approved or rejected. `done` and `error` are terminal.
+ * The server owns this catalog: a client selects from what it is offered and never
+ * supplies a model id or a price the server has not published.
  */
-export type RunEventType =
-  | "user_message"
-  | "token"
-  | "tool_call"
-  | "tool_result"
-  | "confirmation_required"
-  | "done"
-  | "error"
+export interface ModelPricing {
+  inputUsdPerM: number
+  outputUsdPerM: number
+  cachedReadUsdPerM: number
+}
+
+export interface ModelRead {
+  id: string
+  name: string
+  provider: string
+  vision: boolean
+  reasoning: boolean
+  supportedEfforts: string[]
+  contextWindow: number
+  maxOutputTokens: number
+  pricing: ModelPricing
+  isDefault: boolean
+}
+
+export interface ModelCatalog {
+  defaultModel: string
+  defaultReasoningEffort: string
+  models: ModelRead[]
+}
 
 /**
- * The payload per event type, as written by the API.
+ * The learner's monthly allowance, from `GET /v1/me/credit`.
  *
- * Every payload is an object, `token` included: `append_event` is typed
- * `payload: dict` and `_token_payload` (`assistant/run_service.py:131`) wraps the
- * chunk as `{"content": ...}`. An earlier revision of this file typed `token` as a
- * bare string, which type-checked clean and would have rendered every streamed
- * token as `undefined`.
+ * Credits, never currency: `available` is the balance clamped at zero for display,
+ * while `balance` stays signed because an admitted turn may finish past it.
  */
-export interface RunEventPayloads {
-  user_message: { content: string }
-  token: { content: string }
-  tool_call: { tool: string }
-  tool_result: { tool: string; content: string }
-  confirmation_required: {
-    action_id: string
-    tool: string
-    expires_at: string
-    /**
-     * The names of the nodes the tool would act on, keyed by argument name.
-     *
-     * Present so an approval prompt can say *what* is about to be deleted rather
-     * than only which function would run. Keys are the tool's own argument names
-     * (`node_id`, `deck_id`, `parent_id`), and only owned, resolvable targets
-     * appear — so this can be empty, and a card must still be honest when it is.
-     */
-    targets: Record<string, string>
-  }
-  done: Record<string, never>
-  error: { code: "deadline_exceeded" | "execution_failed" | string }
+export interface AccountCredit {
+  plan: string
+  balance: number
+  available: number
+  periodStart: string
+  periodEnd: string
+  periodUsed: number
+  periodGrant: number
+  topupBalance: number
 }
-
-export type RunEvent = {
-  [K in RunEventType]: {
-    id: string
-    /**
-     * Which run this event belongs to.
-     *
-     * Load-bearing, because `sequence` is per-run: it counts `run.event_cursor`
-     * (`assistant/run_service.py:108`), while `GET .../messages` returns every run
-     * in the thread. So the second turn's first event is also sequence 1, and
-     * anything keyed on sequence alone collapses one turn onto another.
-     *
-     * A replayed event carries the real run id. A *streamed* frame does not — the
-     * wire format is `id: <sequence>` with no run — so the hook supplies the turn's
-     * `clientMessageId` instead, which identifies the same run by its idempotency
-     * key. Either way the value is stable for one run and unique across runs, which
-     * is all a key needs to be.
-     */
-    runId: string
-    sequence: number
-    eventType: K
-    payload: RunEventPayloads[K]
-  }
-}[RunEventType]
-
-/** Replayed state after a dropped stream, from the event cursor onwards. */
-export interface RunRecovery {
-  id: string
-  threadId: string
-  status: RunStatus
-  eventCursor: number
-  events: RunEvent[]
-  errorCode?: string | null
-}
-
-// The SSE frame has no type here on purpose. Its shape — `id`, `event`, `data` — is
-// a transport detail of the byte stream, and `lib/assistant/sse-frames.ts` models it
-// as `ParsedFrame` at the one place that parses it. A second declaration in the wire
-// contract would be a shape nothing validates against and nothing imports.
 
 export type ActionDecision = "approve" | "reject"
+
+export interface ResumePayload {
+  decision: ActionDecision
+}
 
 // `AccountExport` lives in ./auth: `/v1/me/export` is an account endpoint, and
 // the assistant section of it is one opaque member among five.

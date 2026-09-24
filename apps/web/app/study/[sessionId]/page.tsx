@@ -1,44 +1,38 @@
-import { notFound } from "next/navigation"
+"use client"
+
+import { use, useEffect, useState } from "react"
 
 import { SessionRunner } from "@/components/study/session-runner"
 import { readNode } from "@/lib/actions/library-reads"
 import { readSession } from "@/lib/actions/study"
+import type { SessionState } from "@/lib/api/types"
+import { Spinner } from "@/components/ui/spinner"
 
-/**
- * One study session, addressed by its own id.
- *
- * The id is in the URL rather than the deck's, so a reload resumes this session
- * instead of starting a second one. Creating a session is a POST that belongs to the
- * launch screen; rendering a page must never have that side effect.
- *
- * The first read here is the true session read, not `/next`. `/next` advances the
- * round and reserves a delivery, so calling it during render would consume a question
- * on every refresh. This endpoint advances nothing, and it answers for a finished
- * session too — from the durable summary, which is what lets the recap survive a
- * reload after the live state has been deleted.
- */
-export default async function StudySessionPage({
-  params,
-}: {
-  params: Promise<{ sessionId: string }>
-}) {
-  const { sessionId } = await params
+export default function StudySessionPage({ params }: { params: Promise<{ sessionId: string }> }) {
+  const { sessionId } = use(params)
+  const [session, setSession] = useState<SessionState | null | undefined>(undefined)
+  const [deckTitle, setDeckTitle] = useState("this deck")
 
-  const session = await readSession(sessionId)
+  useEffect(() => {
+    let active = true
+    void readSession(sessionId).then(async (result) => {
+      if (!active) return
+      if (!result.success) {
+        setSession(null)
+        return
+      }
+      setSession(result.data)
+      if (result.data.nodeId) {
+        const node = await readNode(result.data.nodeId)
+        if (active && node) setDeckTitle(node.name)
+      }
+    })
+    return () => {
+      active = false
+    }
+  }, [sessionId])
 
-  // An unknown id and someone else's session are the same 404 by design, so that the
-  // endpoint cannot be used to discover which sessions exist.
-  if (!session.success) notFound()
-
-  // The deck name is for the live-session notice the palette and deck views read, so a
-  // failed lookup costs a label rather than the session.
-  const node = session.data.nodeId ? await readNode(session.data.nodeId) : null
-
-  return (
-    <SessionRunner
-      sessionId={sessionId}
-      initialSession={session.data}
-      deckTitle={node?.name ?? "this deck"}
-    />
-  )
+  if (session === undefined) return <Spinner aria-label="Loading study session" />
+  if (!session) return <p className="text-sm text-muted-foreground">This session is not available.</p>
+  return <SessionRunner sessionId={sessionId} initialSession={session} deckTitle={deckTitle} />
 }

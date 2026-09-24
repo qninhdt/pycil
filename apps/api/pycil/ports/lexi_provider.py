@@ -22,7 +22,7 @@ def get_lexi_client() -> LexiReader:
 
     The consequence to know when writing a test: overriding this on the app does
     not reach the assistant tools. Patch this module's attribute for those (as
-    `tests/assistant/` does for `async_session_factory` and `get_arq_pool`).
+    `tests/assistant/` does for `async_session_factory`).
     """
     global _lexicon, _client
     if _client is None:

@@ -1,353 +1,205 @@
 # cross-cutting/auth
 
-Google OIDC in, a Pycil-signed token out. Decisions `H1`–`H14`.
+Clerk verifies the person. Pycil owns a UUID account. Decisions `H1`–`H14`.
 
 ## 1. Two narrow roles
 
 The API is:
 
-1. an **OIDC client** of Google — it authenticates the person;
-2. Pycil's **first-party token issuer** — it signs access tokens and owns refresh
-   sessions.
+1. a **verifier** of Clerk-issued session tokens — it authenticates the person;
+2. the **owner of the Pycil account row** — it maps a Clerk subject to a UUID and
+   stores nothing else about the session.
 
 ```text
-Google
-   │  OpenID Connect Authorization Code + PKCE  [R01] [R02]
+Browser
+   │  Clerk session token, sent as Authorization: Bearer
    ▼
-Pycil API
-   │  access token + opaque rotating refresh credential
+FastAPI
+   │  verify against Clerk JWKS -> subject
+   │  subject -> users.clerk_id -> users.id (UUID)
    ▼
-Browser (cookies)  ·  mobile (bearer, designed not built)
+route / service authorization on the internal UUID
 ```
 
-A Google token is **never** used to call a Pycil endpoint. Only a token Pycil
-signed is trusted.
+Clerk signs and validates sessions. **Pycil stores no session, no refresh
+credential and no token of its own.** There is no local signing path and no
+fallback: a Clerk outage fails closed rather than admitting a token this service
+minted for itself.
 
-This is an auth broker for a fixed set of first-party clients, not an OAuth
-platform. Absent by design: dynamic client registration, third-party clients,
-consent management, password grant, implicit flow, per-request introspection.
+Earlier revisions of this folder described Google OIDC with Pycil-issued HS256
+access tokens, rotating refresh sessions and cookies. That design was replaced by
+the Clerk decision, and the implemented module is much smaller as a result. The
+replaced material is recorded in [../removed.md](../removed.md).
 
 ## 2. No BFF
 
-`H1`. The browser calls the API **directly, on the same public origin** routed by
-the edge. The UI layer holds no credential and proxies nothing.
+`H1`. The browser calls the API **directly**, sending the Clerk token as a bearer
+header. The UI layer proxies nothing and holds no credential of its own.
 
-Same-origin is load-bearing beyond tidiness:
+`apps/web/lib/api/request.ts` reads `window.Clerk.session.getToken()` and sets the
+header. That is the whole client half of the integration.
 
-- the session cookie stays **first-party**;
-- assistant SSE and job polling use the same API origin, so cookie and origin
-  policy stay uniform on every page;
-- there is no server-side token custody to secure, and no forwarding layer that
-  can leak one.
+Earlier revisions made same-origin cookies load-bearing here. That is no longer
+true and the invariant is withdrawn: there is no cookie, so there is no CSRF
+surface to defend and no cross-tab refresh to serialize. Clerk's SDK owns session
+lifetime on the client.
 
-Consequences for the UI are in [../modules/web.md](../modules/web.md).
+## 3. One credential shape
 
-## 3. Login
+`H2`. Only the `Authorization: Bearer` header is consulted.
 
 ```text
-1  create an OIDC transaction: state, nonce, PKCE S256 challenge, short expiry
-2  redirect to Google with scope openid email profile
-3  Google returns an authorization code
-4  exchange the code for an identity token
-5  verify:
-     signature against the provider's keys
-     algorithm against an allow-list
-     exact issuer
-     audience
-     expiry and issued-at
-     exact nonce
-     the stored transaction state
-     the code is single-use
-6  resolve identity by (issuer, subject)
-7  create or update the account
-8  create a refresh session
-9  sign an access token
-10 set credentials per client profile
+1  read Authorization
+2  no header            -> unauthenticated
+3  scheme is not Bearer -> 401 invalid_authorization
+4  empty value          -> 401 invalid_authorization
+5  whitespace in value  -> 401 invalid_authorization
+6  verify the token
+7  resolve the subject to a Pycil UUID
 ```
 
-The transaction lives in Redis under a **single-use** short-TTL key holding the
-verifier, the nonce, and the exact redirect it was minted for. A replayed state
-cannot complete a second exchange, and the redirect is validated against an
-allow-list so it cannot become an open redirect.
+The legacy access cookie is deliberately **not** read. Accepting two credential
+channels made "which identity is this?" ambiguous, and an ambiguity in identity
+resolution is how a bypass is built. Clerk's browser SDK sends the bearer header
+itself, so the cookie bought nothing.
 
-Google's tokens are discarded after login. Pycil calls no Google API on the
-learner's behalf, so no Google refresh token is stored.
+Step 5 rejects a second credential smuggled into the same header.
 
-### Identity is keyed on `(issuer, subject)`
+## 4. Verification
 
-`H7`, and this is a correctness requirement, not a preference. The provider
-documents that **email can change** and that the subject is the stable identifier
-`[R13]`.
-
-Keying on email means an email change creates a **second account** and abandons
-the learner's entire memory state — the one thing in this product that cannot be
-regenerated. A separate identity table holds `(issuer, subject) → user`, so a
-second provider later is additional rows rather than a schema change.
-
-## 4. One API, two credential shapes
+`H4`. `pycil/auth/deps.py` verifies:
 
 ```text
-browser   access token in a cookie
-mobile    Authorization: Bearer <token>
+signature   against Clerk's JWKS, resolved by key id
+algorithm   RS256 only, hardcoded — the token's own `alg` is never consulted
+issuer      exact, when CLERK_ISSUER is configured
+audience    exact, when CLERK_AUDIENCE is configured
+expiry      enforced by the verifier
 ```
 
-Shared middleware (`H2`):
+The algorithm allow-list is pinned to `["RS256"]`. That is the algorithm-confusion
+defence: a token whose header names a symmetric algorithm is not verified against
+public key material.
+
+The JWKS client caches keys in memory and refreshes on an unknown key id, so
+Clerk's ordinary rotation needs no restart. The cache is bounded (`max_cached_keys=16`,
+`lifespan=300`) so a long-lived process cannot accumulate key material without
+limit, and its fetch timeout is 5s rather than the 30s default — the client
+fetches synchronously with `urllib`, so that call blocks the event loop, and an
+unauthenticated caller could otherwise spend 30 seconds of it repeatedly by
+sending tokens with unknown key ids.
+
+Every verification failure raises the same stable error code, so a caller cannot
+distinguish an expired token from a forged one.
+
+An unconfigured `CLERK_JWKS_URL` is `auth_not_configured`, not an open door.
+
+## 5. Identity is keyed on the Clerk subject
+
+`H7`. `users.clerk_id` is the unique Clerk subject; `users.id` remains the
+permanent UUID that every product foreign key points at.
+
+The subject is the **only** lookup key that may create an account. A verified
+email may *link* an existing unlinked row, because that is how a pre-cutover
+learner keeps their library. It may never create a second account or merge two.
 
 ```text
-1  look for the cookie
-2  look for the bearer header
-3  both present  → reject: ambiguous credentials
-4  neither       → unauthenticated
-5  verify the token
-6  put a normalised principal in the request context
+subject found                          -> use it
+subject unknown, email matches an
+  unlinked row (case-insensitive)      -> claim it, guarded on clerk_id IS NULL
+subject unknown, email matches a row
+  owned by another subject             -> 409 identity_conflict
+subject unknown, email matches nothing -> provision a new account
 ```
 
-Step 3 is not pedantry. Letting precedence pick an identity is how an ambiguity
-becomes a bypass: an attacker who can set one of the two chooses which one wins.
+The link is guarded on `clerk_id IS NULL` so two concurrent first sign-ins race to
+one winner rather than one overwriting the other's mapping. Email matching is
+case-insensitive because the unique index is case-sensitive: a stored
+`Learner@Example.com` and a claim of `learner@example.com` are two rows to
+Postgres, and matching exactly would orphan the pre-cutover learner's library and
+provision a fresh empty account beside it.
 
-Mobile is **designed for, not built**. What must hold from the start so adding it
-later is a client registration rather than an architecture change `[R03]`:
+Refusing the third case is the only safe answer — linking would hand one learner's
+library to another — and it is a conflict the caller resolves rather than a silent
+takeover.
 
-- PKCE S256 required, no client secret in an app binary;
-- the authorization code single-use, short-lived, bound to the exact client,
-  redirect, and challenge;
-- the redirect is a claimed HTTPS link, and the flow opens the **system browser**,
-  never an embedded web view;
-- the access token in memory, the refresh credential in the platform keystore.
+The subject→UUID mapping is cached in Redis for 300s and evicted after deletion or
+relink.
 
-## 5. Access token
+## 6. Authorization is on the internal UUID
 
-HS256 (`H3`). Asymmetric signing exists so that a party able to *verify* cannot
-*forge*. With exactly one verifier that property buys nothing and costs key
-distribution, a public key endpoint, and rotation machinery. One module signs and
-verifies, so the algorithm is a one-file change if a second verifier ever appears.
+`H5`. A verified subject is an authentication fact, not an authorization one.
+Every route checks ownership or readability against the internal UUID
+independently of having authenticated: nodes, deck membership, study sessions,
+assistant threads and tools, and the credit ledger all authorize on their own.
 
-Required claims, all validated (`H4`) `[R05]`, `[R06]`, `[R07]`:
+No email, plan, credit balance or membership is ever carried in a credential. The
+account row is read at the point of use.
 
-```text
-iss   exact issuer
-aud   exact audience
-typ   token purpose — an access token cannot be replayed where another is expected
-sub   the user
-exp   expiry
-iat   issued-at, rejected if in the future beyond a bounded skew
-tv    token version
-```
-
-The algorithm allow-list is **hardcoded**; the token's own `alg` is never
-consulted. That is the algorithm-confusion attack `[R06]`.
-
-**Not** in the token (`H5`):
+## 7. Deliberately not built
 
 ```text
-email · name · avatar
-plan · credit balance
-anything that changes while a token lives
-```
-
-A token carrying authorization state is stale by construction, and staleness in an
-authorization decision is a security bug, not a cache miss. Plan and credit are
-read from the account row at the point of use.
-
-Revocation is `tv`, a version integer on the user row, **re-read on every request**
-(`H6`). A mismatch rejects. The claim is edge convenience; the row is the truth.
-
-Secret rotation is a preserved capability, not a future upgrade: verification
-accepts the previous secret during an overlap window, and removing that would
-invalidate live tokens on every rotation.
-
-## 6. Cookies
-
-| | Access | Refresh |
-|---|---|---|
-| Flags | `HttpOnly`, `Secure` | `HttpOnly`, `Secure` |
-| `SameSite` | Lax | Strict or Lax |
-| **Path** | `/` | **the refresh endpoint only** (`H12`) |
-| Lifetime | short | idle **and** absolute (`H10`) |
-| Reachable from JavaScript | never | never |
-
-The narrow refresh path is deliberate: that credential must never reach a resource
-route, a log, a delivery stream, or telemetry.
-
-Refresh **rotates cookies and returns no token in the response body.** Nothing in
-the browser can read either credential — no local storage, no session storage, no
-in-memory custody.
-
-Both idle and absolute expiry, because an absolute limit alone lets an abandoned
-session stay valid for its entire lifetime.
-
-### CSRF
-
-Because the browser attaches cookies automatically, every unsafe method requires
-(`H11`):
-
-- a CSRF token sent in a request header, bound to the session;
-- an **exact** origin check;
-- exact-origin CORS — never a wildcard with credentials.
-
-`SameSite` is a defence, **not the boundary**. `HttpOnly` prevents reading a
-cookie; it does not make cross-site scripting harmless, because same-origin
-JavaScript can still issue authenticated actions. Output encoding, a content
-security policy, and server-side authorization all still apply.
-
-The frontend serialises refresh so only one is in flight across tabs. The server
-rotates atomically regardless, and both concurrency and replay are tested.
-
-## 7. Refresh sessions
-
-The refresh credential is an **opaque random value**, never a token with claims.
-The database stores only a **peppered digest** (`H8`) — the raw value never reaches
-persistence.
-
-```text
-refresh_sessions
-├── id
-├── user_id
-├── family_id
-├── token_digest          peppered, compared in constant time
-├── created_at · last_used_at
-├── idle_expires_at · absolute_expires_at
-└── revoked_at · replaced_by_id
-```
-
-Every refresh, in **one transaction under a row lock**:
-
-```text
-1  lock the session row
-2  digest the presented value
-3  compare in constant time
-4  check expiry and revocation
-5  mint a successor
-6  mark the old one replaced, pointing at the successor
-7  sign a new access token
-8  commit
-9  set both cookies
-```
-
-A row lock plus one transaction is what makes concurrent attempts serialise rather
-than both succeeding.
-
-### Replay
-
-`H9`.
-
-```text
-a rotated credential presented again
-  ├── inside a bounded grace window, with a live successor
-  │     → return the successor
-  └── otherwise
-        → revoke the entire family
-```
-
-The grace window is what makes overlapping tabs and a retry after a crash converge
-instead of logging the learner out. The successor is **derivable** from its own
-row, so a process that died between committing the rotation and sending the reply
-can still be recovered by a retry — but a value whose digest does not match the
-persisted successor is never fabricated; that falls through to family revocation.
-
-The window is bounded on both sides and must exceed the refresh-coordination
-timeout, or two legitimate concurrent refreshes can be classified as replay.
-
-Redis coordinates overlapping refresh attempts so a single rotation serves them
-all, and it stores **no credential** — only which attempt is leading.
-
-## 8. Logout and revocation
-
-```text
-logout   revoke the refresh family, clear both cookies, bump the token version
-```
-
-Mobile revokes the same session by presenting its refresh credential to a
-revocation endpoint `[R09]`; the effect is identical because the family is the
-unit of revocation.
-
-Bumping the version is what makes the access token die immediately rather than at
-expiry — which matters because there is no per-request denylist.
-
-An open assistant stream observes cancellation or connection loss at its next
-yield point. Every later request re-reads `token_version`, so logout needs no
-external disconnect call.
-
-Account deletion does the same, then removes data in a hand-ordered sequence — see
-[../modules/account.md](../modules/account.md).
-
-## 9. Secrets and configuration
-
-```text
-token signing secret        the API only
-previous signing secret     the API only, during a rotation overlap
-refresh pepper              the API only
-Google client secret        the API only
-assistant provider key      the API only
-content provider keys       the domain worker only
-```
-
-The domain worker holds no browser-credential secret. The API holds only the
-assistant provider key because it executes Runs inline. That split is enforced
-by which service each variable is injected into (`O6`).
-
-A **missing required secret fails the boot** with every missing name reported at
-once. A service that starts and then rejects every request looks healthy while
-doing nothing.
-
-No vault. On one host with a private network, a boot-time dependency on a secrets
-service costs an outage mode and buys rotation that environment injection already
-allows.
-
-## 10. Deliberately not built
-
-```text
+no local token signing, no refresh sessions, no cookie credential
+no token version / revocation list
+no CSRF token, no origin-bound session cookie
 no vault, no workload identity, no internal mTLS
 no per-request token introspection
 no proof-of-possession binding
 no multi-factor, no local passwords
 no dynamic client registration, no implicit flow
-no Google token propagation past login
-no token carrying authorization state
 ```
 
-Each because the topology is one application on one host with a private network,
-not a multi-tenant cluster.
+Each follows from the Clerk decision. Revocation, session lifetime, multi-factor
+and password policy are Clerk's to own; reimplementing any of them here would be a
+second source of truth for the same question.
 
-## 11. Capabilities that may not be cut
+## 8. Secrets and configuration
 
-Per R4:
+```text
+CLERK_JWKS_URL          the API only
+CLERK_ISSUER            the API only, optional
+CLERK_AUDIENCE          the API only, optional
+CLERK_SECRET_KEY        the API only, if any server-side Clerk API call is added
+assistant provider key  the API only
+content provider keys   the domain worker only
+```
 
-- PKCE with a single-use transaction key.
-- Nonce and state both verified; the authorization code single-use.
-- Identity keyed on `(issuer, subject)`.
-- A hardcoded algorithm allow-list.
-- Exact issuer, audience, and token purpose validated.
-- Token version re-read from the database on every request.
-- Refresh stored only as a peppered digest.
-- Rotation atomic under a row lock.
-- Replay outside the grace window revokes the family.
-- Both idle and absolute refresh expiry.
-- Cookie flags, the narrow refresh path, CSRF plus an origin check.
-- Cookie and bearer together rejected.
-- Signing-secret rotation with an overlap.
+The domain worker holds no browser-credential secret, and it cannot mint an
+identity. The API holds the assistant provider key because it executes turns
+inline.
 
-## 12. Invariants for the checklist
+A **missing required value fails the boot** with every missing name reported at
+once. A service that starts and then rejects every request looks healthy while
+doing nothing.
+
+## 9. Capabilities that may not be cut
+
+- A hardcoded algorithm allow-list; the token's `alg` is never trusted.
+- Issuer and audience validated when configured.
+- Every verification failure returns one indistinguishable error code.
+- Identity resolves by Clerk subject; an email change keeps one account.
+- An email owned by a different subject is a conflict, never a silent link.
+- Concurrent first sign-ins produce one account.
+- Authorization decisions use the internal UUID, not the Clerk subject.
+- A Clerk outage fails closed; there is no local fallback.
+- The JWKS cache is bounded and its fetch timeout is short.
+
+## 10. Invariants for the checklist
 
 ```text
 algorithm allow-list — algorithm confusion rejected
-exact issuer and audience; a wrong audience rejected
-a token with the wrong purpose rejected
-expired token rejected; clock skew bounded
-a bumped token version rejects an unexpired token
-the identity token: signature, nonce, state, single-use code
-a replayed OIDC state cannot complete a second exchange
-a redirect outside the allow-list rejected
-identity resolves by (issuer, subject); an email change keeps one account
-refresh rotation is atomic under concurrency
-a rotated credential inside the grace window returns its successor
-a rotated credential outside the window revokes the family
-an expired-by-idle session is rejected while still inside its absolute window
-cookie flags: HttpOnly, Secure, SameSite; refresh scoped to its endpoint
-an unsafe method without a CSRF token rejected
-an unsafe method from a foreign origin rejected
-cookie + bearer together → rejected as ambiguous
-the refresh credential never appears in a response body
-logout revokes the family and invalidates subsequent API and SSE requests
-a missing required secret fails the boot, naming every missing variable
+a wrong issuer or audience rejected
+an expired token rejected
+a forged or malformed token rejected with the same code as an expired one
+a second credential in one Authorization header rejected
+an unconfigured CLERK_JWKS_URL fails closed, not open
+identity resolves by subject; an email change keeps one account
+an email owned by another subject returns identity_conflict
+two concurrent first sign-ins create exactly one account
+every route authorizes on the internal UUID
+the worker cannot mint an identity
+no credential value appears in an error or a log
 ```
+
+The older list's cookie, CSRF, refresh-rotation and token-version invariants are
+**withdrawn** with the design that needed them.

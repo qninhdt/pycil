@@ -53,6 +53,33 @@ async def add_sense(session: AsyncSession, actor_id: UUID, deck_id: UUID, sense_
     return {"id": row.id, "sense_id": row.sense_id}
 
 
+async def add_senses(
+    session: AsyncSession, actor_id: UUID, deck_id: UUID, sense_ids: list[int]
+) -> dict:
+    """Add many senses in one authorized, one-transaction call."""
+    await _require_deck(session, actor_id, deck_id)
+    rows = await service.add_senses(session, deck_id, sense_ids)
+    return {
+        "requested": len(sense_ids),
+        "added": len(rows),
+        "sense_ids": [row.sense_id for row in rows],
+    }
+
+
+async def remove_senses(
+    session: AsyncSession,
+    actor_id: UUID,
+    deck_id: UUID,
+    sense_ids: list[int],
+    *,
+    commit: bool = True,
+) -> dict:
+    """Remove many senses in one authorized, one-transaction call."""
+    await _require_deck(session, actor_id, deck_id)
+    removed = await service.remove_senses(session, deck_id, sense_ids, commit=commit)
+    return {"requested": len(sense_ids), "removed": removed}
+
+
 async def remove_sense(
     session: AsyncSession, actor_id: UUID, deck_id: UUID, sense_id: int, *, commit: bool = True
 ) -> None:

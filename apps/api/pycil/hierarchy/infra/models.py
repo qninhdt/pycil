@@ -10,8 +10,7 @@ from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import CheckConstraint, DateTime, text
-from sqlalchemy.dialects.postgresql import JSONB
-from sqlmodel import Column, Field, SQLModel
+from sqlmodel import Field, SQLModel
 
 # Canonical home is `domain/vocabulary`: they are plain enums with no ORM
 # dependency, and keeping them here forced every consumer that wanted only the
@@ -40,10 +39,12 @@ class Node(SQLModel, table=True):
     type: NodeType
     parent_node_id: UUID | None = Field(default=None, foreign_key="nodes.id", index=True)
     # Set only on REFERENCE nodes — points at the node being referenced.
-    target_node_id: UUID | None = Field(default=None, foreign_key="nodes.id")
+    target_node_id: UUID | None = Field(default=None, foreign_key="nodes.id", index=True)
     # Incremented in the same transaction as every structural mutation. Redis
     # keys include this value, so a stale fill can never mask newer structure.
     structural_generation: int = Field(default=0, nullable=False)
+    # Incremented on deck sense additions/removals without bumping folder trees.
+    content_generation: int = Field(default=0, nullable=False)
     name: str
     description: str | None = None
     visibility: Visibility = Field(default=Visibility.PRIVATE)
@@ -54,13 +55,3 @@ class Node(SQLModel, table=True):
         default=None, sa_type=TZDateTime, sa_column_kwargs={"server_default": text("NOW()")}
     )
     deleted_at: datetime | None = Field(default=None, sa_type=TZDateTime)
-
-
-class DeckAttributes(SQLModel, table=True):
-    __tablename__ = "deck_attributes"
-
-    node_id: UUID = Field(foreign_key="nodes.id", primary_key=True)
-    settings: dict = Field(
-        default_factory=dict,
-        sa_column=Column(JSONB, nullable=False, server_default=text("'{}'::jsonb")),
-    )

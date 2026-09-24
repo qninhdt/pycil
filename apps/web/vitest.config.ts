@@ -4,25 +4,45 @@ import react from "@vitejs/plugin-react"
 import { defineConfig } from "vitest/config"
 
 /**
- * Unit-layer config: pure logic only, no DOM and no network.
+ * Two Vitest layers, one command each.
  *
- * The three layers are kept distinct on purpose. Component behaviour is asserted in
- * Storybook and Playwright, where it is truer and cheaper; this layer is for the
- * functions that take values and return values — the transcript fold, the SSE frame
- * parser, and anything else whose bugs are logic bugs rather than render bugs.
+ * `unit` is pure logic: no DOM, no network, no rendering. It runs in a node
+ * environment so a test that accidentally needs a document fails loudly instead of
+ * quietly working.
  *
- * The `@/` alias mirrors `tsconfig.json` so a test imports a module by the same path
- * the app does, rather than a relative path that would drift when the module moves.
+ * `integration` renders components against controlled HTTP. The DOM comes from
+ * jsdom and the network from MSW, which intercepts at the `fetch` seam — so a
+ * component is exercised through its real request path rather than through a stubbed
+ * action, and the response shapes are the ones the API actually sends.
+ *
+ * The alias is declared per project rather than at the top level: a top-level
+ * `resolve.alias` is ignored inside a project block, and the failure is a confusing
+ * "cannot find package '@/…'" for every import.
  */
+const alias = { "@": fileURLToPath(new URL("./", import.meta.url)) }
+
 export default defineConfig({
-  plugins: [react()],
   test: {
-    environment: "node",
-    include: ["tests/unit/**/*.test.ts"],
-  },
-  resolve: {
-    alias: {
-      "@": fileURLToPath(new URL("./", import.meta.url)),
-    },
+    projects: [
+      {
+        plugins: [react()],
+        resolve: { alias },
+        test: {
+          name: "unit",
+          environment: "node",
+          include: ["tests/unit/**/*.test.ts"],
+        },
+      },
+      {
+        plugins: [react()],
+        resolve: { alias },
+        test: {
+          name: "integration",
+          environment: "jsdom",
+          include: ["tests/integration/**/*.test.tsx"],
+          setupFiles: ["tests/integration/setup.ts"],
+        },
+      },
+    ],
   },
 })

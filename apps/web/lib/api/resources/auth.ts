@@ -1,33 +1,24 @@
 import type { Fetcher } from "../request"
-import type { AccountExport, Capabilities, RealtimeToken, Viewer } from "../types"
+import type { AccountCredit, AccountExport, Capabilities, Viewer } from "../types"
 
-/** Identity, capabilities, realtime tokens, and the account lifecycle. */
+/**
+ * The account endpoints Pycil still serves.
+ *
+ * Sign-in, sign-out and session refresh are Clerk's: there is no Pycil login URL
+ * to fetch and no Pycil logout route to call, so neither is listed here. Adding
+ * one back would be a second session issuer.
+ */
 export function authResource(fetch: Fetcher) {
   return {
     getViewer: () => fetch<Viewer>("/v1/me"),
-
     getCapabilities: () => fetch<Capabilities>("/v1/capabilities"),
-
-    /**
-     * Mints a short-lived Centrifugo token. The provider re-mints on refresh
-     * rather than holding the first value, because this expires well inside a
-     * long session.
-     */
-    getRealtimeToken: () => fetch<RealtimeToken>("/v1/realtime/token"),
-
+    /** The monthly allowance, in Credits rather than currency. */
+    getCredit: () => fetch<AccountCredit>("/v1/me/credit"),
     exportAccount: () => fetch<AccountExport>("/v1/me/export"),
-
-    /**
-     * Deletes the account irreversibly.
-     *
-     * Both body fields are snake_case on purpose: this is a request model, and
-     * the API does not alias its inputs. The literal confirmation is the API's
-     * own guard — a wrong value is rejected server-side.
-     */
-    deleteAccount: (refreshToken: string) =>
+    deleteAccount: () =>
       fetch<void>("/v1/me", {
         method: "DELETE",
-        body: JSON.stringify({ confirmation: "DELETE", refresh_token: refreshToken }),
+        body: JSON.stringify({ confirmation: "DELETE" }),
       }),
   }
 }

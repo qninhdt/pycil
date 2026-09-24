@@ -17,7 +17,6 @@ from pycil.auth.schemas import CurrentUser
 from pycil.db.session import get_session
 from pycil.hierarchy.application import reads, service, stats, subtree
 from pycil.hierarchy.application.access import require_node_access
-from pycil.hierarchy.application.viewer_stats import get_folder_stats_for_viewer
 from pycil.hierarchy.domain.schemas import (
     FolderItemRead,
     FolderStatsRead,
@@ -163,45 +162,6 @@ async def get_node(
     return read
 
 
-@router.get("/folders/{node_id}/stats", response_model=FolderStatsRead)
-async def folder_stats(
-    node_id: UUID,
-    user: Annotated[CurrentUser, Depends(current_user)],
-    session: AsyncSession = Depends(get_session),
-) -> FolderStatsRead:
-    await require_node_access(session, node_id, user, write=False)
-    s = await get_folder_stats_for_viewer(session, node_id, user.id)
-    return FolderStatsRead(
-        total=s.total, learned=s.learned, mastered=s.mastered, avg_mastery=s.avg_mastery
-    )
-
-
-@router.get("/folders/{node_id}/weakest", response_model=list[WeakSenseRead])
-async def folder_weakest(
-    node_id: UUID,
-    user: Annotated[CurrentUser, Depends(current_user)],
-    session: AsyncSession = Depends(get_session),
-    client: LexiReader = Depends(get_lexi_client),
-    limit: int = Query(default=10, ge=1, le=100),
-) -> list[WeakSenseRead]:
-    await require_node_access(session, node_id, user, write=False)
-    sense_ids = await subtree.cached_sense_ids(session, node_id, user.id)
-    return await reads.weakest_rows(session, client, user.id, sense_ids, limit)
-
-
-@router.get("/folders/{node_id}/cefr", response_model=dict[str, int])
-async def folder_cefr(
-    node_id: UUID,
-    user: Annotated[CurrentUser | None, Depends(optional_current_user)],
-    session: AsyncSession = Depends(get_session),
-    client: LexiReader = Depends(get_lexi_client),
-) -> dict[str, int]:
-    await require_node_access(session, node_id, user, write=False)
-    viewer_id = user.id if user is not None else None
-    sense_ids = await subtree.cached_sense_ids(session, node_id, viewer_id)
-    return await stats.cefr_distribution(client, sense_ids)
-
-
 @router.get("/folders/{node_id}/items", response_model=list[FolderItemRead])
 async def folder_items(
     node_id: UUID,
@@ -228,29 +188,15 @@ async def folder_items(
     ]
 
 
-@router.get("/folders/{node_id}/history", response_model=list[HistoryBucketRead])
-async def folder_history(
-    node_id: UUID,
-    user: Annotated[CurrentUser, Depends(current_user)],
-    session: AsyncSession = Depends(get_session),
-    from_date: date | None = Query(default=None, alias="from"),
-    to_date: date | None = Query(default=None, alias="to"),
-    bucket: Literal["day"] = "day",
-) -> list[HistoryBucketRead]:
-    del bucket  # day is the only currently supported stable bucket.
-    start, end = reads.history_window(from_date, to_date)
-    await require_node_access(session, node_id, user, write=False)
-    sense_ids = await subtree.cached_sense_ids(session, node_id, user.id)
-    return reads.history_read(await stats.history_buckets(session, user.id, sense_ids, start, end))
-
-
 @router.get("/me/stats", response_model=FolderStatsRead)
 async def global_stats(
     user: Annotated[CurrentUser, Depends(current_user)],
     session: AsyncSession = Depends(get_session),
+    node_id: Annotated[UUID | None, Query(alias="nodeId")] = None,
 ) -> FolderStatsRead:
-    """`folder_stats` over every sense the caller has state for."""
-    result = await stats.tracked_stats(session, user.id)
+    """Totals over the account, or one readable node scope when supplied."""
+    sense_ids = await _node_scope(session, user, node_id)
+    result = await stats.stats_for_scope(session, user.id, sense_ids)
     return FolderStatsRead(
         total=result.total,
         learned=result.learned,
@@ -266,16 +212,13 @@ async def global_history(
     from_date: date | None = Query(default=None, alias="from"),
     to_date: date | None = Query(default=None, alias="to"),
     bucket: Literal["day"] = "day",
+    node_id: Annotated[UUID | None, Query(alias="nodeId")] = None,
 ) -> list[HistoryBucketRead]:
-    """`folder_history` over every sense the caller has state for.
-
-    `sense_ids=None` selects the whole tracked set inside SQL; see
-    `stats.history_buckets`. Listing the ids first was an unbounded query whose result
-    was sent straight back to the same database.
-    """
+    """Review history over the account, or one readable node scope."""
     del bucket
     start, end = reads.history_window(from_date, to_date)
-    return reads.history_read(await stats.history_buckets(session, user.id, None, start, end))
+    sense_ids = await _node_scope(session, user, node_id)
+    return reads.history_read(await stats.history_buckets(session, user.id, sense_ids, start, end))
 
 
 @router.get("/me/cefr", response_model=dict[str, int])
@@ -283,9 +226,13 @@ async def global_cefr(
     user: Annotated[CurrentUser, Depends(current_user)],
     session: AsyncSession = Depends(get_session),
     client: LexiReader = Depends(get_lexi_client),
+    node_id: Annotated[UUID | None, Query(alias="nodeId")] = None,
 ) -> dict[str, int]:
-    """`folder_cefr` over every sense the caller has state for."""
-    return await stats.cefr_distribution(client, await reads.tracked_sense_ids(session, user.id))
+    """CEFR distribution over the account, or one readable node scope."""
+    sense_ids = await _node_scope(session, user, node_id)
+    if sense_ids is None:
+        sense_ids = await reads.tracked_sense_ids(session, user.id)
+    return await stats.cefr_distribution(client, sense_ids)
 
 
 @router.get("/me/weakest", response_model=list[WeakSenseRead])
@@ -294,13 +241,19 @@ async def global_weakest(
     session: AsyncSession = Depends(get_session),
     client: LexiReader = Depends(get_lexi_client),
     limit: int = Query(default=10, ge=1, le=100),
+    node_id: Annotated[UUID | None, Query(alias="nodeId")] = None,
 ) -> list[WeakSenseRead]:
-    """`folder_weakest` over every sense the caller has state for.
-
-    Bounded in SQL rather than in Python: the global scope is every
-    `user_sense_stats` row for this caller, which is the query's own `WHERE
-    user_id`, so listing those ids first only to pass them straight back was a
-    whole-table round trip to answer a `LIMIT 10`.
-    """
-    weak = await stats.weakest_tracked_senses(session, user.id, limit=limit)
+    """Exact database top-K weakest senses over the selected scope."""
+    sense_ids = await _node_scope(session, user, node_id)
+    weak = await stats.weakest_senses(session, user.id, sense_ids, limit=limit)
     return await reads.hydrate_weakest(client, weak)
+
+
+async def _node_scope(
+    session: AsyncSession, user: CurrentUser, node_id: UUID | None
+) -> list[int] | None:
+    """Resolve one optional node scope through the canonical read gate."""
+    if node_id is None:
+        return None
+    await require_node_access(session, node_id, user, write=False)
+    return await subtree.cached_sense_ids(session, node_id, user.id)

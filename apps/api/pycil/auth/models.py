@@ -1,15 +1,29 @@
-"""Auth ORM models, including server-side rotating refresh sessions."""
+"""Auth ORM models.
+
+Clerk issues and validates sessions; Pycil stores no session or refresh state of
+its own. What remains here is the account row that every product foreign key
+points at, plus the unique mapping from a Clerk subject to it.
+"""
 
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import BigInteger, DateTime, Index, text
-from sqlmodel import Column, Field, SQLModel
+from sqlalchemy import DateTime, text
+from sqlmodel import Field, SQLModel
 
 TZDateTime = DateTime(timezone=True)
 
 
 class User(SQLModel, table=True):
+    """One Pycil account.
+
+    ``id`` is the permanent key: nodes, responses, reviews, assistant threads and
+    the credit ledger all reference it, and it does not change when the sign-in
+    provider does. ``clerk_id`` is the stable Clerk subject, unique so a subject
+    can never map to two accounts. It stays nullable because rows created before
+    the provider cutover have no subject until their owner signs in again.
+    """
+
     __tablename__ = "users"
 
     id: UUID | None = Field(
@@ -17,42 +31,13 @@ class User(SQLModel, table=True):
         sa_column_kwargs={"server_default": text("gen_random_uuid()")},
         primary_key=True,
     )
+    clerk_id: str | None = Field(default=None, unique=True, index=True, max_length=64)
     email: str = Field(unique=True, index=True)
     name: str | None = None
     image: str | None = None
-    # Bumped when credentials must be revoked. BigInteger avoids smallint overflow.
-    token_version: int = Field(
-        default=0,
-        sa_column=Column(BigInteger, nullable=False, server_default=text("0")),
-    )
     created_at: datetime | None = Field(
         default=None, sa_type=TZDateTime, sa_column_kwargs={"server_default": text("NOW()")}
     )
     updated_at: datetime | None = Field(
-        default=None, sa_type=TZDateTime, sa_column_kwargs={"server_default": text("NOW()")}
-    )
-
-
-class RefreshSession(SQLModel, table=True):
-    """One opaque refresh credential, persisted solely as a keyed digest."""
-
-    __tablename__ = "refresh_sessions"
-    __table_args__ = (
-        Index("ix_refresh_sessions_user_active", "user_id", "revoked_at"),
-        Index("ix_refresh_sessions_family", "family_id"),
-    )
-
-    id: UUID | None = Field(
-        default=None,
-        sa_column_kwargs={"server_default": text("gen_random_uuid()")},
-        primary_key=True,
-    )
-    user_id: UUID = Field(foreign_key="users.id", index=True)
-    family_id: UUID = Field(index=True)
-    token_digest: str = Field(unique=True, index=True, max_length=64)
-    expires_at: datetime = Field(sa_type=TZDateTime)
-    revoked_at: datetime | None = Field(default=None, sa_type=TZDateTime)
-    replaced_by_id: UUID | None = Field(default=None, foreign_key="refresh_sessions.id")
-    created_at: datetime | None = Field(
         default=None, sa_type=TZDateTime, sa_column_kwargs={"server_default": text("NOW()")}
     )

@@ -1,39 +1,33 @@
-import { notFound } from "next/navigation"
+"use client"
+
+import { use, useEffect, useState } from "react"
 
 import { QuestionStage } from "@/components/study/question-stage"
 import { StartSessionPanel } from "@/components/study/start-session-panel"
 import { readNode } from "@/lib/actions/library-reads"
+import type { NodeRead } from "@/lib/api/types"
+import { Spinner } from "@/components/ui/spinner"
 
-/**
- * The launch screen for a session on one node.
- *
- * This route exists because the runner is keyed by session id, not node id: refreshing
- * the runner must resume the same session, which only works if the id is already in the
- * URL. Something has to create the session and put it there, and it cannot be a render
- * — creating one is a POST, and a reload would start a second session while the first
- * kept its reserved deliveries.
- *
- * So the page only reads the node and states what is about to happen. The POST is
- * behind the button, and its response decides where the learner goes next.
- */
-export default async function StartStudyPage({
-  params,
-}: {
-  params: Promise<{ nodeId: string }>
-}) {
-  const { nodeId } = await params
+export default function StartStudyPage({ params }: { params: Promise<{ nodeId: string }> }) {
+  const { nodeId } = use(params)
+  const [node, setNode] = useState<NodeRead | null | undefined>(undefined)
+  useEffect(() => {
+    void readNode(nodeId).then(setNode)
+  }, [nodeId])
 
-  const node = await readNode(nodeId)
-
-  // Absent, private to someone else, or deleted all arrive as one 404 from the API, and
-  // one not-found page here, which is what stops this route being used to probe ids.
-  if (!node) notFound()
-
+  if (node === undefined) return <Spinner aria-label="Loading study" />
+  if (!node) return <p className="text-sm text-muted-foreground">This item is not available.</p>
+  // A reference is a link, not a study source: the learner should study the target
+  // itself, so the panel is not offered for one.
+  if (node.type === "REFERENCE") {
+    return <p className="text-sm text-muted-foreground">Open the linked item to study it.</p>
+  }
   return (
     <QuestionStage>
       <StartSessionPanel
         nodeId={nodeId}
-        deckTitle={node.name}
+        nodeName={node.name}
+        nodeType={node.type}
         itemCount={node.itemCount ?? null}
       />
     </QuestionStage>

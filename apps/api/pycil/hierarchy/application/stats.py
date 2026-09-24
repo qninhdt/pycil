@@ -37,80 +37,59 @@ class WeakSense:
     mastery: int
 
 
-async def folder_stats(
+async def stats_for_scope(
     session: AsyncSession,
     user_id: UUID,
-    sense_ids: list[int],
+    sense_ids: list[int] | None,
     *,
     mastered_threshold: int = MASTERED_FLOOR,
 ) -> FolderStats:
-    """{total, learned, mastered, avg_mastery} for a user over a sense-id set."""
-    total = len(sense_ids)
-    if total == 0:
+    """Return totals for a node sense set, or the whole account when ``None``.
+
+    Both scopes use the same learned predicate: ``status = 'scheduled'``. A node
+    scope counts its canonical distinct live sense set even when the learner has no
+    row yet; the account scope is the same relation without the scope filter.
+    """
+    if sense_ids is not None and not sense_ids:
         return FolderStats(total=0, learned=0, mastered=0, avg_mastery=0.0)
 
-    stmt = text(
+    if sense_ids is None:
+        statement = """
+            SELECT
+                COUNT(*) AS total,
+                COUNT(*) FILTER (WHERE uss.status = 'scheduled') AS learned,
+                COUNT(*) FILTER (
+                    WHERE uss.status = 'scheduled' AND uss.mastery >= :thresh
+                ) AS mastered,
+                COALESCE(AVG(uss.mastery) FILTER (WHERE uss.status = 'scheduled'), 0)
+                    AS avg_mastery
+            FROM user_sense_stats uss
+            WHERE uss.user_id = :user_id
         """
-        SELECT
-            COUNT(*) FILTER (WHERE uss.review_count > 0) AS learned,
-            COALESCE(SUM(CASE
-                WHEN uss.review_count > 0 AND uss.mastery >= :thresh THEN 1
-                ELSE 0
-            END), 0) AS mastered,
-            COALESCE(AVG(uss.mastery) FILTER (WHERE uss.review_count > 0), 0) AS avg_mastery
-        FROM user_sense_stats uss
-        WHERE uss.user_id = :user_id AND uss.sense_id = ANY(CAST(:sense_ids AS bigint[]))
+        params = {"user_id": str(user_id), "thresh": mastered_threshold}
+    else:
+        statement = """
+            WITH scoped AS (
+                SELECT DISTINCT unnest(CAST(:sense_ids AS bigint[])) AS sense_id
+            )
+            SELECT
+                COUNT(*) AS total,
+                COUNT(*) FILTER (WHERE uss.status = 'scheduled') AS learned,
+                COUNT(*) FILTER (
+                    WHERE uss.status = 'scheduled' AND uss.mastery >= :thresh
+                ) AS mastered,
+                COALESCE(AVG(uss.mastery) FILTER (WHERE uss.status = 'scheduled'), 0)
+                    AS avg_mastery
+            FROM scoped
+            LEFT JOIN user_sense_stats uss
+              ON uss.user_id = :user_id AND uss.sense_id = scoped.sense_id
         """
-    )
-    row = (
-        await session.execute(
-            stmt, {"user_id": str(user_id), "thresh": mastered_threshold, "sense_ids": sense_ids}
-        )
-    ).one()
-    return FolderStats(
-        total=total,
-        learned=int(row.learned),
-        mastered=int(row.mastered),
-        avg_mastery=round(float(row.avg_mastery), 2),
-    )
-
-
-async def tracked_stats(
-    session: AsyncSession,
-    user_id: UUID,
-    *,
-    mastered_threshold: int = MASTERED_FLOOR,
-) -> FolderStats:
-    """`folder_stats` over every sense the caller has state for.
-
-    `total` is counted here rather than taken from `len(sense_ids)`, which is the
-    only structural difference from the folder variant: the global scope has no
-    caller-supplied set to measure.
-
-    Lives beside `folder_stats` because the two must agree on what "learned" and
-    "mastered" mean. This query was inlined in the `/me/stats` route with a
-    function-local `from sqlalchemy import case, func`, so the two definitions of
-    the same statistics sat in different layers and could drift apart.
-    """
-    row = (
-        await session.execute(
-            text(
-                """
-                SELECT
-                    COUNT(*) AS total,
-                    COUNT(*) FILTER (WHERE review_count > 0) AS learned,
-                    COALESCE(SUM(CASE
-                        WHEN review_count > 0 AND mastery >= :thresh THEN 1
-                        ELSE 0
-                    END), 0) AS mastered,
-                    COALESCE(AVG(mastery) FILTER (WHERE review_count > 0), 0) AS avg_mastery
-                FROM user_sense_stats
-                WHERE user_id = :user_id
-                """
-            ),
-            {"user_id": str(user_id), "thresh": mastered_threshold},
-        )
-    ).one()
+        params = {
+            "user_id": str(user_id),
+            "thresh": mastered_threshold,
+            "sense_ids": sense_ids,
+        }
+    row = (await session.execute(text(statement), params)).one()
     return FolderStats(
         total=int(row.total),
         learned=int(row.learned),
@@ -120,56 +99,46 @@ async def tracked_stats(
 
 
 async def weakest_senses(
-    session: AsyncSession, user_id: UUID, sense_ids: list[int], *, limit: int = 10
+    session: AsyncSession,
+    user_id: UUID,
+    sense_ids: list[int] | None,
+    *,
+    limit: int = 10,
 ) -> list[WeakSense]:
-    """Top-N learned senses by mastery ascending (the user's weakest)."""
-    if not sense_ids:
-        return []
-    stmt = text(
-        """
-        SELECT sense_id, mastery FROM user_sense_stats
-        WHERE user_id = :user_id
-          AND sense_id = ANY(CAST(:sense_ids AS bigint[]))
-          AND review_count > 0
-          AND (buried_until IS NULL OR buried_until <= NOW())
-        ORDER BY mastery ASC, sense_id ASC
-        LIMIT :limit
-        """
-    )
-    rows = await session.execute(
-        stmt, {"user_id": str(user_id), "sense_ids": sense_ids, "limit": limit}
-    )
-    return [WeakSense(sense_id=r.sense_id, mastery=r.mastery) for r in rows]
+    """Exact database top-K for a node scope or the whole account.
 
-
-async def weakest_tracked_senses(
-    session: AsyncSession, user_id: UUID, *, limit: int = 10
-) -> list[WeakSense]:
-    """`weakest_senses` over EVERY sense the caller tracks, without listing them.
-
-    The global scope is "every row in `user_sense_stats` for this user", which is
-    exactly this query's own `WHERE user_id` — so materialising those ids in Python
-    first and passing them straight back as a `bigint[]` was pure overhead. The
-    caller used to `SELECT sense_id FROM user_sense_stats WHERE user_id = :id` with
-    no LIMIT and hand the whole array back; at 50K tracked senses that is a 50K
-    round trip to answer a `LIMIT 10`.
-
-    The folder variant still needs the explicit id list, because there the scope is
-    a resolved subtree rather than "everything".
+    The node scope joins against a de-duplicated ``VALUES`` set rather than
+    ``sense_id = ANY(bigint[])`` (design §10): the same index-friendly shape
+    ``stats_for_scope`` uses, so the planner drives the scan from
+    ``user_sense_stats`` instead of testing every row against a scalar array.
     """
-    rows = await session.execute(
-        text(
-            """
+    if sense_ids is not None and not sense_ids:
+        return []
+
+    if sense_ids is None:
+        statement = """
             SELECT sense_id, mastery FROM user_sense_stats
             WHERE user_id = :user_id
-              AND review_count > 0
-              AND (buried_until IS NULL OR buried_until <= NOW())
+              AND status = 'scheduled'
             ORDER BY mastery ASC, sense_id ASC
             LIMIT :limit
-            """
-        ),
-        {"user_id": str(user_id), "limit": limit},
-    )
+        """
+        params: dict = {"user_id": str(user_id), "limit": limit}
+    else:
+        statement = """
+            WITH scoped AS (
+                SELECT DISTINCT unnest(CAST(:sense_ids AS bigint[])) AS sense_id
+            )
+            SELECT uss.sense_id, uss.mastery
+            FROM scoped
+            JOIN user_sense_stats uss
+              ON uss.user_id = :user_id AND uss.sense_id = scoped.sense_id
+            WHERE uss.status = 'scheduled'
+            ORDER BY uss.mastery ASC, uss.sense_id ASC
+            LIMIT :limit
+        """
+        params = {"user_id": str(user_id), "limit": limit, "sense_ids": sense_ids}
+    rows = await session.execute(text(statement), params)
     return [WeakSense(sense_id=r.sense_id, mastery=r.mastery) for r in rows]
 
 
@@ -196,11 +165,12 @@ async def cefr_distribution(client: LexiReader, sense_ids: list[int]) -> dict[st
 async def deck_item_counts(session: AsyncSession, node_ids: list[UUID]) -> dict[UUID, int]:
     """Sense counts for the given decks in ONE grouped aggregate.
 
-    Deliberately not the cached per-node defset path: that does two generation
-    SELECTs, a Redis GET, and on a miss two recursive CTEs plus a membership SELECT,
-    all bound to a single root. Looping it over a 50-row page is ~250 round trips.
-    Folder aggregates and due counts are therefore not served on the list response
-    at all — they belong on the opened node, where the defset cache applies.
+    Deliberately not the cached subtree path: that resolves the whole authorized deck
+    set under a root — a recursive walk, a readability check and a Redis read per
+    deck — all bound to a single root. Looping it over a 50-row page is ~250 round
+    trips. Folder aggregates and due counts are therefore not served on the list
+    response at all; they belong on the opened node, where the membership cache
+    applies.
 
     Moved out of the router: it is a grouped aggregate over `deck_senses`, which is
     data access, and routers here are meant to be thin.

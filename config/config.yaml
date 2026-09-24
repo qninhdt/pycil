@@ -1,0 +1,140 @@
+# =============================================================================
+# Pycil product policy — the tunable values an operator or product owner changes.
+#
+# This file is committed and holds no secrets. Credentials and deployment
+# addresses (database, Redis, Clerk, the LLM gateway, S3) live in the process
+# environment instead; see .env.example.
+#
+# Sections must stay in this order: app, learning, content, assistant, models.
+# The models table is last because it is the long reference section.
+#
+# Every value here is validated strictly at startup. An unknown key, a duplicate
+# model id, a default model that is absent or disabled, a default reasoning
+# effort its model does not support, a negative tariff and a non-positive
+# duration all refuse to start the process rather than falling back to a
+# default.
+# =============================================================================
+
+# --- 1. General & account policy ----------------------------------------------
+app:
+  credit_usd_value: 0.001          # 1 Credit = $0.001 USD (1,000 Credits = $1.00)
+  plans:
+    free:
+      monthly_credits: 1000        # 1,000 credits/month ($1.00 allowance)
+    pro:
+      monthly_credits: 10000       # 10,000 credits/month ($10.00 allowance)
+
+# --- 2. Learning & spaced repetition ------------------------------------------
+learning:
+  max_words_per_session: 30        # Default words admitted per session
+  max_questions_per_round: 15      # Default questions before the round ends
+  session_ttl_seconds: 86400       # 24h Redis session lifetime
+  rubric_grading_credits: 1.0      # One rubric evaluation, independent of depth
+
+# --- 3. Dictionary & content engine (Lexi) ------------------------------------
+content:
+  singleflight_timeout_seconds: 30 # Concurrency lock timeout for word generation
+
+# --- 4. Assistant agent -------------------------------------------------------
+assistant:
+  turn_timeout_seconds: 60         # Max time for one assistant turn
+  max_tool_calls_per_turn: 10      # Bounds tool-call loops
+  default_model: "gemini-3.8-flash"
+  default_reasoning_effort: "none" # none | low | medium | high
+
+# --- 5. Models & pricing catalog (reference table, last by design) ------------
+#
+# `enabled: false` keeps a considered model on record without making it
+# selectable. `supported_efforts` lists the reasoning levels that specific model
+# accepts; `none` is always required and means "send no reasoning parameter at
+# all".
+#
+# TODO(deferred): token tariffs are UNVERIFIED placeholders. The gateway in use
+# is a temporary stopgap; production will call OpenAI/OpenRouter/Anthropic/Google
+# directly. Before enabling any model beyond the current default, re-derive the
+# effective rate against the real provider — the stopgap advertises one rate and
+# charges another, and applies a per-request minimum that the settlement formula
+# in the credit ledger does not yet account for. See
+# plans/reports/gateway-billing-evidence-260924-1030-vilao-gateway.md for the
+# measurements and the resume checklist.
+#
+# Only the default is enabled. The other entries are kept as disabled records of
+# models that were considered; several are known not to be subscribed on the
+# current gateway, and one (claude-opus-5) silently answers as a different
+# provider's model, so none may be enabled without re-verification.
+models:
+  - id: "gemini-3.8-flash"
+    name: "Gemini 3.8 Flash"
+    provider: "google"
+    enabled: true
+    pricing:
+      input_usd_per_m: 0.30
+      output_usd_per_m: 2.50
+      cached_read_usd_per_m: 0.075
+    features:
+      vision: true
+      reasoning: true
+    supported_efforts: ["none", "low", "medium", "high"]
+    context_window: 1000000
+    max_output_tokens: 8192
+
+  - id: "gemini-2.5-flash"
+    name: "Gemini 2.5 Flash"
+    provider: "google"
+    enabled: false
+    pricing:
+      input_usd_per_m: 0.15
+      output_usd_per_m: 0.60
+      cached_read_usd_per_m: 0.0375
+    features:
+      vision: true
+      reasoning: true
+    supported_efforts: ["none", "low", "medium", "high"]
+    context_window: 1000000
+    max_output_tokens: 8192
+
+  - id: "gpt-4o-mini"
+    name: "GPT-4o Mini"
+    provider: "openai"
+    enabled: false
+    pricing:
+      input_usd_per_m: 0.15
+      output_usd_per_m: 0.60
+      cached_read_usd_per_m: 0.075
+    features:
+      vision: true
+      reasoning: false
+    supported_efforts: ["none"]
+    context_window: 128000
+    max_output_tokens: 4096
+
+  - id: "deepseek-reasoner"
+    name: "DeepSeek R1"
+    provider: "deepseek"
+    enabled: false
+    pricing:
+      input_usd_per_m: 0.55
+      output_usd_per_m: 2.19
+      cached_read_usd_per_m: 0.14
+    features:
+      vision: false
+      reasoning: true
+    supported_efforts: ["none", "low", "medium", "high"]
+    context_window: 64000
+    max_output_tokens: 8192
+
+  - id: "claude-3-7-sonnet"
+    name: "Claude 3.7 Sonnet"
+    provider: "anthropic"
+    enabled: false
+    pricing:
+      input_usd_per_m: 3.00
+      output_usd_per_m: 15.00
+      cached_read_usd_per_m: 0.30
+    features:
+      vision: true
+      reasoning: true
+    supported_efforts: ["none", "low", "medium", "high"]
+    context_window: 200000
+    max_output_tokens: 16384
+

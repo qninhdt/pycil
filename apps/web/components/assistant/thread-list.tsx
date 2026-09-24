@@ -113,6 +113,7 @@ export function ThreadList({
             <li key={thread.id} className="flex items-center gap-1">
               <button
                 type="button"
+                data-thread-id={thread.id}
                 onClick={() => onOpen(thread.id)}
                 aria-current={thread.id === activeThreadId ? "true" : undefined}
                 className={cn(

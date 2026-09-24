@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useRef } from "react"
+import { useClerk } from "@clerk/nextjs"
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -27,14 +27,12 @@ function initial(viewer: ViewerSummary): string {
  * Avatar menu: settings and sign-out, and nothing else. Destinations belong in
  * the rail and the tab bar, so putting one here would make four.
  *
- * Sign-out is a real form POST to the BFF route, which is the only thing that
- * can clear an `HttpOnly` cookie and redirect in one response. It is submitted
- * imperatively rather than by a nested submit button: the menu closes on click
- * and would unmount the form, so relying on the native submit default would
- * make sign-out a race.
+ * Sign-out is Clerk's, because Clerk is the only issuer of the session. Calling a
+ * Pycil endpoint would not end the session the API actually validates, so the
+ * learner would appear signed out here while their bearer token still worked.
  */
 export function UserMenu({ viewer }: { viewer: ViewerSummary }) {
-  const signOutForm = useRef<HTMLFormElement>(null)
+  const clerk = useClerk()
 
   return (
     <>
@@ -68,7 +66,11 @@ export function UserMenu({ viewer }: { viewer: ViewerSummary }) {
           <DropdownMenuSeparator />
 
           <DropdownMenuGroup>
-            <DropdownMenuItem onClick={() => signOutForm.current?.requestSubmit()}>
+            <DropdownMenuItem
+              onClick={() => {
+                void clerk.signOut({ redirectUrl: "/login" })
+              }}
+            >
               <SignOutIcon />
               Sign out
             </DropdownMenuItem>
@@ -76,8 +78,6 @@ export function UserMenu({ viewer }: { viewer: ViewerSummary }) {
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {/* Outside the menu content, which is portalled and unmounts on close. */}
-      <form ref={signOutForm} action="/api/auth/logout" method="post" hidden />
     </>
   )
 }

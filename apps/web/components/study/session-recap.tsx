@@ -29,7 +29,6 @@ export function SessionRecap({
   const correct = session.answersCorrect ?? 0
   const completed = session.sensesCompleted ?? 0
   const admitted = session.sensesAdmitted ?? 0
-  const exhausted = session.sensesExhausted ?? 0
   const rounds = session.roundsUsed ?? 0
 
   return (
@@ -46,15 +45,6 @@ export function SessionRecap({
       <dl className="grid w-full grid-cols-2 gap-4">
         <Figure label="Answered" value={answered} />
         <Figure label="Correct" value={correct} />
-        {/* Only shown when it happened. A zero here would invite the learner to
-            wonder what they did wrong on a clean session. */}
-        {exhausted > 0 ? (
-          <Figure
-            label="Out of retries"
-            value={exhausted}
-            hint="These come back in a later session."
-          />
-        ) : null}
       </dl>
 
       <div className="flex flex-wrap items-center justify-center gap-3">

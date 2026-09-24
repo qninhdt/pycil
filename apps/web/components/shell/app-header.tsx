@@ -94,7 +94,7 @@ export function AppHeader({
         ) : (
           <>
             <ThemeToggle />
-            <Button render={<a href="/api/auth/login" />} size="sm">
+            <Button render={<a href="/login" />} size="sm">
               Sign in
             </Button>
           </>

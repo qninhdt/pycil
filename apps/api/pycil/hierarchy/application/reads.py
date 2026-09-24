@@ -13,13 +13,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from pycil.common.errors import ConflictError
 from pycil.hierarchy.application import stats
-from pycil.hierarchy.application.ancestry import ancestor_chain
+from pycil.hierarchy.application.access import readability_rows
 from pycil.hierarchy.domain.schemas import (
     HistoryBucketRead,
     NodeAncestorRead,
     WeakSenseRead,
 )
-from pycil.hierarchy.infra.models import Node, NodeType, Visibility
+from pycil.hierarchy.infra.models import Node
 from pycil.policy.history import DailyHistoryBucket
 from pycil.policy.sense_state import UserSenseStats
 from pycil.ports.lexi import LexiReader
@@ -35,59 +35,35 @@ TRACKED_SENSE_CEILING = 20_000
 async def readable_path(
     session: AsyncSession, node: Node, viewer_id: UUID | None
 ) -> list[NodeAncestorRead]:
-    """Root-first breadcrumb, truncated at the first ancestor the caller cannot read.
+    """Return a root-first readable suffix, stopping at the first hidden hop.
 
-    The whole chain is fetched once and readability is then decided in Python over
-    those rows, so this costs the walk plus one SELECT rather than re-walking per
-    ancestor. The rule is the same one `can_read_node` applies: the viewer owns it,
-    it is public, or a same-owner public FOLDER sits above it.
-
-    Truncation, not omission: an unreadable ancestor removes itself AND everything
-    above it, so a private folder's name never reaches a caller who cannot open it.
-    The node itself is always present, because `require_node_access` already
-    authorized it and the `IN` fetch is unfiltered, so its row is always in `by_id`.
-    Everything below depends on that — the `chain[start:]` slice, the
-    `_readable(start - 1)` walk, and the "last hop needs no check" argument all
-    assume `chain` ends at `node`. `ancestor_chain` upholds it even on a cyclic
-    tree, because the walk starts AT the node and stops on a repeat, so the node is
-    always the first element appended and therefore the last after the reverse.
-    `test_breadcrumb_still_names_the_node_on_a_cyclic_tree` pins it.
+    ``readability_rows`` performs the policy calculation for every hop in one
+    recursive query. This function only materialises names and types after the
+    query has supplied ids, verdicts, and depths.
     """
-    chain_ids = await ancestor_chain(session, node.id)
-    if len(chain_ids) <= 1:
-        return [NodeAncestorRead(id=node.id, name=node.name, type=node.type)]
-    rows = await session.execute(select(Node).where(Node.id.in_(chain_ids)))
+    if node.id is None:
+        return []
+    verdicts = [row for row in await readability_rows(session, [node.id], viewer_id)]
+    verdicts.sort(key=lambda row: row.depth, reverse=True)
+    if not verdicts:
+        return []
+
+    rows = await session.execute(select(Node).where(Node.id.in_([row.node_id for row in verdicts])))
     by_id = {row.id: row for row in rows.scalars()}
-    chain = [by_id[node_id] for node_id in chain_ids if node_id in by_id]
-
-    # Forward pass: inherited-public requires an UNBROKEN same-author run from a
-    # public FOLDER down to the hop, which is what can_read_node's walk enforces by
-    # bailing out the moment the author changes.
-    inherited = [False] * len(chain)
-    public_folder_above = False
-    for index, hop in enumerate(chain):
-        if index > 0:
-            if hop.author_id != chain[index - 1].author_id:
-                public_folder_above = False
-            inherited[index] = public_folder_above
-        if hop.type == NodeType.FOLDER and hop.visibility == Visibility.PUBLIC:
-            public_folder_above = True
-
-    def _readable(index: int) -> bool:
-        hop = chain[index]
-        return (
-            (viewer_id is not None and hop.author_id == viewer_id)
-            or hop.visibility == Visibility.PUBLIC
-            or inherited[index]
-        )
-
-    # Keep the longest readable suffix. The last hop is the node itself, already
-    # authorized by require_node_access, so the loop always terminates with it in.
-    start = len(chain) - 1
-    while start > 0 and _readable(start - 1):
-        start -= 1
+    # Walk root-first and remember the LAST unreadable hop, then keep only what
+    # sits below it. Keying off the FIRST unreadable hop leaks every private
+    # ancestor stacked between it and the readable suffix — two private folders
+    # above a published one would expose the middle one's name. Readability is a
+    # contiguous suffix for a node the caller can open, so slicing after the last
+    # hidden hop yields exactly the visible trail without dropping a readable one.
+    first_visible = 0
+    for index, verdict in enumerate(verdicts):
+        if not verdict.readable:
+            first_visible = index + 1
     return [
-        NodeAncestorRead(id=hop.id, name=hop.name, type=hop.type) for hop in chain[start:]
+        NodeAncestorRead(id=hop.id, name=hop.name, type=hop.type)
+        for verdict in verdicts[first_visible:]
+        if (hop := by_id.get(verdict.node_id)) is not None
     ]
 
 
@@ -181,7 +157,7 @@ async def tracked_sense_ids(session: AsyncSession, user_id: UUID) -> list[int]:
         .order_by(UserSenseStats.sense_id)
         .limit(TRACKED_SENSE_CEILING)
     )
-    return [int(sense_id) for sense_id in rows.scalars()]
+    return list(rows.scalars())
 
 
 async def owned_children_page(

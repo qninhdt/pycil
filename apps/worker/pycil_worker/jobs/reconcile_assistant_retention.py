@@ -1,56 +1,40 @@
-"""Purge expired private assistant data while retaining policy-required audits."""
+"""Purge expired assistant threads using the public checkpointer API."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from psycopg import AsyncConnection
-from pycil.assistant.infra.models import AssistantActionAudit, AssistantThread
+from pycil.assistant.infra.models import AssistantThread
 from pycil.config import settings
-from sqlalchemy import delete, select
+from sqlalchemy import select
 
 from pycil_worker.context import ReadyWorkerContext
 
-# LangGraph owns these and keys them by a `thread_id` string, not a foreign key, so
-# no database cascade reaches them. Written out as literals rather than interpolated
-# from a table list: the values were always parameterized, but a scanner cannot tell
-# that from an f-string, and psycopg's own typing wants a LiteralString here.
-_CHECKPOINT_DELETES = (
-    "DELETE FROM checkpoint_writes WHERE thread_id = %s",
-    "DELETE FROM checkpoint_blobs WHERE thread_id = %s",
-    "DELETE FROM checkpoints WHERE thread_id = %s",
-)
-
 
 async def reconcile_assistant_retention(ctx: ReadyWorkerContext) -> int:
-    """Delete inactive conversations/runs/events/actions and age out audits after 90 days.
+    """Delete threads whose retained history has expired.
 
-    Runs, their events and their actions cascade from the thread (migration 0024), so
-    only the root is deleted here. `assistant_action_audit.action_id` is SET NULL
-    rather than CASCADE, which is what preserves the audit trail — that used to be a
-    hand-written UPDATE, and it was the only thing standing between a policy-required
-    record and deletion.
+    The deadline alone decides. A conversation still in use has a fresh deadline
+    because the API refreshes it whenever the thread is opened, so a thread
+    cannot expire while a learner is reading it. There is no separate "active
+    turn" column to consult: an in-flight turn is bounded by the Redis lease,
+    which outlives the turn but not the retention window.
     """
     async with ctx["session_factory"]() as session:
         threads = list(
             await session.scalars(
-                select(AssistantThread).where(
-                    AssistantThread.retention_deadline <= datetime.now(UTC)
-                )
+                select(AssistantThread)
+                .where(AssistantThread.retention_deadline <= datetime.now(UTC))
+                .with_for_update(skip_locked=True)
             )
         )
-        checkpoint_thread_ids = [f"assistant:{thread.owner_id}:{thread.id}" for thread in threads]
-        if checkpoint_thread_ids:
+        if threads:
             async with await AsyncConnection.connect(
                 settings.assistant_psycopg_url, autocommit=True
-            ) as conn:
-                async with conn.cursor() as cursor:
-                    for checkpoint_thread_id in checkpoint_thread_ids:
-                        for statement in _CHECKPOINT_DELETES:
-                            await cursor.execute(statement, (checkpoint_thread_id,))
-        for thread in threads:
-            await session.delete(thread)
-        audit_deadline = datetime.now(UTC) - timedelta(days=settings.assistant_audit_retention_days)
-        await session.execute(
-            delete(AssistantActionAudit).where(AssistantActionAudit.occurred_at < audit_deadline)
-        )
+            ) as connection:
+                checkpointer = AsyncPostgresSaver(connection)
+                for thread in threads:
+                    await checkpointer.adelete_thread(f"assistant:{thread.owner_id}:{thread.id}")
+                    await session.delete(thread)
         await session.commit()
     return len(threads)

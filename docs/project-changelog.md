@@ -771,8 +771,7 @@ Backups (off-VPS daily `pg_dump`), Sentry / monitoring, Write + Fill question ty
 
 ## See Also
 
-- `docs/project-roadmap.md` — phase status and v0.2 priorities.
-- `docs/project-overview-pdr.md` — locked source design.
-- `docs/system-architecture.md` — runtime topology and flow diagrams.
-- `docs/codebase-summary.md` — file-level map.
-- `plans/260525-0124-pycil-mvp-implementation/plan.md` — sprint plan with red-team review notes.
+- `pycil-redesign/` — current product and architecture authority.
+- `docs/system-architecture.md` — current runtime topology.
+- `docs/codebase-summary.md` — current bounded codebase map.
+- `docs/disaster-recovery-runbook.md` — current backup and restore procedure.

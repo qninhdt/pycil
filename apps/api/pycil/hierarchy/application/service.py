@@ -7,9 +7,9 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pycil.common.errors import ConflictError, NotFoundError
-from pycil.hierarchy.application import cache
+from pycil.hierarchy.application.access import MAX_HIERARCHY_DEPTH, readable_node_ids
 from pycil.hierarchy.application.ancestry import ancestor_chain
-from pycil.hierarchy.infra.models import DeckAttributes, Node, NodeType, Visibility
+from pycil.hierarchy.infra.models import Node, NodeType, Visibility
 
 
 async def create_node(
@@ -45,13 +45,11 @@ async def create_node(
     )
     session.add(node)
     await session.flush()
-    if node_type == NodeType.DECK:
-        session.add(DeckAttributes(node_id=node.id))
 
-    prior = await cache.bump_generations(session, [node.id, parent_node_id])
     await session.commit()
     await session.refresh(node)
-    await cache.delete_prior_defsets_quietly(prior)
+    # Only this node and its direct parent changed shape. No ancestor walk and no
+    # inbound-reference scan: nothing above or beside them depends on this edge.
     return node
 
 
@@ -66,36 +64,22 @@ async def move_node(
     if new_parent_id == current.id or await _is_descendant(session, new_parent_id, current.id):
         raise ConflictError("node_move_would_create_cycle")
 
-    old_parent = current.parent_node_id
     current.parent_node_id = new_parent_id
-    affected = await _descendant_ids(session, current.id)
-    affected.update([old_parent, new_parent_id])
-    prior = await cache.bump_generations(session, affected)
-    if commit:
-        await session.commit()
-        await session.refresh(current)
-        await cache.delete_prior_defsets_quietly(prior)
-    else:
-        await session.flush()
-        cache.defer_invalidation(session, prior)
+    await _validate_subtree_depth(session, current.id, new_parent_id)
+    await _finish(session, commit)
+    await session.refresh(current)
     return current
 
 
-async def soft_delete_node(session: AsyncSession, node: Node, *, commit: bool = True) -> None:
+async def soft_delete_node(
+    session: AsyncSession, node: Node, *, commit: bool = True
+) -> None:
     await _lock_nodes(session, [node.id, node.parent_node_id])
     current = await session.get(Node, node.id, with_for_update=True)
     if current is None or current.deleted_at is not None:
         raise NotFoundError("node_not_found")
     current.deleted_at = datetime.now(UTC)
-    affected = await _descendant_ids(session, current.id)
-    affected.add(current.parent_node_id)
-    prior = await cache.bump_generations(session, affected)
-    if commit:
-        await session.commit()
-        await cache.delete_prior_defsets_quietly(prior)
-    else:
-        await session.flush()
-        cache.defer_invalidation(session, prior)
+    await _finish(session, commit)
 
 
 async def set_visibility(
@@ -106,7 +90,7 @@ async def set_visibility(
     confirm_subtree_publication: bool = False,
     commit: bool = True,
 ) -> Node:
-    """Change direct visibility and invalidate all dependent live-reference sets."""
+    """Change a node's direct visibility."""
     await _lock_nodes(session, [node.id, node.parent_node_id])
     current = await session.get(Node, node.id, with_for_update=True)
     if current is None or current.deleted_at is not None:
@@ -115,17 +99,23 @@ async def set_visibility(
         if not confirm_subtree_publication:
             raise ConflictError("folder_publication_requires_confirmation")
     current.visibility = visibility
-    affected = await _descendant_ids(session, current.id)
-    affected.add(current.parent_node_id)
-    prior = await cache.bump_generations(session, affected)
+    await _finish(session, commit)
+    await session.refresh(current)
+    return current
+
+
+async def _finish(session: AsyncSession, commit: bool) -> None:
+    """End one mutation: commit when the caller owns the transaction, else flush.
+
+    The assistant's approved writes open their own session and commit once at the
+    end, so a mutation it calls must be able to leave the transaction open. Every
+    other caller owns its request's transaction and wants the commit. Same contract
+    the content service already offers, rather than a second convention.
+    """
     if commit:
         await session.commit()
-        await session.refresh(current)
-        await cache.delete_prior_defsets_quietly(prior)
     else:
         await session.flush()
-        cache.defer_invalidation(session, prior)
-    return current
 
 
 async def update_node(
@@ -135,7 +125,7 @@ async def update_node(
     name: str | None,
     description: str | None,
 ) -> Node:
-    """Persist editable node metadata without changing tree/cache structure."""
+    """Persist editable node metadata. Name and description are not tree structure."""
     current = await session.get(Node, node.id, with_for_update=True)
     if current is None or current.deleted_at is not None:
         raise NotFoundError("node_not_found")
@@ -158,19 +148,62 @@ async def _validate_parent(
         raise NotFoundError("parent_node_not_found")
     if parent.author_id != author_id or parent.type != NodeType.FOLDER:
         raise ConflictError("parent_must_be_owned_folder")
+    if len(await ancestor_chain(session, parent.id)) >= MAX_HIERARCHY_DEPTH:
+        raise ConflictError("node_depth_exceeded")
+
+
+async def _validate_subtree_depth(
+    session: AsyncSession, root_id: UUID, new_parent_id: UUID | None
+) -> None:
+    """Reject moves that place any descendant beyond the hierarchy depth cap."""
+    if new_parent_id is None:
+        return
+    parent_depth = len(await ancestor_chain(session, new_parent_id))
+    result = await session.execute(
+        text(
+            """
+            WITH RECURSIVE descendants AS (
+                SELECT id, 0 AS depth, ARRAY[id]::uuid[] AS path
+                FROM nodes
+                WHERE id = :root_id
+                UNION ALL
+                SELECT child.id, descendants.depth + 1, descendants.path || child.id
+                FROM descendants
+                JOIN nodes child ON child.parent_node_id = descendants.id
+                WHERE descendants.depth < :max_depth
+                  AND child.id <> ALL(descendants.path)
+            )
+            SELECT COALESCE(MAX(depth), 0) FROM descendants
+            """
+        ),
+        {"root_id": str(root_id), "max_depth": MAX_HIERARCHY_DEPTH},
+    )
+    subtree_height = int(result.scalar_one())
+    if parent_depth + subtree_height > MAX_HIERARCHY_DEPTH:
+        raise ConflictError("node_depth_exceeded")
 
 
 async def _validate_reference_target(
     session: AsyncSession, actor_id: UUID, target_node_id: UUID | None
 ) -> None:
+    """Refuse a reference the caller could not read for themselves.
+
+    The rule is exactly "whatever you can read, you may point at" — the same
+    readability query every read route uses, rather than a second, narrower check.
+    A narrower one is how a deck inherited-public through its owner's published folder
+    becomes readable but unreferenceable: the two rules disagree, and the caller gets a
+    404 for content they are looking at.
+    """
     if target_node_id is None:
         raise ConflictError("reference_requires_target")
-    target = await session.scalar(select(Node).where(Node.id == target_node_id).with_for_update())
+    target = await session.scalar(select(Node).where(Node.id == target_node_id))
     if target is None or target.deleted_at is not None:
         raise NotFoundError("reference_target_not_found")
-    if target.type != NodeType.DECK:
-        raise ConflictError("reference_must_target_deck")
-    if target.author_id != actor_id and target.visibility != Visibility.PUBLIC:
+    if target.type not in (NodeType.DECK, NodeType.FOLDER):
+        # A reference to another reference would be an indirection the resolver
+        # cannot bound, and a reference to itself is meaningless.
+        raise ConflictError("reference_must_target_deck_or_folder")
+    if target_node_id not in await readable_node_ids(session, [target_node_id], actor_id):
         raise NotFoundError("reference_target_not_found")
 
 
@@ -185,17 +218,6 @@ async def _is_descendant(
     if candidate_id is None:
         return False
     return ancestor_id in await ancestor_chain(session, candidate_id)
-
-
-async def _descendant_ids(session: AsyncSession, root_id: UUID) -> set[UUID | None]:
-    descendants: set[UUID | None] = {root_id}
-    frontier = {root_id}
-    while frontier:
-        rows = await session.execute(select(Node.id).where(Node.parent_node_id.in_(frontier)))
-        children = set(rows.scalars()) - descendants
-        descendants.update(children)
-        frontier = children
-    return descendants
 
 
 def _advisory_key(node_id: UUID) -> int:
@@ -221,4 +243,3 @@ async def _lock_nodes(session: AsyncSession, node_ids: list[UUID | None]) -> Non
             text("SELECT pg_advisory_xact_lock(:node_key)"),
             {"node_key": _advisory_key(node_id)},
         )
-

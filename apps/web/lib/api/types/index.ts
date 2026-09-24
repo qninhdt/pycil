@@ -23,10 +23,7 @@
 
 export type {
   AccountExport,
-  AuthTokens,
   Capabilities,
-  LoginStart,
-  RealtimeToken,
   Viewer,
 } from "./auth"
 
@@ -97,13 +94,13 @@ export type {
 } from "./analytics"
 
 export type {
+  AccountCredit,
   ActionDecision,
   MessageCreate,
-  RunEvent,
-  RunEventPayloads,
-  RunEventType,
-  RunRecovery,
-  RunStatus,
+  ModelCatalog,
+  ModelPricing,
+  ModelRead,
+  ResumePayload,
   Thread,
   ThreadCreate,
 } from "./assistant"

@@ -1,20 +1,14 @@
-"""Node ownership/visibility guard — the single IDOR gate for node access.
-
-Every node/deck route resolves access through ``require_node_access``, and the
-assistant tool facades delegate to it too, so a caller can never touch a node
-they don't own (write) or can't see (read). Read allows owner-or-public; write
-is owner-only. A missing node is a 404, not a 403, so the guard doesn't leak
-existence of private nodes to non-owners.
-"""
+"""Set-based node readability and the hierarchy's IDOR gate."""
 
 from dataclasses import dataclass
 from uuid import UUID
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pycil.auth.schemas import CurrentUser
 from pycil.common.errors import ForbiddenError, NotFoundError
-from pycil.hierarchy.infra.models import Node, NodeType, Visibility
+from pycil.hierarchy.infra.models import Node, NodeType
 
 
 @dataclass(frozen=True)
@@ -24,6 +18,140 @@ class ActorRef:
     id: UUID
 
 
+@dataclass(frozen=True)
+class ReadabilityRow:
+    """One hop in a candidate's ancestor chain."""
+
+    candidate_id: UUID
+    node_id: UUID
+    depth: int
+    node_type: NodeType
+    readable: bool
+
+
+# The recursive query also terminates on a repeated id. The cap bounds a malformed
+# acyclic chain, while valid writes are checked against the same limit.
+MAX_HIERARCHY_DEPTH = 64
+
+
+_READABILITY_SQL = text(
+    """
+    WITH RECURSIVE ancestry AS (
+        SELECT n.id AS candidate_id,
+               n.id AS node_id,
+               n.parent_node_id,
+               n.author_id,
+               n.type,
+               n.visibility,
+               n.deleted_at,
+               0 AS depth,
+               ARRAY[n.id]::uuid[] AS path
+        FROM nodes n
+        WHERE n.id = ANY(CAST(:candidate_ids AS uuid[]))
+
+        UNION ALL
+
+        SELECT ancestry.candidate_id,
+               parent.id,
+               parent.parent_node_id,
+               parent.author_id,
+               parent.type,
+               parent.visibility,
+               parent.deleted_at,
+               ancestry.depth + 1,
+               ancestry.path || parent.id
+        FROM ancestry
+        JOIN nodes parent ON parent.id = ancestry.parent_node_id
+        WHERE ancestry.depth < :max_depth
+          AND parent.id <> ALL(ancestry.path)
+    ),
+    hop_verdicts AS (
+        SELECT hop.candidate_id,
+               hop.node_id,
+               hop.depth,
+               hop.type AS node_type,
+               bool_and(ancestor.deleted_at IS NULL) AS live_chain,
+               bool_and(ancestor.author_id = hop.author_id) AS same_owner_chain,
+               bool_or(
+                   ancestor.type = 'FOLDER' AND ancestor.visibility = 'PUBLIC'
+               ) AS public_ancestor,
+               hop.author_id::text AS node_author,
+               hop.visibility = 'PUBLIC' AS node_public
+        FROM ancestry hop
+        JOIN ancestry ancestor
+          ON ancestor.candidate_id = hop.candidate_id
+         AND ancestor.depth >= hop.depth
+        GROUP BY hop.candidate_id,
+                 hop.node_id,
+                 hop.depth,
+                 hop.type,
+                 hop.author_id,
+                 hop.visibility
+    )
+    SELECT candidate_id,
+           node_id,
+           depth,
+           node_type,
+           live_chain AND (
+               node_author = CAST(:viewer_id AS text)
+               OR node_public
+               OR (same_owner_chain AND public_ancestor)
+           ) AS readable
+    FROM hop_verdicts
+    ORDER BY candidate_id, depth
+    """
+)
+
+
+async def readability_rows(
+    session: AsyncSession,
+    candidate_ids: set[UUID] | list[UUID] | tuple[UUID, ...],
+    viewer_id: UUID | None,
+) -> list[ReadabilityRow]:
+    """Return one readable verdict for every candidate and every ancestor hop.
+
+    The candidate id identifies the original request, ``depth`` is zero for that
+    node and increases towards the root. The same query therefore serves single
+    node authorization, batch deck authorization, and breadcrumb resolution.
+    Missing candidates produce no rows; callers deliberately collapse that with a
+    false verdict so private and missing nodes remain indistinguishable.
+    """
+    ids = list(dict.fromkeys(candidate_ids))
+    if not ids:
+        return []
+    result = await session.execute(
+        _READABILITY_SQL,
+        {
+            "candidate_ids": [str(node_id) for node_id in ids],
+            "viewer_id": str(viewer_id) if viewer_id is not None else None,
+            "max_depth": MAX_HIERARCHY_DEPTH,
+        },
+    )
+    return [
+        ReadabilityRow(
+            candidate_id=row["candidate_id"],
+            node_id=row["node_id"],
+            depth=int(row["depth"]),
+            node_type=NodeType(row["node_type"]),
+            readable=bool(row["readable"]),
+        )
+        for row in result.mappings()
+    ]
+
+
+async def readable_node_ids(
+    session: AsyncSession,
+    candidate_ids: set[UUID] | list[UUID] | tuple[UUID, ...],
+    viewer_id: UUID | None,
+) -> set[UUID]:
+    """Return readable candidates from the shared set-based query."""
+    return {
+        row.candidate_id
+        for row in await readability_rows(session, candidate_ids, viewer_id)
+        if row.depth == 0 and row.readable
+    }
+
+
 async def require_node_access(
     session: AsyncSession,
     node_id: UUID,
@@ -31,58 +159,26 @@ async def require_node_access(
     *,
     write: bool = False,
 ) -> Node:
-    """Return the node if the user may access it, else raise.
+    """Return a node the actor may use, collapsing private and missing reads."""
+    if write:
+        node = await session.get(Node, node_id)
+        if node is None or node.deleted_at is not None:
+            raise NotFoundError("node_not_found")
+        if user is None or node.author_id != user.id:
+            raise ForbiddenError("not_node_owner", code="forbidden")
+        return node
 
-    - write=True → owner-only (403 for anyone else).
-    - write=False → owner, or anyone if the node is PUBLIC.
-    - soft-deleted or unknown node → 404.
-    """
+    viewer_id = user.id if user is not None else None
+    if node_id not in await readable_node_ids(session, [node_id], viewer_id):
+        raise NotFoundError("node_not_found")
     node = await session.get(Node, node_id)
     if node is None or node.deleted_at is not None:
-        raise NotFoundError("node_not_found")
-
-    is_owner = user is not None and node.author_id == user.id
-    if write:
-        if not is_owner:
-            raise ForbiddenError("not_node_owner", code="forbidden")
-    elif not await can_read_node(session, node, user.id if user is not None else None):
-        # Don't leak private-node existence to non-owners.
         raise NotFoundError("node_not_found")
     return node
 
 
 async def can_read_node(session: AsyncSession, node: Node, user_id: UUID | None) -> bool:
-    """Whether a node is directly or inherited-public readable by ``user_id``."""
-    if node.deleted_at is not None or not await _has_live_ancestry(session, node):
-        return False
-    if (user_id is not None and node.author_id == user_id) or node.visibility == Visibility.PUBLIC:
-        return True
-
-    # A public FOLDER grants inherited read access only through same-owner edges.
-    current = node
-    seen: set[UUID] = set()
-    while current.parent_node_id is not None and current.id not in seen:
-        if current.id is not None:
-            seen.add(current.id)
-        parent = await session.get(Node, current.parent_node_id)
-        if parent is None or parent.deleted_at is not None:
-            return False
-        if parent.author_id != node.author_id:
-            return False
-        if parent.type == NodeType.FOLDER and parent.visibility == Visibility.PUBLIC:
-            return True
-        current = parent
-    return False
-
-
-async def _has_live_ancestry(session: AsyncSession, node: Node) -> bool:
-    current = node
-    seen: set[UUID] = set()
-    while current.parent_node_id is not None and current.id not in seen:
-        if current.id is not None:
-            seen.add(current.id)
-        parent = await session.get(Node, current.parent_node_id)
-        if parent is None or parent.deleted_at is not None:
-            return False
-        current = parent
-    return True
+    """Whether ``user_id`` may read ``node`` through the shared query."""
+    return node.id is not None and node.id in await readable_node_ids(
+        session, [node.id], user_id
+    )

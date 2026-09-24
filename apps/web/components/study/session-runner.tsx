@@ -8,12 +8,12 @@ import { useSessionKeyboard } from "@/hooks/use-session-keyboard"
 import { useSessionRecap } from "@/hooks/use-session-recap"
 import { advanceSession, submitAnswer } from "@/lib/actions/study"
 import type { SessionState } from "@/lib/api/types"
-import { useTaskSnapshot } from "@/lib/realtime/use-task-snapshot"
-import { useActivityActions, useActivityStore, useUiStore } from "@/lib/stores/store-provider"
+import { useUiStore } from "@/lib/stores/store-provider"
 import { backoffDelay } from "@/lib/study/backoff"
-import { readPendingGrade } from "@/lib/study/grade-snapshot"
+import { useJobPoll } from "@/lib/jobs/use-job-poll"
 import {
   canSubmit,
+  failureKeepsQuestion,
   initialSessionState,
   sessionReducer,
   type Verdict,
@@ -23,7 +23,6 @@ import { ArrowRightIcon, XIcon } from "@/lib/icons"
 import { CalibrationNote } from "./calibration-note"
 import { ExitSessionDialog } from "./exit-session-dialog"
 import { ExposureCard } from "./exposure-card"
-import { PendingGradePanel } from "./pending-grade-panel"
 import { PreparingPanel, SettlingPanel, StalledPanel } from "./polling-panel"
 import { QuestionBody } from "./question-body"
 import { QuestionStage } from "./question-stage"
@@ -34,12 +33,12 @@ import { SessionStoppedPanel } from "./session-stopped-panel"
 import { VerdictPanel } from "./verdict-panel"
 
 /**
- * Supply-task statuses after which no further event will arrive.
+ * Supply-job statuses after which no further snapshot will change.
  *
- * Kept next to the subscription rather than in `task-snapshot.ts`: it is this
- * screen's policy about when to stop waiting, not a property of the snapshot.
+ * This screen's policy about when to stop polling, not a property of the snapshot,
+ * so it lives here rather than beside the job types.
  */
-const TERMINAL_SUPPLY = new Set(["succeeded", "failed", "expired"])
+const TERMINAL_SUPPLY = new Set(["success", "error"])
 
 /**
  * The study loop.
@@ -135,28 +134,27 @@ export function SessionRunner({
   //
   // Two mechanisms, and which one applies is decided by the server rather than here.
   //
-  // With a task id the screen *subscribes* and waits. That is the whole point of the
-  // change: `/next` mutates — it advances rounds, reserves deliveries and extends the
+  // With a task id the screen polls that job. That is the whole point of the change:
+  // `/next` mutates — it advances rounds, reserves deliveries and extends the
   // exclusion set — so asking it repeatedly while nothing has happened is the one
-  // failure mode worth removing. The subscribe proxy replays the latest snapshot, so
-  // a dropped socket settles on reconnect and a lost enqueue is recovered by the
-  // worker's reconciler.
+  // failure mode worth removing. Polling reads the canonical Postgres snapshot, so a
+  // dropped request just retries and a lost enqueue is recovered by the scheduler.
   //
   // Without one no task was started — the generation slot refused, or the cooldown
-  // has not elapsed — so there is nothing to listen to and the bounded backoff below
-  // is the only way forward. `settling` keeps the timer unconditionally: that flow is
-  // already event-driven through `pendingTaskId`, and the timer there only drains the
-  // budget so a grade that never lands reaches a stall instead of spinning.
+  // has not elapsed — so there is nothing to poll and the bounded backoff below is
+  // the only way forward. `settling` keeps the timer unconditionally: that flow is
+  // already driven by the job snapshot, and the timer there only drains the budget so
+  // a grade that never lands reaches a stall instead of spinning.
   const supplyTaskId = phase.kind === "preparing" ? phase.taskId : null
-  const supplySnapshot = useTaskSnapshot(supplyTaskId)
+  const supplySnapshot = useJobPoll(supplyTaskId)
 
   useEffect(() => {
     if (!supplyTaskId || !supplySnapshot) return
-    // Every terminal status advances, not just success. `expired` is a lease the
-    // worker never renewed and `failed` a warm-up that gave up: in both cases no
-    // further event is coming, so waiting on this subscription would hang the
-    // session. `/next` decides what happens next — it may have a question anyway,
-    // from another round's supply, or report `preparing` again with a fresh task.
+    // Every terminal status advances, not just success. An `error` snapshot is a
+    // warm-up that gave up: no further snapshot is coming, so continuing to poll
+    // would hang the session. `/next` decides what happens next — it may have a
+    // question anyway, from another round's supply, or report `preparing` again with
+    // a fresh task.
     if (TERMINAL_SUPPLY.has(supplySnapshot.status)) {
       dispatch({ type: "supply_settled" })
     }
@@ -190,8 +188,6 @@ export function SessionRunner({
   )
 
   // --- submission ---------------------------------------------------------------
-
-  const { register } = useActivityActions()
 
   // The near guard against a second submission of the same question, and the
   // counterpart to `advancing` above.
@@ -227,53 +223,31 @@ export function SessionRunner({
     const result = await submitAnswer(sessionId, id, answer)
 
     if (!result.success) {
-      // Released only for the one code that provably re-arms the server's bind.
-      //
-      // `answer_grading_quota_exceeded` calls `set_delivered` before raising,
-      // precisely so the learner still looking at the question can submit it again.
-      // Every other failure either moves the phase on — which is a new delivery, so
-      // nothing needs releasing — or leaves the question on screen with the delivery
-      // already consumed. Releasing there would reopen the very window this guard
-      // exists to close: the second submit fails the consume-once CAS, the reducer
-      // reads that as a desync and re-polls `/next`, and the question the learner
-      // was looking at disappears with an answer that may already have been graded.
-      if (result.code === "answer_grading_quota_exceeded") submitted.current = null
+      // Released exactly when the server released it, so the guard cannot outlive
+      // the condition it mirrors. `submit` releases the delivery claim on every
+      // failure and clears the binding only once an answer is recorded, so a
+      // failure that leaves the question on screen is one the learner may send
+      // again — and one that does not is a code the reducer moved past, where
+      // releasing would reopen the window this guard exists to close: the second
+      // submit fails the consume-once CAS, the reducer reads that as a desync and
+      // re-polls `/next`, and the question disappears with an answer that may
+      // already have been graded.
+      if (failureKeepsQuestion(result.code)) submitted.current = null
       dispatch({ type: "answer_failed", code: result.code })
       return
     }
 
-    // A pending grade is registered with the activity centre so it outlives this
-    // screen: the id is persisted there and re-subscribed on the next mount, which is
-    // what lets a reload still reach the verdict.
-    if (result.data.gradeStatus === "pending" && result.data.taskId) {
-      register({ taskId: result.data.taskId, kind: "grade", senseId: result.data.senseId })
-    }
-
     dispatch({ type: "answer_graded", grade: result.data })
-  }, [phase, sessionId, answer, register, deliveryKey])
+  }, [phase, sessionId, answer, deliveryKey])
 
-  // --- an asynchronous grade ----------------------------------------------------
+  // --- the settled verdict ------------------------------------------------------
   //
-  // Derived at render from the snapshot rather than copied into the reducer. The task
-  // id is persisted, so a reload re-subscribes and the replayed snapshot rebuilds this
-  // same verdict; a reducer copy would be lost by exactly that reload.
-  const pendingTaskId = phase.kind === "asking" ? phase.pendingTaskId : null
-  const snapshot = useTaskSnapshot(pendingTaskId)
-  const pendingGrade = pendingTaskId ? readPendingGrade(snapshot) : null
-
-  // `stale` means a re-subscribe was denied, which is the only case a reconnect
-  // affordance is honest about. A dropped socket is not staleness: the proxy replays
-  // the latest snapshot, so reconnecting settles the task on its own.
-  const staleGrade = useActivityStore((store) =>
-    pendingTaskId
-      ? (store.tasks.find((task) => task.taskId === pendingTaskId)?.stale ?? false)
-      : false,
-  )
-
+  // The grade is synchronous: `submitAnswer` returns the verdict and the reducer puts
+  // it on the asking phase, so this is a plain read with no pending-grade state. A
+  // reload re-reads the session and resumes at the next question rather than replaying
+  // a grade in flight.
   const settledVerdict: Verdict | null =
-    phase.kind === "asking"
-      ? (phase.verdict ?? (pendingGrade?.kind === "settled" ? pendingGrade.verdict : null))
-      : null
+    phase.kind === "asking" ? phase.verdict : null
 
   const onAdvance = useCallback(() => dispatch({ type: "advance" }), [])
   const onExit = useCallback(() => setExiting(true), [])
@@ -294,7 +268,6 @@ export function SessionRunner({
   // on all four, so they share one branch rather than each growing a special case.
   const advanceOnEnter =
     settledVerdict !== null ||
-    pendingGrade?.kind === "failed" ||
     phase.kind === "break" ||
     (phase.kind === "asking" && phase.question.renderFormat === "flashcard")
 
@@ -408,21 +381,20 @@ export function SessionRunner({
 
   // A grade that will not arrive still has to let the learner move on, so a failed
   // settlement counts as answered for the purpose of the continue control.
-  const gradeFailed = pendingGrade?.kind === "failed"
   const answered = settledVerdict !== null
-  const locked = phase.submitting || answered || pendingTaskId !== null
+  const locked = phase.submitting || answered
 
   return (
     <>
       <QuestionStage
         header={header}
         footer={
-          answered || gradeFailed ? (
+          answered ? (
             <Button onClick={onAdvance} size="lg">
               Continue
               <ArrowRightIcon data-icon="inline-end" />
             </Button>
-          ) : pendingTaskId ? null : (
+          ) : (
             <Button
               onClick={onSubmit}
               disabled={!canSubmit(phase) || answer.trim().length === 0}
@@ -449,14 +421,6 @@ export function SessionRunner({
 
         {phase.notice ? (
           <p className="text-sm text-muted-foreground">{phase.notice}</p>
-        ) : null}
-
-        {pendingTaskId && !answered ? (
-          <PendingGradePanel
-            stale={staleGrade}
-            failed={gradeFailed}
-            onReconnect={() => window.location.reload()}
-          />
         ) : null}
 
         {settledVerdict ? (

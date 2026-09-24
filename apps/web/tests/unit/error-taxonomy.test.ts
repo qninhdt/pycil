@@ -5,7 +5,7 @@ import {
   classifyErrorCode,
   isRetryable,
 } from "@/lib/api/error-taxonomy"
-import { API_ERROR_STATUS } from "@/lib/api/error-codes.generated"
+import { API_ERROR_STATUS } from "@/lib/api/error-codes"
 
 /**
  * The wire-code → behaviour map.
@@ -45,7 +45,6 @@ describe("classifyErrorCode", () => {
 
 describe("category helpers", () => {
   it("isRetryable is true only for the retryable category", () => {
-    expect(isRetryable("centrifugo_unavailable")).toBe(true)
     expect(isRetryable("service_unavailable")).toBe(true)
     expect(isRetryable("session_not_found")).toBe(false)
     expect(isRetryable("a_code_from_the_future")).toBe(false)
@@ -62,7 +61,7 @@ describe("category helpers", () => {
     // A conflict is not a session end: question_not_assessable is answerable-elsewhere,
     // not session-over.
     expect(classifyErrorCode("question_not_assessable").category).toBe("conflict")
-    expect(classifyErrorCode("word_generation_quota_exceeded").category).not.toBe(
+    expect(classifyErrorCode("credit_exhausted").category).not.toBe(
       "session_invalidated",
     )
   })
@@ -113,7 +112,6 @@ describe("messages", () => {
         expect(entry.message).not.toContain(code)
       }
       expect(entry.message.toLowerCase()).not.toContain("lexi")
-      expect(entry.message.toLowerCase()).not.toContain("centrifugo")
     }
   })
 })

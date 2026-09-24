@@ -32,8 +32,8 @@ email and a display name, anything regulated beyond ordinary data-protection dut
 |---|---|---|
 | A learner probing their own account | Authenticated, any request | Server-side authorization on every read and write |
 | A learner reaching for someone else's data | Authenticated, guesses identifiers | Ownership checks; identifiers are not secrets |
-| Someone with a stale credential | A rotated or revoked token | Token version re-read per request; refresh family revocation |
-| A cross-site attacker | Can make a browser issue requests | CSRF token plus exact origin check |
+| Someone with a stale credential | A revoked Clerk session | Clerk's own session validation; Pycil holds no second copy of session state |
+| A cross-site attacker | Can make a browser issue requests | Not applicable: a bearer header is attached explicitly by application code, so a cross-site request carries no credential |
 | **Poisoned content reaching the model** | Author-controlled strings in a tool result | Wrapping (§3) |
 | Someone who found a channel name | Can attempt a subscribe | Default-deny plus a backend authorization decision |
 | An automated abuser | Volume | Per-plan rate limits, shared work joining |
@@ -108,9 +108,9 @@ Server-side, on every request, from the row — never from a claim (`H5`).
 | Layer | Decision |
 |---|---|
 | Transport | The edge terminates TLS; nothing else publishes a port |
-| Authentication | One credential source, verified (`H2`) |
+| Authentication | One credential source — a Clerk bearer token — verified against JWKS with a pinned algorithm allow-list (`H2`, `H4`) |
 | Node authorization | **One** set-based readability query serving single-node, batch, and breadcrumb (`D3`) |
-| Delivery | Same-origin cookie auth for SSE and owner-scoped authorization for job reads |
+| Delivery | Bearer auth for SSE, and the receipt's own `owner_id` for job reads |
 | Assistant tools | Ownership re-checked **inside** the tool, independent of approval |
 
 One readability implementation rather than three is a security decision, not a
