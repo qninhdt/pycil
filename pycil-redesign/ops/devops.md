@@ -161,6 +161,7 @@ exists.
 | Assistant stream drops | Read the Thread state; resume only if the checkpoint says interrupted |
 | Assistant capacity exhausted | Inspect per-learner admission and API concurrency |
 | API healthy, jobs unavailable | Check the worker heartbeat age |
+| Anything else | `docker compose logs --since 30m <service>` on the deployment host — every service writes to its own stdout and Docker captures it. There is no shipper and no external log store, so a removed container takes its history with it, and a lost host takes all of it |
 | Migration fails | Keep old services, fix the new image or restore the verified snapshot |
 | Restore fails | Repair the rehearsed restore procedure before deployment |
 

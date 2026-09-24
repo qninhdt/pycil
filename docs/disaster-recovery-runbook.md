@@ -54,6 +54,33 @@ than to the last dump. **This runbook is still the operational route** and stays
 until a WAL-G restore has been rehearsed in isolation; a backup route is not
 replaced by a plan to replace it. See `pycil-redesign/ops/devops.md` §7.
 
+## Where to read logs
+
+Every service writes to its own stdout and Docker captures it, so `docker compose
+logs` on the deployment host is the log source. There is no log shipper and no
+external log service: nothing survives `docker compose down`, and a removed
+container takes its history with it.
+
+```sh
+docker compose logs --since 30m api        # one service, recent window
+docker compose logs --since 30m worker
+docker compose logs --since 30m -f caddy   # follow, for a live incident
+```
+
+The API's `uvicorn` access log and its application loggers both go to stdout. The
+worker configures `logging.basicConfig` in `main()` and logs `worker_started`,
+`job_failed` and `worker_heartbeat_failed` there. Caddy logs to stdout too.
+
+Two consequences worth knowing before an incident:
+
+- **No rotation is configured.** `docker-compose.yml` sets no `logging` driver or
+  `max-size`, so logs accumulate in Docker's default `json-file` store until the
+  disk fills. A long-lived deployment needs a `logging` block with `max-size` and
+  `max-file`, or a host-level rotation — neither is in place today.
+- **Nothing is shipped off the host.** A host that is lost takes its logs with it,
+  which is the case where they matter most. This runbook can recover the database;
+  it cannot recover a log.
+
 ## Recovery objective
 
 The coordinated backup timestamp is the practical RPO. RTO depends on the
