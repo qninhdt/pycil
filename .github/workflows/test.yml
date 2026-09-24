@@ -293,6 +293,18 @@ jobs:
           docker run --rm -e DOMAIN=app.example.test
           -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro"
           caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+      # These scripts run restores and deploys against real data, and a syntax error
+      # in one is found at the worst possible moment. `bash -n` parses without
+      # executing, so it costs nothing and catches the class of mistake that a
+      # careful reading does not.
+      - name: Validate shell scripts parse
+        run: |
+          for script in scripts/*.sh infra/postgres-walg/*.sh; do
+            bash -n "$script" || { echo "::error::$script does not parse"; exit 1; }
+          done
+          echo "all shell scripts parse"
+      - name: Validate the WAL-G rehearsal Compose file
+        run: docker compose -f docker-compose.walg-rehearsal.yml config -q
       # `caddy validate` only proves the file parses, and it passes happily while
       # the SSE routes are compressed and buffered — a turn then arrives as one
       # blob instead of incrementally, which is how this defect shipped once.
