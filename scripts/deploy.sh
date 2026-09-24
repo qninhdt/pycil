@@ -56,6 +56,78 @@ docker compose exec -T postgres pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" \
   > "$BACKUP_DIR/pre-deploy-${ts}.sql"
 ls -1t "$BACKUP_DIR"/pre-deploy-*.sql | tail -n +6 | xargs -r rm
 
+# --- 1b. Record what is running now, so a failed swap can be undone ----------
+# Read from the live containers rather than from the environment: the variables
+# this script was invoked with are the images being deployed, so they say nothing
+# about what is currently serving. `com.docker.compose.image` is the image ID the
+# running container was created from, which is what a rollback has to restore.
+running_image() {
+  local service="$1" id
+  id="$(docker compose ps -q "$service" 2>/dev/null | head -1)"
+  [ -n "$id" ] || return 1
+  docker inspect "$id" --format '{{index .Config.Labels "com.docker.compose.image"}}'
+}
+PREVIOUS_API="$(running_image api || true)"
+PREVIOUS_WORKER="$(running_image worker || true)"
+PREVIOUS_WEB="$(running_image web || true)"
+PREVIOUS_HEAD="$(docker compose exec -T postgres \
+  psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc 'SELECT version_num FROM alembic_version' \
+  2>/dev/null | tr -d '[:space:]' || true)"
+grn "→ previous: api=${PREVIOUS_API:-none} worker=${PREVIOUS_WORKER:-none} web=${PREVIOUS_WEB:-none} head=${PREVIOUS_HEAD:-unknown}"
+
+# Written before anything changes, so a deploy that dies mid-swap still leaves the
+# rollback values on disk for whoever picks it up.
+ROLLBACK_FILE="${BACKUP_DIR}/last-deploy-${ts}.rollback"
+{
+  printf 'PREVIOUS_API=%s\n' "$PREVIOUS_API"
+  printf 'PREVIOUS_WORKER=%s\n' "$PREVIOUS_WORKER"
+  printf 'PREVIOUS_WEB=%s\n' "$PREVIOUS_WEB"
+  printf 'PREVIOUS_HEAD=%s\n' "$PREVIOUS_HEAD"
+  printf 'NEW_API=%s\n' "$API_IMAGE"
+  printf 'NEW_WORKER=%s\n' "$WORKER_IMAGE"
+  printf 'NEW_WEB=%s\n' "$WEB_IMAGE"
+  printf 'DB_SNAPSHOT=%s\n' "$BACKUP_DIR/pre-deploy-${ts}.sql"
+} > "$ROLLBACK_FILE"
+ls -1t "$BACKUP_DIR"/*.rollback | tail -n +6 | xargs -r rm
+
+# Undoes the image swap only. It deliberately does NOT downgrade the schema: a
+# migration that already ran is not reversed by starting an older image, and
+# `alembic downgrade` on a live database is a destructive act that needs a human
+# decision and the snapshot above. So this reports what a rollback would need
+# rather than performing an unreviewed schema change.
+rollback_images() {
+  local why="$1"
+  red "deploy: ${why}"
+  red "deploy: schema is at $(docker compose exec -T postgres \
+    psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc 'SELECT version_num FROM alembic_version' 2>/dev/null | tr -d '[:space:]'), was ${PREVIOUS_HEAD:-unknown}"
+  red "deploy: rollback values recorded in ${ROLLBACK_FILE}"
+
+  # Roll back the services that have a recorded previous image, and only those.
+  # Requiring every service to have one would make this all-or-nothing: a deploy
+  # that failed after the worker swap but before the API swap has a usable worker
+  # image and would refuse to use it. A service with nothing recorded is left as
+  # it is and named in the output.
+  local restored=""
+  [ -n "$PREVIOUS_WORKER" ] && restored="${restored} worker"
+  [ -n "$PREVIOUS_API" ] && restored="${restored} api"
+  [ -n "$PREVIOUS_WEB" ] && restored="${restored} web"
+
+  if [ -z "$restored" ]; then
+    red "deploy: no previous image recorded for any service; nothing to roll back"
+    red "deploy: restore from ${BACKUP_DIR}/pre-deploy-${ts}.sql under the runbook"
+    exit 1
+  fi
+
+  red "deploy: rolling back:${restored}"
+  API_IMAGE="${PREVIOUS_API:-$API_IMAGE}" \
+  WORKER_IMAGE="${PREVIOUS_WORKER:-$WORKER_IMAGE}" \
+  WEB_IMAGE="${PREVIOUS_WEB:-$WEB_IMAGE}" \
+    docker compose up -d --no-deps $restored || red "deploy: rollback itself failed"
+  red "deploy: rolled back:${restored}. The schema was NOT reverted; if the new"
+  red "deploy: revision migrated destructively, restore the snapshot instead."
+  exit 1
+}
+
 # --- 2. Pull new images ------------------------------------------------------
 grn "→ docker compose pull…"
 docker compose pull
@@ -90,11 +162,11 @@ for _ in $(seq 1 30); do
   state="$(docker compose ps --format '{{.State}}' worker 2>/dev/null || true)"
   if [ "$state" = "exited" ] || [ "$state" = "dead" ]; then
     docker compose logs --tail=50 worker || true
-    die "worker container is $state — deploy unhealthy"
+    rollback_images "worker container is $state — deploy unhealthy"
   fi
   sleep 2
 done
-[ "$worker_ok" -eq 1 ] || { docker compose logs --tail=50 worker || true; die "worker failed health check after 60s"; }
+[ "$worker_ok" -eq 1 ] || { docker compose logs --tail=50 worker || true; rollback_images "worker failed health check after 60s"; }
 grn "✓ worker healthy"
 
 grn "→ starting API, web, and TLS/SSE ingress…"
@@ -109,7 +181,10 @@ for _ in $(seq 1 30); do
   fi
   sleep 2
 done
-[ "$healthy" -eq 1 ] || die "api failed health check after 60s"
+[ "$healthy" -eq 1 ] || { docker compose logs --tail=50 api || true; rollback_images "api failed health check after 60s"; }
 grn "✓ api healthy"
 
 grn "✓ deploy complete (immutable image digests)"
+grn "  previous: api=${PREVIOUS_API:-none} worker=${PREVIOUS_WORKER:-none} head=${PREVIOUS_HEAD:-unknown}"
+grn "  rollback values: ${ROLLBACK_FILE}"
+grn "  db snapshot:     ${BACKUP_DIR}/pre-deploy-${ts}.sql"

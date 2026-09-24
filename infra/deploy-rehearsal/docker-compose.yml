@@ -1,0 +1,53 @@
+# Sandbox stand-in for the real stack. No ports are published, the images are tiny,
+# and the project name is unique, so this cannot collide with a running deployment.
+name: pycil-deploy-rehearsal
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 2s
+      timeout: 2s
+      retries: 10
+
+  migrate:
+    image: alpine:3.19
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["sh", "-c", "${MIGRATE_COMMAND:-echo migrated}"]
+
+  worker:
+    image: alpine:3.19
+    command: ["sh", "-c", "${WORKER_COMMAND:-sleep 3600}"]
+    healthcheck:
+      test: ["CMD-SHELL", "${WORKER_HEALTHCHECK:-exit 0}"]
+      interval: 2s
+      timeout: 2s
+      retries: 2
+      start_period: 1s
+
+  api:
+    image: alpine:3.19
+    command: ["sh", "-c", "${API_COMMAND:-sleep 3600}"]
+    healthcheck:
+      test: ["CMD-SHELL", "${API_HEALTHCHECK:-exit 0}"]
+      interval: 2s
+      timeout: 2s
+      retries: 2
+
+  web:
+    image: alpine:3.19
+    command: ["sleep", "3600"]
+
+  caddy:
+    image: caddy:2-alpine
+    command: ["sleep", "3600"]
+    volumes:
+      # deploy.sh validates the Caddyfile at this exact path inside the container.
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro

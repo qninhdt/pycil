@@ -305,6 +305,13 @@ jobs:
           echo "all shell scripts parse"
       - name: Validate the WAL-G rehearsal Compose file
         run: docker compose -f docker-compose.walg-rehearsal.yml config -q
+      # The deploy script's failure paths are the ones that matter and the ones no
+      # review catches: a failed migration must abort before anything is swapped,
+      # and a health failure after a successful migration must roll the images
+      # back. Both are exercised against a sandbox stack on a throwaway project
+      # name, so this cannot reach a real deployment.
+      - name: Rehearse the deploy failure paths
+        run: ./scripts/rehearse-deploy-failures.sh
       # `caddy validate` only proves the file parses, and it passes happily while
       # the SSE routes are compressed and buffered — a turn then arrives as one
       # blob instead of incrementally, which is how this defect shipped once.
