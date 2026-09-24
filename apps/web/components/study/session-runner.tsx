@@ -138,7 +138,13 @@ export function SessionRunner({
   // `/next` mutates — it advances rounds, reserves deliveries and extends the
   // exclusion set — so asking it repeatedly while nothing has happened is the one
   // failure mode worth removing. Polling reads the canonical Postgres snapshot, so a
-  // dropped request just retries and a lost enqueue is recovered by the scheduler.
+  // dropped request just retries.
+  //
+  // A lost enqueue is not recovered by anything automatic: there is no scheduler and
+  // no durable task row. The receipt is written before the message, so a publish that
+  // failed reads `failed` rather than `queued`, and the session's own retry bound is
+  // what asks again — which is why a `failed` snapshot is a retry affordance here and
+  // not a spinner.
   //
   // Without one no task was started — the generation slot refused, or the cooldown
   // has not elapsed — so there is nothing to poll and the bounded backoff below is

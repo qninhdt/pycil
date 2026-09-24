@@ -18,11 +18,6 @@ export interface ThreadCreate {
   title?: string
 }
 
-export interface MessageCreate {
-  clientMessageId: string
-  content: string
-}
-
 /**
  * One selectable model, from `GET /v1/assistant/models`.
  *
@@ -72,10 +67,6 @@ export interface AccountCredit {
 }
 
 export type ActionDecision = "approve" | "reject"
-
-export interface ResumePayload {
-  decision: ActionDecision
-}
 
 // `AccountExport` lives in ./auth: `/v1/me/export` is an account endpoint, and
 // the assistant section of it is one opaque member among five.
