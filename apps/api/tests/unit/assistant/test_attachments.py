@@ -9,7 +9,7 @@ import pytest
 from ag_ui.core import DataSource, ImageInputContent, TextInputContent, UserMessage
 from langchain_core.messages import AIMessage, HumanMessage
 
-from pycil.assistant.application.attachments import (
+from pycil.assistant.agent.attachments import (
     IMAGE_PLACEHOLDER,
     AttachmentRejected,
     strip_historical_images,
@@ -44,9 +44,7 @@ def test_a_supported_image_is_admitted_for_a_vision_model():
 
 def test_an_unsupported_media_type_is_refused():
     with pytest.raises(AttachmentRejected) as rejected:
-        validate_attachments(
-            [_user_message(_image_part("image/gif"))], vision_enabled=True
-        )
+        validate_attachments([_user_message(_image_part("image/gif"))], vision_enabled=True)
 
     assert rejected.value.code == "assistant_attachment_type_unsupported"
 
@@ -72,9 +70,7 @@ def test_a_model_without_vision_refuses_an_image():
 
 def test_more_than_one_image_in_a_turn_is_refused():
     with pytest.raises(AttachmentRejected) as rejected:
-        validate_attachments(
-            [_user_message(_image_part(), _image_part())], vision_enabled=True
-        )
+        validate_attachments([_user_message(_image_part(), _image_part())], vision_enabled=True)
 
     assert rejected.value.code == "assistant_attachment_too_many"
 

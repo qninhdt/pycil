@@ -64,11 +64,7 @@ async def test_cache_read_tokens_are_reported_separately_from_input(gateway):
 
 
 async def test_a_streamed_response_arrives_in_several_content_chunks(gateway):
-    chunks = [
-        chunk
-        async for chunk in _model(gateway).astream("TEST_STREAM")
-        if chunk.content
-    ]
+    chunks = [chunk async for chunk in _model(gateway).astream("TEST_STREAM") if chunk.content]
 
     assert len(chunks) >= 2
 
@@ -127,7 +123,7 @@ def test_the_gateway_is_not_imported_by_production_code():
     import pathlib
 
     root = pathlib.Path(__file__).resolve().parents[3]
-    for package in (root / "pycil", root.parent / "worker" / "pycil_worker"):
+    for package in (root / "pycil",):
         for source in package.rglob("*.py"):
             text = source.read_text(encoding="utf-8")
             assert "tests.support" not in text, source

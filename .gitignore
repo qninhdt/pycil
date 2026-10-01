@@ -7,6 +7,13 @@
 # pytest-cov in parallel mode writes one file per process, named with the host
 # and pid. The bare patterns above do not match those.
 **/.coverage.*
+.pytest_cache/
+**/.pytest_cache/
+.ruff_cache/
+**/.ruff_cache/
+test-results/
+playwright-report/
+*.tsbuildinfo
 
 # agent / tooling scratch
 .agents/

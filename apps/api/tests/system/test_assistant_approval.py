@@ -12,6 +12,8 @@ rather than one that was declined. An approved call must actually perform the wr
 because an approval flow that never executes is a dialog with no effect.
 """
 
+from uuid import uuid4
+
 import pytest
 
 from tests.system.conftest import requires_stack
@@ -46,7 +48,7 @@ async def test_the_registered_tool_set_is_exactly_the_agreed_one():
     surface, and a route added to expose it for a test would be a route added for a
     test.
     """
-    from pycil.assistant.application.tools import ALL_TOOLS
+    from pycil.assistant.agent.tools import ALL_TOOLS
 
     names = {tool.name for tool in ALL_TOOLS}
 
@@ -114,7 +116,7 @@ async def test_an_approved_sensitive_write_is_performed(actor, durable):
     state = await caller.ok("GET", f"/v1/assistant/threads/{thread['id']}/state")
     assert state["status"] == "interrupted", state
 
-    await _resume(caller, thread["id"], run_id, decision="approve")
+    await _resume(caller, thread["id"], run_id, state["interrupts"][0]["id"], decision="approve")
 
     assert (
         await durable.count(
@@ -137,11 +139,10 @@ async def test_a_rejected_sensitive_write_leaves_nothing_behind(actor, durable):
     run_id = "reject-run"
 
     await _run(caller, thread["id"], f"TEST_APPROVAL {deck['id']}", run_id=run_id)
-    assert (await caller.ok("GET", f"/v1/assistant/threads/{thread['id']}/state"))[
-        "status"
-    ] == "interrupted"
+    state = await caller.ok("GET", f"/v1/assistant/threads/{thread['id']}/state")
+    assert state["status"] == "interrupted"
 
-    await _resume(caller, thread["id"], run_id, decision="reject")
+    await _resume(caller, thread["id"], run_id, state["interrupts"][0]["id"], decision="reject")
 
     assert (
         await durable.count(
@@ -170,7 +171,7 @@ async def test_a_run_cannot_resume_without_a_pending_interrupt(actor):
     await _run(caller, thread["id"], "TEST_STREAM", run_id="finished-run")
 
     response = await caller.post(
-        "/v1/assistant/ag-ui",
+        "/v1/assistant",
         json={
             "threadId": thread["id"],
             "runId": "finished-run",
@@ -179,7 +180,7 @@ async def test_a_run_cannot_resume_without_a_pending_interrupt(actor):
                 {
                     "interruptId": "anything",
                     "status": "resolved",
-                    "payload": {"decision": "approve"},
+                    "payload": {"decisions": ["approve"]},
                 }
             ],
         },
@@ -203,7 +204,7 @@ async def test_a_thread_is_not_readable_or_runnable_by_another_learner(actor):
         assert response.status_code == 404, f"{method} {path} -> {response.status_code}"
 
     run = await stranger.post(
-        "/v1/assistant/ag-ui",
+        "/v1/assistant",
         json={
             "threadId": thread["id"],
             "runId": "stranger-run",
@@ -242,12 +243,12 @@ async def test_content_in_a_deck_title_cannot_make_the_assistant_act(actor, dura
 # --- helpers ------------------------------------------------------------------
 
 
-async def _run(caller, thread_id: str, message: str, *, run_id: str = "system-run") -> list[dict]:
+async def _run(caller, thread_id: str, message: str, *, run_id: str | None = None) -> list[dict]:
     response = await caller.post(
-        "/v1/assistant/ag-ui",
+        "/v1/assistant",
         json={
             "threadId": thread_id,
-            "runId": run_id,
+            "runId": run_id or f"system-run-{uuid4().hex}",
             "messages": [{"id": "m1", "role": "user", "content": message}],
         },
     )
@@ -255,26 +256,21 @@ async def _run(caller, thread_id: str, message: str, *, run_id: str = "system-ru
     return _parse_sse(response.text)
 
 
-async def _resume(caller, thread_id: str, run_id: str, *, decision: str) -> list[dict]:
-    """Answer the pending interrupt with a decision, continuing the same run.
-
-    The interrupt id is the thread's own id: the middleware's interrupt value carries
-    the action requests and review configs but no id of its own, and the adapter
-    resolves a single pending interrupt without consulting the id anyway. Sending the
-    thread id keeps the field meaningful (it names the conversation being resumed)
-    rather than sending a placeholder that would misrepresent what the protocol needs.
-    """
+async def _resume(
+    caller, thread_id: str, run_id: str, interrupt_id: str, *, decision: str
+) -> list[dict]:
+    """Answer the pending checkpoint interrupt by its actual id."""
     response = await caller.post(
-        "/v1/assistant/ag-ui",
+        "/v1/assistant",
         json={
             "threadId": thread_id,
             "runId": run_id,
             "messages": [],
             "resume": [
                 {
-                    "interruptId": thread_id,
+                    "interruptId": interrupt_id,
                     "status": "resolved",
-                    "payload": {"decision": decision},
+                    "payload": {"decisions": [decision]},
                 }
             ],
         },

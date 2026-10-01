@@ -7,11 +7,11 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from pycil.auth.deps import current_user
-from pycil.auth.schemas import CurrentUser
-from pycil.config import settings
-from pycil.db.session import get_session
+from pycil.account.auth import current_user
+from pycil.account.schemas import CurrentUser
 from pycil.main import create_app
+from pycil.platform.database import get_session
+from pycil.platform.settings import settings
 
 pytestmark = pytest.mark.asyncio
 
@@ -40,10 +40,13 @@ async def test_an_oversized_message_is_rejected_as_a_client_payload_error(
     client = message_client
     monkeypatch.setattr(settings, "assistant_max_message_chars", 8)
 
-    response = await client.post(
-        f"/v1/assistant/threads/{uuid4()}/runs/stream",
-        json={"clientMessageId": str(uuid4()), "content": "x" * 9},
+    ag_ui = await client.post(
+        "/v1/assistant",
+        json={
+            "threadId": str(uuid4()),
+            "runId": str(uuid4()),
+            "messages": [{"id": "m1", "role": "user", "content": "x" * 9}],
+        },
     )
-
-    assert response.status_code == 413
-    assert response.json()["code"] == "assistant_message_too_long"
+    assert ag_ui.status_code == 413
+    assert ag_ui.json()["code"] == "assistant_message_too_long"

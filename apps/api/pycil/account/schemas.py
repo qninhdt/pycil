@@ -1,39 +1,37 @@
-"""Request and response payloads for account-owned lifecycle operations."""
+"""Authenticated account and lifecycle contracts."""
 
-from datetime import datetime
+from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from pycil.account.plans import AccountPlan
+from pycil.billing.plans import PlanKey
 
 
 class AccountDeleteRequest(BaseModel):
     confirmation: str
 
 
-class AccountCredit(BaseModel):
-    """The learner's monthly allowance.
-
-    Reported in Credits and milli-credits, never in a currency. ``available`` is
-    the balance clamped to zero for display, while ``balance`` stays signed
-    because a turn admitted with a positive balance is allowed to finish and may
-    drive it slightly negative.
-    """
-
-    plan: AccountPlan
-    balance: int
-    available: int
-    period_start: datetime
-    period_end: datetime
-    period_used: int
-    period_grant: int
-    topup_balance: int
-
-
 class AccountExport(BaseModel):
     profile: dict
-    hierarchy: list[dict]
+    collection: list[dict]
     learning: dict
     assistant: dict
-    plan: AccountPlan
-    credit: AccountCredit
+    plan: PlanKey
+    credit: dict
+    periods: list[dict] = Field(default_factory=list)
+    usage_events: list[dict] = Field(default_factory=list)
+
+
+class CurrentUser(BaseModel):
+    id: UUID
+    email: str
+    name: str | None = None
+    image: str | None = None
+
+
+class ViewerRead(CurrentUser):
+    """The public projection returned by ``GET /v1/me``."""
+
+
+class CapabilitiesRead(BaseModel):
+    assistant: bool

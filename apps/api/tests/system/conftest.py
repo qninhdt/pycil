@@ -94,7 +94,7 @@ def system_stack(llm_gateway, clerk_stub) -> Iterator[SystemStack]:
 
 
 @pytest_asyncio.fixture
-async def stack_client(system_stack) -> AsyncGenerator[httpx.AsyncClient, None]:
+async def stack_client(system_stack) -> AsyncGenerator[httpx.AsyncClient]:
     """An HTTP client bound to the running API's real port.
 
     Not an ASGI transport: the point of this level is that the request crosses a socket
@@ -165,7 +165,7 @@ def actor(stack_client, clerk_stub):
 
 
 @pytest_asyncio.fixture
-async def durable(system_stack) -> AsyncGenerator[Durable, None]:
+async def durable(system_stack) -> AsyncGenerator[Durable]:
     """Access to the stack's database: inspect after a flow, seed before one.
 
     Some contracts — one row per graded answer, one global schedule per

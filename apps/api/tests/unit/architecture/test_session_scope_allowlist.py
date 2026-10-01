@@ -32,8 +32,8 @@ PYCIL = pathlib.Path(__file__).resolve().parents[3] / "pycil"
 # Deliberately a module allowlist rather than a line allowlist: line numbers move,
 # and a stale line number would make this test fail for no real reason.
 ALLOWED = {
-    "db/session.py": "defines get_session",
-    "assistant/application/tools.py": "LLM tool calls run outside any request scope",
+    "platform/database.py": "defines get_session",
+    "assistant/agent/tools.py": "LLM tool calls run outside any request scope",
 }
 
 
@@ -88,9 +88,5 @@ def test_no_domain_router_outside_the_allowlist_opens_its_own_session():
     sessions in one request means two transactions, so a later failure leaves the
     earlier write committed.
     """
-    offenders = [
-        path
-        for path in _sites()
-        if path.endswith("router.py") and path not in ALLOWED
-    ]
+    offenders = [path for path in _sites() if path.endswith("router.py") and path not in ALLOWED]
     assert not offenders, f"routers opening their own session: {offenders}"

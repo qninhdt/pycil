@@ -16,6 +16,7 @@ Three promises are checked, and each one has a way of looking fine while being w
 """
 
 import json
+from uuid import uuid4
 
 import pytest
 
@@ -24,7 +25,7 @@ from tests.system.conftest import requires_stack
 pytestmark = [pytest.mark.asyncio, requires_stack]
 
 
-async def test_a_run_streams_ag_ui_frames_that_parse(actor):
+async def test_a_run_streams_ag_ui_frames_that_parse(actor, llm_gateway):
     """The stream is AG-UI: a start, content, and a terminal finish.
 
     Parsed as raw bytes rather than through the SDK's client, because the SDK would
@@ -44,7 +45,9 @@ async def test_a_run_streams_ag_ui_frames_that_parse(actor):
     text = "".join(
         event.get("delta", "") for event in events if event["type"] == "TEXT_MESSAGE_CONTENT"
     )
-    assert text, "the stream carried no text content"
+    assert text, (
+        f"the stream carried no text: {events}; provider calls={len(llm_gateway.model_requests())}"
+    )
 
 
 async def test_the_selected_model_and_effort_reach_the_provider(actor, llm_gateway):
@@ -82,7 +85,7 @@ async def test_a_disabled_model_is_refused_before_the_provider_is_called(actor, 
     caller = actor.new()
     thread = await caller.ok("POST", "/v1/assistant/threads", json={"title": "Refused"})
     before = llm_gateway.model_requests()
-    balance_before = (await caller.credit())["balance"]
+    balance_before = (await caller.credit())["availableUnits"]
 
     response = await _run_raw(
         caller, thread["id"], "TEST_STREAM", forwarded={"model": "gemini-2.5-flash"}
@@ -90,7 +93,7 @@ async def test_a_disabled_model_is_refused_before_the_provider_is_called(actor, 
 
     assert response.status_code == 422, response.text
     assert llm_gateway.model_requests() == before, "a refused model still reached the provider"
-    assert (await caller.credit())["balance"] == balance_before
+    assert (await caller.credit())["availableUnits"] == balance_before
 
 
 async def test_an_unsupported_effort_is_refused(actor, llm_gateway):
@@ -110,40 +113,47 @@ async def test_an_unsupported_effort_is_refused(actor, llm_gateway):
     assert llm_gateway.model_requests() == before
 
 
-async def test_a_reported_usage_is_billed_once_and_a_run_id_is_not_replayable(actor, durable):
-    """The turn's charge follows the provider's own numbers, and one run id is one turn.
+async def test_each_execution_is_billed_with_a_server_key_independent_of_run_id(actor, durable):
+    """The client run id does not deduplicate executions or determine ledger keys.
 
     ``CHAT_USAGE`` makes the fixture report exact counts, so the expected debit is
-    arithmetic from the catalog tariff rather than a snapshot. Repeating the request
-    with the same run id is refused rather than re-charged: the run reference is the
-    ledger key, so a replay would be a second turn wearing the first one's identity.
-    The durable check is the ledger itself — one debit for the reference, and the
-    balance unmoved by the refused replay.
+    arithmetic from the catalog tariff rather than a snapshot. A repeated client
+    run id is another execution attempt, and each attempt receives its own server
+    event key. Exactly-once tool effects are not promised.
     """
     caller = actor.new()
     thread = await caller.ok("POST", "/v1/assistant/threads", json={"title": "Usage"})
     me = await caller.me()
-    before = (await caller.credit())["balance"]
-
-    await _run_stream(
-        caller, thread["id"], "TEST_STREAM CHAT_USAGE 1000 100", run_id="usage-run"
+    before = (await caller.credit())["availableUnits"]
+    usage_count_sql = (
+        "SELECT count(*) FROM usage_events e "
+        "JOIN usage_periods p ON p.id = e.period_id WHERE p.user_id = $1"
     )
-    after_first = (await caller.credit())["balance"]
+
+    await _run_stream(caller, thread["id"], "TEST_STREAM CHAT_USAGE 1000 100", run_id="usage-run")
+    after_first = (await caller.credit())["availableUnits"]
 
     assert after_first < before, "a turn that reported usage charged nothing"
     assert (
-        await durable.count("SELECT count(*) FROM credit_debits WHERE user_id = $1", me["id"])
+        await durable.count(
+            usage_count_sql,
+            me["id"],
+        )
         == 1
-    ), "one turn wrote more than one ledger entry"
+    ), "one execution wrote more than one ledger entry"
 
     replay = await _run_raw(
         caller, thread["id"], "TEST_STREAM CHAT_USAGE 1000 100", run_id="usage-run"
     )
 
-    assert replay.status_code == 409, replay.text
-    assert replay.json()["code"] == "assistant_run_id_reused"
-    assert (await caller.credit())["balance"] == after_first, (
-        "replaying one run id charged the learner twice"
+    assert replay.status_code == 200, replay.text
+    assert (await caller.credit())["availableUnits"] < after_first
+    assert (
+        await durable.count(
+            usage_count_sql,
+            me["id"],
+        )
+        == 2
     )
 
 
@@ -176,22 +186,34 @@ async def test_one_learner_cannot_stream_into_anothers_thread(actor):
 # --- helpers ------------------------------------------------------------------
 
 
-async def _run_raw(caller, thread_id: str, message: str, *, forwarded: dict | None = None,
-                   run_id: str = "system-run"):
+async def _run_raw(
+    caller,
+    thread_id: str,
+    message: str,
+    *,
+    forwarded: dict | None = None,
+    run_id: str | None = None,
+):
     """POST one AG-UI run without consuming the stream, for refusal cases."""
     return await caller.post(
-        "/v1/assistant/ag-ui",
+        "/v1/assistant",
         json={
             "threadId": thread_id,
-            "runId": run_id,
+            "runId": run_id or f"system-run-{uuid4().hex}",
             "messages": [{"id": "m1", "role": "user", "content": message}],
             "forwardedProps": forwarded or {},
         },
     )
 
 
-async def _run_stream(caller, thread_id: str, message: str, *, forwarded: dict | None = None,
-                      run_id: str = "system-run") -> list[dict]:
+async def _run_stream(
+    caller,
+    thread_id: str,
+    message: str,
+    *,
+    forwarded: dict | None = None,
+    run_id: str | None = None,
+) -> list[dict]:
     """Run one turn and return the AG-UI events, parsed from the raw SSE bytes.
 
     Parsed here rather than with the SDK's client so the assertion is about the wire:

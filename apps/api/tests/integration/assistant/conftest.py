@@ -2,9 +2,9 @@
 
 from datetime import UTC, datetime, timedelta
 
-from pycil.assistant.application.persistence import retention_deadline
-from pycil.assistant.infra.models import AssistantThread
-from pycil.auth.models import User
+from pycil.account.user import User
+from pycil.assistant.models import AssistantThread
+from pycil.assistant.thread_access import retention_deadline
 
 
 async def create_user(session, email: str = "assistant-user@example.test") -> User:

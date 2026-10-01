@@ -102,7 +102,7 @@ async def test_a_committed_answer_is_repaired_not_regraded(actor, corpus, durabl
     assert first["gradeStatus"] == "graded", first
 
     before = await durable.count("SELECT count(*) FROM review_log WHERE user_id = $1", me["id"])
-    balance_before = (await learner.credit())["balance"]
+    balance_before = (await learner.credit())["availableUnits"]
 
     repeat = await learner.post(
         "/v1/answers",
@@ -124,7 +124,7 @@ async def test_a_committed_answer_is_repaired_not_regraded(actor, corpus, durabl
         await durable.count("SELECT count(*) FROM review_log WHERE user_id = $1", me["id"])
         == before
     ), "a retry wrote a second learning effect"
-    assert (await learner.credit())["balance"] == balance_before, (
+    assert (await learner.credit())["availableUnits"] == balance_before, (
         "a retry charged the learner again"
     )
 

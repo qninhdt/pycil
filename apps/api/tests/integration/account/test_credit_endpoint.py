@@ -9,9 +9,9 @@ from uuid import uuid4
 
 import pytest
 
-from pycil.account import credit
-from pycil.account.plans import AccountPlan, period_grant
-from pycil.auth.models import User
+from pycil.account.user import User
+from pycil.billing.ledger import get_or_create_usage_period
+from pycil.billing.plans import PlanKey, get_plan
 from tests.support.clerk_jwks import bearer
 
 pytestmark = pytest.mark.asyncio
@@ -29,24 +29,23 @@ async def _signed_in(client, session, clerk_stub):
 async def test_the_allowance_is_reported_in_credits_with_a_period(client, session, clerk_stub):
     _, headers = await _signed_in(client, session, clerk_stub)
 
-    response = await client.get("/v1/me/credit", headers=headers)
+    response = await client.get("/v1/me/credits", headers=headers)
 
     assert response.status_code == 200
     body = response.json()
     assert set(body) == {
         "plan",
-        "balance",
-        "available",
-        "period_start",
-        "period_end",
-        "period_used",
-        "period_grant",
-        "topup_balance",
+        "periodStart",
+        "periodEnd",
+        "allowanceUnits",
+        "consumedUnits",
+        "availableUnits",
     }
-    assert body["plan"] == AccountPlan.free
-    assert body["period_grant"] == period_grant(AccountPlan.free)
-    assert body["available"] == body["balance"]
-    assert body["period_start"] < body["period_end"]
+    assert body["plan"] == PlanKey.free
+    assert body["allowanceUnits"] == get_plan(PlanKey.free).monthly_credit_units
+    assert body["consumedUnits"] == 0
+    assert body["availableUnits"] == body["allowanceUnits"]
+    assert body["periodStart"] < body["periodEnd"]
 
 
 async def test_an_overspent_balance_is_clamped_for_display_only(client, session, clerk_stub):
@@ -56,14 +55,14 @@ async def test_an_overspent_balance_is_clamped_for_display_only(client, session,
     that finished past the balance produces.
     """
     user, headers = await _signed_in(client, session, clerk_stub)
-    row = await credit._ensure_credit(session, user.id)
-    row.period_used = period_grant(AccountPlan.free) + 5_000
+    period = await get_or_create_usage_period(session, user_id=user.id)
+    period.used_units = get_plan(PlanKey.free).monthly_credit_units + 5_000
     await session.commit()
 
-    body = (await client.get("/v1/me/credit", headers=headers)).json()
+    body = (await client.get("/v1/me/credits", headers=headers)).json()
 
-    assert body["balance"] == -5_000
-    assert body["available"] == 0
+    assert body["consumedUnits"] == get_plan(PlanKey.free).monthly_credit_units + 5_000
+    assert body["availableUnits"] == 0
 
 
 async def test_the_payload_names_no_currency_or_price(client, session, clerk_stub):
@@ -71,10 +70,10 @@ async def test_the_payload_names_no_currency_or_price(client, session, clerk_stu
 
     import json
 
-    serialized = json.dumps((await client.get("/v1/me/credit", headers=headers)).json())
+    serialized = json.dumps((await client.get("/v1/me/credits", headers=headers)).json())
     for forbidden in ("usd", "vnd", "price", "dollar", "$"):
         assert forbidden not in serialized.lower()
 
 
 async def test_an_anonymous_caller_cannot_read_the_allowance(client):
-    assert (await client.get("/v1/me/credit")).status_code == 401
+    assert (await client.get("/v1/me/credits")).status_code == 401

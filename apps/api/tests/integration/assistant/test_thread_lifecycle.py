@@ -5,9 +5,9 @@ from datetime import UTC, datetime
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from pycil.assistant.application import thread_lifecycle
-from pycil.assistant.application.persistence import retention_deadline
-from pycil.assistant.infra.models import AssistantThread
+from pycil.assistant import threads as thread_lifecycle
+from pycil.assistant.models import AssistantThread
+from pycil.assistant.thread_access import retention_deadline
 
 from .conftest import create_thread, create_user
 

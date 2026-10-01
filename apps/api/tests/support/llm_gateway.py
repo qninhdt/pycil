@@ -214,7 +214,7 @@ def _assistant_call(body: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
             }
     if "delete_node" in names and "TEST_APPROVAL" in prompt:
         match = re.search(
-            r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}",
+            r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}",
             prompt,
         )
         if match:

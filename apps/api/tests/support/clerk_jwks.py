@@ -23,8 +23,8 @@ import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-from pycil.auth import deps
-from pycil.config import settings
+from pycil.account import auth as deps
+from pycil.platform.settings import settings
 
 ISSUER = "https://clerk.test.invalid"
 AUDIENCE = "pycil-test"
@@ -92,8 +92,22 @@ class ClerkStub:
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self._thread = Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()
-        self.url = f"http://127.0.0.1:{self._server.server_port}/jwks"
+        self.base_url = f"http://127.0.0.1:{self._server.server_port}"
+        self.url = f"{self.base_url}/jwks"
         return self.url
+
+    @property
+    def public_key_pem(self) -> str:
+        from cryptography.hazmat.primitives import serialization
+
+        return (
+            self.private_key.public_key()
+            .public_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo,
+            )
+            .decode("utf-8")
+        )
 
     def stop(self) -> None:
         if self._server is not None:
@@ -130,9 +144,7 @@ class ClerkStub:
         if email is not None:
             claims["email"] = email
             claims["email_verified"] = email_verified
-        return jwt.encode(
-            claims, self.private_key, algorithm="RS256", headers={"kid": self.kid}
-        )
+        return jwt.encode(claims, self.private_key, algorithm="RS256", headers={"kid": self.kid})
 
 
 @pytest.fixture(scope="session")

@@ -9,11 +9,11 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from testcontainers.postgres import PostgresContainer
 
-from pycil.db.models import target_metadata
-from pycil.db.session import get_session
 from pycil.main import create_app
+from pycil.metadata import target_metadata
+from pycil.platform.database import get_session
 
-_POSTGRES_IMAGE = "postgres:16-alpine"
+_POSTGRES_IMAGE = "postgres:18-alpine"
 
 
 @pytest.fixture(scope="session")
@@ -30,10 +30,10 @@ def test_db_url() -> Iterator[str]:
 
 @pytest_asyncio.fixture(autouse=True)
 async def fake_redis(monkeypatch):
-    """Pre-seed pycil.db.redis with fakeredis so cache/session code needs no server."""
+    """Pre-seed pycil.platform.redis with fakeredis so cache/session code needs no server."""
     import fakeredis.aioredis
 
-    from pycil.db import redis as redis_module
+    from pycil.platform import redis as redis_module
 
     fake = fakeredis.aioredis.FakeRedis(decode_responses=True)
     monkeypatch.setattr(redis_module, "_redis", fake)
@@ -56,11 +56,10 @@ async def engine(test_db_url: str, monkeypatch):
     async with eng.begin() as conn:
         await conn.exec_driver_sql("DROP SCHEMA IF EXISTS public CASCADE")
         await conn.exec_driver_sql("CREATE SCHEMA public")
-        await conn.exec_driver_sql('CREATE EXTENSION IF NOT EXISTS "pgcrypto"')
         await conn.run_sync(target_metadata.create_all)
     factory = async_sessionmaker(eng, class_=AsyncSession, expire_on_commit=False)
-    monkeypatch.setattr("pycil.db.session.engine", eng)
-    monkeypatch.setattr("pycil.db.session.async_session_factory", factory)
+    monkeypatch.setattr("pycil.platform.database.engine", eng)
+    monkeypatch.setattr("pycil.platform.database.async_session_factory", factory)
     yield eng
     async with eng.begin() as conn:
         await conn.exec_driver_sql("DROP SCHEMA IF EXISTS public CASCADE")
@@ -69,7 +68,7 @@ async def engine(test_db_url: str, monkeypatch):
 
 
 @pytest_asyncio.fixture
-async def session(engine) -> AsyncGenerator[AsyncSession, None]:
+async def session(engine) -> AsyncGenerator[AsyncSession]:
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with factory() as s:
         yield s
@@ -80,7 +79,7 @@ async def app(engine):
     """The application under test, with its session bound to the test database."""
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
-    async def _override() -> AsyncGenerator[AsyncSession, None]:
+    async def _override() -> AsyncGenerator[AsyncSession]:
         async with factory() as s:
             yield s
 
@@ -89,9 +88,8 @@ async def app(engine):
     return application
 
 
-
 @pytest_asyncio.fixture
-async def client(app) -> AsyncGenerator[AsyncClient, None]:
+async def client(app) -> AsyncGenerator[AsyncClient]:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c

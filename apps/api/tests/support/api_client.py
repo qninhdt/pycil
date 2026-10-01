@@ -55,9 +55,7 @@ class Api:
         ``request``. A helper that silently dropped the body would turn a product
         refusal into a transport error.
         """
-        return await self._client.request(
-            "DELETE", path, headers=self.headers, json=json, **kwargs
-        )
+        return await self._client.request("DELETE", path, headers=self.headers, json=json, **kwargs)
 
     # --- calls that assert their own status ---------------------------------
     #
@@ -114,14 +112,10 @@ class Api:
         """
         if kwargs.get("visibility") == "PUBLIC":
             kwargs.setdefault("confirm_subtree_publication", True)
-        return await self.create_node(
-            node_type="FOLDER", name=name, parent_id=parent_id, **kwargs
-        )
+        return await self.create_node(node_type="FOLDER", name=name, parent_id=parent_id, **kwargs)
 
     async def deck(self, name: str, *, parent_id: str | None = None, **kwargs) -> dict:
-        return await self.create_node(
-            node_type="DECK", name=name, parent_id=parent_id, **kwargs
-        )
+        return await self.create_node(node_type="DECK", name=name, parent_id=parent_id, **kwargs)
 
     async def reference(self, name: str, target_id: str, *, parent_id: str | None = None) -> dict:
         return await self.create_node(
@@ -152,7 +146,7 @@ class Api:
         return await self.ok("GET", f"/v1/sessions/{session_id}")
 
     async def credit(self) -> dict:
-        return await self.ok("GET", "/v1/me/credit")
+        return await self.ok("GET", "/v1/me/credits")
 
     async def me(self) -> dict:
         return await self.ok("GET", "/v1/me")

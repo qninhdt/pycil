@@ -190,9 +190,7 @@ async def test_a_public_ancestor_grants_read_but_never_write(actor):
         ("PATCH", f"/v1/nodes/{deck['id']}/move", {"parentNodeId": None}),
         ("POST", f"/v1/decks/{deck['id']}/senses", {"senseId": 1}),
     ):
-        response = await stranger._client.request(
-            method, path, headers=stranger.headers, json=body
-        )
+        response = await stranger._client.request(method, path, headers=stranger.headers, json=body)
         assert response.status_code in {403, 404}, f"{method} {path} -> {response.status_code}"
 
 
@@ -226,9 +224,7 @@ async def test_mutually_referencing_folders_terminate(actor, corpus):
     await owner.reference("L to R", right["id"], parent_id=left["id"])
     await owner.reference("R to L", left["id"], parent_id=right["id"])
 
-    items = await asyncio.wait_for(
-        owner.ok("GET", f"/v1/folders/{left['id']}/items"), timeout=30
-    )
+    items = await asyncio.wait_for(owner.ok("GET", f"/v1/folders/{left['id']}/items"), timeout=30)
 
     assert [item["senseId"] for item in items] == [sense]
 

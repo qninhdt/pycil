@@ -24,7 +24,7 @@ REPO = pathlib.Path(__file__).resolve().parents[5]
 # Both deployed packages. Parsing the source rather than importing it is what lets
 # one test cover both: they are separate uv projects with separate virtualenvs, so
 # neither can import the other, but the files are right here.
-PACKAGES = (REPO / "apps" / "api" / "pycil", REPO / "apps" / "worker" / "pycil_worker")
+PACKAGES = (REPO / "apps" / "api" / "pycil",)
 
 
 def _illegal_lexi_imports(package: pathlib.Path) -> list[str]:

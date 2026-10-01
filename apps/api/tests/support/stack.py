@@ -1,10 +1,7 @@
 """A running Pycil stack for system-level tests.
 
-System tests talk to a real API and a real worker over HTTP, so this module's whole
-job is to bring those up against disposable stores and to take them down again.
-Nothing here fakes Pycil behaviour: PostgreSQL, Redis and the job stream are real
-services, and the two substitutions are both at a network boundary the deployment
-also crosses — Clerk's JWKS and the LLM provider.
+System tests talk to a real API against disposable PostgreSQL and Redis.
+Only Clerk's JWKS and the LLM provider are substituted at their network boundaries.
 
 Two things make it usable rather than merely correct:
 
@@ -12,15 +9,12 @@ Two things make it usable rather than merely correct:
   the OS, so two runs — or two worktrees — cannot collide, and there is no stale
   owner to hunt down before starting. The failure a fixed port produces is an
   "address already in use" that says nothing about which process holds it.
-- **One stack per session, isolation per test.** Starting Postgres, a worker and a
+- **One stack per session, isolation per test.** Starting Postgres, Redis and a
   migration pass costs seconds; doing it per test would put the suite past the point
   where anyone runs it. Tests isolate by unique Clerk subjects and a table reset,
   not by a fresh cluster.
 
-The worker is launched through `taskiq worker`, the same entrypoint the container
-image uses. Calling `broker.startup()` directly looks equivalent and is not: it
-skips the receiver, so nothing consumes the stream and the API's readiness probe
-never sees a heartbeat.
+Content work runs in the API process after each accepted HTTP response.
 """
 
 from __future__ import annotations
@@ -41,9 +35,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[4]
 API_DIR = REPO / "apps" / "api"
-WORKER_DIR = REPO / "apps" / "worker"
 
-_POSTGRES_IMAGE = "postgres:16-alpine"
+_POSTGRES_IMAGE = "postgres:18-alpine"
 _REDIS_IMAGE = "redis:7-alpine"
 
 #: How long a starting API or worker may take before the stack is declared broken.
@@ -105,14 +98,13 @@ class Stores:
 
 
 class SystemStack:
-    """A live API + worker + stores, addressed over HTTP."""
+    """A live API with Postgres and Redis, addressed over HTTP."""
 
     def __init__(self, *, stores: Stores, api_port: int, env: dict[str, str]) -> None:
         self.stores = stores
         self.api_port = api_port
         self.env = env
         self._api: subprocess.Popen | None = None
-        self._worker: subprocess.Popen | None = None
 
     @property
     def base_url(self) -> str:
@@ -120,33 +112,35 @@ class SystemStack:
 
     def start(self) -> SystemStack:
         self._migrate()
-        self._worker = self._spawn(
-            ["uv", "run", "taskiq", "worker", "pycil_worker.main:broker", "--workers", "1"],
-            cwd=WORKER_DIR,
-        )
         self._api = self._spawn(
             [
-                "uv", "run", "uvicorn", "pycil.main:app",
-                "--host", "127.0.0.1", "--port", str(self.api_port), "--log-level", "warning",
+                "uv",
+                "run",
+                "uvicorn",
+                "pycil.main:app",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                str(self.api_port),
+                "--log-level",
+                "warning",
             ],
             cwd=API_DIR,
         )
         _wait_for_http(
             f"{self.base_url}/health/live", timeout=_STARTUP_TIMEOUT_SECONDS, process=self._api
         )
-        # Readiness is the worker's signal: it stays 503 until a heartbeat appears,
-        # so waiting here is what makes "the stack is up" mean jobs can run.
         _wait_for_http(
             f"{self.base_url}/health/ready", timeout=_STARTUP_TIMEOUT_SECONDS, process=self._api
         )
         return self
 
     def stop(self) -> None:
-        """Stop both processes and their children, escalating only if one ignores it."""
-        for process in (self._api, self._worker):
+        """Stop the API and its children, escalating only if it ignores us."""
+        for process in (self._api,):
             if process is not None:
                 self._signal_group(process, signal.SIGTERM)
-        for process in (self._api, self._worker):
+        for process in (self._api,):
             if process is None:
                 continue
             try:
@@ -155,49 +149,14 @@ class SystemStack:
                 self._signal_group(process, signal.SIGKILL)
                 process.wait(timeout=10)
 
-    def kill_worker(self) -> None:
-        """Kill the *test's own* worker, for the crash-recovery journeys.
-
-        Deliberately not ``pkill`` or a pattern match: a broad pattern would reach a
-        worker the developer is running by hand, and the only process a journey is
-        entitled to kill is the one this stack started. The signal goes to the
-        worker's whole process group, because ``uv run`` is a wrapper and signalling
-        only it would leave the real consumer running.
-
-        The API is left up, which is what makes the recovery observable: the receipt a
-        client is polling must reach a terminal state even though the process that
-        owned the work is gone.
-        """
-        if self._worker is None or self._worker.poll() is not None:
-            raise StackUnavailable("the stack's worker is not running")
-        self._signal_group(self._worker, signal.SIGKILL)
-        self._worker.wait(timeout=20)
-
-    def start_worker(self) -> None:
-        """Start a replacement worker after :meth:`kill_worker`.
-
-        A new process rather than a restart of the old one: the point of the crash
-        journey is that work survives a *lost* worker, so recovery has to come from a
-        process that never saw the original in-memory state.
-        """
-        self._worker = self._spawn(
-            ["uv", "run", "taskiq", "worker", "pycil_worker.main:broker", "--workers", "1"],
-            cwd=WORKER_DIR,
-        )
-        _wait_for_http(
-            f"{self.base_url}/health/ready", timeout=_STARTUP_TIMEOUT_SECONDS, process=self._api
-        )
-
     def _spawn(self, argv: list[str], *, cwd: Path) -> subprocess.Popen:
         """Start one stack process in its own session.
 
         ``start_new_session`` puts the process in a new process group, which is what
         makes :meth:`_signal_group` able to stop the *whole* command. It matters
         because the stack runs through ``uv run``, which spawns the real server as a
-        child: signalling only the wrapper leaves uvicorn or taskiq alive, holding its
-        port and still consuming the job stream. That is not a subtle failure — it
-        looks like the harness working while the process it supposedly stopped keeps
-        running.
+        child: signalling only the wrapper leaves uvicorn alive, still serving
+        requests on the port the harness supposedly stopped.
         """
         return subprocess.Popen(
             argv,
@@ -216,7 +175,7 @@ class SystemStack:
             return
         try:
             os.killpg(os.getpgid(process.pid), signal_number)
-        except (ProcessLookupError, PermissionError):
+        except ProcessLookupError, PermissionError:
             # Already gone, or the group is not ours to signal; fall back to the
             # direct pid so a normal stop still happens.
             with suppress(ProcessLookupError):
@@ -226,11 +185,18 @@ class SystemStack:
         """Bring both schemas to head. Lexi first: Pycil's content tables reference it."""
         lexi_ini = subprocess.run(
             [
-                "uv", "run", "python", "-c",
+                "uv",
+                "run",
+                "python",
+                "-c",
                 "import pathlib, lexi_ai.migrations;"
                 " print(pathlib.Path(lexi_ai.migrations.__file__).parent / 'alembic.ini')",
             ],
-            cwd=API_DIR, env=self.env, capture_output=True, text=True, check=True,
+            cwd=API_DIR,
+            env=self.env,
+            capture_output=True,
+            text=True,
+            check=True,
         ).stdout.strip()
         for argv in (
             ["uv", "run", "alembic", "-c", lexi_ini, "upgrade", "head"],
@@ -302,8 +268,14 @@ class _NullLifecycle:
         """CI owns its services; there is nothing here to stop."""
 
 
-def stack_env(stores: Stores, *, clerk_jwks_url: str, clerk_issuer: str,
-              clerk_audience: str, llm_base_url: str) -> dict[str, str]:
+def stack_env(
+    stores: Stores,
+    *,
+    clerk_jwks_url: str,
+    clerk_issuer: str,
+    clerk_audience: str,
+    llm_base_url: str,
+) -> dict[str, str]:
     """Environment for the API and worker, with both external providers redirected.
 
     Clerk and the LLM provider are pointed at test-owned servers rather than at a
@@ -330,6 +302,7 @@ def stack_env(stores: Stores, *, clerk_jwks_url: str, clerk_issuer: str,
         "CLERK_JWKS_URL": clerk_jwks_url,
         "CLERK_ISSUER": clerk_issuer,
         "CLERK_AUDIENCE": clerk_audience,
+        "CLERK_SECRET_KEY": "",
         "ALLOWED_ORIGINS": "http://127.0.0.1",
         "PYTHONUNBUFFERED": "1",
     }
@@ -371,8 +344,9 @@ def require_reference_dataset() -> str:
     return path
 
 
-def start_stack(*, clerk_jwks_url: str, clerk_issuer: str, clerk_audience: str,
-                llm_base_url: str) -> tuple[SystemStack, object]:
+def start_stack(
+    *, clerk_jwks_url: str, clerk_issuer: str, clerk_audience: str, llm_base_url: str
+) -> tuple[SystemStack, object]:
     stores, lifecycle = provision_stores()
     env = stack_env(
         stores,

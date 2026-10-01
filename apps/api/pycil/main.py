@@ -2,20 +2,24 @@
 
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, PlainTextResponse
 from sqlalchemy import text
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from pycil.account.router import router as account_router
-from pycil.assistant.application.ag_ui_agent import PycilAgent
-from pycil.assistant.application.graph import build_graph
-from pycil.assistant.infra.checkpointer import open_checkpointer
-from pycil.assistant.router import router as assistant_router
-from pycil.auth.deps import current_user
-from pycil.auth.schemas import CapabilitiesRead, CurrentUser, ViewerRead
-from pycil.common.errors import (
+from pycil.account.api import router as account_router
+from pycil.assistant.agent.adapter import PycilAgent
+from pycil.assistant.agent.graph import build_graph
+from pycil.assistant.api import router as assistant_router
+from pycil.assistant.checkpointer import open_checkpointer
+from pycil.billing.api import router as billing_router
+from pycil.jobs.api import router as jobs_router
+from pycil.lexicon.api import router as lexicon_router
+from pycil.lexicon.provider import close_lexi_client, get_lexi_client
+from pycil.library.api import router as library_router
+from pycil.platform.database import engine
+from pycil.platform.errors import (
     AppError,
     ServiceUnavailableError,
     app_error_handler,
@@ -23,17 +27,11 @@ from pycil.common.errors import (
     unhandled_error_handler,
     validation_error_handler,
 )
-from pycil.common.middleware import install_middleware
-from pycil.config import settings, validate_production_settings
-from pycil.content.router import router as content_router
-from pycil.db.redis import get_redis
-from pycil.db.session import engine
-from pycil.hierarchy.router import router as hierarchy_router
-from pycil.learning.router import router as learning_router
-from pycil.observability import metrics
-from pycil.ports.lexi_provider import close_lexi_client, get_lexi_client
-from pycil.queue.contracts import WORKER_HEARTBEAT_KEY
-from pycil.queue.router import router as jobs_router
+from pycil.platform.middleware import install_middleware
+from pycil.platform.redis import get_redis
+from pycil.platform.settings import settings, validate_production_settings
+from pycil.platform.telemetry import metrics
+from pycil.study.api import router as study_router
 
 
 @asynccontextmanager
@@ -73,23 +71,12 @@ def create_app() -> FastAPI:
     # code and no requestId for a client whose error parser keys on `error.code`.
     app.add_exception_handler(Exception, unhandled_error_handler)
     app.include_router(account_router, prefix="/v1")
+    app.include_router(billing_router, prefix="/v1")
     app.include_router(assistant_router, prefix="/v1")
-    app.include_router(content_router, prefix="/v1")
-    app.include_router(hierarchy_router, prefix="/v1")
-    app.include_router(learning_router, prefix="/v1")
+    app.include_router(lexicon_router, prefix="/v1")
+    app.include_router(library_router, prefix="/v1")
+    app.include_router(study_router, prefix="/v1")
     app.include_router(jobs_router, prefix="/v1")
-
-    @app.get("/v1/me", response_model=ViewerRead)
-    async def me(user: CurrentUser = Depends(current_user)) -> ViewerRead:
-        # A projection rather than the internal CurrentUser, so the two shapes can
-        # diverge without the internal one leaking into a response body.
-        return ViewerRead(id=user.id, email=user.email, name=user.name, image=user.image)
-
-    @app.get("/v1/capabilities", response_model=CapabilitiesRead)
-    async def capabilities() -> CapabilitiesRead:
-        return CapabilitiesRead(
-            assistant=bool(settings.assistant_api_key and settings.assistant_base_url)
-        )
 
     @app.get("/v1/openapi.json", include_in_schema=False)
     async def versioned_openapi() -> JSONResponse:
@@ -108,8 +95,6 @@ def create_app() -> FastAPI:
                 await connection.execute(text("SELECT 1"))
             redis = get_redis()
             await redis.ping()
-            if not await redis.get(WORKER_HEARTBEAT_KEY):
-                raise RuntimeError("worker_heartbeat_missing")
         except Exception as exc:  # noqa: BLE001 - readiness must collapse dependency details
             raise ServiceUnavailableError("core_dependency_unavailable") from exc
         return {"status": "ready"}

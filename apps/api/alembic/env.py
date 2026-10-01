@@ -8,8 +8,8 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
-from pycil.config import settings
-from pycil.db.models import target_metadata
+from pycil.metadata import target_metadata
+from pycil.platform.settings import settings
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.db_url)

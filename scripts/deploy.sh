@@ -1,23 +1,20 @@
 #!/usr/bin/env bash
 # Host-side production deploy: migration-then-swap via docker compose.
 #
-# CI (deploy.yml) builds and pushes the three application images. Deployment
+# CI (deploy.yml) builds and pushes the backend application images. Deployment
 # happens HERE, on the VPS — no SSH from CI. Run after pulling the latest repo:
 #
 #   cd /opt/pycil && git pull \
 #     API_IMAGE=ghcr.io/qninhdt/pycil-api@sha256:<digest> \
-#     WORKER_IMAGE=ghcr.io/qninhdt/pycil-worker@sha256:<digest> \
-#     WEB_IMAGE=ghcr.io/qninhdt/pycil-web@sha256:<digest> \
 #     bash scripts/deploy.sh
 #
-# The complete stack is deployed here: API, worker, web, and Caddy.
+# The backend stack is deployed here: API and Caddy. Web is on Vercel.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."   # repo root (expected: /opt/pycil)
 
 ENV_FILE="${ENV_FILE:-.env}"
 BACKUP_DIR="${BACKUP_DIR:-/var/backups/pycil}"
-WORKER_DRAIN_SECONDS="${WORKER_DRAIN_SECONDS:-30}"
 
 red() { printf '\033[31m%s\033[0m\n' "$*" >&2; }
 grn() { printf '\033[32m%s\033[0m\n' "$*"; }
@@ -30,9 +27,7 @@ set -a; . "./$ENV_FILE"; set +a
 : "${LEXI_REFERENCE_DATASET_PATH:?LEXI_REFERENCE_DATASET_PATH is required}"
 : "${LEXI_REFERENCE_DATASET_SHA256:?LEXI_REFERENCE_DATASET_SHA256 is required}"
 : "${API_IMAGE:?API_IMAGE must be an immutable registry digest}"
-: "${WORKER_IMAGE:?WORKER_IMAGE must be an immutable registry digest}"
-: "${WEB_IMAGE:?WEB_IMAGE must be an immutable registry digest}"
-for image in "$API_IMAGE" "$WORKER_IMAGE" "$WEB_IMAGE"; do
+for image in "$API_IMAGE"; do
   case "$image" in
     *@sha256:*) ;;
     *) die "application images must use @sha256 digests: $image" ;;
@@ -46,7 +41,7 @@ reference_sha="$(sha256sum "$LEXI_REFERENCE_DATASET_PATH" | cut -d ' ' -f 1)"
 # A VPS deploy is always production even when an operator copied a development
 # template and forgot this knob. The API then validates all production guards.
 export ENVIRONMENT=production
-grn "→ deploying immutable API, worker, and web images"
+grn "→ deploying immutable API image"
 
 # --- 1. Pre-deploy DB snapshot (keep last 5) ---------------------------------
 mkdir -p "$BACKUP_DIR"
@@ -68,24 +63,18 @@ running_image() {
   docker inspect "$id" --format '{{index .Config.Labels "com.docker.compose.image"}}'
 }
 PREVIOUS_API="$(running_image api || true)"
-PREVIOUS_WORKER="$(running_image worker || true)"
-PREVIOUS_WEB="$(running_image web || true)"
 PREVIOUS_HEAD="$(docker compose exec -T postgres \
   psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc 'SELECT version_num FROM alembic_version' \
   2>/dev/null | tr -d '[:space:]' || true)"
-grn "→ previous: api=${PREVIOUS_API:-none} worker=${PREVIOUS_WORKER:-none} web=${PREVIOUS_WEB:-none} head=${PREVIOUS_HEAD:-unknown}"
+grn "→ previous: api=${PREVIOUS_API:-none} head=${PREVIOUS_HEAD:-unknown}"
 
 # Written before anything changes, so a deploy that dies mid-swap still leaves the
 # rollback values on disk for whoever picks it up.
 ROLLBACK_FILE="${BACKUP_DIR}/last-deploy-${ts}.rollback"
 {
   printf 'PREVIOUS_API=%s\n' "$PREVIOUS_API"
-  printf 'PREVIOUS_WORKER=%s\n' "$PREVIOUS_WORKER"
-  printf 'PREVIOUS_WEB=%s\n' "$PREVIOUS_WEB"
   printf 'PREVIOUS_HEAD=%s\n' "$PREVIOUS_HEAD"
   printf 'NEW_API=%s\n' "$API_IMAGE"
-  printf 'NEW_WORKER=%s\n' "$WORKER_IMAGE"
-  printf 'NEW_WEB=%s\n' "$WEB_IMAGE"
   printf 'DB_SNAPSHOT=%s\n' "$BACKUP_DIR/pre-deploy-${ts}.sql"
 } > "$ROLLBACK_FILE"
 ls -1t "$BACKUP_DIR"/*.rollback | tail -n +6 | xargs -r rm
@@ -101,29 +90,21 @@ rollback_images() {
   red "deploy: schema is at $(docker compose exec -T postgres \
     psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc 'SELECT version_num FROM alembic_version' 2>/dev/null | tr -d '[:space:]'), was ${PREVIOUS_HEAD:-unknown}"
   red "deploy: rollback values recorded in ${ROLLBACK_FILE}"
+  if [ "${legacy_removed:-0}" -eq 1 ]; then
+    red "deploy: old API needs its worker: restore the previous Compose revision and worker image manually"
+    exit 1
+  fi
 
-  # Roll back the services that have a recorded previous image, and only those.
-  # Requiring every service to have one would make this all-or-nothing: a deploy
-  # that failed after the worker swap but before the API swap has a usable worker
-  # image and would refuse to use it. A service with nothing recorded is left as
-  # it is and named in the output.
-  local restored=""
-  [ -n "$PREVIOUS_WORKER" ] && restored="${restored} worker"
-  [ -n "$PREVIOUS_API" ] && restored="${restored} api"
-  [ -n "$PREVIOUS_WEB" ] && restored="${restored} web"
-
-  if [ -z "$restored" ]; then
+  if [ -z "$PREVIOUS_API" ]; then
     red "deploy: no previous image recorded for any service; nothing to roll back"
     red "deploy: restore from ${BACKUP_DIR}/pre-deploy-${ts}.sql under the runbook"
     exit 1
   fi
 
-  red "deploy: rolling back:${restored}"
-  API_IMAGE="${PREVIOUS_API:-$API_IMAGE}" \
-  WORKER_IMAGE="${PREVIOUS_WORKER:-$WORKER_IMAGE}" \
-  WEB_IMAGE="${PREVIOUS_WEB:-$WEB_IMAGE}" \
-    docker compose up -d --no-deps $restored || red "deploy: rollback itself failed"
-  red "deploy: rolled back:${restored}. The schema was NOT reverted; if the new"
+  red "deploy: rolling back: api"
+  API_IMAGE="$PREVIOUS_API" \
+    docker compose up -d --no-deps api || red "deploy: rollback itself failed"
+  red "deploy: rolled back: api. The schema was NOT reverted; if the new"
   red "deploy: revision migrated destructively, restore the snapshot instead."
   exit 1
 }
@@ -145,35 +126,32 @@ if ! docker compose run --rm migrate; then
   die "migration failed; aborting deploy. old containers untouched."
 fi
 
-# --- 4. Drain old jobs, then start worker before API --------------------------
-# Pending jobs are written by the API but consumed by the worker, so starting
-# the worker first prevents an API/worker schema-version window. This pre-release
-# deployment starts from a fresh schema; after the first embedded write use a
-# forward fix or verified database restore, never a destructive downgrade.
-grn "→ draining previous worker (up to ${WORKER_DRAIN_SECONDS}s)…"
-docker compose stop -t "$WORKER_DRAIN_SECONDS" worker || true
-grn "→ starting domain worker before API…"
-docker compose up -d worker
-grn "→ waiting for worker health…"
-worker_ok=0
-for _ in $(seq 1 30); do
-  status="$(docker compose ps --format '{{.Health}}' worker 2>/dev/null || true)"
-  [ "$status" = "healthy" ] && { worker_ok=1; break; }
-  state="$(docker compose ps --format '{{.State}}' worker 2>/dev/null || true)"
-  if [ "$state" = "exited" ] || [ "$state" = "dead" ]; then
-    docker compose logs --tail=50 worker || true
-    rollback_images "worker container is $state — deploy unhealthy"
-  fi
-  sleep 2
-done
-[ "$worker_ok" -eq 1 ] || { docker compose logs --tail=50 worker || true; rollback_images "worker failed health check after 60s"; }
-grn "✓ worker healthy"
+# --- 4. Remove the obsolete Compose worker on the first cutover --------------
+# Use the current project's labels; never touch other projects or Redis data.
+project="$(docker compose config --format json | python -c 'import json,sys; print(json.load(sys.stdin)["name"])')"
+legacy_workers="$(docker ps -aq --filter "label=com.docker.compose.project=$project" --filter label=com.docker.compose.service=worker)"
+if [ -n "$legacy_workers" ]; then
+  for legacy_worker in $legacy_workers; do
+    grn "→ stopping obsolete worker $legacy_worker (pending Stream jobs will not replay)…"
+    docker stop "$legacy_worker" || die "cannot stop old worker"
+    docker rm "$legacy_worker" || die "cannot remove old worker"
+  done
+  legacy_removed=1
+fi
+# Rollback across this cutover requires the former Compose revision and worker
+# image; simply reverting the API image is not sufficient.
 
-grn "→ starting API, web, and TLS/SSE ingress…"
-docker compose up -d api web caddy
+grn "→ starting API and TLS/SSE ingress…"
+docker compose up -d api caddy
 grn "→ waiting for api health…"
 healthy=0
 for _ in $(seq 1 30); do
+  status="$(docker compose ps --format '{{.Health}}' api 2>/dev/null || true)"
+  state="$(docker compose ps --format '{{.State}}' api 2>/dev/null || true)"
+  if [ "$status" = "unhealthy" ] || [ "$state" = "exited" ] || [ "$state" = "dead" ]; then
+    docker compose logs --tail=50 api || true
+    rollback_images "api is ${status:-$state} — deploy unhealthy"
+  fi
   if docker compose exec -T api \
        python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready').read()" \
        >/dev/null 2>&1; then
@@ -185,6 +163,6 @@ done
 grn "✓ api healthy"
 
 grn "✓ deploy complete (immutable image digests)"
-grn "  previous: api=${PREVIOUS_API:-none} worker=${PREVIOUS_WORKER:-none} head=${PREVIOUS_HEAD:-unknown}"
+grn "  previous: api=${PREVIOUS_API:-none} head=${PREVIOUS_HEAD:-unknown}"
 grn "  rollback values: ${ROLLBACK_FILE}"
 grn "  db snapshot:     ${BACKUP_DIR}/pre-deploy-${ts}.sql"

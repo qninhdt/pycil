@@ -11,7 +11,7 @@ import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
-from pycil.common.errors import (
+from pycil.platform.errors import (
     AppError,
     ConflictError,
     ForbiddenError,

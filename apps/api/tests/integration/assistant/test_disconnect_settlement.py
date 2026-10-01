@@ -1,21 +1,26 @@
-"""A disconnected turn settles reported usage once and releases its lease.
+"""A disconnected turn charges completed calls and releases its execution slot.
 
 The accepted behavior is that a client disconnect before graph exit may lose the
-in-flight conversation turn, but it must not lose the accounting: whatever the
-provider reported is billed, and the learner is not left holding a lease that
-blocks their next turn.
+in-flight model call. Completed calls are charged and the turn lease is freed.
 """
 
 import asyncio
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
 from ag_ui.core import RunStartedEvent
+from sqlalchemy import select
 
-from pycil.assistant import router
-from pycil.assistant.domain.context import AssistantContext
-from pycil.assistant.domain.usage import CallUsage
+from pycil.account.user import User
+from pycil.assistant.agent.context import AssistantContext
+from pycil.assistant.turns import stream as router
+from pycil.assistant.turns.leases import acquire_turn_lease, thread_lease_key
+from pycil.assistant.turns.usage import CallUsage
+from pycil.billing.ledger import require_usage_allowed
+from pycil.billing.models import UsageEvent, UsagePeriod
+from pycil.billing.plans import FeatureKey, PlanKey
 
 pytestmark = pytest.mark.asyncio
 
@@ -43,60 +48,66 @@ class _Agent:
             raise asyncio.CancelledError
 
 
-async def _drain(agent, context, user_id, redis, reference):
+async def _drain(agent, context, user_id, period_id, occurred_at, redis):
     frames = []
+    thread_id = uuid4()
+    lease = await acquire_turn_lease(redis, user_id, thread_id, PlanKey.free)
+    assert lease is not None
     with pytest.raises(asyncio.CancelledError):
-        async for frame in router._streamed_events(
+        async for frame in router._events(
             agent,
-            SimpleNamespace(thread_id=str(uuid4()), run_id="run-disconnect"),
+            SimpleNamespace(thread_id=str(thread_id), run_id="run-disconnect"),
             context,
-            reference,
             user_id,
+            period_id,
+            occurred_at,
+            f"assistant:{user_id}:{uuid4().hex}",
             redis,
             _Graph(),
-            "lease-token",
+            lease,
+            interrupt_id=None,
+            free_rejection=False,
         ):
             frames.append(frame)
-    return frames
+    return frames, thread_id
 
 
-async def test_a_disconnected_turn_bills_reported_usage_and_frees_the_lease(
-    session, fake_redis, monkeypatch
-):
-    from sqlalchemy import select
-
-    from pycil.account.models import CreditDebit
-    from pycil.auth.models import User
-
+async def test_a_disconnected_turn_charges_completed_calls_and_frees_the_lease(session, fake_redis):
     user = User(email="disconnect@example.test")
     session.add(user)
     await session.commit()
     await session.refresh(user)
 
-    thread_id = uuid4()
-    reference = router._run_reference(user.id, thread_id, "run-disconnect")
     context = AssistantContext(user_id=user.id, model_id="gemini-3.8-flash")
     context.usage.add("gemini-3.8-flash", CallUsage(input_tokens=1_000, output_tokens=100))
 
-    lease_key = f"assistant:turn:{user.id}"
-    await fake_redis.set(lease_key, "lease-token")
+    now = datetime.now(UTC)
+    balance = await require_usage_allowed(
+        session, user.id, feature=FeatureKey.ASSISTANT, moment=now
+    )
+    await session.commit()
 
-    frames = await _drain(
-        _Agent(raise_after_first=True), context, user.id, fake_redis, reference
+    frames, thread_id = await _drain(
+        _Agent(raise_after_first=True),
+        context,
+        user.id,
+        balance.period_id,
+        now,
+        fake_redis,
     )
 
     assert len(frames) == 1
-    debits = list(
+    events = list(
         (
             await session.scalars(
-                select(CreditDebit).where(
-                    CreditDebit.kind == "agent_turn",
-                    CreditDebit.reference_id == reference,
+                select(UsageEvent)
+                .join(UsagePeriod, UsagePeriod.id == UsageEvent.period_id)
+                .where(
+                    UsagePeriod.user_id == user.id,
                 )
             )
         ).all()
     )
-    assert len(debits) == 1
-    assert debits[0].details["status"] == "disconnected"
-    # Reported usage is billed; an unreported remainder is never invented.
-    assert debits[0].amount > 0
+    assert len(events) == 1
+    assert events[0].details["status"] == "disconnected"
+    assert not await fake_redis.exists(thread_lease_key(thread_id))

@@ -1,44 +1,44 @@
 [project]
 name = "pycil-api"
 version = "0.1.0"
-description = "Pycil API — FastAPI + SQLModel + Alembic; FSRS learning, hierarchy, lexi-ai dictionary."
-requires-python = ">=3.12"
+description = "Pycil API — FastAPI + SQLModel + Alembic; FSRS learning, collection, lexi-ai dictionary."
+requires-python = ">=3.14"
 dependencies = [
-    "fastapi>=0.115,<0.116",
-    "uvicorn[standard]>=0.32,<0.33",
-    "sqlmodel>=0.0.38,<0.1",
-    "sqlalchemy>=2.0,<2.1",
-    "alembic>=1.14,<1.15",
-    "asyncpg>=0.30,<0.31",
-    "redis>=6,<7",
-    "taskiq>=0.12,<0.13",
-    "taskiq-redis>=1.1,<2",
-    "pydantic>=2.9,<3.0",
-    "pydantic-settings>=2.6,<2.7",
-    "pyjwt>=2.10,<3.0",
-    "httpx>=0.28,<0.29",
-    "structlog>=24.4,<25.0",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "sqlmodel>=0.0.38",
+    "sqlalchemy>=2.0",
+    "alembic>=1.14",
+    "asyncpg>=0.30",
+    "redis>=6.0",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "clerk-backend-api>=7.0.0",
+    "pyjwt>=2.10",
+    "httpx>=0.28",
+    "structlog>=24.4",
     "lexi-ai @ git+https://github.com/qninhdt/lexi-ai.git@a2add77a9cd2c454d187154291de6ab2f1725de8",
-    "langchain==1.3.13",
-    "langgraph-checkpoint-postgres==3.1.0",
-    "psycopg[binary,pool]==3.2.13",
-    "langchain-openai==1.3.5",
+    "langchain>=1.3.13",
+    "langgraph-checkpoint-postgres>=3.1.0",
+    "psycopg[binary,pool]>=3.2.13",
+    "langchain-openai>=1.3.5",
     "cryptography>=49.0.0",
-    "jinja2>=3.1,<4",
+    "jinja2>=3.1",
     "ag-ui-protocol>=1.0.0",
     "pyyaml>=6.0.2",
-    "ag-ui-langgraph==0.0.45",
+    "ag-ui-langgraph>=0.0.45",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.3,<9.0",
-    "pytest-asyncio>=0.24,<0.25",
-    "testcontainers[postgres]>=4.10,<5.0",
-    "fakeredis[lua]>=2.26,<3.0",
-    "freezegun>=1.5,<2.0",
-    "pytest-mock>=3.14,<4.0",
-    "ruff>=0.8,<0.9",
+    "pytest>=8.3",
+    "pytest-cov>=6.0",
+    "pytest-asyncio>=0.24",
+    "testcontainers[postgres]>=4.10",
+    "fakeredis[lua]>=2.26",
+    "freezegun>=1.5",
+    "pytest-mock>=3.14",
+    "ruff>=0.16",
 ]
 
 [tool.pytest.ini_options]
@@ -49,7 +49,7 @@ filterwarnings = ["ignore::DeprecationWarning"]
 # level because the files are there. Markers would let a test sit in one directory
 # while claiming another, which is the drift the layout exists to prevent.
 markers = [
-    "performance: loads large synthetic data; opt in with RUN_HIERARCHY_PERFORMANCE=1",
+    "performance: loads large synthetic data; opt in with RUN_COLLECTION_PERFORMANCE=1",
 ]
 
 [build-system]
@@ -60,14 +60,13 @@ build-backend = "setuptools.build_meta"
 include = ["pycil*"]
 
 [tool.setuptools.package-data]
-"pycil.assistant.domain" = [
-    "prompt_templates/*.jinja",
-    "prompt_templates/_partials/*.jinja",
+"pycil.assistant.agent" = [
+    "prompts/*.jinja",
 ]
 
 [tool.ruff]
 line-length = 100
-target-version = "py312"
+target-version = "py314"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]

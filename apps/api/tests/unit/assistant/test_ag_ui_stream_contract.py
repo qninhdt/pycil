@@ -6,6 +6,7 @@ events are fed through the SDK's own encoder and decoded again, which is the
 contract a compatible client parser reads.
 """
 
+import asyncio
 import json
 from typing import Annotated, TypedDict
 
@@ -17,7 +18,8 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 
-from pycil.assistant.application.ag_ui_agent import PycilAgent
+from pycil.assistant.agent.adapter import PycilAgent
+from pycil.assistant.agent.context import AssistantContext, AssistantState
 
 pytestmark = pytest.mark.asyncio
 
@@ -120,3 +122,64 @@ async def test_a_multi_step_turn_writes_one_checkpoint_at_exit():
     ]
 
     assert len(written) == 1
+
+
+async def test_selection_is_saved_with_the_graph_for_approval_resume():
+    from uuid import uuid4
+
+    builder = StateGraph(AssistantState)
+    builder.add_node("reply", lambda state: {"messages": [AIMessage(content="ok")]})
+    builder.add_edge("__start__", "reply")
+    builder.add_edge("reply", END)
+    graph = builder.compile(checkpointer=InMemorySaver())
+    owner_id, thread_id = uuid4(), uuid4()
+    agent = PycilAgent(name="pycil-assistant", graph=graph)
+    agent.request_context = AssistantContext(
+        user_id=owner_id, model_id="selected-model", reasoning_effort="high"
+    )
+    async for _ in agent.run(_input(str(thread_id))):
+        pass
+
+    state = await graph.aget_state(
+        {"configurable": {"thread_id": f"assistant:{owner_id}:{thread_id}"}}
+    )
+    assert state.values["selected_model_id"] == "selected-model"
+    assert state.values["selected_effort"] == "high"
+
+
+async def test_exit_durability_saves_completed_state_when_the_active_node_is_cancelled():
+    class Progress(TypedDict):
+        completed: int
+
+    entered = asyncio.Event()
+
+    async def complete_first(state):
+        return {"completed": state["completed"] + 1}
+
+    async def wait_for_disconnect(_state):
+        entered.set()
+        await asyncio.Event().wait()
+
+    saver = InMemorySaver()
+    builder = StateGraph(Progress)
+    builder.add_node("complete", complete_first)
+    builder.add_node("active", wait_for_disconnect)
+    builder.add_edge("__start__", "complete")
+    builder.add_edge("complete", "active")
+    builder.add_edge("active", END)
+    graph = builder.compile(checkpointer=saver)
+    config = {"configurable": {"thread_id": "disconnect-safe-state"}}
+
+    async def run():
+        async for _ in graph.astream({"completed": 0}, config, durability="exit"):
+            pass
+
+    task = asyncio.create_task(run())
+    await entered.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    checkpoint = await graph.aget_state(config)
+    assert checkpoint.values["completed"] == 1
+    assert checkpoint.next == ("active",)

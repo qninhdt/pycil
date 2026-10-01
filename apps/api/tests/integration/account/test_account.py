@@ -4,27 +4,29 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import select, text
+from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
-from pycil.account.credit import (
-    CREDIT_KIND_RUBRIC,
-    CreditExhaustedError,
-    balance,
-    debit,
-    require_balance,
-    settle_agent_turn,
-    snapshot,
+from pycil.account.deletion import delete_account
+from pycil.account.export import export_account
+from pycil.account.user import User
+from pycil.assistant.models import AssistantThread
+from pycil.assistant.turns.settlement import (
+    settle_assistant_segment,
 )
-from pycil.account.models import CreditDebit, UserCredit
-from pycil.account.plans import PLANS, AccountPlan, period_grant
-from pycil.account.service import delete_account, export_account
-from pycil.assistant.infra.models import AssistantThread
-from pycil.auth.models import User
-from pycil.common.errors import ServiceUnavailableError
-from pycil.content.infra.models import DeckSense
-from pycil.hierarchy.domain.vocabulary import NodeType, Visibility
-from pycil.hierarchy.infra.models import Node
+from pycil.assistant.turns.usage import CallUsage, TurnUsage
+from pycil.billing.errors import UsageQuotaExhaustedError
+from pycil.billing.ledger import (
+    get_or_create_account_plan,
+    get_or_create_usage_period,
+    get_usage_allowance,
+    record_usage,
+    require_usage_allowed,
+    set_plan,
+)
+from pycil.billing.plans import FeatureKey, PlanKey, get_plan
+from pycil.library.models import DeckSense, Node, NodeType, Visibility
+from pycil.platform.errors import ServiceUnavailableError
 
 pytestmark = pytest.mark.asyncio
 
@@ -38,169 +40,201 @@ async def _user(session, prefix: str = "account") -> User:
 
 
 async def test_plan_shape_has_two_tiers_and_an_allowance():
-    assert set(PLANS) == {AccountPlan.free, AccountPlan.pro}
-    assert PLANS[AccountPlan.free].period_grant < PLANS[AccountPlan.pro].period_grant
+    assert set(PlanKey) == {PlanKey.free, PlanKey.pro}
+    assert get_plan(PlanKey.free).monthly_credit_units < get_plan(PlanKey.pro).monthly_credit_units
 
 
 async def test_debit_rolls_elapsed_period_and_is_idempotent(session):
     user = await _user(session)
     now = datetime(2030, 1, 31, tzinfo=UTC)
-    session.add(
-        UserCredit(
-            user_id=user.id,
-            plan=AccountPlan.free,
-            period_anchor=now - timedelta(days=31),
-            period_start=now - timedelta(days=31),
-            period_used=period_grant(AccountPlan.free),
-            topup_balance=30,
-        )
+    anchor = now - timedelta(days=31)
+    plan = await get_or_create_account_plan(session, user_id=user.id, moment=anchor)
+    old_period = await get_or_create_usage_period(
+        session, user_id=user.id, moment=anchor, plan=plan
     )
+    old_period.used_units = old_period.allowance_units
     await session.commit()
     reference = uuid4()
 
-    first = await debit(
-        session, user.id, kind=CREDIT_KIND_RUBRIC, reference_id=reference, amount=10, now=now
+    period = await get_or_create_usage_period(session, user_id=user.id, moment=now)
+    first = await record_usage(
+        session,
+        user_id=user.id,
+        period_id=period.id,
+        event_key=f"level4_grading:{reference}",
+        feature_key=FeatureKey.LEVEL4_GRADING,
+        units=10,
+        occurred_at=now,
     )
     await session.commit()
-    second = await debit(
-        session, user.id, kind=CREDIT_KIND_RUBRIC, reference_id=reference, amount=10, now=now
+    second = await record_usage(
+        session,
+        user_id=user.id,
+        period_id=period.id,
+        event_key=f"level4_grading:{reference}",
+        feature_key=FeatureKey.LEVEL4_GRADING,
+        units=10,
+        occurred_at=now,
     )
     await session.commit()
 
-    current = await snapshot(session, user.id)
-    assert first.id == second.id
-    assert current.period_start == now, "the elapsed month rolled the period forward"
-    assert current.period_used == 10
-    assert current.topup_balance == 30
-    assert current.balance == period_grant(AccountPlan.free) - 10 + 30
+    current = await get_usage_allowance(session, user.id, moment=now)
+    assert first.event_id == second.event_id
+    assert second.idempotent_replay is True
+    assert current.used_units == 10
+    assert current.raw_remaining_units == get_plan(PlanKey.free).monthly_credit_units - 10
     assert (
         await session.scalar(
-            text("SELECT count(*) FROM credit_debits WHERE user_id = :user_id"),
+            text(
+                "SELECT count(*) FROM usage_events e "
+                "JOIN usage_periods p ON p.id = e.period_id WHERE p.user_id = :user_id"
+            ),
             {"user_id": user.id},
         )
         == 1
     )
 
 
-async def test_resumed_agent_turn_updates_one_cumulative_debit(session):
+async def test_assistant_segments_settle_independently_and_idempotently(session):
     user = await _user(session, "assistant-resume")
-    reference = uuid4()
+    run_id = str(uuid4())
     now = datetime(2030, 4, 12, tzinfo=UTC)
 
-    first = await settle_agent_turn(
-        session,
-        user.id,
-        reference_id=reference,
-        amount=120,
-        details={"status": "interrupted", "usage": {"version": 1, "calls": []}},
-        now=now,
+    # 1. Initial segment admits and interrupts
+    balance_1 = await require_usage_allowed(
+        session, user.id, feature=FeatureKey.ASSISTANT, moment=now
     )
-    await session.commit()
-    resumed = await settle_agent_turn(
+    usage_1 = TurnUsage()
+    usage_1.add("gemini-3.8-flash", CallUsage(input_tokens=1000, output_tokens=100))
+    settlement_1 = await settle_assistant_segment(
         session,
-        user.id,
-        reference_id=reference,
-        amount=350,
-        details={"status": "completed", "usage": {"version": 1, "calls": [1]}},
-        now=now,
+        user_id=user.id,
+        period_id=balance_1.period_id,
+        occurred_at=now,
+        run_id=run_id,
+        status="interrupted",
+        usage=usage_1,
     )
-    await session.commit()
-    replay = await settle_agent_turn(
-        session,
-        user.id,
-        reference_id=reference,
-        amount=350,
-        details={"status": "completed", "usage": {"version": 1, "calls": [1]}},
-        now=now,
-    )
+    assert settlement_1 is not None
     await session.commit()
 
-    current = await snapshot(session, user.id, now=now)
-    assert first.id == resumed.id == replay.id
-    assert replay.amount == 350
-    assert current.period_used == 350
-    assert replay.details["period_charges"] == {current.period_start.isoformat(): 350}
-    assert await session.scalar(
-        select(CreditDebit).where(CreditDebit.reference_id == reference)
-    ) is not None
+    # 2. Resume segment admits and completes
+    balance_2 = await require_usage_allowed(
+        session, user.id, feature=FeatureKey.ASSISTANT, moment=now
+    )
+    usage_2 = TurnUsage()
+    usage_2.add("gemini-3.8-flash", CallUsage(input_tokens=2000, output_tokens=200))
+    settlement_2 = await settle_assistant_segment(
+        session,
+        user_id=user.id,
+        period_id=balance_2.period_id,
+        occurred_at=now,
+        run_id=run_id,
+        status="completed",
+        usage=usage_2,
+        interrupt_id="int-1",
+    )
+    assert settlement_2 is not None
+    await session.commit()
+
+    # 3. Replay resume segment
+    replay = await settle_assistant_segment(
+        session,
+        user_id=user.id,
+        period_id=balance_2.period_id,
+        occurred_at=now,
+        run_id=run_id,
+        status="completed",
+        usage=usage_2,
+        interrupt_id="int-1",
+    )
+    assert replay is not None
+    assert replay.idempotent_replay is True
+    await session.commit()
+
+    current = await get_usage_allowance(session, user.id, moment=now)
+    assert current.used_units == settlement_1.units + settlement_2.units
+    assert (
+        await session.scalar(
+            text(
+                "SELECT count(*) FROM usage_events e "
+                "JOIN usage_periods p ON p.id = e.period_id WHERE p.user_id = :user_id"
+            ),
+            {"user_id": user.id},
+        )
+        == 2
+    )
 
 
 async def test_submit_gate_is_typed_and_balance_is_one_pool(session):
     user = await _user(session)
-    assert await balance(session, user.id) == period_grant(AccountPlan.free)
-    await require_balance(session, user.id, amount=1)
+    snapshot = await get_usage_allowance(session, user.id)
+    assert snapshot.raw_remaining_units == get_plan(PlanKey.free).monthly_credit_units
+    await require_usage_allowed(
+        session, user.id, feature=FeatureKey.LEVEL4_GRADING, required_units=1
+    )
 
-    row = await session.get(UserCredit, user.id)
-    assert row is not None
-    row.period_used = period_grant(AccountPlan.free)
-    row.topup_balance = 0
+    period = await get_or_create_usage_period(session, user_id=user.id)
+    period.used_units = period.allowance_units
     await session.commit()
-    with pytest.raises(CreditExhaustedError, match="credit_exhausted"):
-        await require_balance(session, user.id, amount=1)
+    with pytest.raises(UsageQuotaExhaustedError):
+        await require_usage_allowed(
+            session, user.id, feature=FeatureKey.LEVEL4_GRADING, required_units=1
+        )
 
 
 async def test_reads_reflect_elapsed_rollover_before_any_debit(session):
     user = await _user(session)
     now = datetime.now(UTC)
-    session.add(
-        UserCredit(
-            user_id=user.id,
-            plan=AccountPlan.free,
-            period_anchor=now - timedelta(days=95),
-            period_start=now - timedelta(days=95),
-            period_used=period_grant(AccountPlan.free),
-            topup_balance=0,
-        )
+    past_anchor = now - timedelta(days=95)
+    plan = await get_or_create_account_plan(session, user_id=user.id, moment=past_anchor)
+    old_period = await get_or_create_usage_period(
+        session, user_id=user.id, moment=past_anchor, plan=plan
     )
+    old_period.used_units = old_period.allowance_units
     await session.commit()
 
-    # The prior period was fully spent, but it has elapsed. A read must show the
-    # fresh grant so a returning learner is not locked out: the sampler gates L4
-    # off a zero balance, and the L4 debit is the only thing that would roll it.
-    assert await balance(session, user.id) == period_grant(AccountPlan.free)
-    await require_balance(session, user.id, amount=1)
+    snapshot = await get_usage_allowance(session, user.id)
+    assert snapshot.raw_remaining_units == get_plan(PlanKey.free).monthly_credit_units
+    await require_usage_allowed(
+        session, user.id, feature=FeatureKey.LEVEL4_GRADING, required_units=1
+    )
 
 
 async def test_the_allowance_is_clamped_for_display_but_stays_signed(session):
     """An admitted turn may overshoot; the UI must not show a negative allowance."""
     user = await _user(session)
-    session.add(
-        UserCredit(
-            user_id=user.id,
-            plan=AccountPlan.free,
-            period_anchor=datetime.now(UTC),
-            period_start=datetime.now(UTC),
-            period_used=0,
-            topup_balance=0,
-        )
-    )
-    await session.commit()
-
-    await debit(
+    period = await get_or_create_usage_period(session, user_id=user.id)
+    await record_usage(
         session,
-        user.id,
-        kind=CREDIT_KIND_RUBRIC,
-        reference_id=uuid4(),
-        amount=period_grant(AccountPlan.free) + 250,
+        user_id=user.id,
+        period_id=period.id,
+        event_key=f"level4_grading:{uuid4()}",
+        feature_key=FeatureKey.LEVEL4_GRADING,
+        units=get_plan(PlanKey.free).monthly_credit_units + 250,
     )
     await session.commit()
 
-    current = await snapshot(session, user.id)
-    assert current.balance == -250, "the ledger records the overshoot it actually incurred"
-    assert current.available == 0, "display clamps, the stored balance does not"
-    with pytest.raises(CreditExhaustedError):
-        await require_balance(session, user.id, amount=1)
+    current = await get_usage_allowance(session, user.id)
+    assert current.raw_remaining_units == -250, (
+        "the ledger records the overshoot it actually incurred"
+    )
+    assert current.remaining_units == 0, "display clamps, the stored balance does not"
+    with pytest.raises(UsageQuotaExhaustedError):
+        await require_usage_allowed(
+            session, user.id, feature=FeatureKey.LEVEL4_GRADING, required_units=1
+        )
 
 
 async def test_export_contains_plan_and_credit_but_no_dictionary_rows(session):
     user = await _user(session)
-    session.add(UserCredit(user_id=user.id, plan=AccountPlan.pro, topup_balance=40))
+    await set_plan(session, user.id, PlanKey.pro)
     await session.commit()
 
     exported = await export_account(session, user.id)
 
-    assert exported["plan"] == AccountPlan.pro
-    assert exported["credit"]["topup_balance"] == 40
+    assert exported["plan"] == "pro"
+    assert "credit" in exported
     assert "dictionary" not in exported
     assert "words" not in exported
     assert "senses" not in exported["learning"]
@@ -210,6 +244,12 @@ async def test_delete_is_ordered_and_keeps_nodes_and_runs(session):
     leaver = await _user(session, "leaver")
     stayer = await _user(session, "stayer")
     leaver_id, stayer_id = leaver.id, stayer.id
+
+    # Add billing data for leaver to verify CASCADE deletion
+    await get_or_create_account_plan(session, user_id=leaver_id)
+    await get_or_create_usage_period(session, user_id=leaver_id)
+    await session.commit()
+
     parent = Node(author_id=leaver.id, type=NodeType.FOLDER, name="parent")
     session.add(parent)
     await session.flush()
@@ -252,6 +292,22 @@ async def test_delete_is_ordered_and_keeps_nodes_and_runs(session):
     assert await session.get(Node, ids["other"]) is not None
     assert await session.get(Node, ids["reference"]) is None
 
+    # Verify billing records were cascaded away
+    assert (
+        await session.scalar(
+            text("SELECT count(*) FROM account_plans WHERE user_id = :id"),
+            {"id": leaver_id},
+        )
+        == 0
+    )
+    assert (
+        await session.scalar(
+            text("SELECT count(*) FROM usage_periods WHERE user_id = :id"),
+            {"id": leaver_id},
+        )
+        == 0
+    )
+
 
 async def test_delete_aborts_loudly_for_an_unremembered_user_fk(session):
     user = await _user(session, "sentinel")
@@ -286,7 +342,7 @@ async def test_a_failed_external_deletion_leaves_the_account_intact(session, mon
     empty library. Ordering the Clerk call first means a failure leaves rows nobody
     can reach, which a retry still finishes.
     """
-    from pycil.account import service as account_service
+    from pycil.account import deletion as account_deletion
 
     user = await _user(session, "ordered")
     user.clerk_id = "user_ordered"
@@ -295,7 +351,7 @@ async def test_a_failed_external_deletion_leaves_the_account_intact(session, mon
 
     # No credential configured, so the external deletion refuses. The local rows
     # must survive: a half-deleted account is worse than an undeleted one.
-    monkeypatch.setattr(account_service.settings, "clerk_secret_key", "")
+    monkeypatch.setattr(account_deletion.settings, "clerk_secret_key", "")
     with pytest.raises(ServiceUnavailableError):
         await delete_account(session, user_id)
     await session.rollback()
@@ -310,29 +366,27 @@ async def test_a_deleted_subject_is_accepted_as_already_gone(session, monkeypatc
     make the second attempt of an interrupted deletion fail permanently, so it is
     accepted as the state we wanted.
     """
-    from pycil.account import service as account_service
+    from pycil.account import deletion as account_deletion
 
     user = await _user(session, "retry")
     user.clerk_id = "user_retry"
     await session.commit()
     user_id = user.id
 
-    monkeypatch.setattr(account_service.settings, "clerk_secret_key", "test-key")
+    monkeypatch.setattr(account_deletion.settings, "clerk_secret_key", "test-key")
 
-    class _Response:
-        status_code = 404
+    import httpx
+    from clerk_backend_api.models import ClerkErrors
 
-    class _Client:
-        async def __aenter__(self):
-            return self
+    class _MockUsersGone:
+        async def delete_async(self, *, user_id: str, **kwargs):
+            raise ClerkErrors(data=None, raw_response=httpx.Response(404, text="not found"))
 
-        async def __aexit__(self, *exc):
-            return None
+    class _MockClerkGone:
+        def __init__(self, *args, **kwargs):
+            self.users = _MockUsersGone()
 
-        async def delete(self, *args, **kwargs):
-            return _Response()
-
-    monkeypatch.setattr(account_service.httpx, "AsyncClient", lambda **kwargs: _Client())
+    monkeypatch.setattr(account_deletion, "get_clerk_client", lambda: _MockClerkGone())
 
     await delete_account(session, user_id)
     # A raw count rather than session.get: the identity map still holds the
@@ -349,29 +403,27 @@ async def test_a_failed_external_deletion_is_surfaced_not_swallowed(session, mon
     Swallowing it would report a successful deletion while the subject still
     exists — the exact state that lets the account come back.
     """
-    from pycil.account import service as account_service
+    from pycil.account import deletion as account_deletion
 
     user = await _user(session, "surfaced")
     user.clerk_id = "user_surfaced"
     await session.commit()
     user_id = user.id
 
-    monkeypatch.setattr(account_service.settings, "clerk_secret_key", "test-key")
+    monkeypatch.setattr(account_deletion.settings, "clerk_secret_key", "test-key")
 
-    class _Response:
-        status_code = 500
+    import httpx
+    from clerk_backend_api.models import ClerkErrors
 
-    class _Client:
-        async def __aenter__(self):
-            return self
+    class _MockUsersFailed:
+        async def delete_async(self, *, user_id: str, **kwargs):
+            raise ClerkErrors(data=None, raw_response=httpx.Response(500, text="server error"))
 
-        async def __aexit__(self, *exc):
-            return None
+    class _MockClerkFailed:
+        def __init__(self, *args, **kwargs):
+            self.users = _MockUsersFailed()
 
-        async def delete(self, *args, **kwargs):
-            return _Response()
-
-    monkeypatch.setattr(account_service.httpx, "AsyncClient", lambda **kwargs: _Client())
+    monkeypatch.setattr(account_deletion, "get_clerk_client", lambda: _MockClerkFailed())
 
     with pytest.raises(ServiceUnavailableError, match="clerk_deletion_failed"):
         await delete_account(session, user_id)

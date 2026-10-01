@@ -6,7 +6,7 @@ on the learner's own content.
 
 ## Design authority
 
-[pycil-redesign](./pycil-redesign/README.md) is the current product and technical
+[docs/design](./docs/design/README.md) is the current product and technical
 design. Documents under [docs](./docs/) and [plans](./plans/) are operational
 references and historical execution records. When they disagree with the redesign,
 the redesign governs.
@@ -14,17 +14,16 @@ the redesign governs.
 ## Repository
 
 ```text
-apps/api       FastAPI, SQLModel, Alembic, inline AG-UI assistant
-apps/worker    Taskiq content jobs and the worker heartbeat
+apps/api       FastAPI, background content tasks, SQLModel, Alembic, inline AG-UI assistant
 apps/web       Next.js UI
-pycil-redesign design authority; current behavior is reconciled per document
+docs/design    design authority; current behavior is reconciled per document
 docs           operational reference and history
 plans          retained implementation history
 ```
 
 ## Local development
 
-Requirements: Docker Compose v2, Python 3.12 with `uv`, and Node.js with `pnpm`.
+Requirements: Docker Compose v2, Python 3.14 with `uv`, and Node.js with `pnpm`.
 Copy the environment template to your local environment file, fill the required
 values, then start the stack:
 
@@ -39,7 +38,7 @@ Run packages directly when their dependencies are available:
 
 ```bash
 cd apps/api && uv sync --extra dev && uv run pytest
-cd apps/worker && uv sync --extra dev && uv run pytest
+cd apps/api && uv run pytest tests/worker
 cd apps/web && pnpm install && pnpm test && pnpm build
 ```
 
@@ -53,12 +52,12 @@ Four levels, each a directory root rather than a marker:
 
 ```bash
 cd apps/api && uv run pytest tests/unit tests/integration   # no services / containers
-cd apps/api && uv run pytest tests/system                   # API + worker + PG + Redis
-cd apps/worker && uv run pytest
+cd apps/api && uv run pytest tests/system                   # API + PG + Redis
+cd apps/api && uv run pytest tests/worker
 cd apps/web && pnpm test:unit && pnpm test:e2e              # browser needs a live stack
 ```
 
-The system level starts real API and worker processes against disposable
+The system level starts a real API process against disposable
 PostgreSQL and Redis, with a stub JWKS and a deterministic LLM gateway standing in
 for Clerk and the model provider. It requires `LEXI_REFERENCE_DATASET_PATH`.
 

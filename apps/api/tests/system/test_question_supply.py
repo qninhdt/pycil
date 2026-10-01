@@ -158,13 +158,14 @@ async def test_a_failed_supply_job_leaves_no_learning_effect(actor, durable, cor
 
     after_credit = await owner.credit()
 
-    assert await durable.count(
-        "SELECT count(*) FROM responses WHERE session_id = $1", session["sessionId"]
-    ) == 0
-    assert await durable.count(
-        "SELECT count(*) FROM review_log WHERE user_id = $1", me["id"]
-    ) == 0
-    assert after_credit["balance"] == before_credit["balance"]
+    assert (
+        await durable.count(
+            "SELECT count(*) FROM responses WHERE session_id = $1", session["sessionId"]
+        )
+        == 0
+    )
+    assert await durable.count("SELECT count(*) FROM review_log WHERE user_id = $1", me["id"]) == 0
+    assert after_credit["availableUnits"] == before_credit["availableUnits"]
 
 
 async def test_supply_never_blocks_a_learner_on_a_model_call(actor, corpus):
@@ -199,9 +200,7 @@ async def _question_count(durable, sense_id: int) -> int:
     internal to supply, and the number of rows is the whole point — a route that
     exposed it would be a route added for a test.
     """
-    return await durable.count(
-        "SELECT count(*) FROM lexi.questions WHERE sense_id = $1", sense_id
-    )
+    return await durable.count("SELECT count(*) FROM lexi.questions WHERE sense_id = $1", sense_id)
 
 
 async def _until_assessment(

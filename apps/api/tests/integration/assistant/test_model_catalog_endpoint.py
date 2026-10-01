@@ -10,8 +10,8 @@ from uuid import uuid4
 
 import pytest
 
-from pycil.auth.models import User
-from pycil.product_config import system_config
+from pycil.account.user import User
+from pycil.platform.product_config import system_config
 from tests.support.clerk_jwks import bearer
 
 pytestmark = pytest.mark.asyncio

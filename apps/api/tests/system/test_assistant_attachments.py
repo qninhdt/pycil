@@ -46,9 +46,7 @@ async def test_a_valid_image_reaches_the_provider_as_multimodal_content(actor, l
     assert response.status_code == 200, response.text
     sent = llm_gateway.requests()[before:]
     assert sent, "the provider was never called"
-    assert any("image" in body for body in sent), (
-        "the image never reached the provider as an image"
-    )
+    assert any("image" in body for body in sent), "the image never reached the provider as an image"
 
 
 async def test_an_image_for_a_model_without_vision_is_refused(actor, llm_gateway):
@@ -56,7 +54,7 @@ async def test_an_image_for_a_model_without_vision_is_refused(actor, llm_gateway
     caller = actor.new()
     thread = await caller.ok("POST", "/v1/assistant/threads", json={"title": "No vision"})
     before = len(llm_gateway.requests())
-    balance_before = (await caller.credit())["balance"]
+    balance_before = (await caller.credit())["availableUnits"]
 
     # deepseek-reasoner declares vision: false in the catalog, and is disabled; the
     # refusal must be the vision check rather than the enablement one, so the request
@@ -64,13 +62,16 @@ async def test_an_image_for_a_model_without_vision_is_refused(actor, llm_gateway
     # vision, so this asserts the path exists by selecting the disabled-but-visionless
     # one and accepting either refusal — both are ingress refusals that cost nothing.
     response = await _send_image(
-        caller, thread["id"], "TEST_STREAM", run_id="novision-run",
+        caller,
+        thread["id"],
+        "TEST_STREAM",
+        run_id="novision-run",
         forwarded={"model": "deepseek-reasoner"},
     )
 
     assert response.status_code == 422, response.text
     assert len(llm_gateway.requests()) == before, "a refused model still reached the provider"
-    assert (await caller.credit())["balance"] == balance_before
+    assert (await caller.credit())["availableUnits"] == balance_before
 
 
 async def test_an_unsupported_media_type_is_refused(actor, llm_gateway):
@@ -112,7 +113,7 @@ async def test_a_later_turn_does_not_resend_an_earlier_image(actor, llm_gateway)
 
     # A second, text-only turn over the same thread.
     second = await caller.post(
-        "/v1/assistant/ag-ui",
+        "/v1/assistant",
         json={
             "threadId": thread["id"],
             "runId": "history-2",
@@ -134,8 +135,12 @@ async def test_an_oversized_message_is_refused(actor):
     thread = await caller.ok("POST", "/v1/assistant/threads", json={"title": "Too long"})
 
     response = await caller.post(
-        f"/v1/assistant/threads/{thread['id']}/runs/stream",
-        json={"clientMessageId": "11111111-1111-4111-8111-111111111111", "content": "x" * 200_000},
+        "/v1/assistant",
+        json={
+            "threadId": thread["id"],
+            "runId": "run-too-long",
+            "messages": [{"id": "m1", "role": "user", "content": "x" * 200_000}],
+        },
     )
 
     assert response.status_code == 413, response.text
@@ -155,7 +160,7 @@ async def _send_image(
 ):
     """One AG-UI turn carrying a single inline image."""
     return await caller.post(
-        "/v1/assistant/ag-ui",
+        "/v1/assistant",
         json={
             "threadId": thread_id,
             "runId": run_id,

@@ -61,34 +61,34 @@ for _ in $(seq 1 30); do
 done
 compose exec -T postgres pg_isready -U pycil -d pycil >/dev/null 2>&1 || { bad "postgres never became ready"; exit 1; }
 ok "postgres ready"
-BEFORE_WORKER="$(compose ps -q worker 2>/dev/null | head -1)"
+BEFORE_API="$(compose ps -q api 2>/dev/null | head -1)"
 MIGRATE_COMMAND="echo 'migration failed' >&2; exit 1" \
-  API_IMAGE="$IMG" WORKER_IMAGE="$IMG" WEB_IMAGE="$IMG" \
+  API_IMAGE="$IMG" \
   BACKUP_DIR="$SANDBOX/backups" bash scripts/deploy.sh > case1.log 2>&1
 rc=$?
 if [ $rc -ne 0 ]; then ok "deploy exited non-zero on migration failure"; else bad "deploy exited 0 despite a failed migration"; fi
 if grep -q "old containers untouched" case1.log; then ok "it aborts before swapping"; else bad "no abort message"; fi
-AFTER_WORKER="$(compose ps -q worker 2>/dev/null | head -1)"
-if [ "$BEFORE_WORKER" = "$AFTER_WORKER" ]; then ok "the running worker container was not replaced"; else bad "worker changed despite the abort"; fi
+AFTER_API="$(compose ps -q api 2>/dev/null | head -1)"
+if [ "$BEFORE_API" = "$AFTER_API" ]; then ok "the running API container was not replaced"; else bad "API changed despite the abort"; fi
 if grep -q "no previous image recorded" case1.log; then ok "it reports that nothing was running to roll back to"; fi
 
 step "Case 2: a health failure after a successful migration rolls back"
-# The worker must already be running a *recorded* image, because that is what a
+# The API must already be running a *recorded* image, because that is what a
 # rollback restores. A first-ever deploy has nothing to go back to, which Case 1
 # covers separately.
-WORKER_HEALTHCHECK="exit 0" compose up -d --force-recreate worker >/dev/null 2>&1
+API_HEALTHCHECK="exit 0" compose up -d --force-recreate api >/dev/null 2>&1
 sleep 3
-if compose ps -q worker | head -1 | grep -q .; then
-  ok "a worker is running with a recorded image to roll back to"
+if compose ps -q api | head -1 | grep -q .; then
+  ok "an API is running with a recorded image to roll back to"
 else
-  bad "no worker running; the rollback case cannot be set up"
+  bad "no API running; the rollback case cannot be set up"
 fi
-WORKER_COMMAND="sleep 3600" WORKER_HEALTHCHECK="exit 1" \
-  API_IMAGE="$IMG" WORKER_IMAGE="$IMG" WEB_IMAGE="$IMG" \
+API_COMMAND="sleep 3600" API_HEALTHCHECK="exit 1" \
+  API_IMAGE="$IMG" \
   BACKUP_DIR="$SANDBOX/backups" bash scripts/deploy.sh > case2.log 2>&1
 rc=$?
-if [ $rc -ne 0 ]; then ok "deploy exited non-zero on a health failure"; else bad "deploy exited 0 despite an unhealthy worker"; fi
-if grep -q "rolling back: worker" case2.log; then ok "it rolled the images back"; else bad "no rollback attempt"; fi
+if [ $rc -ne 0 ]; then ok "deploy exited non-zero on a health failure"; else bad "deploy exited 0 despite an unhealthy API"; fi
+if grep -q "rolling back: api" case2.log; then ok "it rolled the API image back"; else bad "no rollback attempt"; fi
 if grep -q "The schema was NOT reverted" case2.log; then ok "it does not silently downgrade the schema"; else bad "schema handling is not stated"; fi
 if grep -q "rollback values recorded in" case2.log; then ok "it names the rollback record"; else bad "no rollback record named"; fi
 

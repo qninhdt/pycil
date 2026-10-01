@@ -7,9 +7,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from pycil.assistant.application import graph
-from pycil.assistant.application.tools import ALL_TOOLS
-from pycil.assistant.infra import model_factory
+from pycil.assistant.agent import graph, middleware
+from pycil.assistant.agent import model as model_factory
+from pycil.assistant.agent.tools import ALL_TOOLS
 
 
 def test_assistant_provider_uses_only_dedicated_openai_compatible_settings(monkeypatch):
@@ -27,9 +27,7 @@ def test_assistant_provider_uses_only_dedicated_openai_compatible_settings(monke
             captured.update(kwargs)
 
     sentinel = object()
-    default_model = SimpleNamespace(
-        id="catalog-model", enabled=True, max_output_tokens=345
-    )
+    default_model = SimpleNamespace(id="catalog-model", enabled=True, max_output_tokens=345)
     catalog = SimpleNamespace(
         assistant=SimpleNamespace(
             default_model="catalog-model",
@@ -66,6 +64,7 @@ def test_assistant_provider_uses_only_dedicated_openai_compatible_settings(monke
 
 def test_assistant_fails_closed_when_the_default_model_left_the_catalog(monkeypatch):
     """The graph refuses a model selection before constructing its provider client."""
+
     def reject_selection():
         raise ValueError("unknown_model")
 
@@ -102,6 +101,39 @@ def test_assistant_provider_fails_closed_without_dedicated_credential(monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_selected_effort_overrides_the_default_model(monkeypatch):
+    model = SimpleNamespace(id="default-model", enabled=True, max_output_tokens=120)
+    monkeypatch.setattr(
+        middleware,
+        "system_config",
+        SimpleNamespace(get_model=lambda model_id: model),
+    )
+    calls = []
+    monkeypatch.setattr(
+        middleware,
+        "build_chat_model",
+        lambda model_id, output, effort: calls.append((model_id, output, effort)) or "chosen",
+    )
+    request = SimpleNamespace(
+        runtime=SimpleNamespace(
+            context=SimpleNamespace(model_id="default-model", reasoning_effort="high")
+        ),
+        model=SimpleNamespace(model_name="default-model"),
+        override=lambda **kwargs: SimpleNamespace(**kwargs),
+    )
+
+    await middleware.ModelSelectionMiddleware("none").awrap_model_call(
+        request, lambda updated: _resolved(updated.model)
+    )
+
+    assert calls == [("default-model", 120, "high")]
+
+
+async def _resolved(value):
+    return value
+
+
+@pytest.mark.asyncio
 async def test_openai_compatible_client_invokes_configured_provider_protocol(monkeypatch):
     """Exercise the actual OpenAI-compatible wire protocol without a real secret."""
     received: dict[str, str] = {}
@@ -113,9 +145,7 @@ async def test_openai_compatible_client_invokes_configured_provider_protocol(mon
                 "object": "chat.completion.chunk",
                 "created": 0,
                 "model": "compatible-test-model",
-                "choices": [
-                    {"index": 0, "delta": delta, "finish_reason": finish_reason}
-                ],
+                "choices": [{"index": 0, "delta": delta, "finish_reason": finish_reason}],
             }
 
         def do_POST(self):  # noqa: N802 - stdlib HTTP hook name
@@ -127,9 +157,9 @@ async def test_openai_compatible_client_invokes_configured_provider_protocol(mon
                 self._chunk({"content": "pong"}),
                 self._chunk({}, "stop"),
             )
-            payload = "".join(
-                f"data: {json.dumps(chunk)}\n\n" for chunk in chunks
-            ) + "data: [DONE]\n\n"
+            payload = (
+                "".join(f"data: {json.dumps(chunk)}\n\n" for chunk in chunks) + "data: [DONE]\n\n"
+            )
             payload = payload.encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")

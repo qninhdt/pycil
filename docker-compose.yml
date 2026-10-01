@@ -60,7 +60,7 @@ x-depends-stores: &depends-stores
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
@@ -80,7 +80,7 @@ services:
       retries: 10
 
   redis:
-    image: redis:7-alpine
+    image: redis:8-alpine
     restart: unless-stopped
     command: ["sh", "-c", "redis-server --appendonly yes --requirepass \"$${REDIS_PASSWORD:-redis-dev-only}\""]
     environment:
@@ -100,27 +100,6 @@ services:
       timeout: 3s
       retries: 10
 
-  # The browser app shares one public origin with FastAPI through Caddy.
-  web:
-    image: ${WEB_IMAGE:-pycil-web:latest}
-    build:
-      context: .
-      dockerfile: apps/web/Dockerfile
-    restart: unless-stopped
-    environment:
-      NODE_ENV: production
-    # Loopback-bound for debugging only; public traffic arrives through Caddy.
-    ports:
-      - "${WEB_HOST_PORT:-127.0.0.1:3000}:3000"
-    depends_on:
-      api:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/login').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
-      interval: 10s
-      timeout: 5s
-      retries: 6
-
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
@@ -137,8 +116,6 @@ services:
       - caddy_config:/config
     depends_on:
       api:
-        condition: service_healthy
-      web:
         condition: service_healthy
 
   # One-shot migration gate: a healthy Postgres is NOT a migrated Postgres.
@@ -186,47 +163,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 6
-
-  worker:
-    image: ${WORKER_IMAGE:-pycil-worker:latest}
-    build:
-      context: .
-      dockerfile: apps/worker/Dockerfile
-    restart: unless-stopped
-    environment:
-      <<: [*backend-env, *lexi-env, *lexi-provider-env]
-    depends_on: *depends-stores
-    volumes:
-      - ${LEXI_REFERENCE_DATASET_PATH:?LEXI_REFERENCE_DATASET_PATH is required}:/reference/cambridge.db:ro
-    healthcheck:
-      # python:3.12-slim has no redis-cli, so probe via the in-image redis
-      # client.
-      test: ["CMD", "python", "-c", "import redis, os; redis.from_url(os.environ['REDIS_URL']).ping()"]
-      interval: 10s
-      timeout: 5s
-      retries: 6
-
-  backup:
-    image: pycil-backup:latest
-    build:
-      context: ./infra/backup
-    profiles: ["backup"]
-    environment:
-      DATABASE_URL: ${DATABASE_URL_SYNC:-${DATABASE_URL}}
-      BACKUP_ID: ${BACKUP_ID:-}
-      RESTIC_REPOSITORY: ${RESTIC_REPOSITORY:-}
-      RESTIC_PASSWORD_FILE: /run/secrets/restic_password
-      B2_ACCOUNT_ID: ${B2_ACCOUNT_ID:-}
-      B2_ACCOUNT_KEY: ${B2_ACCOUNT_KEY:-}
-    secrets:
-      - restic_password
-    depends_on:
-      postgres:
-        condition: service_healthy
-
-secrets:
-  restic_password:
-    file: ./infra/backup/restic.password
 
 volumes:
   pgdata:

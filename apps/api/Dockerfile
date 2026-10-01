@@ -1,11 +1,11 @@
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy
 
-COPY --from=ghcr.io/astral-sh/uv:0.10.7 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.12.21 /uv /uvx /bin/
 
 WORKDIR /app
 
@@ -27,6 +27,12 @@ WORKDIR /app/apps/api
 RUN uv sync --locked --no-dev
 
 ENV PATH="/app/apps/api/.venv/bin:$PATH"
+
+# Word generation runs in the worker process from this same image and needs the
+# WordNet corpus at runtime (the nltk package alone does not include its data).
+ENV NLTK_DATA=/usr/local/nltk_data
+RUN python -m nltk.downloader -d "$NLTK_DATA" wordnet \
+    && python -c "from nltk.corpus import wordnet; assert wordnet.synsets('resilient')"
 
 RUN useradd --create-home --uid 10001 appuser \
     && chown -R appuser:appuser /app

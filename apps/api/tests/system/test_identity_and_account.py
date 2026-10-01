@@ -79,9 +79,7 @@ async def test_an_unverified_email_does_not_claim_an_existing_account(actor, dur
     victim_id = uuid.uuid4()
     await _insert_user(durable, victim_id, email, subject=None)
 
-    caller = actor.with_email(
-        f"user_{uuid.uuid4().hex[:16]}", email, email_verified=False
-    )
+    caller = actor.with_email(f"user_{uuid.uuid4().hex[:16]}", email, email_verified=False)
     body = await caller.me()
 
     # A token without a verified claim provisions its own account rather than claiming

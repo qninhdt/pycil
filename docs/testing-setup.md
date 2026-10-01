@@ -5,8 +5,8 @@ cannot be collected at one level and reported at another.
 
 | Level | Where | Command | Needs |
 |---|---|---|---|
-| unit | `apps/api/tests/unit`, `apps/worker/tests/unit`, `apps/web/tests/unit` | `uv run pytest tests/unit` | nothing |
-| integration | `apps/api/tests/integration`, `apps/worker/tests/integration`, `apps/web/tests/integration` | `uv run pytest tests/integration` | PostgreSQL; Redis for the worker |
+| unit | `apps/api/tests/unit`, `apps/api/tests/worker/unit`, `apps/web/tests/unit` | `uv run pytest tests/unit tests/worker/unit` | nothing |
+| integration | `apps/api/tests/integration`, `apps/api/tests/worker/integration`, `apps/web/tests/integration` | `uv run pytest tests/integration tests/worker/integration` | PostgreSQL; Redis for the worker |
 | system | `apps/api/tests/system` | `uv run pytest tests/system` | PostgreSQL, Redis, the Cambridge artifact |
 | browser | `apps/web/tests/e2e/specs` | `pnpm test:e2e` | a running backend stack and a Clerk test instance |
 

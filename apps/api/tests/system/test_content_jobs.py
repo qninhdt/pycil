@@ -1,11 +1,9 @@
-"""A job the API queued is actually performed by the worker process.
+"""A post-response content task runs in the API process and exposes a receipt.
 
-This is the one fact the system level exists to establish and no lower level can: the
-API publishes to a Redis Stream, a *different process* consumes it, calls the LLM
-gateway over HTTP, writes a Lexi row, and the API can read a result back. Every piece
-of that is real here — the broker, the consumer group, the provider call, the receipt.
+The API calls the LLM gateway over HTTP after returning a task id, writes a Lexi
+row, and serves the result from an owner-scoped Redis receipt.
 
-The gateway is the only substitution, and it is a protocol substitution: the worker's
+The gateway is the only substitution, and it is a protocol substitution: the API's
 own OpenAI-compatible client parses its responses, so a wrong wire shape fails here
 rather than passing.
 
@@ -25,7 +23,7 @@ TERMINAL = {"done", "failed", "expired"}
 
 
 async def _settled(caller, job_id: str, *, timeout: float = 90.0) -> dict:
-    """Read the receipt until the worker has finished with it.
+    """Read the receipt until the background callback finishes.
 
     Polling the *receipt* rather than resubmitting the work is the product's own rule:
     the generation is asynchronous and the job id is the handle to its progress. A
@@ -41,7 +39,7 @@ async def _settled(caller, job_id: str, *, timeout: float = 90.0) -> dict:
     raise AssertionError(f"job never settled: {last}")
 
 
-async def test_a_word_generation_queued_by_the_api_is_performed_by_the_worker(actor):
+async def test_a_word_generation_accepted_by_the_api_finishes_in_background(actor):
     caller = actor.new()
     created = await caller.ok("POST", "/v1/word-generations", json={"query": "resilient"})
 
@@ -75,54 +73,3 @@ async def test_an_unknown_job_is_the_same_404_as_someone_elses(actor):
 
     assert unknown.status_code == other.status_code == 404
     assert unknown.json()["code"] == other.json()["code"] == "job_not_found"
-
-
-async def test_a_word_generation_outlives_the_worker_that_would_have_run_it(
-    actor, system_stack, durable
-):
-    """Work published while no consumer exists is still performed, exactly once.
-
-    This is the one journey that cannot exist below the system level: the failure is a
-    *process* being gone, and what must survive is a message in a real Redis stream
-    plus a receipt a client is polling. A fake cannot die.
-
-    The consumer is stopped *before* the job is published, which is what makes the
-    journey deterministic. Killing it after publishing would race the worker: the job
-    often finishes first, and the test then passes without ever exercising recovery —
-    the failure mode of a recovery test is being quietly vacuous.
-
-    With no consumer, the message waits in the stream. The replacement worker then
-    consumes it and the receipt reaches a terminal state, and the dictionary ends with
-    exactly one entry for the word — so recovery neither lost the work nor ran it
-    twice.
-
-    Only the stack's own worker is stopped. A journey has no business signalling a
-    process it did not start, which is why the harness owns the pid rather than
-    matching a pattern.
-    """
-    caller = actor.new()
-
-    system_stack.kill_worker()
-    created = await caller.ok("POST", "/v1/word-generations", json={"query": "meticulous"})
-    job_id = created["taskId"]
-
-    # The work is durable while nothing is consuming it. The status is asserted
-    # exactly: a ``done`` here would mean a consumer had already run the job, so the
-    # kill had not removed the consumer and the recovery below would prove nothing.
-    pending = await caller.ok("GET", f"/v1/jobs/{job_id}")
-    assert pending["status"] == "queued", (
-        f"the job was already consumed, so this journey is not exercising recovery: {pending}"
-    )
-
-    system_stack.start_worker()
-
-    receipt = await _settled(caller, job_id, timeout=180.0)
-
-    assert receipt["status"] == "done", receipt
-    assert receipt["result"]["senseIds"], receipt
-
-    # One generation, not two: a reclaimed message must not be re-executed into a
-    # second word row for the same normalized query.
-    assert (
-        await durable.count("SELECT count(*) FROM lexi.words WHERE norm = $1", "meticulous") == 1
-    ), "worker recovery produced a second dictionary entry for one word"

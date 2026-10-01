@@ -48,9 +48,7 @@ RUBRIC_AT_EVERY_LEVEL = [
 ]
 
 _RENDER_BY_TYPE = {item.type_id: item.render_kind for item in SHIPPED_TYPES}
-_RENDER_BY_TYPE.update(
-    {item.type_id: item.render_kind for item in RUBRIC_AT_EVERY_LEVEL}
-)
+_RENDER_BY_TYPE.update({item.type_id: item.render_kind for item in RUBRIC_AT_EVERY_LEVEL})
 # Types whose verdict comes from a model rather than a rule, so `evaluate_answer`
 # reports `pending` and the route must defer to the worker.
 _LLM_TYPES = {"use_in_sentence", "rubric_free_text"}

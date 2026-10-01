@@ -27,8 +27,6 @@ jobs:
     outputs:
       image_tag: ${{ steps.meta.outputs.image_tag }}
       api_digest: ${{ steps.build-api.outputs.digest }}
-      worker_digest: ${{ steps.build-worker.outputs.digest }}
-      web_digest: ${{ steps.build-web.outputs.digest }}
     steps:
       # A `workflow_run` event checks out the default branch and sets GITHUB_SHA to
       # its tip, which is not necessarily the commit that was tested. Both the
@@ -52,49 +50,24 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Three images until web leaves Compose. The design makes web a Vercel build,
-      # but `docker-compose.yml` still runs a `web` service and `scripts/deploy.sh`
-      # requires a `WEB_IMAGE` digest, so dropping this now would break the deploy
-      # path while nothing had replaced it. The image leaves with the container.
+      # One backend image. Web is deployed independently to Vercel.
       - name: Build & push api
         id: build-api
         uses: docker/build-push-action@v5
         with:
-          # Repo-root context so the worker image can install the API package.
+          # Repo-root context for the shared backend package and policy config.
           context: .
           file: apps/api/Dockerfile
           push: true
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-api:${{ steps.meta.outputs.image_tag }}
 
-      - name: Build & push worker
-        id: build-worker
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: apps/worker/Dockerfile
-          push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-worker:${{ steps.meta.outputs.image_tag }}
-
-      - name: Build & push web
-        id: build-web
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: apps/web/Dockerfile
-          push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-web:${{ steps.meta.outputs.image_tag }}
-
       - name: Deploy hint
         env:
           TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
           API_DIGEST: ${{ steps.build-api.outputs.digest }}
-          WORKER_DIGEST: ${{ steps.build-worker.outputs.digest }}
-          WEB_DIGEST: ${{ steps.build-web.outputs.digest }}
         run: |
           echo "Images pushed to ghcr at tag ${{ steps.meta.outputs.image_tag }}."
           echo "Tested revision: ${TESTED_SHA}"
           echo "Deploy exact digests on the host:"
           echo "API_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-api@${API_DIGEST}"
-          echo "WORKER_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-worker@${WORKER_DIGEST}"
-          echo "WEB_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-web@${WEB_DIGEST}"
           echo "scripts/deploy.sh applies them migration-then-swap; CI does not SSH."

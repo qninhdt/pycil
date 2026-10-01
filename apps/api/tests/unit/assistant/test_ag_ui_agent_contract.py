@@ -12,12 +12,12 @@ from uuid import uuid4
 
 from langgraph.graph import END, StateGraph
 
-from pycil.assistant.application.ag_ui_agent import (
+from pycil.assistant.agent.adapter import (
     DURABILITY,
     PycilAgent,
     checkpoint_thread_id,
 )
-from pycil.assistant.domain.context import AssistantContext
+from pycil.assistant.agent.context import AssistantContext
 
 
 class _State(TypedDict):
@@ -75,6 +75,4 @@ def test_the_checkpoint_key_is_namespaced_by_owner_and_thread():
     owner_id, thread_id = uuid4(), uuid4()
 
     assert checkpoint_thread_id(owner_id, thread_id) == f"assistant:{owner_id}:{thread_id}"
-    assert checkpoint_thread_id(owner_id, thread_id) != checkpoint_thread_id(
-        uuid4(), thread_id
-    )
+    assert checkpoint_thread_id(owner_id, thread_id) != checkpoint_thread_id(uuid4(), thread_id)

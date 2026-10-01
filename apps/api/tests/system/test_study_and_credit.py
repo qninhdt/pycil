@@ -69,10 +69,7 @@ async def test_a_full_session_advances_learning_once_per_sense(actor, corpus, du
     assert seen["wrong"] >= 1, "the journey never produced the wrong answer it depends on"
 
     assert (
-        await durable.count(
-            "SELECT count(*) FROM responses WHERE session_id = $1", session_id
-        )
-        == 1
+        await durable.count("SELECT count(*) FROM responses WHERE session_id = $1", session_id) == 1
     ), "the session wrote more than one graded response"
 
     # One schedule per learner per sense, whichever deck it was reached through.

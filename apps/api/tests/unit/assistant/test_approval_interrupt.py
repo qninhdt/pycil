@@ -19,7 +19,8 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.tools import tool
 from langgraph.checkpoint.memory import InMemorySaver
 
-from pycil.assistant.application.ag_ui_agent import PycilAgent
+from pycil.assistant.agent.adapter import PycilAgent
+from pycil.assistant.turns.stream import _resume
 
 pytestmark = pytest.mark.asyncio
 
@@ -61,9 +62,7 @@ def _build(mutations: list) -> PycilAgent:
         replies=[
             AIMessage(
                 content="",
-                tool_calls=[
-                    {"name": "delete_node", "args": {"node_id": "node-1"}, "id": "call-1"}
-                ],
+                tool_calls=[{"name": "delete_node", "args": {"node_id": "node-1"}, "id": "call-1"}],
             ),
             AIMessage(content="finished"),
         ]
@@ -92,7 +91,7 @@ def _start() -> RunAgentInput:
     )
 
 
-def _resume(interrupt_id: str, decision: dict) -> RunAgentInput:
+def _resume_input(interrupt_id: str, decision: dict) -> RunAgentInput:
     return RunAgentInput(
         thread_id=THREAD_ID,
         run_id="run-2",
@@ -140,7 +139,7 @@ async def test_reject_finishes_the_run_without_running_the_tool():
     interrupt_id = await _interrupt_id(agent, _start())
 
     types = await _resume_types(
-        agent, _resume(interrupt_id, {"type": "reject", "message": "not now"})
+        agent, _resume_input(interrupt_id, {"type": "reject", "message": "not now"})
     )
 
     assert mutations == []
@@ -153,7 +152,20 @@ async def test_approve_runs_the_tool_exactly_once():
     agent = _build(mutations)
     interrupt_id = await _interrupt_id(agent, _start())
 
-    types = await _resume_types(agent, _resume(interrupt_id, {"type": "approve"}))
+    types = await _resume_types(agent, _resume_input(interrupt_id, {"type": "approve"}))
 
     assert mutations == ["node-1"]
     assert "EventType.RUN_FINISHED" in types
+
+
+async def test_two_sensitive_actions_require_two_decisions():
+    body = _resume_input("interrupt-1", {"type": "approve"})
+    entry = body.resume[0]
+    body = body.model_copy(
+        update={
+            "resume": [entry.model_copy(update={"payload": {"decisions": ["approve", "reject"]}})]
+        }
+    )
+    translated, all_rejected = _resume(body, 2)
+    assert translated.resume[0].payload == {"decisions": [{"type": "approve"}, {"type": "reject"}]}
+    assert not all_rejected

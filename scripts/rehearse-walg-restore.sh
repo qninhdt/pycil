@@ -16,7 +16,7 @@
 # Usage: ./scripts/rehearse-walg-restore.sh
 set -euo pipefail
 
-COMPOSE_FILE="docker-compose.walg-rehearsal.yml"
+COMPOSE_FILE="infra/postgres-walg/docker-compose.walg-rehearsal.yml"
 SOURCE="postgres"
 TARGET="postgres-restore"
 REHEARSAL_PORT=5499

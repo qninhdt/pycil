@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Rehearse the pre-release, empty-volume cutover locally. This never copies
 # prior Lexi service data; it proves the new images can create both schemas,
-# start the embedded worker, and satisfy API readiness.
+# start the API and satisfy readiness.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -32,7 +32,7 @@ cleanup
 "${compose[@]}" config -q
 "${compose[@]}" up -d --build postgres redis
 "${compose[@]}" run --rm migrate
-"${compose[@]}" up -d worker api web caddy
+"${compose[@]}" up -d api caddy
 
 for _ in $(seq 1 30); do
   if "${compose[@]}" exec -T api python -c \
@@ -44,6 +44,6 @@ for _ in $(seq 1 30); do
   sleep 2
 done
 
-"${compose[@]}" logs --tail=100 api worker web caddy migrate >&2 || true
+"${compose[@]}" logs --tail=100 api caddy migrate >&2 || true
 echo "rehearsal: API readiness did not succeed" >&2
 exit 1

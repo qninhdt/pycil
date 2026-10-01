@@ -38,8 +38,8 @@ async def test_an_export_contains_only_the_callers_own_data(actor):
 
     export = await owner.ok("GET", "/v1/me/export")
 
-    names = [node["name"] for node in export["hierarchy"]]
-    ids = [str(node["id"]) for node in export["hierarchy"]]
+    names = [node["name"] for node in export["collection"]]
+    ids = [str(node["id"]) for node in export["collection"]]
 
     assert "Mine" in names and "Also mine" in names, names
     assert "Theirs" not in names and "Also theirs" not in names, names

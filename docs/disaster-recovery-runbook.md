@@ -52,7 +52,7 @@ The accepted design moves to WAL-G base backups plus continuous WAL archiving to
 S3-compatible storage, which recovers within the actually archived window rather
 than to the last dump. **This runbook is still the operational route** and stays
 until a WAL-G restore has been rehearsed in isolation; a backup route is not
-replaced by a plan to replace it. See `pycil-redesign/ops/devops.md` §7.
+replaced by a plan to replace it. See `docs/design/ops/devops.md` §7.
 
 ## WAL-G: base backup, WAL archiving and point-in-time restore
 
@@ -64,9 +64,9 @@ no archiving. What follows is the mechanism, and what has been proven about it.
 
 | Piece | Path | Purpose |
 |---|---|---|
-| `infra/postgres-walg/Dockerfile` | PostgreSQL 16 (Debian) plus WAL-G `v3.0.9`, checksum-verified at build time | The image a deployment would run |
+| `infra/postgres-walg/Dockerfile` | PostgreSQL 18 (Debian) plus WAL-G `v3.0.9`, checksum-verified at build time | The image a deployment would run |
 | `infra/postgres-walg/entrypoint-walg.sh` | Validates `WALG_S3_PREFIX` and its reachability, then hands off to the stock entrypoint | A cluster that cannot archive refuses to start rather than looking healthy |
-| `docker-compose.walg-rehearsal.yml` | Isolated source cluster, restore target and MinIO | The rehearsal, on loopback port 5499 |
+| `infra/postgres-walg/docker-compose.walg-rehearsal.yml` | Isolated source cluster, restore target and MinIO | The rehearsal, on loopback port 5499 |
 | `scripts/rehearse-walg-restore.sh` | The rehearsal itself, with assertions | Proves recoverability rather than assuming it |
 
 Archive settings are passed as `-c` flags from the compose file. They are **not**
@@ -79,9 +79,9 @@ building this and is why the flags are used.
 ### The rehearsal
 
 ```sh
-docker compose -f docker-compose.walg-rehearsal.yml up -d postgres
+docker compose -f infra/postgres-walg/docker-compose.walg-rehearsal.yml up -d postgres
 ./scripts/rehearse-walg-restore.sh
-docker compose -f docker-compose.walg-rehearsal.yml --profile restore down -v
+docker compose -f infra/postgres-walg/docker-compose.walg-rehearsal.yml --profile restore down -v
 ```
 
 It asserts, in order: archiving is live; Pycil's real migration chain applies;

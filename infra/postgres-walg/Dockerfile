@@ -4,7 +4,7 @@
 # against musl needs `libc6-compat` — a shim in front of the one component whose
 # failure mode is "the backup silently did not happen". The image is a little
 # larger; a database image is the wrong place to save it.
-FROM postgres:16-bookworm
+FROM postgres:18-bookworm
 
 # Pinned, and verified at build time. An unpinned `latest` would mean two hosts
 # could archive with different binaries, and a restore is the moment that

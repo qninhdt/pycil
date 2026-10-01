@@ -13,11 +13,11 @@ from uuid import uuid4
 import pytest
 from ag_ui.core import RunAgentInput
 
-from pycil.assistant import router
-from pycil.assistant.infra.models import AssistantThread
-from pycil.auth.models import User
-from pycil.auth.schemas import CurrentUser
-from pycil.common.errors import NotFoundError
+from pycil.account.schemas import CurrentUser
+from pycil.account.user import User
+from pycil.assistant.models import AssistantThread
+from pycil.assistant.turns import stream as router
+from pycil.platform.errors import NotFoundError
 
 pytestmark = pytest.mark.asyncio
 
@@ -51,9 +51,7 @@ async def _owner_with_thread(session, email: str) -> tuple[User, AssistantThread
 
 def _request(graph) -> SimpleNamespace:
     return SimpleNamespace(
-        app=SimpleNamespace(
-            state=SimpleNamespace(assistant_graph=graph, assistant_agent=object())
-        )
+        app=SimpleNamespace(state=SimpleNamespace(assistant_graph=graph, assistant_agent=object()))
     )
 
 
@@ -68,9 +66,7 @@ def _body(thread_id) -> RunAgentInput:
     )
 
 
-async def test_another_learners_thread_is_refused_before_any_checkpoint_read(
-    session, fake_redis
-):
+async def test_another_learners_thread_is_refused_before_any_checkpoint_read(session, fake_redis):
     """A foreign thread answers exactly like a missing one, and reads nothing."""
     _, thread = await _owner_with_thread(session, "owner-idor@example.test")
     intruder = User(email="intruder-idor@example.test")
@@ -80,7 +76,7 @@ async def test_another_learners_thread_is_refused_before_any_checkpoint_read(
 
     graph = RecordingGraph()
     with pytest.raises(NotFoundError):
-        await router.ag_ui_run(
+        await router.run_turn(
             _body(thread.id),
             _request(graph),
             user=CurrentUser(id=intruder.id, email=intruder.email),
@@ -89,7 +85,8 @@ async def test_another_learners_thread_is_refused_before_any_checkpoint_read(
         )
 
     assert graph.calls == []
-    assert not await fake_redis.keys("assistant:turn:*")
+    assert not await fake_redis.keys("assistant:slot:*")
+    assert not await fake_redis.keys("assistant:running:*")
 
 
 async def test_a_missing_thread_is_refused_identically(session, fake_redis):
@@ -101,7 +98,7 @@ async def test_a_missing_thread_is_refused_identically(session, fake_redis):
 
     graph = RecordingGraph()
     with pytest.raises(NotFoundError):
-        await router.ag_ui_run(
+        await router.run_turn(
             _body(uuid4()),
             _request(graph),
             user=CurrentUser(id=user.id, email=user.email),

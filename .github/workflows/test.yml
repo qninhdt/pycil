@@ -19,49 +19,40 @@ on:
 jobs:
   lint-python:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        dir: [apps/api, apps/worker]
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v9.0.0
         with:
           enable-cache: true
-      - run: uv python install 3.12
+      - run: uv python install 3.14
       - run: uv sync --locked --extra dev
-        working-directory: ${{ matrix.dir }}
+        working-directory: apps/api
       - run: uv run ruff check .
-        working-directory: ${{ matrix.dir }}
+        working-directory: apps/api
 
   # Level 1. No database, no Redis, no network: a unit test that needed a service
   # would be an integration test in the wrong directory.
   test-unit:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        dir: [apps/api, apps/worker]
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v9.0.0
         with:
           enable-cache: true
-      - run: uv python install 3.12
+      - run: uv python install 3.14
       - run: uv sync --locked --extra dev
-        working-directory: ${{ matrix.dir }}
-      - run: uv run pytest tests/unit -q
-        working-directory: ${{ matrix.dir }}
+        working-directory: apps/api
+      - run: uv run pytest tests/unit tests/worker/unit -q
+        working-directory: apps/api
 
   # Level 2. Real PostgreSQL; Redis is faked in-process where the assertions are
   # about Pycil's use of it rather than about Redis itself. The worker's delivery
-  # tests assert real Streams semantics — pending entries, reclaim after an idle
-  # threshold, consumer-group ownership — so that job also gets a real Redis.
+   # Redis remains part of session coordination and owner-scoped job receipts.
   test-integration:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        image: postgres:18
         env:
           POSTGRES_USER: pycil
           POSTGRES_PASSWORD: pycil
@@ -76,24 +67,16 @@ jobs:
         options: >-
           --health-cmd "redis-cli ping" --health-interval 5s
           --health-timeout 3s --health-retries 10
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - dir: apps/api
-            paths: tests/integration
-          - dir: apps/worker
-            paths: tests/integration
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v9.0.0
         with:
           enable-cache: true
-      - run: uv python install 3.12
+      - run: uv python install 3.14
       - run: uv sync --locked --extra dev
-        working-directory: ${{ matrix.dir }}
-      - run: uv run pytest ${{ matrix.paths }} -q -rs
-        working-directory: ${{ matrix.dir }}
+        working-directory: apps/api
+      - run: uv run pytest tests/integration tests/worker/integration -q -rs
+        working-directory: apps/api
         env:
           TEST_DB_URL: postgresql+asyncpg://pycil:pycil@localhost:5432/pycil_test
           TEST_REDIS_URL: redis://localhost:6379/15
@@ -106,7 +89,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        image: postgres:18
         env:
           POSTGRES_USER: pycil
           POSTGRES_PASSWORD: pycil
@@ -118,7 +101,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v9.0.0
-      - run: uv python install 3.12
+      - run: uv python install 3.14
       - run: uv sync --locked
         working-directory: apps/api
       - name: Upgrade fresh database to the single head
@@ -132,7 +115,7 @@ jobs:
           uv run alembic upgrade head
           test "$(uv run alembic current)" = "$(uv run alembic heads)"
 
-  # Level 3. A real API process, a real worker process, PostgreSQL, Redis, a stub
+   # Level 3. A real API process, PostgreSQL, Redis, a stub
   # JWKS serving genuine RS256 tokens over HTTP, and a deterministic LLM gateway.
   # Only Clerk and the model provider are substituted, and only at their network
   # boundary; nothing about Pycil's own code is faked.
@@ -140,7 +123,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        image: postgres:18
         env:
           POSTGRES_USER: pycil
           POSTGRES_PASSWORD: pycil
@@ -160,7 +143,7 @@ jobs:
       - uses: astral-sh/setup-uv@v9.0.0
         with:
           enable-cache: true
-      - run: uv python install 3.12
+      - run: uv python install 3.14
       - run: uv sync --locked --extra dev
         working-directory: apps/api
       - name: Restore the Cambridge reference artifact
@@ -214,7 +197,7 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
+          cache-dependency-path: apps/web/pnpm-lock.yaml
       - name: Check the browser preconditions are configured
         env:
           CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
@@ -237,7 +220,7 @@ jobs:
           # nothing is worse than a red one.
           exit $missing
       - run: pnpm install --frozen-lockfile
-        working-directory: .
+        working-directory: apps/web
       - run: pnpm typecheck
         working-directory: apps/web
       - run: pnpm lint
@@ -260,22 +243,12 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  # Backend images, plus the web image until web leaves Compose.
-  #
-  # The design has web as a Vercel build rather than a container, so this job
-  # should eventually build two images. It still builds three because the removal
-  # is sequenced: `docker-compose.yml` runs a `web` service, Caddy proxies to it,
-  # and `scripts/deploy.sh` requires a `WEB_IMAGE` digest. Dropping the build now
-  # would break `docker compose pull` and the deploy script while nothing had
-  # replaced them. The web container leaves Compose together with its image, once
-  # the Vercel path exists.
+  # Backend images. Web is tested and deployed independently via Vercel.
   build-images:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - run: docker build -f apps/api/Dockerfile -t pycil-api:ci .
-      - run: docker build -f apps/worker/Dockerfile -t pycil-worker:ci .
-      - run: docker build -f apps/web/Dockerfile -t pycil-web:ci .
       - name: Validate Compose
         env:
           DOMAIN: app.example.test
@@ -304,7 +277,7 @@ jobs:
           done
           echo "all shell scripts parse"
       - name: Validate the WAL-G rehearsal Compose file
-        run: docker compose -f docker-compose.walg-rehearsal.yml config -q
+        run: docker compose -f infra/postgres-walg/docker-compose.walg-rehearsal.yml config -q
       # The deploy script's failure paths are the ones that matter and the ones no
       # review catches: a failed migration must abort before anything is swapped,
       # and a health failure after a successful migration must roll the images
@@ -327,7 +300,7 @@ jobs:
 
           # Every route that streams. A new one added to the API without a matching
           # Caddyfile entry must fail here rather than degrade silently.
-          STREAMS = {"/v1/assistant/ag-ui", "/v1/assistant/threads/*/runs/stream"}
+          STREAMS = {"/v1/assistant"}
 
 
           def walk(node):

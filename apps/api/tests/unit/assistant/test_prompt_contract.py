@@ -8,7 +8,7 @@ rather than a silent behavior change.
 
 import pytest
 
-from pycil.assistant.domain.prompts import (
+from pycil.assistant.agent.prompts import (
     ALLOWED_DOMAINS,
     FORBIDDEN_FEATURES,
     SENSITIVE_ACTIONS,
@@ -68,7 +68,7 @@ def test_rendering_is_deterministic():
 
 def test_a_missing_template_variable_fails_loudly(monkeypatch):
     """Strict rendering: a typo in the template must break at import, not render blank."""
-    import pycil.assistant.domain.prompts as prompts
+    import pycil.assistant.agent.prompts as prompts
 
     prompts._environment.cache_clear()
     monkeypatch.setattr(prompts, "ALLOWED_DOMAINS", ())

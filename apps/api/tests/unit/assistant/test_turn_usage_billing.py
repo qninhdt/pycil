@@ -7,19 +7,18 @@ conversion directly, because the arithmetic is the part that can silently
 mis-bill a learner.
 """
 
-from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
 
-from pycil.assistant.domain import usage as usage_module
-from pycil.assistant.domain.usage import (
+from pycil.assistant.turns import usage as usage_module
+from pycil.assistant.turns.usage import (
     CallUsage,
     TurnUsage,
     call_usage,
-    milli_credits_for,
+    usage_units_for,
 )
-from pycil.product_config import SystemConfig, system_config
+from pycil.platform.product_config import SystemConfig, system_config
 
 
 def _message(**usage) -> SimpleNamespace:
@@ -44,8 +43,12 @@ def test_usage_is_read_from_langchains_normalised_metadata():
 )
 def test_every_provider_cache_key_means_the_same_quantity(details):
     """OpenAI, Anthropic and LangChain each name the cache read differently."""
-    assert call_usage(_message(input_tokens=900, output_tokens=1, input_token_details=details)
-                      ).cached_input_tokens == 700
+    assert (
+        call_usage(
+            _message(input_tokens=900, output_tokens=1, input_token_details=details)
+        ).cached_input_tokens
+        == 700
+    )
 
 
 def test_cached_reads_are_clamped_to_the_input_total():
@@ -73,7 +76,7 @@ def test_cache_writes_are_normalized_and_billed_at_their_own_rate(monkeypatch):
     usage.add("gemini-3.8-flash", call)
 
     assert (call.cached_input_tokens, call.cache_write_tokens) == (600, 300)
-    assert milli_credits_for(usage) == 135
+    assert usage_units_for(usage) == 135
 
 
 def test_a_call_without_usage_is_counted_not_silently_free():
@@ -82,7 +85,7 @@ def test_a_call_without_usage_is_counted_not_silently_free():
     usage.add("m", call_usage(SimpleNamespace(usage_metadata=None)))
     assert usage.unmetered_calls == 1
     assert not usage.has_usage
-    assert milli_credits_for(usage) == 0
+    assert usage_units_for(usage) == 0
 
 
 def test_several_calls_in_one_turn_accumulate_before_rounding():
@@ -93,13 +96,10 @@ def test_several_calls_in_one_turn_accumulate_before_rounding():
 
     assert usage.input_tokens == 1200
     assert usage.output_tokens == 300
-
-    per_model = system_config.calculate_cost_usd(
-        "gemini-3.8-flash", input_tokens=1200, output_tokens=300
-    )
-    assert milli_credits_for(usage) == round(
-        per_model / system_config.app.credit_usd_value * 1_000
-    )
+    # 1200 input at $0.30/M plus 300 output at $2.50/M is $0.00111, which at
+    # $0.001 per Credit is 1.11 Credits. The turn rounds once, to 1110
+    # milli-credits, rather than once per call.
+    assert usage_units_for(usage) == 1110
 
 
 def test_each_model_in_a_turn_is_priced_at_its_own_tariff(monkeypatch):
@@ -139,44 +139,23 @@ def test_each_model_in_a_turn_is_priced_at_its_own_tariff(monkeypatch):
     only_default = TurnUsage()
     only_default.add(default_id, CallUsage(input_tokens=2_000_000))
 
-    assert milli_credits_for(mixed) > milli_credits_for(only_default)
-
-
-def test_resume_keeps_the_tariffs_snapshotted_for_earlier_calls(monkeypatch):
-    usage = TurnUsage()
-    usage.add("gemini-3.8-flash", CallUsage(input_tokens=1_000_000))
-    snapshot = usage.to_dict()
-
-    document = system_config.model_dump()
-    model = next(m for m in document["models"] if m["id"] == "gemini-3.8-flash")
-    model["pricing"]["input_usd_per_m"] *= 2
-    monkeypatch.setattr(usage_module, "system_config", SystemConfig.model_validate(document))
-
-    resumed = TurnUsage.from_dict(snapshot)
-    resumed.add("gemini-3.8-flash", CallUsage(input_tokens=1_000_000))
-
-    assert len(resumed.calls) == 2
-    assert resumed.calls[0].rates.input_usd_per_m == Decimal("0.30")
-    assert resumed.calls[1].rates.input_usd_per_m == Decimal("0.60")
-    assert milli_credits_for(resumed) == 900_000
+    assert usage_units_for(mixed) > usage_units_for(only_default)
 
 
 def test_a_tiny_turn_has_no_fabricated_minimum_charge():
     usage = TurnUsage()
     usage.add("gemini-3.8-flash", CallUsage(input_tokens=1))
-    assert milli_credits_for(usage) == 0
+    assert usage_units_for(usage) == 0
     usage.add("gemini-3.8-flash", CallUsage(input_tokens=1))
-    assert milli_credits_for(usage) == 1
+    assert usage_units_for(usage) == 1
 
 
 def test_the_milli_credit_conversion_matches_the_credit_value():
     """1 Credit = USD 0.001 is the anchor the stored integer assumes."""
     usage = TurnUsage()
     usage.add("gemini-3.8-flash", CallUsage(input_tokens=1_000_000, output_tokens=0))
-    cost_usd = system_config.calculate_cost_usd(
-        "gemini-3.8-flash", input_tokens=1_000_000, output_tokens=0
-    )
-    assert milli_credits_for(usage) == round(cost_usd / system_config.app.credit_usd_value * 1_000)
+    # $0.30 of input at $0.001 per Credit is 300 Credits = 300,000 milli-credits.
+    assert usage_units_for(usage) == 300_000
 
 
 @pytest.mark.asyncio
@@ -192,8 +171,8 @@ async def test_the_metering_middleware_reads_usage_off_the_response_messages():
     from langchain.agents.middleware import ModelResponse
     from langchain_core.messages import AIMessage
 
-    from pycil.assistant.application.middleware import UsageMeteringMiddleware
-    from pycil.assistant.domain.context import AssistantContext
+    from pycil.assistant.agent.context import AssistantContext
+    from pycil.assistant.agent.middleware import UsageMeteringMiddleware
 
     context = AssistantContext(user_id=uuid4())
     response = ModelResponse(
