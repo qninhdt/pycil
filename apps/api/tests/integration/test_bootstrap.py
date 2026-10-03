@@ -279,10 +279,12 @@ async def test_cleanup_failure_is_redacted_and_other_resources_still_close(
     assert not owned["redis"].connection_pool._in_use_connections
 
 
-async def test_real_disposable_redis_namespace_has_atomic_expiring_keys(redis_namespace, config):
+async def test_real_disposable_redis_namespace_has_atomic_expiring_keys(
+    redis_namespace, config, monkeypatch, caplog
+):
     from pydantic import BaseModel
 
-    from pycil.cache import RedisCache
+    from pycil.cache import STORE, RedisCache
 
     class Value(BaseModel):
         name: str
@@ -295,6 +297,7 @@ async def test_real_disposable_redis_namespace_has_atomic_expiring_keys(redis_na
     assert 0 < await client.ttl(key) <= 60
     policy = config.cache.model_copy(update={"max_entries": 2, "max_value_bytes": 128})
     cache = RedisCache(client, key + ":cache", policy)
+    expiring = RedisCache(client, key + ":expiring-cache", policy)
     try:
         await asyncio.gather(*(cache.put(name, Value(name=name), 60) for name in ("a", "b", "c")))
         assert await client.zcard(cache.index) == 2
@@ -304,15 +307,94 @@ async def test_real_disposable_redis_namespace_has_atomic_expiring_keys(redis_na
         assert [await isolated.get(name, Value) for name in ("a", "b", "c")] == [None] * 3
         assert await client.get(key) == b"owner-one"  # Cache pruning cannot evict leases.
         assert 0 < await client.ttl(cache.index) <= 60
+        entries = await client.zrange(cache.index, 0, -1, withscores=True)
+
+        def forbid_serialization(*args, **kwargs):
+            pytest.fail("Invalid TTL must fail before serialization or Redis mutation")
+
+        with monkeypatch.context() as patch:
+            patch.setattr(Value, "model_dump", forbid_serialization)
+            for ttl in (True, False, 1.5, "60", None):
+                with pytest.raises(TypeError, match="Cache TTL must be an integer"):
+                    await cache.put("invalid-ttl", Value(name="probe"), ttl)
+            for ttl in (0, -1, 61):
+                with pytest.raises(ValueError, match="Cache TTL must be between"):
+                    await cache.put("invalid-ttl", Value(name="probe"), ttl)
+        assert await client.zrange(cache.index, 0, -1, withscores=True) == entries
+        assert await client.get(cache.key("invalid-ttl")) is None
+        await cache.put("short", Value(name="short"), 1)
+        assert await cache.get("short", Value) is None
+        assert await client.zrange(cache.index, 0, -1, withscores=True) == entries
+        await cache.put("large", Value(name="small"), 60)
+        assert await cache.get("large", Value) == Value(name="small")
         await cache.put("large", Value(name="x" * 129), 60)
         assert await cache.get("large", Value) is None
+        assert await client.zscore(cache.index, cache.key("large")) is None
         await cache.discard("c")
         assert await cache.get("c", Value) is None
-        await client.set(cache.key("invalid"), b"broken JSON", ex=60)
-        assert await cache.get("invalid", Value) is None
+        for payload in (b"broken JSON", b'{"name":["sensitive-cache-sentinel"]}', b"null"):
+            await client.set(cache.key("invalid"), payload, ex=60)
+            assert await cache.get("invalid", Value) is None
+        assert "sensitive-cache-sentinel" not in caplog.text
+
+        for name in ("expired-one", "expired-two"):
+            await expiring.put(name, Value(name=name), 1)
+        await asyncio.sleep(2.1)  # Both expiry scores are strictly older than Redis's second.
+        assert await expiring.get("expired-one", Value) is None
+        assert await expiring.get("expired-two", Value) is None
+        assert await client.zcard(expiring.index) == 2
+        await expiring.put("live", Value(name="live"), 60)
+        assert await client.zrange(expiring.index, 0, -1) == [expiring.key("live").encode()]
+        assert await expiring.get("live", Value) == Value(name="live")
+        assert await client.get(key) == b"owner-one"
+        await expiring.discard("live")
+
+        # Seed the exact-second boundary and execute the production script atomically.
+        # Retry only if TIME crossed a second between seeding and the script's clock read.
+        seed = """
+redis.call('DEL', unpack(KEYS))
+local boundary_time = tonumber(redis.call('TIME')[1])
+redis.call('SET', KEYS[3], ARGV[1], 'PX', 800)
+redis.call('ZADD', KEYS[1], boundary_time, KEYS[3], boundary_time - 1, KEYS[4])
+"""
+        for _ in range(3):
+            result = await client.eval(
+                seed + STORE + "\nreturn {boundary_time, now}",
+                4,
+                expiring.index,
+                expiring.key("next"),
+                expiring.key("boundary"),
+                expiring.key("boundary-stale"),
+                b'{"name":"boundary"}',
+                60,
+                policy.max_entries,
+                60,
+            )
+            if result[0] == result[1]:
+                assert await client.zrange(expiring.index, 0, -1) == [
+                    expiring.key("boundary").encode(),
+                    expiring.key("next").encode(),
+                ]
+                assert await expiring.get("boundary", Value) == Value(name="boundary")
+                break
+        else:
+            pytest.fail("Redis TIME crossed a second in every boundary probe")
     finally:
         await client.delete(
-            cache.index, *(cache.key(n) for n in ("a", "b", "c", "large", "invalid"))
+            cache.index,
+            *(cache.key(n) for n in ("a", "b", "c", "short", "large", "invalid", "invalid-ttl")),
+            expiring.index,
+            *(
+                expiring.key(n)
+                for n in (
+                    "expired-one",
+                    "expired-two",
+                    "live",
+                    "next",
+                    "boundary",
+                    "boundary-stale",
+                )
+            ),
         )
 
 

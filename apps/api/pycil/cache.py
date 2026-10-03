@@ -11,6 +11,8 @@ logger = logging.getLogger(__name__)
 # This touches only this cache namespace, never leases or rate-limit keys.
 STORE = """
 local now = tonumber(redis.call('TIME')[1])
+-- Second-resolution scores can precede the actual expiry by a fraction of a second.
+redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', '(' .. now)
 redis.call('ZADD', KEYS[1], now + tonumber(ARGV[2]), KEYS[2])
 local excess = redis.call('ZCARD', KEYS[1]) - tonumber(ARGV[3])
 if excess > 0 then
@@ -45,6 +47,11 @@ class RedisCache:
             return None
 
     async def put(self, key, value, ttl):
+        if type(ttl) is not int:
+            raise TypeError("Cache TTL must be an integer")
+        index_ttl = max(self.policy.actor_ttl_seconds, self.policy.deck_ttl_seconds)
+        if not 0 < ttl <= index_ttl:
+            raise ValueError("Cache TTL must be between 1 and the configured maximum")
         payload = orjson.dumps(value.model_dump(mode="json"))
         if len(payload) > self.policy.max_value_bytes:
             await self.discard(key)
@@ -58,7 +65,7 @@ class RedisCache:
                 payload,
                 ttl,
                 self.policy.max_entries,
-                max(self.policy.actor_ttl_seconds, self.policy.deck_ttl_seconds),
+                index_ttl,
             )
         except RedisError:
             logger.warning("Optional cache write failed")
