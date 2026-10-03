@@ -14,6 +14,7 @@ from pycil.config import Deployment, load_config
 from pycil.dependencies import process_resources
 from pycil.http import (
     BodyLimit,
+    ErrorResponse,
     Problem,
     RequestBoundary,
     RuntimeCORS,
@@ -44,7 +45,15 @@ def create_app() -> FastAPI:
                 for name in (*vars(resources), "identity", "product", "deployment"):
                     delattr(app.state, name)
 
-    app = FastAPI(title="Pycil", version="1.0.0", lifespan=lifespan)
+    app = FastAPI(
+        title="Pycil",
+        version="1.0.0",
+        lifespan=lifespan,
+        responses={
+            status: {"model": ErrorResponse}
+            for status in (400, 401, 403, 404, 405, 409, 413, 422, 429, 500, 503)
+        },
+    )
     app.add_exception_handler(Problem, problem_response)
     app.add_exception_handler(RequestValidationError, validation_response)
     app.add_exception_handler(HTTPException, http_error_response)

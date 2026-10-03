@@ -6,6 +6,7 @@ from uuid import UUID, uuid7
 from fastapi import Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.exceptions import HTTPException
 from starlette.middleware.cors import CORSMiddleware
@@ -17,6 +18,11 @@ class Problem(Exception):
         self.status = status
         self.code = code
         super().__init__(code)
+
+
+class ErrorResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    error: str
 
 
 async def problem_response(request: Request, error: Problem):
@@ -90,7 +96,7 @@ class RuntimeCORS:
                 self.app,
                 allow_origins=origins,
                 allow_credentials=True,
-                allow_methods=["GET", "POST", "PATCH", "DELETE"],
+                allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
                 allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Request-ID"],
                 expose_headers=["X-Request-ID"],
             )

@@ -3,16 +3,17 @@
 Pycil is a subscription-based English-vocabulary tutor with user–Sense FSRS memory,
 client-owned learning, a folder/deck/reference library and an assistant.
 
-> **Backend rewrite verification in progress.** Fresh backend and native Lexi gates
-> are passing. Deployment and the exact-target development reset remain gated.
-> See [the execution checkpoint](./docs/backend-rewrite-status.md) for evidence and
-> remaining work. Historical plans/runbooks are not current operator instructions.
+> **Backend integration fixes verified.** The API and disposable native checks pass;
+> no application stack is provisioned or deployed by this work. Use the current
+> [frontend/backend contract](./docs/frontend-backend-contract.md), not historical
+> rewrite checkpoints or runbooks, when implementing the frontend.
 
 ## Design authority
 
-The revision-3 rewrite contract linked from the execution checkpoint supersedes
-older architecture/settings/learning-session documents. Existing docs and runbooks
-remain historical references until reconciled with the new implementation.
+The local, Git-ignored `plan.md` records the accepted backend design. Current API
+integration contracts are documented in `docs/frontend-backend-contract.md` and
+`docs/library-api.md`; the source and generated OpenAPI describe the implemented
+surface. Older designs, journals and rewrite checkpoints are historical references.
 
 ## Repository
 
@@ -84,15 +85,15 @@ Docker reset. An existing PostgreSQL 16 cluster on any other host still requires
 verified backup and explicit `pg_upgrade` or dump/restore; changing the image is
 **not** a data migration. No application services are recreated by this update.
 
-Verification: **136 Pycil tests passed** on PostgreSQL 18.6/Redis 8.10.2 and Python
-3.14.8; **629 Lexi tests passed**, excluding the benchmark-specific test files.
-Both projects passed Ruff lint/format and lock checks; all three Lexi import contracts
-passed. The API image built successfully; Compose/Caddy configuration and API image
-provenance were checked. The subsequently removed WAL-G and MinIO infrastructure
-also passed its image/S3 checks before removal; those are historical evidence,
-not remaining infrastructure dependencies.
-AG-UI still emits 11 upstream LangGraph deprecation warnings. No paid inference,
-benchmark rerun, publication or deployment was performed.
+Latest integration-fix verification: **147 Pycil tests passed** on PostgreSQL
+18.6/Redis 8.10.2 and Python 3.14.8, with Ruff lint/format passing. Native persisted
+approval reload and HTTP resume are covered. Disposable Caddy checks verified
+uncompressed first-event delivery, upstream cancellation on disconnect, and the
+exact 15,000,000-byte request boundary. AG-UI still emits 11 upstream LangGraph
+deprecation warnings. No paid inference, Lexi benchmark, publication or deployment
+was performed. Earlier stable-upgrade verification included **629 non-benchmark
+Lexi tests**, lock/import contracts, the API image and Compose/Caddy configuration;
+those builds are prior evidence, not a new build claimed for this patch.
 
 `INFERENCE_BASE_URL`/`INFERENCE_API_KEY` are shared by generation and assistant.
 The decision service has its own genuinely different endpoint/key. One
@@ -122,12 +123,15 @@ is needed to install/build Pycil.
 
 Pycil-generated IDs use Python 3.14 UUIDv7; existing identities, client retry keys
 and Lexi's integer Word/Sense IDs remain unchanged. Explicit migration head is
-`0002_deck_membership`, removing unused deck membership `position` without a reset.
+`0001_baseline`, creating the current unordered membership schema. This is a fresh
+baseline requiring an empty public schema, not an upgrade path for old data.
 
-Deck details embed the first `sense_page`; `GET /v1/library/nodes/{id}/senses?after_id=...`
-returns further pages. Each Sense includes lexical display fields and viewer-owned
-learning status, not full Questions/examples/relations. Anonymous viewers receive
-no learner state. See [library UI payload](docs/library-api.md).
+Deck details embed all `senses`, with no `sense_page` wrapper or Sense pagination.
+`GET /v1/library/nodes/{id}/senses` also returns the whole deck; only folder/reference
+scopes support the integer `after_id` cursor. Each Sense includes lexical display
+fields and viewer-owned learning status, not full Questions/examples/relations.
+Anonymous viewers receive no learner state. Editor saves use one atomic final-state
+PUT. See [library UI payload](docs/library-api.md).
 
 ## Tests
 
@@ -152,5 +156,6 @@ There is no frontend/browser target in this repository.
 
 Postgres is canonical and contains the Pycil, Lexi, and assistant-checkpointer
 schemas. Back up and verify the complete database before every schema or data
-change. Redis contains short-lived assistant admission/coordination state only,
-never learning sessions, exposures, answers or scheduling state.
+change. Redis contains short-lived assistant admission/coordination and optional
+detached actor/deck caches, never learning sessions, exposures, answers or scheduling
+state. PostgreSQL remains canonical.

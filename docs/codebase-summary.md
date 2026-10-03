@@ -9,15 +9,16 @@
 | `apps/api/pycil/assistant` | Native graph/checkpoints, AG-UI approval/streaming, tools, metering/retention |
 | `apps/api/pycil/worker.py` | One advisory-lock-owning generation/retention process |
 | `apps/api/pycil/migrate.py` | Explicit ordered schema gate; never called at runtime |
-| `apps/api/migrations` | Frozen Pycil-only `0001_initial` schema |
+| `apps/api/migrations` | Frozen Pycil-only fresh `0001_baseline` schema |
 | `apps/api/tests` | Fresh unit/integration/system behavior gates; no archived test compatibility |
 | `config/config.yaml` | Validated shared product policy, not secrets |
 | `vendor/lexi-ai` | Unpublished local enum-capable wheel, hashes, provenance and rebuild instructions |
-| `scripts` | Guarded operator deploy/fresh rehearsal and deterministic library packaging |
+| `scripts` | Canonical Compose launcher, guarded operator deploy, local library packaging |
 
 `apps/web` is intentionally absent. Older plans/designs/journals/analysis reports
 are historical, not current implementation instructions. Old backend/tests live
 in the verified external archive, outside imports, discovery and Docker context.
 
 See [architecture](system-architecture.md), [testing](testing-setup.md) and
-[execution checkpoint](backend-rewrite-status.md).
+[current frontend contract](frontend-backend-contract.md). The
+[rewrite checkpoint](backend-rewrite-status.md) is historical evidence only.

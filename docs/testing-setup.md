@@ -35,6 +35,14 @@ validates Compose/Caddy with dummy variables. It does not deploy a database or
 perform the approved development reset. Image publication remains a separate
 workflow; no publication has been performed during this rewrite.
 
+Latest frontend-integration checks: **147 passed**, with 11 upstream AG-UI/LangGraph
+warnings. Existing tests cover PUT preflight, typed OpenAPI/auth/errors/SSE,
+persisted approval reload through a fresh runtime and HTTP approve/reject resume.
+Disposable Caddy transport checks verified a 1.2 MB SSE request, uncompressed
+first-event delivery, upstream disconnect cancellation and acceptance/rejection at
+15,000,000/15,000,001 bytes. These are offline/provider-controlled checks, not a
+production deployment or browser/paid-provider certification.
+
 The full Lexi suite must also pass in its own reviewed source checkout:
 
 ```sh

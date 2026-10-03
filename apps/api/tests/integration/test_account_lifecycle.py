@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy import event, func, select
 from starlette.requests import Request
 
-from pycil.account.auth import ActorContext, actor
+from pycil.account.auth import ActorContext, actor, bearer
 from pycil.account.models import UsagePeriod, User
 from pycil.account.plans import Feature, Plan
 from pycil.account.usage import admit, change_plan, settle
@@ -102,7 +102,7 @@ async def test_clerk_failure_prevents_provision_and_removal_routes_are_absent(
             )
             with pytest.raises(Problem, match="identity_service_unavailable"):
                 async with resources.sessions() as session:
-                    await actor(request, session)
+                    await actor(request, session, await bearer(request))
         async with resources.sessions() as session:
             assert await session.get(User, user.id) is not None
             assert await session.scalar(select(User).where(User.clerk_subject == subject)) is None
@@ -145,7 +145,7 @@ async def test_concurrent_provisioning_is_idempotent_without_account_lock(
 
             async def provision():
                 async with resources.sessions() as session:
-                    return await actor(request, session)
+                    return await actor(request, session, await bearer(request))
 
             results = await asyncio.gather(*(provision() for _ in range(4)))
             assert len({result.id for result in results}) == 1
@@ -195,7 +195,7 @@ async def test_actor_cache_detached_hits_jwt_gate_outage_and_fresh_entitlements(
             )
 
         async with resources.sessions() as session:
-            cold = await actor(request(), session)
+            cold = await actor(request(), session, await bearer(request()))
         assert isinstance(cold, ActorContext) and not isinstance(cold, User)
         assert cold.settings == {}
         cold.settings["learning"] = {"formats": ["SINGLE_WORD"]}
@@ -207,13 +207,13 @@ async def test_actor_cache_detached_hits_jwt_gate_outage_and_fresh_entitlements(
         event.listen(resources.engine.sync_engine, "before_cursor_execute", capture)
         try:
             async with resources.sessions() as session:
-                warm = await actor(request(), session)
+                warm = await actor(request(), session, await bearer(request()))
             assert warm.id == cold.id and warm.settings == {}
             assert queries == []
             assert len(verified) == 2
             with pytest.raises(Problem, match="invalid_credentials"):
                 async with resources.sessions() as session:
-                    await actor(request("invalid"), session)
+                    await actor(request("invalid"), session, await bearer(request("invalid")))
             assert len(verified) == 3 and queries == []
         finally:
             event.remove(resources.engine.sync_engine, "before_cursor_execute", capture)
@@ -222,7 +222,7 @@ async def test_actor_cache_detached_hits_jwt_gate_outage_and_fresh_entitlements(
             await change_plan(session, user.id, Plan.PRO, config, datetime.now(UTC))
         assert await resources.cache.get(f"actor:{user.clerk_subject}", ActorContext) is None
         async with resources.sessions() as session:
-            pro = await actor(request(), session)
+            pro = await actor(request(), session, await bearer(request()))
         assert pro.plan is Plan.PRO
         # Simulate a missed invalidation in another writer: privileged routes must
         # consult PostgreSQL, not the stale context. No new cache coordination.
@@ -258,5 +258,5 @@ async def test_actor_cache_detached_hits_jwt_gate_outage_and_fresh_entitlements(
         monkeypatch.setattr(resources.redis, "get", unavailable)
         monkeypatch.setattr(resources.redis, "eval", unavailable)
         async with resources.sessions() as session:
-            fallback = await actor(request(), session)
+            fallback = await actor(request(), session, await bearer(request()))
         assert fallback.id == user.id and fallback.plan is Plan.FREE

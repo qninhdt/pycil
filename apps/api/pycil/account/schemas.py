@@ -1,6 +1,8 @@
 """The complete two-level preference contract, without a settings subsystem."""
 
+from datetime import datetime
 from typing import Annotated
+from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from lexi_ai import ResponseFormat
@@ -47,6 +49,23 @@ class Preferences(Strict):
     timezone: str
     translation_language: str
     learning: LearningPreferences
+
+
+class Profile(Strict):
+    id: UUID
+    display_name: str | None
+    plan: Plan
+    settings: Preferences
+    effective_learning: LearningPreferences | None
+    learning_restriction: str | None
+
+
+class Allowance(Strict):
+    period_start: datetime
+    period_end: datetime
+    allowance_units: int
+    used_units: int
+    remaining_units: int
 
 
 def preferences(saved: dict, config: ProductConfig) -> Preferences:

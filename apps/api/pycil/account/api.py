@@ -7,7 +7,9 @@ from pycil.account.auth import Actor
 from pycil.account.lifecycle import invalidate_actor
 from pycil.account.models import User
 from pycil.account.schemas import (
+    Allowance,
     PreferencesPatch,
+    Profile,
     effective_learning,
     merge_preferences,
     preferences,
@@ -37,12 +39,12 @@ def profile(user, config):
     }
 
 
-@router.get("")
+@router.get("", response_model=Profile)
 async def me(user: Actor, config: Product):
     return profile(user, config)
 
 
-@router.patch("/settings")
+@router.patch("/settings", response_model=Profile)
 async def patch_settings(patch: PreferencesPatch, actor: Actor, config: Product, session: Session):
     async with session.begin():
         user = await session.scalar(
@@ -60,7 +62,7 @@ async def patch_settings(patch: PreferencesPatch, actor: Actor, config: Product,
     return result
 
 
-@router.get("/usage")
+@router.get("/usage", response_model=Allowance)
 async def usage(actor: Actor, config: Product, session: Session):
     async with session.begin():
         user = await session.scalar(

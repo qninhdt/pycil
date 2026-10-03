@@ -543,10 +543,27 @@ async def test_http_search_selected_generation_prepare_native_grade_and_rating(
             await execute(sessions, lexicon, row, config, ensure_owner)
         status = await client.get(queued.json()["status_url"])
         assert status.json()["status"] == "SUCCEEDED"
-        async with sessions() as session:
-            deck = await create_node(
-                session, user.id, NodeCreate(type="DECK", name="learn", sense_ids=[1, 2]), config
-            )
+        word = await client.get("/v1/words/1")
+        assert word.status_code == 200 and len(word.json()["senses"]) == 2
+        created = await client.post(
+            "/v1/library/nodes", json={"type": "DECK", "name": "learn", "sense_ids": [1, 2]}
+        )
+        assert created.status_code == 201, created.text
+        deck = created.json()
+        assert deck["sense_ids"] == [1, 2]
+        saved = await client.put(
+            f"/v1/library/nodes/{deck['id']}",
+            json={"name": "edited", "visibility": "PRIVATE", "sense_ids": [1, 2]},
+        )
+        assert saved.status_code == 200, saved.text
+        assert saved.json()["sense_ids"] == [1, 2] and saved.json()["name"] == "edited"
+        folder = await client.post("/v1/library/nodes", json={"type": "FOLDER", "name": "folder"})
+        assert folder.status_code == 201 and "sense_ids" not in folder.json()
+        folder_detail = await client.get(f"/v1/library/nodes/{folder.json()['id']}")
+        assert folder_detail.status_code == 200 and folder_detail.json()["sense_count"] == 0
+        assert "senses" not in folder_detail.json()
+        listing = await client.get("/v1/library/nodes")
+        assert listing.status_code == 200 and len(listing.json()["nodes"]) == 2
         deck_senses = await client.get(f"/v1/library/nodes/{deck['id']}/senses")
         assert deck_senses.status_code == 200, deck_senses.text
         assert len(deck_senses.json()["senses"]) == 2
@@ -683,4 +700,9 @@ async def test_http_search_selected_generation_prepare_native_grade_and_rating(
         )
         assert rated.status_code == 200 and rated.json()["applied"] is True
         assert (await client.get("/v1/study/progress")).json()["summary"]["learned"] == 1
+        history = await client.get("/v1/study/history")
+        assert history.status_code == 200, history.text
+        assert history.json()["events"][0]["sense_id"] == 1
+        assert history.json()["events"][0]["mastery_after"] == rated.json()["mastery_after"]
+        assert history.json()["applied_count"] == 1
         assert llm.calls == 14

@@ -7,6 +7,7 @@ from uuid import UUID, uuid7
 
 import jwt
 from fastapi import Depends, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
@@ -57,14 +58,16 @@ class ActorContext(BaseModel):
     created_at: datetime
 
 
-async def actor(request: Request, session: Session) -> ActorContext:
-    authorization = request.headers.get("authorization")
-    if authorization is None:
+bearer = HTTPBearer(auto_error=False, scheme_name="ClerkBearer", bearerFormat="JWT")
+Credentials = Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)]
+
+
+async def actor(request: Request, session: Session, credentials: Credentials) -> ActorContext:
+    if request.headers.get("authorization") is None:
         raise Problem(401, "authentication_required")
-    scheme, _, token = authorization.partition(" ")
-    if scheme.lower() != "bearer" or not token.strip():
+    if credentials is None or not credentials.credentials.strip():
         raise Problem(401, "invalid_credentials")
-    subject = await request.app.state.identity.subject(token)
+    subject = await request.app.state.identity.subject(credentials.credentials)
     cache = session.info.get("cache")
     key = f"actor:{subject}"
     if cache and (context := await cache.get(key, ActorContext)) is not None:
@@ -98,10 +101,12 @@ async def actor(request: Request, session: Session) -> ActorContext:
 Actor = Annotated[ActorContext, Depends(actor)]
 
 
-async def optional_actor(request: Request, session: Session) -> ActorContext | None:
+async def optional_actor(
+    request: Request, session: Session, credentials: Credentials
+) -> ActorContext | None:
     if request.headers.get("authorization") is None:
         return None
-    return await actor(request, session)
+    return await actor(request, session, credentials)
 
 
 Viewer = Annotated[ActorContext | None, Depends(optional_actor)]

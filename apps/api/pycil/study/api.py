@@ -14,19 +14,28 @@ from pycil.http import Problem
 from pycil.study.preparation import prepare
 from pycil.study.progress import history, progress
 from pycil.study.reviews import review
-from pycil.study.schemas import Grade, Prepare, Review
+from pycil.study.schemas import (
+    Grade,
+    GradeResult,
+    History,
+    Preparation,
+    Prepare,
+    Progress,
+    Review,
+    ReviewResult,
+)
 
 router = APIRouter(prefix="/v1/study", tags=["study"])
 
 
-@router.post("/prepare")
+@router.post("/prepare", response_model=Preparation)
 async def preparation(
     data: Prepare, user: Actor, session: Session, config: Product, lexicon: Dictionary
 ):
     return await prepare(session, lexicon, user, data.node_id, config)
 
 
-@router.post("/grade")
+@router.post("/grade", response_model=GradeResult)
 async def grade(data: Grade, user: Actor, config: Product, lexicon: Dictionary, session: Session):
     async with session.begin():
         plan = await session.scalar(select(User.plan).where(User.id == user.id))
@@ -60,7 +69,7 @@ async def grade(data: Grade, user: Actor, config: Product, lexicon: Dictionary, 
         raise Problem(503, "grading_unavailable") from None
 
 
-@router.post("/reviews")
+@router.post("/reviews", response_model=ReviewResult)
 async def rating(
     data: Review,
     user: Actor,
@@ -71,12 +80,12 @@ async def rating(
     return await review(session, user.id, data, idempotency_key, config)
 
 
-@router.get("/progress")
+@router.get("/progress", response_model=Progress)
 async def summary(user: Actor, session: Session, config: Product, node_id: UUID | None = None):
     return await progress(session, user, config, node_id)
 
 
-@router.get("/history")
+@router.get("/history", response_model=History)
 async def events(
     user: Actor, session: Session, config: Product, days: int = 30, after: UUID | None = None
 ):

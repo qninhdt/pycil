@@ -99,7 +99,8 @@ async def test_request_id_is_per_request_and_valid_uuid_can_be_propagated(app):
     assert UUID(second.headers["x-request-id"]).version == 7
 
 
-async def test_validation_never_echoes_submitted_secret_and_blocks_wrong_origin(app):
+@pytest.mark.parametrize("method", ["GET", "POST", "PUT", "PATCH", "DELETE"])
+async def test_validation_never_echoes_submitted_secret_and_blocks_wrong_origin(app, method):
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
@@ -115,14 +116,66 @@ async def test_validation_never_echoes_submitted_secret_and_blocks_wrong_origin(
             "/input",
             headers={
                 "Origin": "https://client.invalid",
-                "Access-Control-Request-Method": "POST",
-                "Access-Control-Request-Headers": "Authorization,X-Request-ID",
+                "Access-Control-Request-Method": method,
+                "Access-Control-Request-Headers": (
+                    "Authorization,Content-Type,Idempotency-Key,X-Request-ID"
+                ),
             },
         )
     assert response.status_code == malformed.status_code == 422
     assert response.json() == malformed.json() == {"error": "invalid_request"}
     assert "access-control-allow-origin" not in response.headers
     assert preflight.status_code == 200
+
+
+@pytest.mark.parametrize("authorization", ["Basic secret", "Bearer", "Bearer ", "Bearer   "])
+async def test_invalid_authorization_stays_401_even_on_optional_viewer_routes(app, authorization):
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        for path in ("/v1/me", "/v1/words/search?query=bank", "/v1/library/nodes"):
+            response = await client.get(path, headers={"Authorization": authorization})
+            assert response.status_code == 401
+            assert response.json() == {"error": "invalid_credentials"}
+            assert response.headers["www-authenticate"] == "Bearer"
+
+
+def test_openapi_has_typed_success_errors_optional_bearer_and_sse():
+    schema = create_app().openapi()
+    assert schema["components"]["securitySchemes"]["ClerkBearer"] == {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+    }
+    viewers = {
+        ("get", "/v1/words/search"),
+        ("get", "/v1/words/{word_id}"),
+        ("get", "/v1/library/nodes"),
+        ("get", "/v1/library/nodes/{node_id}"),
+        ("get", "/v1/library/nodes/{node_id}/senses"),
+    }
+    count = 0
+    for path, operations in schema["paths"].items():
+        for method, operation in operations.items():
+            count += 1
+            assert {"ClerkBearer": []} in operation["security"]
+            assert ({} in operation["security"]) == ((method, path) in viewers)
+            assert operation["responses"]["422"]["content"]["application/json"]["schema"] == {
+                "$ref": "#/components/schemas/ErrorResponse"
+            }
+            for status, response in operation["responses"].items():
+                if not status.startswith("2"):
+                    continue
+                if status == "204":
+                    assert "content" not in response
+                else:
+                    for content in response["content"].values():
+                        assert content["schema"]
+    assert count == 24
+    assert set(schema["paths"]["/v1/assistant"]["post"]["responses"]["200"]["content"]) == {
+        "text/event-stream"
+    }
+    assert "HTTPValidationError" not in schema["components"]["schemas"]
 
 
 @pytest.mark.parametrize("chunked", [False, True])

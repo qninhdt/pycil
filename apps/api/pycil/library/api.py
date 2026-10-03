@@ -6,13 +6,21 @@ from pycil.account.auth import Actor, Viewer
 from pycil.dependencies import Dictionary, Product, Session
 from pycil.library import nodes
 from pycil.library.access import readable
-from pycil.library.schemas import DeckSenses, NodeCreate, NodeSave, SensePage
+from pycil.library.schemas import (
+    DeckSenses,
+    NodeCreate,
+    NodeDetails,
+    NodePage,
+    NodeSave,
+    SavedNode,
+    SensePage,
+)
 from pycil.library.senses import sense_page
 
 router = APIRouter(prefix="/v1/library/nodes", tags=["library"])
 
 
-@router.get("")
+@router.get("", response_model=NodePage, openapi_extra={"security": [{}]})
 async def listing(
     viewer: Viewer,
     session: Session,
@@ -25,12 +33,12 @@ async def listing(
     )
 
 
-@router.post("", status_code=201)
+@router.post("", status_code=201, response_model=SavedNode)
 async def create(data: NodeCreate, user: Actor, session: Session, config: Product):
     return await nodes.create_node(session, user.id, data, config)
 
 
-@router.get("/{node_id}")
+@router.get("/{node_id}", response_model=NodeDetails, openapi_extra={"security": [{}]})
 async def detail(
     node_id: UUID, viewer: Viewer, session: Session, config: Product, lexicon: Dictionary
 ):
@@ -39,7 +47,7 @@ async def detail(
     )
 
 
-@router.put("/{node_id}")
+@router.put("/{node_id}", response_model=SavedNode)
 async def save(node_id: UUID, data: NodeSave, user: Actor, session: Session, config: Product):
     return await nodes.save_node(session, user.id, node_id, data, config)
 
@@ -50,7 +58,11 @@ async def remove(node_id: UUID, user: Actor, session: Session, config: Product):
     return Response(status_code=204)
 
 
-@router.get("/{node_id}/senses", response_model=SensePage | DeckSenses)
+@router.get(
+    "/{node_id}/senses",
+    response_model=SensePage | DeckSenses,
+    openapi_extra={"security": [{}]},
+)
 async def senses(
     node_id: UUID,
     viewer: Viewer,

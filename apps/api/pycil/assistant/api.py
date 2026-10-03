@@ -2,16 +2,23 @@ from datetime import datetime
 from uuid import UUID
 
 from ag_ui.core import RunAgentInput
+from ag_ui_langgraph.utils import langchain_messages_to_agui
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import StreamingResponse
-from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select, tuple_
 
 from pycil.account.auth import Actor
 from pycil.account.lifecycle import require_user, row_data
+from pycil.assistant import graph as agents
 from pycil.assistant.conversations import delete_conversation, owned
 from pycil.assistant.models import Conversation
+from pycil.assistant.schemas import (
+    AssistantModel,
+    ConversationDetails,
+    ConversationPage,
+    ConversationView,
+    CreateConversation,
+)
 from pycil.assistant.stream import prepare_turn
 from pycil.dependencies import Product, Session
 from pycil.http import Problem
@@ -19,12 +26,7 @@ from pycil.http import Problem
 router = APIRouter(prefix="/v1/assistant", tags=["assistant"])
 
 
-class CreateConversation(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    title: str | None = Field(default=None, max_length=255)
-
-
-@router.get("/models")
+@router.get("/models", response_model=list[AssistantModel])
 async def models(user: Actor, config: Product):
     return [
         {"id": m.id, "name": m.name, "vision": m.vision, "efforts": m.efforts}
@@ -32,7 +34,7 @@ async def models(user: Actor, config: Product):
     ]
 
 
-@router.post("/conversations", status_code=201)
+@router.post("/conversations", status_code=201, response_model=ConversationView)
 async def create(data: CreateConversation, user: Actor, session: Session):
     async with session.begin():
         await require_user(session, user.id)
@@ -42,7 +44,7 @@ async def create(data: CreateConversation, user: Actor, session: Session):
         return row_data(conversation)
 
 
-@router.get("/conversations")
+@router.get("/conversations", response_model=ConversationPage)
 async def listing(
     user: Actor,
     session: Session,
@@ -77,14 +79,29 @@ async def listing(
     }
 
 
-@router.get("/conversations/{identifier}")
-async def state(identifier: UUID, user: Actor, session: Session, request: Request):
+@router.get("/conversations/{identifier}", response_model=ConversationDetails)
+async def state(identifier: UUID, user: Actor, session: Session, request: Request, config: Product):
     row = await owned(session, user.id, identifier)
     await session.commit()
-    checkpoint = await AsyncPostgresSaver(request.app.state.checkpoint_pool).aget(
+    resources = request.app.state
+    policy = next(m for m in config.models if m.id == config.assistant.default_model)
+    selected = agents.model(
+        resources.deployment, policy, config.assistant.default_effort, resources.http
+    )
+    # Reconstruct the native graph for a read only; never invoke the model or tools.
+    snapshot = await agents.graph(resources, user, config, selected).aget_state(
         {"configurable": {"thread_id": str(identifier)}}
     )
-    return row_data(row) | {"state": checkpoint}
+    return row_data(row) | {
+        "state": {
+            "messages": langchain_messages_to_agui(snapshot.values.get("messages", [])),
+            "pending_approvals": [
+                {"interrupt_id": interrupt.id, **interrupt.value}
+                for task in snapshot.tasks
+                for interrupt in task.interrupts
+            ],
+        }
+    }
 
 
 @router.delete("/conversations/{identifier}", status_code=204)
@@ -93,7 +110,16 @@ async def remove(identifier: UUID, user: Actor, request: Request):
     return Response(status_code=204)
 
 
-@router.post("")
+@router.post(
+    "",
+    response_class=StreamingResponse,
+    responses={
+        200: {
+            "description": "Native AG-UI events, including approval interrupts and run errors.",
+            "content": {"text/event-stream": {"schema": {"type": "string"}}},
+        }
+    },
+)
 async def stream(data: RunAgentInput, user: Actor, request: Request, config: Product):
     return TurnResponse(request, user, data, config)
 

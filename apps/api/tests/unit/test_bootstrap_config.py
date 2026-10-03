@@ -1,6 +1,8 @@
 import os
+import re
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -30,6 +32,19 @@ assert pycil.main.create_app().title == 'Pycil'
         text=True,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_caddy_uses_current_stream_path_and_product_body_limit(config):
+    caddy = (Path(__file__).resolve().parents[4] / "Caddyfile").read_text()
+    assert "@assistant_sse path /v1/assistant\n" in caddy
+    assert "@non_sse not path /v1/assistant\n" in caddy
+    assert "/turns" not in caddy
+    assert [int(value) for value in re.findall(r"max_size (\d+)", caddy)] == [
+        config.http.max_body_bytes
+    ]
+    assert "request_body @api" in caddy
+    assert "compression off" in caddy
+    assert "flush_interval -1" not in caddy  # SSE auto-flush preserves disconnect cancellation.
 
 
 @pytest.mark.parametrize(

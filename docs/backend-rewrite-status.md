@@ -1,5 +1,15 @@
 # Backend rewrite — execution checkpoint
 
+> **Historical checkpoint, superseded on 2026-10-03.** The execution status,
+> migration versions, infrastructure and route descriptions below are retained as
+> dated evidence, not current operator instructions. Current source uses fresh
+> `0001_baseline`, PostgreSQL 18, and `POST /v1/assistant`; see
+> [README](../README.md) and [the frontend contract](frontend-backend-contract.md).
+> The Docker reset and earlier delivery were completed subsequently. The current
+> application stack is not provisioned; current cache/integration follow-up is
+> documented in the frontend contract. Do not run the historical cutover/reset
+> instructions below.
+
 Updated: 2026-10-02. **Implementation and disposable verification pass; application
 cutover/reset remains blocked on exact development-target confirmation.** All
 changes are uncommitted/unpushed. No live stack was stopped or restarted.

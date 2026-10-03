@@ -3,6 +3,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
+import httpx
 import pytest
 from ag_ui.core import RunAgentInput
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -12,6 +13,7 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from pydantic import Field
 from sqlalchemy import func, select
 
+from pycil.account.auth import actor
 from pycil.account.models import UsageEvent, UsagePeriod, User
 from pycil.assistant import graph as agents
 from pycil.assistant.conversations import delete_conversation, guard, purge
@@ -23,6 +25,7 @@ from pycil.http import Problem
 from pycil.library.models import CollectionNode
 from pycil.library.nodes import create_node, delete_node
 from pycil.library.schemas import NodeCreate
+from pycil.main import create_app
 
 
 class Completion(BaseChatModel):
@@ -165,20 +168,75 @@ async def test_native_approval_and_free_rejection(
     state = await native.aget_state({"configurable": {"thread_id": str(conversation.id)}})
     interrupt = next(i for t in state.tasks for i in t.interrupts)
     assert provider.calls == 1
+    streamed = events[-1]["outcome"]["interrupts"][0]
+    assert streamed["id"] == interrupt.id
+    # Read through a newly constructed runtime, exactly as a frontend reload would.
+    async with process_resources(config, deployment) as restarted:
+        app = create_app()
+        app.state.product, app.state.deployment = config, deployment
+        for name, value in vars(restarted).items():
+            setattr(app.state, name, value)
+
+        async def authenticated():
+            return user
+
+        app.dependency_overrides[actor] = authenticated
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            detail = await client.get(f"/v1/assistant/conversations/{conversation.id}")
+            assert detail.status_code == 200, detail.text
+            restored = detail.json()["state"]
+            assert set(restored) == {"messages", "pending_approvals"}
+            assert restored["messages"][0]["role"] == "user"
+            assert restored["messages"][-1]["role"] == "assistant"
+            assert restored["messages"][-1]["toolCalls"][0]["id"] == "call_create"
+            pending = restored["pending_approvals"][0]
+            assert pending == {"interrupt_id": interrupt.id, **interrupt.value}
+            assert (
+                pending["action_requests"]
+                == streamed["metadata"]["langgraph"]["raw"]["action_requests"]
+            )
+            assert provider.calls == 1  # Reload neither invokes nor settles an LLM call.
+
+            other = User(id=uuid4(), clerk_subject="another", settings={})
+
+            async def outsider():
+                return other
+
+            app.dependency_overrides[actor] = outsider
+            denied = await client.get(f"/v1/assistant/conversations/{conversation.id}")
+            assert denied.status_code == 404
+            assert denied.json() == {"error": "conversation_not_found"}
+            app.dependency_overrides[actor] = authenticated
+
     if decision == "reject":
         async with runtime.sessions() as session, session.begin():
             period = await session.scalar(select(UsagePeriod))
             period.used_units = period.allowance_units
-    resumed = await collect(
-        runtime,
-        deployment,
-        user,
-        request(
-            conversation.id,
-            resume=[{"interrupt_id": interrupt.id, "value": {"decisions": [{"type": decision}]}}],
-        ),
-        config,
+    data = request(
+        conversation.id,
+        resume=[
+            {"interrupt_id": pending["interrupt_id"], "value": {"decisions": [{"type": decision}]}}
+        ],
     )
+    for name, value in vars(runtime).items():
+        setattr(app.state, name, value)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.post(
+            "/v1/assistant", json=data.model_dump(mode="json", by_alias=True)
+        )
+        assert response.status_code == 200, response.text
+        assert response.headers["content-type"].startswith("text/event-stream")
+        resumed = [
+            json.loads(line[6:]) for line in response.text.splitlines() if line.startswith("data: ")
+        ]
+        completed = await client.get(f"/v1/assistant/conversations/{conversation.id}")
+        assert completed.json()["state"]["pending_approvals"] == []
+        stale = await client.post("/v1/assistant", json=data.model_dump(mode="json", by_alias=True))
+        assert stale.status_code == 409 and stale.json() == {"error": "approval_not_pending"}
     assert resumed[-1]["type"] == "RUN_FINISHED", resumed
     async with runtime.sessions() as session:
         assert await session.scalar(select(func.count()).select_from(CollectionNode)) == int(
@@ -190,6 +248,43 @@ async def test_native_approval_and_free_rejection(
     assert provider.calls == (2 if decision == "approve" else 1)
     final = await native.aget_state({"configurable": {"thread_id": str(conversation.id)}})
     assert not any(t.interrupts for t in final.tasks)
+
+
+async def test_http_conversation_create_list_empty_state_and_delete(
+    runtime, deployment, config, user, monkeypatch
+):
+    provider = Completion()
+    monkeypatch.setattr(agents, "model", lambda *args: provider)
+    app = create_app()
+    app.state.product, app.state.deployment = config, deployment
+    for name, value in vars(runtime).items():
+        setattr(app.state, name, value)
+
+    async def authenticated():
+        return user
+
+    app.dependency_overrides[actor] = authenticated
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        models = await client.get("/v1/assistant/models")
+        assert models.status_code == 200 and models.json()[0]["id"] == config.models[0].id
+        created = await client.post("/v1/assistant/conversations", json={"title": "Fresh"})
+        assert created.status_code == 201, created.text
+        identifier = created.json()["id"]
+        listed = await client.get("/v1/assistant/conversations")
+        assert listed.status_code == 200
+        assert listed.json()["conversations"] == [created.json()]
+        assert listed.json()["next_after"] is None
+        detail = await client.get(f"/v1/assistant/conversations/{identifier}")
+        assert detail.status_code == 200, detail.text
+        assert detail.json() == created.json() | {
+            "state": {"messages": [], "pending_approvals": []}
+        }
+        removed = await client.delete(f"/v1/assistant/conversations/{identifier}")
+        assert removed.status_code == 204 and removed.content == b""
+        assert (await client.get(f"/v1/assistant/conversations/{identifier}")).status_code == 404
+    assert provider.calls == 0
 
 
 async def test_active_turn_blocks_delete_and_retention_then_purges(

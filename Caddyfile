@@ -2,9 +2,14 @@
 # DOMAIN and uses its local CA for localhost development.
 {$DOMAIN:localhost} {
 	# Conversation turns stream AG-UI events without compression or buffering.
-	@assistant_sse path /v1/assistant/conversations/*/turns
-	@non_sse not path /v1/assistant/conversations/*/turns
+	@assistant_sse path /v1/assistant
+	@non_sse not path /v1/assistant
 	encode @non_sse zstd gzip
+	@api path /v1/* /health /ready /openapi.json /docs* /redoc*
+	# Exact byte cap mirrors config/config.yaml for both streaming and JSON routes.
+	request_body @api {
+		max_size 15000000
+	}
 
 	handle @assistant_sse {
 		header {
@@ -12,19 +17,15 @@
 			X-Accel-Buffering "no"
 		}
 		reverse_proxy api:8000 {
-			flush_interval -1
+			# text/event-stream flushes immediately by default; retain cancellation.
 			transport http {
+				compression off
 				response_header_timeout 3m
 			}
 		}
 	}
 
-	@api path /v1/* /health /ready /openapi.json /docs* /redoc*
 	handle @api {
-		# Mirrors the API's cumulative streaming request-body cap at the edge.
-		request_body {
-			max_size 1MB
-		}
 		reverse_proxy api:8000
 	}
 

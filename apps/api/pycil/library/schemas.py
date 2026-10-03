@@ -88,3 +88,54 @@ class DeckSenses(Strict):
 
 class SensePage(DeckSenses):
     next_after_id: int | None
+
+
+class NodeView(Strict):
+    id: UUID
+    owner_id: UUID
+    type: NodeType
+    parent_id: UUID | None
+    reference_id: UUID | None
+    name: str
+    description: str | None
+    visibility: Visibility
+    deleted_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class NodePage(Strict):
+    nodes: list[NodeView]
+    next_after_id: UUID | None
+
+
+class ContainerNode(NodeView):
+    type: Literal[NodeType.FOLDER, NodeType.REFERENCE]
+
+
+class SavedDeck(NodeView):
+    type: Literal[NodeType.DECK]
+    sense_ids: list[int]
+
+
+SavedNode = Annotated[SavedDeck | ContainerNode, Field(discriminator="type")]
+
+
+class Breadcrumb(Strict):
+    id: UUID
+    name: str
+
+
+class ContainerDetails(ContainerNode):
+    breadcrumbs: list[Breadcrumb]
+    sense_count: int
+
+
+class DeckDetails(NodeView):
+    type: Literal[NodeType.DECK]
+    breadcrumbs: list[Breadcrumb]
+    sense_count: int
+    senses: list[SensePreview]
+
+
+NodeDetails = Annotated[DeckDetails | ContainerDetails, Field(discriminator="type")]
