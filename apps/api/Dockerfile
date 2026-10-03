@@ -1,11 +1,11 @@
-FROM python:3.14-slim
+FROM python:3.14.8-slim-trixie
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy
 
-COPY --from=ghcr.io/astral-sh/uv:0.12.21 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.12.22 /uv /uvx /bin/
 
 WORKDIR /app
 
@@ -14,6 +14,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY apps/api /app/apps/api
+COPY vendor/lexi-ai /app/vendor/lexi-ai
+RUN cd /app/vendor/lexi-ai && sha256sum --check SHA256SUMS
 
 # Product policy lives at one fixed path in the image rather than being resolved
 # from a working directory, so the API and the worker read the same revision
@@ -34,8 +36,9 @@ ENV NLTK_DATA=/usr/local/nltk_data
 RUN python -m nltk.downloader -d "$NLTK_DATA" wordnet \
     && python -c "from nltk.corpus import wordnet; assert wordnet.synsets('resilient')"
 
-RUN useradd --create-home --uid 10001 appuser \
-    && chown -R appuser:appuser /app
+# Runtime reads packaged application/policy only; no reason to recursively chown
+# the entire dependency environment (or make installed code runtime-writable).
+RUN useradd --create-home --uid 10001 appuser
 USER appuser
 
 CMD ["uvicorn", "pycil.main:app", "--host", "0.0.0.0", "--port", "8000"]

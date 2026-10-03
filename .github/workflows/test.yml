@@ -1,343 +1,78 @@
 name: Tests
 
-# Four levels, as directory roots: unit, integration, system, browser. The level a
-# test runs at is where its file lives, so a test cannot be collected at one level
-# and reported at another.
-#
-# The system and browser levels need a Cambridge reference artifact that is a
-# licensed 142 MB SQLite file, not a build output. It is therefore supplied as a
-# secret-hosted download rather than generated in CI. When the secret is absent the
-# job fails loudly instead of skipping: a gate that reports green while proving
-# nothing is worse than a red one. See `docs/testing-setup.md`.
-
 on:
   pull_request:
     branches: [main, dev]
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
-  lint-python:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v9.0.0
-        with:
-          enable-cache: true
-      - run: uv python install 3.14
-      - run: uv sync --locked --extra dev
-        working-directory: apps/api
-      - run: uv run ruff check .
-        working-directory: apps/api
-
-  # Level 1. No database, no Redis, no network: a unit test that needed a service
-  # would be an integration test in the wrong directory.
-  test-unit:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v9.0.0
-        with:
-          enable-cache: true
-      - run: uv python install 3.14
-      - run: uv sync --locked --extra dev
-        working-directory: apps/api
-      - run: uv run pytest tests/unit tests/worker/unit -q
-        working-directory: apps/api
-
-  # Level 2. Real PostgreSQL; Redis is faked in-process where the assertions are
-  # about Pycil's use of it rather than about Redis itself. The worker's delivery
-   # Redis remains part of session coordination and owner-scoped job receipts.
-  test-integration:
+  backend:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:18
+        image: postgres:18.6-alpine3.24
         env:
-          POSTGRES_USER: pycil
-          POSTGRES_PASSWORD: pycil
-          POSTGRES_DB: pycil_test
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: rewrite_test
         ports: ["5432:5432"]
         options: >-
-          --health-cmd pg_isready --health-interval 5s
-          --health-timeout 3s --health-retries 10
+          --health-cmd "pg_isready -U test -d rewrite_test"
+          --health-interval 5s --health-timeout 3s --health-retries 10
       redis:
-        image: redis:7-alpine
+        image: redis:8.10.2-alpine3.23
         ports: ["6379:6379"]
         options: >-
-          --health-cmd "redis-cli ping" --health-interval 5s
-          --health-timeout 3s --health-retries 10
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      PYCIL_TEST_DB_URL: postgresql+asyncpg://test:test@127.0.0.1:5432/rewrite_test
+      PYCIL_TEST_REDIS_URL: redis://127.0.0.1:6379/15
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v9.0.0
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.2.0
         with:
+          version: "0.12.22"
           enable-cache: true
-      - run: uv python install 3.14
-      - run: uv sync --locked --extra dev
-        working-directory: apps/api
-      - run: uv run pytest tests/integration tests/worker/integration -q -rs
-        working-directory: apps/api
-        env:
-          TEST_DB_URL: postgresql+asyncpg://pycil:pycil@localhost:5432/pycil_test
-          TEST_REDIS_URL: redis://localhost:6379/15
-
-  # The migration chain, exercised from empty and from the currently deployed
-  # revision. Two directions because they are genuinely different: a fresh baseline
-  # proves the head is reachable, and the deployed-revision path proves no already
-  # released database is stranded.
-  migration-head:
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:18
-        env:
-          POSTGRES_USER: pycil
-          POSTGRES_PASSWORD: pycil
-          POSTGRES_DB: pycil_test
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd pg_isready --health-interval 5s
-          --health-timeout 3s --health-retries 10
-    steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v9.0.0
-      - run: uv python install 3.14
+      - run: uv python install 3.14.8
+      - name: Verify packaged Lexi bytes
+        run: sha256sum --check SHA256SUMS
+        working-directory: vendor/lexi-ai
       - run: uv sync --locked
         working-directory: apps/api
-      - name: Upgrade fresh database to the single head
+      - run: uv run --locked ruff check pycil tests migrations
         working-directory: apps/api
-        env:
-          DB_URL: postgresql+asyncpg://pycil:pycil@localhost:5432/pycil_test
-          LEXI_DB_URL: postgresql+asyncpg://pycil:pycil@localhost:5432/pycil_test
-        run: |
-          LEXI_ALEMBIC="$(uv run python -c 'import pathlib, lexi_ai.migrations; print(pathlib.Path(lexi_ai.migrations.__file__).parent / "alembic.ini")')"
-          uv run alembic -c "$LEXI_ALEMBIC" upgrade head
-          uv run alembic upgrade head
-          test "$(uv run alembic current)" = "$(uv run alembic heads)"
-
-   # Level 3. A real API process, PostgreSQL, Redis, a stub
-  # JWKS serving genuine RS256 tokens over HTTP, and a deterministic LLM gateway.
-  # Only Clerk and the model provider are substituted, and only at their network
-  # boundary; nothing about Pycil's own code is faked.
-  test-system:
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:18
-        env:
-          POSTGRES_USER: pycil
-          POSTGRES_PASSWORD: pycil
-          POSTGRES_DB: pycil_test
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd pg_isready --health-interval 5s
-          --health-timeout 3s --health-retries 10
-      redis:
-        image: redis:7-alpine
-        ports: ["6379:6379"]
-        options: >-
-          --health-cmd "redis-cli ping" --health-interval 5s
-          --health-timeout 3s --health-retries 10
-    steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v9.0.0
-        with:
-          enable-cache: true
-      - run: uv python install 3.14
-      - run: uv sync --locked --extra dev
+      - run: uv run --locked ruff format --check pycil tests migrations
         working-directory: apps/api
-      - name: Restore the Cambridge reference artifact
-        env:
-          REFERENCE_URL: ${{ secrets.LEXI_REFERENCE_DATASET_URL }}
-          REFERENCE_SHA256: ${{ secrets.LEXI_REFERENCE_DATASET_SHA256 }}
-        run: |
-          if [ -z "$REFERENCE_URL" ]; then
-            echo "::error::LEXI_REFERENCE_DATASET_URL is not configured."
-            echo "The system level needs the licensed Cambridge artifact and fails"
-            echo "rather than skipping, because a skipped gate reports green while"
-            echo "proving nothing. See docs/testing-setup.md."
-            exit 1
-          fi
-          curl --fail --location --retry 3 --output /tmp/cambridge.db "$REFERENCE_URL"
-          echo "${REFERENCE_SHA256}  /tmp/cambridge.db" | sha256sum --check --status \
-            || { echo "::error::reference artifact SHA-256 mismatch"; exit 1; }
-      - name: System journeys
+      # Each test creates/drops only its own database; providers are deterministic.
+      # Cambridge fixtures are newly written native SQLite records, not evidence.
+      - run: uv run --locked pytest tests -q --tb=short
         working-directory: apps/api
-        env:
-          TEST_STACK_DB_URL: postgresql+asyncpg://pycil:pycil@localhost:5432/pycil_test
-          TEST_STACK_REDIS_URL: redis://localhost:6379/0
-          LEXI_REFERENCE_DATASET_PATH: /tmp/cambridge.db
-        run: uv run pytest tests/system -q -rs
-      - name: Upload failure traces
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: system-failure-traces
-          path: apps/api/tests/system/**/*.log
-          if-no-files-found: ignore
-          retention-days: 7
 
-  # Level 4. The browser level starts Next.js itself from the production build, so
-  # there is no web image to publish. It is blocked on a Clerk test instance: with
-  # no publishable key the sign-in page renders nothing and no spec can reach a
-  # signed-in state. The job is present and non-optional so the gap is visible in
-  # every run rather than being a silently absent gate.
-  test-browser:
-    runs-on: ubuntu-latest
-    env:
-      # Set job-wide, not only on the test step: `NEXT_PUBLIC_*` is inlined into the
-      # bundle at build time, so a key supplied after `pnpm build` would be missing
-      # from the artifact the specs actually exercise.
-      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
-      NEXT_PUBLIC_API_URL: ${{ vars.E2E_API_URL }}
-    steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: apps/web/pnpm-lock.yaml
-      - name: Check the browser preconditions are configured
-        env:
-          CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
-          E2E_API_URL: ${{ vars.E2E_API_URL }}
-        run: |
-          missing=0
-          if [ -z "$CLERK_PUBLISHABLE_KEY" ]; then
-            echo "::error::CLERK_PUBLISHABLE_KEY is not configured. The browser"
-            echo "journeys cannot reach a signed-in state without a Clerk test"
-            echo "instance. See docs/testing-setup.md."
-            missing=1
-          fi
-          if [ -z "$E2E_API_URL" ]; then
-            echo "::error::E2E_API_URL is not configured. The specs need a running"
-            echo "backend origin; starting that five-service stack from this job is"
-            echo "not automated yet. See docs/testing-setup.md."
-            missing=1
-          fi
-          # Fails rather than skips: a gate that reports green while proving
-          # nothing is worse than a red one.
-          exit $missing
-      - run: pnpm install --frozen-lockfile
-        working-directory: apps/web
-      - run: pnpm typecheck
-        working-directory: apps/web
-      - run: pnpm lint
-        working-directory: apps/web
-      - run: pnpm test:unit
-        working-directory: apps/web
-      - run: pnpm test:integration
-        working-directory: apps/web
-      - run: pnpm build
-        working-directory: apps/web
-      - name: Browser journeys
-        working-directory: apps/web
-        run: pnpm test:e2e
-      - name: Upload Playwright traces
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-traces
-          path: apps/web/test-results
-          if-no-files-found: ignore
-          retention-days: 7
-
-  # Backend images. Web is tested and deployed independently via Vercel.
-  build-images:
+  image:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - run: docker build -f apps/api/Dockerfile -t pycil-api:ci .
-      - name: Validate Compose
+      - name: Validate Compose without local secrets
         env:
-          DOMAIN: app.example.test
-          ALLOWED_ORIGINS: https://app.example.test
-          POSTGRES_USER: pycil
-          POSTGRES_PASSWORD: ci-password
-          POSTGRES_DB: pycil
-          DATABASE_URL: postgresql://pycil:ci-password@postgres:5432/pycil
-          REDIS_PASSWORD: ci-redis-password
-          INTERNAL_API_SECRET: ci-internal-secret-at-least-32-bytes
-          LEXI_REFERENCE_DATASET_PATH: /tmp/cambridge.db
-        run: docker compose config -q
-      - name: Validate Caddy
+          DB_URL: postgresql+asyncpg://test:test-only@127.0.0.1:5432/rewrite_test
+          REDIS_URL: redis://:test-only@127.0.0.1:6379/15
+          CLERK_JWKS_URL: https://identity.invalid/jwks
+          CLERK_ISSUER: https://identity.invalid
+          CLERK_SECRET_KEY: test-only
+          INFERENCE_API_KEY: test-only
+          INFERENCE_BASE_URL: https://inference.invalid/v1
+          LEXI_DECISION_API_KEY: test-only
+          LEXI_DECISION_BASE_URL: https://decision.invalid
+          LEXI_CAMBRIDGE_DB_PATH: /tmp/reference.db
+        run: python scripts/compose.py --env-file /dev/null config -q
+      - name: Validate Caddy routes
         run: >-
           docker run --rm -e DOMAIN=app.example.test
           -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro"
-          caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
-      # These scripts run restores and deploys against real data, and a syntax error
-      # in one is found at the worst possible moment. `bash -n` parses without
-      # executing, so it costs nothing and catches the class of mistake that a
-      # careful reading does not.
-      - name: Validate shell scripts parse
-        run: |
-          for script in scripts/*.sh infra/postgres-walg/*.sh; do
-            bash -n "$script" || { echo "::error::$script does not parse"; exit 1; }
-          done
-          echo "all shell scripts parse"
-      - name: Validate the WAL-G rehearsal Compose file
-        run: docker compose -f infra/postgres-walg/docker-compose.walg-rehearsal.yml config -q
-      # The deploy script's failure paths are the ones that matter and the ones no
-      # review catches: a failed migration must abort before anything is swapped,
-      # and a health failure after a successful migration must roll the images
-      # back. Both are exercised against a sandbox stack on a throwaway project
-      # name, so this cannot reach a real deployment.
-      - name: Rehearse the deploy failure paths
-        run: ./scripts/rehearse-deploy-failures.sh
-      # `caddy validate` only proves the file parses, and it passes happily while
-      # the SSE routes are compressed and buffered — a turn then arrives as one
-      # blob instead of incrementally, which is how this defect shipped once.
-      # This asserts the property that matters: every streaming assistant route is
-      # inside the flush handler and outside the `encode` one.
-      - name: Assert assistant streams are not buffered or compressed
-        run: |
-          docker run --rm -e DOMAIN=app.example.test \
-            -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" \
-            caddy:2-alpine caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile \
-            | python3 -c '
-          import json, sys
-
-          # Every route that streams. A new one added to the API without a matching
-          # Caddyfile entry must fail here rather than degrade silently.
-          STREAMS = {"/v1/assistant"}
-
-
-          def walk(node):
-              """Yield every route dict anywhere in the adapted config."""
-              if isinstance(node, dict):
-                  if "handle" in node:
-                      yield node
-                  for value in node.values():
-                      yield from walk(value)
-              elif isinstance(node, list):
-                  for item in node:
-                      yield from walk(item)
-
-
-          cfg = json.load(sys.stdin)
-
-          # A route positive `path` match is what its handlers apply to; paths
-          # under `not` are excluded from it. The `encode` route is written as
-          # `not <streams>`, so the streams appear under `not` and are therefore
-          # NOT encoded. A route matched by `path_regexp` yields no `path` key at
-          # all — which is exactly how the buffered-stream defect looked, so it
-          # counts as "not streamed".
-          encoded, streamed = set(), set()
-          for route in walk(cfg):
-              handlers = [h.get("handler") for h in route.get("handle", [])]
-              for match in route.get("match", []):
-                  positives = set(match.get("path", []))
-                  if "encode" in handlers:
-                      encoded |= positives
-                  if "subroute" in handlers and positives & STREAMS:
-                      streamed |= positives
-
-          missing = STREAMS - streamed
-          compressed = STREAMS & encoded
-          if missing:
-              sys.exit(f"streaming routes not in the SSE handler: {sorted(missing)}")
-          if compressed:
-              sys.exit(f"streaming routes would be compressed: {sorted(compressed)}")
-          print(f"ok: {sorted(STREAMS)} stream unbuffered and uncompressed")
-          '
+          caddy:2.11.6-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile

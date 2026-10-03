@@ -1,1 +1,1 @@
-"""Authentication, profile, export, and account deletion."""
+"""Identity, account preferences and subscription-unit accounting."""

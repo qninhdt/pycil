@@ -32,7 +32,7 @@ jobs:
       # its tip, which is not necessarily the commit that was tested. Both the
       # checkout and the image tag are pinned to the tested revision so the image
       # contains what the suite actually ran against.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
 
@@ -42,18 +42,18 @@ jobs:
           TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
         run: echo "image_tag=${TESTED_SHA::12}" >> "$GITHUB_OUTPUT"
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4.4.1
 
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4.6.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # One backend image. Web is deployed independently to Vercel.
+      # One image for API, generation worker and explicit migration gate.
       - name: Build & push api
         id: build-api
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7.4.0
         with:
           # Repo-root context for the shared backend package and policy config.
           context: .
@@ -70,4 +70,5 @@ jobs:
           echo "Tested revision: ${TESTED_SHA}"
           echo "Deploy exact digests on the host:"
           echo "API_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-api@${API_DIGEST}"
-          echo "scripts/deploy.sh applies them migration-then-swap; CI does not SSH."
+          echo "Deployment requires separate operator approval and a verified full database backup."
+          echo "Apply the explicit migration gate before replacing both API and worker."

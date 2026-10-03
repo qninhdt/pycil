@@ -1,4 +1,17 @@
-# Product backup and restore runbook
+# Historical runbook — not valid for the revision-3 rewrite
+
+The user subsequently removed the entire `infra/` directory, including the optional
+WAL-G image and rehearsal configuration. References to those paths below are
+historical only. The current production Compose uses stock PostgreSQL and does not
+provide a built-in backup/restore pipeline; operators must provision backups separately.
+
+The commands/schema assumptions below describe the archived backend. Do not run
+them against the rewrite. Current schema owners are `public`, `lexi`, and
+`checkpoints`; see [architecture](system-architecture.md) and
+[execution checkpoint](backend-rewrite-status.md). The legacy restore rehearsal
+was removed from active scripts; its exact bytes are preserved externally.
+
+# Product backup and restore runbook (historical)
 
 Pycil uses one PostgreSQL database with two ownership boundaries: Pycil's
 application tables live in `public`, while embedded Lexi owns the isolated `lexi`

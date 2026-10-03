@@ -1,29 +1,25 @@
-"""Durable assistant thread ownership."""
+from datetime import UTC, datetime
+from uuid import UUID, uuid7
 
-from datetime import datetime
-from uuid import UUID
+from sqlalchemy import DateTime, ForeignKey, Index, String
+from sqlalchemy.orm import Mapped, mapped_column
 
-from sqlalchemy import DateTime, text
-from sqlmodel import Field, SQLModel
-
-TZDateTime = DateTime(timezone=True)
+from pycil.database import Base
 
 
-class AssistantThread(SQLModel, table=True):
-    __tablename__ = "assistant_threads"
-
-    id: UUID | None = Field(
-        default=None,
-        sa_column_kwargs={"server_default": text("uuidv7()")},
-        primary_key=True,
+class Conversation(Base):
+    __tablename__ = "conversations"
+    __table_args__ = (
+        Index("ix_conversations_owner_updated", "user_id", "updated_at", "id"),
+        Index("ix_conversations_retention", "updated_at", "id"),
     )
-    owner_id: UUID = Field(foreign_key="users.id", index=True)
-    title: str = Field(default="New conversation", max_length=200)
-    status: str = Field(default="active", max_length=20)
-    retention_deadline: datetime = Field(sa_type=TZDateTime)
-    created_at: datetime | None = Field(
-        default=None, sa_type=TZDateTime, sa_column_kwargs={"server_default": text("NOW()")}
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    title: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
-    updated_at: datetime | None = Field(
-        default=None, sa_type=TZDateTime, sa_column_kwargs={"server_default": text("NOW()")}
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )

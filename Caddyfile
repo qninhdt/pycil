@@ -1,11 +1,9 @@
 # The sole public ingress. Caddy provisions HTTPS automatically for a real
 # DOMAIN and uses its local CA for localhost development.
 {$DOMAIN:localhost} {
-	# The assistant route streams `text/event-stream`. `/v1/assistant` is the browser's
-	# chat transport; leaving it out would let the edge compress and buffer a stream,
-	# which arrives as one blob after the turn ends instead of incrementally.
-	@assistant_sse path /v1/assistant
-	@non_sse not path /v1/assistant
+	# Conversation turns stream AG-UI events without compression or buffering.
+	@assistant_sse path /v1/assistant/conversations/*/turns
+	@non_sse not path /v1/assistant/conversations/*/turns
 	encode @non_sse zstd gzip
 
 	handle @assistant_sse {
@@ -21,7 +19,7 @@
 		}
 	}
 
-	@api path /v1/* /health /health/* /openapi.json /docs* /redoc*
+	@api path /v1/* /health /ready /openapi.json /docs* /redoc*
 	handle @api {
 		# Mirrors the API's cumulative streaming request-body cap at the edge.
 		request_body {
@@ -30,7 +28,7 @@
 		reverse_proxy api:8000
 	}
 
-	# The Next.js web app is hosted independently on Vercel. Everything else is 404.
+	# This repository serves the API only. Everything else is 404.
 	handle {
 		respond "Not Found" 404
 	}

@@ -45,6 +45,7 @@ npm-debug.log*
 
 repomix-output.xml
 .serena/cache
+/plan.md
 plans/**/*
 !plans/templates/*
 screenshots/*
@@ -92,9 +93,9 @@ external/
 
 .kiro
 
-# lexi-ai editable path dep — symlinked/copied into the build context locally;
-# in CI/deploy the source is provided out-of-band (interim until PyPI publish).
-vendor/
+# Only the reviewed, checksummed local Lexi artifact is source-controlled.
+/vendor/*
+!/vendor/lexi-ai/
 
 # Git worktrees (local development only)
 worktrees/

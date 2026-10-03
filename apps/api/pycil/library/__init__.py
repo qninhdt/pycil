@@ -1,1 +1,1 @@
-"""User-owned folders, decks, references, and deck membership."""
+"""Collection organization and readable vocabulary scope."""

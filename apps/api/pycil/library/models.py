@@ -1,94 +1,72 @@
-"""Collection ORM models: nodes and their type-specific attributes.
-
-A single ``nodes`` table models FOLDER, DECK, and REFERENCE via ``type``.
-``parent_node_id`` is the adjacency-list edge; ``target_node_id`` is set only on
-REFERENCE nodes (a reusable pointer to another node). No cross-DB refs here —
-learnable content is referenced by opaque ``sense_id`` through the lexicon boundary.
-"""
-
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
-from uuid import UUID
+from uuid import UUID, uuid7
 
-from sqlalchemy import BigInteger, CheckConstraint, Column, DateTime, UniqueConstraint, text
-from sqlmodel import Field, SQLModel
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String, Text, text
+from sqlalchemy.orm import Mapped, mapped_column
 
-TZDateTime = DateTime(timezone=True)
+from pycil.database import Base, enum_column
 
 
 class NodeType(StrEnum):
-    """A single `nodes` table models all three via this discriminator.
-
-    REFERENCE is the one that is not a container: it points at another node, which
-    is what lets a deck appear in more than one place without being copied.
-    """
-
     FOLDER = "FOLDER"
     DECK = "DECK"
     REFERENCE = "REFERENCE"
 
 
 class Visibility(StrEnum):
-    """Direct visibility. Inherited readability is a separate, computed question.
-
-    A PRIVATE node can still be readable — through a PUBLIC folder above it, along
-    same-owner edges. `access.py` decides that; this only records what was set on
-    the node itself.
-    """
-
     PRIVATE = "PRIVATE"
     PUBLIC = "PUBLIC"
 
 
-class Node(SQLModel, table=True):
-    __tablename__ = "nodes"
+class CollectionNode(Base):
+    __tablename__ = "collection_nodes"
     __table_args__ = (
+        CheckConstraint("parent_id IS NULL OR parent_id != id", name="not_own_parent"),
+        CheckConstraint("reference_id IS NULL OR reference_id != id", name="not_own_reference"),
         CheckConstraint(
-            "(type = 'REFERENCE' AND target_node_id IS NOT NULL) "
-            "OR (type <> 'REFERENCE' AND target_node_id IS NULL)",
-            name="ck_nodes_reference_target_shape",
+            "(type = 'REFERENCE') = (reference_id IS NOT NULL)", name="reference_shape"
+        ),
+        Index("ix_nodes_owner_parent_order", "owner_id", "parent_id", "created_at", "id"),
+        Index(
+            "ix_nodes_public_root_order",
+            "created_at",
+            "id",
+            postgresql_where=text(
+                "parent_id IS NULL AND deleted_at IS NULL AND visibility = 'PUBLIC'"
+            ),
         ),
     )
 
-    id: UUID | None = Field(
-        default=None,
-        sa_column_kwargs={"server_default": text("uuidv7()")},
-        primary_key=True,
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    owner_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    type: Mapped[NodeType] = mapped_column(enum_column(NodeType))
+    parent_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("collection_nodes.id", ondelete="CASCADE"), index=True
     )
-    author_id: UUID = Field(foreign_key="users.id", index=True)
-    type: NodeType
-    parent_node_id: UUID | None = Field(default=None, foreign_key="nodes.id", index=True)
-    # Set only on REFERENCE nodes — points at the node being referenced.
-    target_node_id: UUID | None = Field(default=None, foreign_key="nodes.id", index=True)
-    # Incremented in the same transaction as every structural mutation. Redis
-    # keys include this value, so a stale fill can never mask newer structure.
-    structural_generation: int = Field(default=0, nullable=False)
-    # Incremented on deck sense additions/removals without bumping folder trees.
-    content_generation: int = Field(default=0, nullable=False)
-    name: str
-    description: str | None = None
-    visibility: Visibility = Field(default=Visibility.PRIVATE)
-    created_at: datetime | None = Field(
-        default=None, sa_type=TZDateTime, sa_column_kwargs={"server_default": text("NOW()")}
+    reference_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("collection_nodes.id", ondelete="CASCADE"), index=True
     )
-    updated_at: datetime | None = Field(
-        default=None, sa_type=TZDateTime, sa_column_kwargs={"server_default": text("NOW()")}
+    name: Mapped[str] = mapped_column(String(255))
+    description: Mapped[str | None] = mapped_column(Text)
+    visibility: Mapped[Visibility] = mapped_column(
+        enum_column(Visibility), default=Visibility.PRIVATE
     )
-    deleted_at: datetime | None = Field(default=None, sa_type=TZDateTime)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
 
 
-class DeckSense(SQLModel, table=True):
-    """Ordered membership of one opaque Lexi sense in a deck."""
-
+class DeckSense(Base):
     __tablename__ = "deck_senses"
-    __table_args__ = (UniqueConstraint("node_id", "sense_id", name="uq_deck_senses_node_sense"),)
 
-    id: int | None = Field(default=None, sa_column=Column(BigInteger, primary_key=True))
-    node_id: UUID = Field(foreign_key="nodes.id", index=True)
-    sense_id: int = Field(sa_column=Column(BigInteger, nullable=False))
-    position: int = Field(default=0)
-    created_at: datetime | None = Field(
-        default=None,
-        sa_type=TZDateTime,
-        sa_column_kwargs={"server_default": text("NOW()")},
+    deck_id: Mapped[UUID] = mapped_column(
+        ForeignKey("collection_nodes.id", ondelete="CASCADE"), primary_key=True
+    )
+    sense_id: Mapped[int] = mapped_column(
+        ForeignKey("lexi.senses.id", ondelete="RESTRICT"), primary_key=True, index=True
     )

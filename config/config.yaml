@@ -1,140 +1,116 @@
-# =============================================================================
-# Pycil product policy — the tunable values an operator or product owner changes.
-#
-# This file is committed and holds no secrets. Credentials and deployment
-# addresses (database, Redis, Clerk, the LLM gateway, S3) live in the process
-# environment instead; see .env.example.
-#
-# Sections must stay in this order: app, learning, content, assistant, models.
-# The models table is last because it is the long reference section.
-#
-# Every value here is validated strictly at startup. An unknown key, a duplicate
-# model id, a default model that is absent or disabled, a default reasoning
-# effort its model does not support, a negative tariff and a non-positive
-# duration all refuse to start the process rather than falling back to a
-# default.
-# =============================================================================
-
-# --- 1. General & account policy ----------------------------------------------
-app:
-  credit_usd_value: 0.001          # 1 Credit = $0.001 USD (1,000 Credits = $1.00)
-  plans:
-    free:
-      monthly_credits: 1000        # 1,000 credits/month ($1.00 allowance)
-    pro:
-      monthly_credits: 10000       # 10,000 credits/month ($10.00 allowance)
-
-# --- 2. Learning & spaced repetition ------------------------------------------
+# Product policy, never credentials. Units preserve the previous integer scale.
+plans:
+  FREE:
+    monthly_allowance_units: 1000000
+    features: [ASSISTANT]
+  PRO:
+    monthly_allowance_units: 10000000
+    features: [ASSISTANT, ADVANCED_GRADING]
+account:
+  defaults:
+    locale: en
+    timezone: UTC
+    translation_language: vi
+  locales: [en, vi]
+  translation_languages: [en, vi]
 learning:
-  max_words_per_session: 30        # Default words admitted per session
-  max_questions_per_round: 15      # Default questions before the round ends
-  session_ttl_seconds: 86400       # 24h Redis session lifetime
-  rubric_grading_credits: 1.0      # One rubric evaluation, independent of depth
-
-# --- 3. Dictionary & content engine (Lexi) ------------------------------------
-content:
-  singleflight_timeout_seconds: 30 # Concurrency lock timeout for word generation
-
-# --- 4. Assistant agent -------------------------------------------------------
+  defaults:
+    question_types:
+      [
+        DEFINITION_TO_WORD,
+        CONTEXT_TO_WORD,
+        CLOZE_TO_WORD,
+        WORD_TO_DEFINITION,
+        WORD_TO_USAGE,
+        DIALOGUE_COMPLETION,
+        MEANING_IN_CONTEXT,
+      ]
+    formats: [SINGLE_CHOICE]
+    questions_per_sense: 3
+    question_budget: 30
+    show_explanations: true
+  limits:
+    min_questions_per_sense: 1
+    max_questions_per_sense: 7
+    max_question_budget: 100
+    candidate_read_batch_size: 100
+    max_answer_chars: 8000
+    history_page_size: 50
+    max_history_days: 365
+    forecast_days: 30
+    weakest_senses_limit: 20
+  pair_levels:
+    DEFINITION_TO_WORD: { SINGLE_CHOICE: 1, SINGLE_WORD: 3 }
+    CONTEXT_TO_WORD: { SINGLE_CHOICE: 2, SINGLE_WORD: 3 }
+    CLOZE_TO_WORD: { SINGLE_CHOICE: 2, SINGLE_WORD: 3 }
+    WORD_TO_DEFINITION: { SINGLE_CHOICE: 1, SHORT_ANSWER: 4 }
+    WORD_TO_USAGE: { SINGLE_CHOICE: 2, SHORT_ANSWER: 4 }
+    DIALOGUE_COMPLETION: { SINGLE_CHOICE: 2 }
+    MEANING_IN_CONTEXT: { SINGLE_CHOICE: 2 }
+  format_mix:
+    NEW: { max_single_word: 0, max_short_answer: 0 }
+    AGAIN: { max_single_word: 0, max_short_answer: 0 }
+    HARD: { max_single_word: 1, max_short_answer: 0 }
+    GOOD: { max_single_word: 1, max_short_answer: 1 }
+    EASY: { max_single_word: 1, max_short_answer: 1 }
+  fsrs:
+    desired_retention: 0.9
+    max_interval_days: 365
+    mastery_stability_scale_days: 30
+generation:
+  questions_per_type: 8
+  distractor_count: 3
+  examples_per_sense: 5
+  worker:
+    poll_interval_seconds: 1
+    attempt_timeout_seconds: 600
+    max_attempts: 3
+    retry_delay_seconds: 5
 assistant:
-  turn_timeout_seconds: 60         # Max time for one assistant turn
-  max_tool_calls_per_turn: 10      # Bounds tool-call loops
-  default_model: "gemini-3.8-flash"
-  default_reasoning_effort: "none" # none | low | medium | high
-
-# --- 5. Models & pricing catalog (reference table, last by design) ------------
-#
-# `enabled: false` keeps a considered model on record without making it
-# selectable. `supported_efforts` lists the reasoning levels that specific model
-# accepts; `none` is always required and means "send no reasoning parameter at
-# all".
-#
-# TODO(deferred): token tariffs are UNVERIFIED placeholders. The gateway in use
-# is a temporary stopgap; production will call OpenAI/OpenRouter/Anthropic/Google
-# directly. Before enabling any model beyond the current default, re-derive the
-# effective rate against the real provider — the stopgap advertises one rate and
-# charges another, and applies a per-request minimum that the settlement formula
-# in the credit ledger does not yet account for. See
-# plans/reports/gateway-billing-evidence-260924-1030-vilao-gateway.md for the
-# measurements and the resume checklist.
-#
-# Only the default is enabled. The other entries are kept as disabled records of
-# models that were considered; several are known not to be subscribed on the
-# current gateway, and one (claude-opus-5) silently answers as a different
-# provider's model, so none may be enabled without re-verification.
+  default_model: gemini-3.8-flash
+  default_effort: none
+  turn_timeout_seconds: 60
+  max_tool_calls: 10
+  max_message_chars: 8000
+  max_context_messages: 100
+  max_images: 4
+  max_image_bytes: 10000000
+  starts_per_minute: 20
+  retention_days: 30
+  purge_interval_seconds: 3600
+  purge_batch_size: 100
 models:
-  - id: "gemini-3.8-flash"
-    name: "Gemini 3.8 Flash"
-    provider: "google"
-    enabled: true
-    pricing:
-      input_usd_per_m: 0.30
-      output_usd_per_m: 2.50
-      cached_read_usd_per_m: 0.075
-    features:
-      vision: true
-      reasoning: true
-    supported_efforts: ["none", "low", "medium", "high"]
-    context_window: 1000000
+  # Carried forward, NOT freshly verified against provider billing. No paid probes.
+  - id: gemini-3.8-flash
+    name: Gemini 3.8 Flash
+    vision: true
+    efforts: [none, low, medium, high]
     max_output_tokens: 8192
-
-  - id: "gemini-2.5-flash"
-    name: "Gemini 2.5 Flash"
-    provider: "google"
-    enabled: false
-    pricing:
-      input_usd_per_m: 0.15
-      output_usd_per_m: 0.60
-      cached_read_usd_per_m: 0.0375
-    features:
-      vision: true
-      reasoning: true
-    supported_efforts: ["none", "low", "medium", "high"]
-    context_window: 1000000
-    max_output_tokens: 8192
-
-  - id: "gpt-4o-mini"
-    name: "GPT-4o Mini"
-    provider: "openai"
-    enabled: false
-    pricing:
-      input_usd_per_m: 0.15
-      output_usd_per_m: 0.60
-      cached_read_usd_per_m: 0.075
-    features:
-      vision: true
-      reasoning: false
-    supported_efforts: ["none"]
-    context_window: 128000
-    max_output_tokens: 4096
-
-  - id: "deepseek-reasoner"
-    name: "DeepSeek R1"
-    provider: "deepseek"
-    enabled: false
-    pricing:
-      input_usd_per_m: 0.55
-      output_usd_per_m: 2.19
-      cached_read_usd_per_m: 0.14
-    features:
-      vision: false
-      reasoning: true
-    supported_efforts: ["none", "low", "medium", "high"]
-    context_window: 64000
-    max_output_tokens: 8192
-
-  - id: "claude-3-7-sonnet"
-    name: "Claude 3.7 Sonnet"
-    provider: "anthropic"
-    enabled: false
-    pricing:
-      input_usd_per_m: 3.00
-      output_usd_per_m: 15.00
-      cached_read_usd_per_m: 0.30
-    features:
-      vision: true
-      reasoning: true
-    supported_efforts: ["none", "low", "medium", "high"]
-    context_window: 200000
-    max_output_tokens: 16384
-
+    input_units_per_token: "0.30"
+    output_units_per_token: "2.50"
+    cached_read_units_per_token: "0.075"
+    cache_write_units_per_token: null # Unknown in the established policy; do not invent a rate.
+providers:
+  lexi:
+    model: gemini-3.8-flash
+    timeout_seconds: 60
+    max_completion_tokens: 8192
+    max_retries: 2
+    structured_outputs: false
+    reasoning_effort: null
+    temperature: 0.1
+    decision_model: jev-latest
+    decision_fallback_model: gemini-3.8-flash
+    decision_threshold: 0.8
+    decision_mode: LLM_FALLBACK
+library:
+  max_depth: 20
+  page_size: 50
+  max_senses_per_deck: 200
+cache:
+  actor_ttl_seconds: 60
+  deck_ttl_seconds: 60
+  max_entries: 1000
+  max_value_bytes: 65536
+http:
+  max_body_bytes: 15000000

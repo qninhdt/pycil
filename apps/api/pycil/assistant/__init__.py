@@ -1,1 +1,1 @@
-"""Bounded, owner-scoped conversational assistant."""
+"""Owned conversations, approved tools and subscription-metered execution."""

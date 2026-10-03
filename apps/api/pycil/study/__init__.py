@@ -1,1 +1,1 @@
-"""Study API, durable learning engine, and disposable session workflow."""
+"""Stateless preparation and user–Sense memory scheduling."""

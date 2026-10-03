@@ -1,56 +1,71 @@
-"""Authenticated profile, export, and deletion routes."""
+from datetime import UTC, datetime
 
-from typing import Annotated
+from fastapi import APIRouter
+from sqlalchemy import select
 
-from fastapi import APIRouter, Depends, Response
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from pycil.account.auth import current_user
-from pycil.account.deletion import delete_account
-from pycil.account.export import export_account
+from pycil.account.auth import Actor
+from pycil.account.lifecycle import invalidate_actor
+from pycil.account.models import User
 from pycil.account.schemas import (
-    AccountDeleteRequest,
-    AccountExport,
-    CapabilitiesRead,
-    CurrentUser,
-    ViewerRead,
+    PreferencesPatch,
+    effective_learning,
+    merge_preferences,
+    preferences,
 )
-from pycil.platform.database import get_session
-from pycil.platform.errors import UnauthorizedError
-from pycil.platform.settings import settings
+from pycil.account.usage import allowance
+from pycil.dependencies import Product, Session
+from pycil.http import Problem
 
-router = APIRouter(tags=["account"])
-
-
-@router.get("/me", response_model=ViewerRead)
-async def me(user: Annotated[CurrentUser, Depends(current_user)]) -> ViewerRead:
-    """The caller's authenticated user profile projection."""
-    return ViewerRead(id=user.id, email=user.email, name=user.name, image=user.image)
+router = APIRouter(prefix="/v1/me", tags=["account"])
 
 
-@router.get("/capabilities", response_model=CapabilitiesRead)
-async def capabilities() -> CapabilitiesRead:
-    """System capabilities available in the current environment."""
-    return CapabilitiesRead(
-        assistant=bool(settings.assistant_api_key and settings.assistant_base_url)
-    )
+def profile(user, config):
+    resolved = preferences(user.settings, config)
+    try:
+        effective = effective_learning(user.settings, user.plan, config)
+        learning = effective.model_dump(mode="json")
+        restriction = None
+    except Problem as exc:
+        learning, restriction = None, exc.code
+    return {
+        "id": user.id,
+        "display_name": user.display_name,
+        "plan": user.plan,
+        "settings": resolved.model_dump(mode="json"),
+        "effective_learning": learning,
+        "learning_restriction": restriction,
+    }
 
 
-@router.get("/me/export", response_model=AccountExport)
-async def export_me(
-    user: Annotated[CurrentUser, Depends(current_user)],
-    session: AsyncSession = Depends(get_session),
-) -> AccountExport:
-    return AccountExport.model_validate(await export_account(session, user.id))
+@router.get("")
+async def me(user: Actor, config: Product):
+    return profile(user, config)
 
 
-@router.delete("/me", status_code=204)
-async def delete_me(
-    body: AccountDeleteRequest,
-    user: Annotated[CurrentUser, Depends(current_user)],
-    session: AsyncSession = Depends(get_session),
-) -> Response:
-    if body.confirmation != "DELETE":
-        raise UnauthorizedError("account_delete_confirmation_required")
-    await delete_account(session, user.id)
-    return Response(status_code=204)
+@router.patch("/settings")
+async def patch_settings(patch: PreferencesPatch, actor: Actor, config: Product, session: Session):
+    async with session.begin():
+        user = await session.scalar(
+            select(User)
+            .where(User.id == actor.id)
+            .with_for_update(key_share=True)
+            .execution_options(populate_existing=True)
+        )
+        if user is None:
+            raise Problem(404, "account_not_found")
+        user.settings = merge_preferences(user.settings, patch, user.plan, config)
+        await session.flush()
+        result = profile(user, config)
+    await invalidate_actor(session, user)
+    return result
+
+
+@router.get("/usage")
+async def usage(actor: Actor, config: Product, session: Session):
+    async with session.begin():
+        user = await session.scalar(
+            select(User).where(User.id == actor.id).execution_options(populate_existing=True)
+        )
+        if user is None:
+            raise Problem(404, "account_not_found")
+        return await allowance(session, user, config, datetime.now(UTC))

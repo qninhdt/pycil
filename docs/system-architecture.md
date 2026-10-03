@@ -1,28 +1,42 @@
-> Current architecture authority: [`./design/`](./design/README.md).
+# Backend architecture — revision 3
 
-# System Architecture
-
-Pycil is a single-VPS Compose product with the web app deployed separately:
+The current backend has five business modules: `account`, `vocabulary`, `library`,
+`study`, and `assistant`, plus explicit root runtime/migration infrastructure and
+one `worker.py`. `apps/web` is intentionally absent. Older material in
+`docs/design/`, journals, plans and root analysis reports describes prior designs,
+not the implemented runtime.
 
 ```text
-Browser ── HTTPS/Caddy ── FastAPI API ── PostgreSQL (public + lexi + checkpoint)
-   │            │              │
-   │            │              └─ Redis (ephemeral session/cache/coordination)
-   │            └─ Taskiq domain worker
-   └── Vercel ── Next.js web ── bearer-authenticated direct calls to the API
+Client ── Caddy ── FastAPI API ── PostgreSQL
+                         │        public: Pycil account/library/memory/events
+                         │        lexi: native dictionary/Questions
+                         │        checkpoints: native LangGraph durability
+                         └────── Redis: assistant start limits
+Generation worker ── native Lexi generation + assistant retention
 ```
 
-The API owns application behavior and executes assistant turns inline, streaming
-AG-UI events over SSE. The worker owns the two durable content jobs — word
-generation and question supply — and refreshes the heartbeat the API's readiness
-probe reads. PostgreSQL is canonical; Redis holds disposable state and is not a
-source of business truth. Lexi is embedded behind `apps/api/pycil/lexicon`
-and owns its isolated schema.
+- Client owns learning sessions, rounds, exposures, answers, navigation, resume and
+  K-answer aggregation. Server preparation is read-only and returns complete
+  K-distinct-type bundles in due → new → future order, with honest smaller counts.
+- One user–Sense memory spans decks. Each trusted rating uses server arrival time,
+  native FSRS and a minimal retry-safe event. Early positive ratings log practice
+  without touching memory; early AGAIN applies FSRS. No answer/result store exists.
+- Native grading returns diagnostic objects, including null fields, without a
+  generated verdict/feedback/rating or an invented advanced-grading unit debit.
+- Shared work has unique `(available_id, target)` identity from explicit client
+  selection. One advisory-lock-owning worker fills missing neutral banks to eight
+  Questions per native type/Sense. Generation never searches or debits a user.
+- Assistant uses native LangChain agents, AG-UI streams/HITL and PostgreSQL
+  checkpoints. Admission occurs before response start. Destructive actions require
+  approval and live authorization. Locks/settlement release safely on cancellation;
+  pending approval releases the execution slot and rejection requires no new call.
+- Subscription allowances, token-unit weights, type/format levels, bounds and
+  retention are validated from `config/config.yaml`. Deployment addresses/secrets
+  come from the environment. Imports do not read YAML or open connections.
+- The explicit migration gate runs Lexi → Pycil → checkpoint setup → verification.
+  API/worker startup only verifies schema versions. It never repairs/migrates.
 
-The browser holds a Clerk session and sends it as a bearer token; it polls the
-owner-scoped job endpoint and consumes the assistant AG-UI stream. The
-assistant-ui React runtime renders chat and streamed tool calls; the FastAPI
-assistant keeps the LangGraph checkpoint and owner-scoped library tools.
-
-For decisions and invariants, read `docs/design/`. For operational commands,
-read the scripts in `scripts/` and `docs/disaster-recovery-runbook.md`.
+See [testing](testing-setup.md), [execution evidence](backend-rewrite-status.md) and
+[packaged dependency provenance](../vendor/lexi-ai/README.md). Operational reset or
+deployment needs an exact target and separate approval; historical runbooks must
+not be used against this schema.

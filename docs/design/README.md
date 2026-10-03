@@ -1,8 +1,14 @@
-# Pycil Redesign
+# Historical design collection
 
-Target design for Pycil. **This folder is the authority.** Where it overlaps any
-other document in the repository, this folder governs; where another document
-disagrees, the other document is not the design.
+These documents predate the revision-3 backend rewrite and are retained as history,
+not current architecture authority or operator instructions. Current behavior is
+documented in [system architecture](../system-architecture.md),
+[codebase summary](../codebase-summary.md) and
+[execution checkpoint](../backend-rewrite-status.md).
+
+# Pycil Redesign (historical)
+
+Historical target design for Pycil; superseded by the revision-3 rewrite contract.
 
 `docs/` and `plans/` stay in the tree as a record of what was built and how. They
 are inputs and history, never authority.

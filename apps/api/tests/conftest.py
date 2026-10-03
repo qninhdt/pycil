@@ -1,101 +1,167 @@
-"""Shared async test fixtures with disposable PostgreSQL and fake Redis."""
+"""New isolated PostgreSQL databases; never infer a development database target."""
 
+import asyncio
 import os
-from collections.abc import AsyncGenerator, Iterator
+import sqlite3
+from datetime import UTC, datetime
+from urllib.parse import urlsplit
+from uuid import uuid4
 
 import pytest
-import pytest_asyncio
-from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from testcontainers.postgres import PostgresContainer
+from pydantic import SecretStr
+from redis.asyncio import Redis
+from sqlalchemy import text
+from sqlalchemy.engine import make_url
+from sqlalchemy.ext.asyncio import create_async_engine
 
-from pycil.main import create_app
-from pycil.metadata import target_metadata
-from pycil.platform.database import get_session
-
-_POSTGRES_IMAGE = "postgres:18-alpine"
-
-
-@pytest.fixture(scope="session")
-def test_db_url() -> Iterator[str]:
-    """Use the CI database when supplied, otherwise provision one with Docker."""
-    configured_url = os.environ.get("TEST_DB_URL")
-    if configured_url:
-        yield configured_url
-        return
-
-    with PostgresContainer(_POSTGRES_IMAGE, driver="asyncpg") as postgres:
-        yield postgres.get_connection_url()
+from pycil.account.models import User
+from pycil.config import Deployment, load_config
+from pycil.database import connect
+from pycil.migrate import migrate
 
 
-@pytest_asyncio.fixture(autouse=True)
-async def fake_redis(monkeypatch):
-    """Pre-seed pycil.platform.redis with fakeredis so cache/session code needs no server."""
-    import fakeredis.aioredis
-
-    from pycil.platform import redis as redis_module
-
-    fake = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr(redis_module, "_redis", fake)
-    yield fake
-    await fake.flushall()
+@pytest.fixture
+def config():
+    return load_config()
 
 
-@pytest_asyncio.fixture
-async def engine(test_db_url: str, monkeypatch):
-    """A disposable schema, plus the module-level handles bound to it.
-
-    Binding happens here rather than in an autouse fixture so that a pure test —
-    FSRS arithmetic, config validation, a schema shape — never provisions Postgres
-    at all. An autouse fixture would start a container for every test in the suite,
-    including the ones that provably touch no database, which is the difference
-    between a unit suite that runs in a second and one that cannot run without
-    Docker.
-    """
-    eng = create_async_engine(test_db_url, poolclass=None)
-    async with eng.begin() as conn:
-        await conn.exec_driver_sql("DROP SCHEMA IF EXISTS public CASCADE")
-        await conn.exec_driver_sql("CREATE SCHEMA public")
-        await conn.run_sync(target_metadata.create_all)
-    factory = async_sessionmaker(eng, class_=AsyncSession, expire_on_commit=False)
-    monkeypatch.setattr("pycil.platform.database.engine", eng)
-    monkeypatch.setattr("pycil.platform.database.async_session_factory", factory)
-    yield eng
-    async with eng.begin() as conn:
-        await conn.exec_driver_sql("DROP SCHEMA IF EXISTS public CASCADE")
-        await conn.exec_driver_sql("CREATE SCHEMA public")
-    await eng.dispose()
-
-
-@pytest_asyncio.fixture
-async def session(engine) -> AsyncGenerator[AsyncSession]:
-    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    async with factory() as s:
-        yield s
+@pytest.fixture
+async def database():
+    target = os.environ.get("PYCIL_TEST_DB_URL")
+    if not target:
+        pytest.fail("Integration tests require explicit disposable PYCIL_TEST_DB_URL")
+    admin_url = make_url(target)
+    if admin_url.database != "rewrite_test":
+        pytest.fail("Use the dedicated rewrite_test container database, not application data")
+    admin = create_async_engine(admin_url, isolation_level="AUTOCOMMIT")
+    name = "pycil_test_" + uuid4().hex
+    async with admin.connect() as connection:
+        await connection.execute(text(f'CREATE DATABASE "{name}"'))
+    url = admin_url.set(database=name).render_as_string(hide_password=False)
+    engine = None
+    try:
+        await asyncio.to_thread(migrate, url)
+        engine, sessions = connect(url)
+        yield engine, sessions, url
+    finally:
+        if engine:
+            await engine.dispose()
+        async with admin.connect() as connection:
+            await connection.execute(text(f'DROP DATABASE "{name}"'))
+        await admin.dispose()
 
 
-@pytest_asyncio.fixture
-async def app(engine):
-    """The application under test, with its session bound to the test database."""
-    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-
-    async def _override() -> AsyncGenerator[AsyncSession]:
-        async with factory() as s:
-            yield s
-
-    application = create_app()
-    application.dependency_overrides[get_session] = _override
-    return application
-
-
-@pytest_asyncio.fixture
-async def client(app) -> AsyncGenerator[AsyncClient]:
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c
+@pytest.fixture
+async def user(database):
+    _, sessions, _ = database
+    async with sessions() as session, session.begin():
+        user = User(
+            clerk_subject="user_" + uuid4().hex,
+            settings={},
+            cycle_anchor=datetime(2026, 1, 31, 12, tzinfo=UTC),
+        )
+        session.add(user)
+        await session.flush()
+    return user
 
 
-# The Clerk test issuer/JWKS lives in `tests/support/` because Phase 12 owns the
-# test-support tree; registering it here makes its fixtures available to every
-# test module without each one importing the module directly.
-pytest_plugins = ["tests.support.clerk_jwks"]
+@pytest.fixture
+def redis_url():
+    url = os.environ.get("PYCIL_TEST_REDIS_URL")
+    if not url:
+        pytest.fail("Bootstrap tests require explicit disposable PYCIL_TEST_REDIS_URL")
+    parsed = urlsplit(url)
+    if parsed.scheme != "redis" or parsed.hostname != "127.0.0.1" or parsed.path != "/15":
+        pytest.fail("Use localhost DB 15 on the dedicated rewrite test Redis container")
+    return url
+
+
+@pytest.fixture
+async def redis_namespace(redis_url):
+    client = Redis.from_url(redis_url)
+    key = "pycil:rewrite:test:" + uuid4().hex
+    try:
+        yield client, key
+    finally:
+        # Only this fixture's exact key. No shared flush/scan-and-delete.
+        await client.delete(key)
+        await client.aclose()
+
+
+@pytest.fixture
+async def senses(database):
+    engine, _, _ = database
+    async with engine.begin() as connection:
+        await connection.execute(
+            text(
+                "INSERT INTO lexi.words(id,lemma,match_key,entry_type,generation_state) "
+                "VALUES(1,'bank','bank','WORD','DONE')"
+            )
+        )
+        await connection.execute(
+            text(
+                "INSERT INTO lexi.senses(id,word_id,pos,tier) "
+                "VALUES(1,1,'NOUN','CORE'),(2,1,'NOUN','COMMON')"
+            )
+        )
+        await connection.execute(
+            text(
+                "INSERT INTO lexi.definitions(sense_id,content) "
+                "VALUES(1,'a financial institution'),(2,'the side of a river')"
+            )
+        )
+    return [1, 2]
+
+
+@pytest.fixture
+def reference(tmp_path):
+    # Empty native Cambridge schema is enough for lifecycle/read-only search tests.
+    # This is an external SQLite reference, NOT a fake Lexi service or DTO.
+    path = tmp_path / "reference.db"
+    with sqlite3.connect(path) as connection:
+        connection.executescript(
+            "CREATE TABLE words(id INTEGER PRIMARY KEY, word TEXT, display_form TEXT, "
+            "entry_type TEXT, status TEXT);"
+            "CREATE TABLE entries(id INTEGER PRIMARY KEY, word_id INTEGER, pos TEXT, "
+            "definition TEXT, examples TEXT, cefr_level TEXT, entry_order INTEGER, "
+            "pronunciation_uk TEXT, pronunciation_us TEXT, phrase_title TEXT);"
+            "CREATE TABLE senses(id INTEGER PRIMARY KEY, entry_id INTEGER, definition TEXT, "
+            "cefr_level TEXT, phrase_title TEXT, sense_order INTEGER);"
+            "CREATE TABLE examples(id INTEGER PRIMARY KEY, sense_id INTEGER, "
+            "example TEXT, example_order INTEGER);"
+            "CREATE TABLE word_alternatives(word_id INTEGER, alternative_word TEXT, "
+            "alternative_type TEXT);"
+        )
+    return path
+
+
+@pytest.fixture
+def deployment(database, redis_url, reference):
+    _, _, url = database
+    return Deployment(
+        db_url=SecretStr(url),
+        redis_url=SecretStr(redis_url),
+        clerk_jwks_url="https://identity.invalid/jwks",
+        clerk_issuer="https://identity.invalid",
+        clerk_audience="pycil",
+        clerk_secret_key=SecretStr("test-only-clerk-secret"),
+        allowed_origins=["https://client.invalid"],
+        cambridge_path=reference,
+        inference_api_key=SecretStr("test-only-inference-key"),
+        inference_base_url="https://inference.invalid/v1",
+        decision_api_key=SecretStr("test-only-decision-key"),
+        decision_base_url="https://decision.invalid",
+    )
+
+
+@pytest.fixture
+def no_inference(monkeypatch):
+    from lexi_ai.inference.decision import DecisionModel
+    from lexi_ai.inference.llm import OpenAIStructuredLLM
+
+    async def forbidden(*args, **kwargs):
+        pytest.fail("Bootstrap tests must never invoke a paid provider")
+
+    # Native Lexi reads/storage remain real; reject only the inference boundary.
+    monkeypatch.setattr(OpenAIStructuredLLM, "complete", forbidden)
+    monkeypatch.setattr(DecisionModel, "decide", forbidden)

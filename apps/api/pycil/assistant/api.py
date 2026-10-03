@@ -1,102 +1,119 @@
-"""Owner-scoped assistant model and thread endpoints."""
-
+from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
-from redis.asyncio import Redis
-from sqlalchemy.ext.asyncio import AsyncSession
+from ag_ui.core import RunAgentInput
+from fastapi import APIRouter, Request, Response
+from fastapi.responses import StreamingResponse
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import select, tuple_
 
-from pycil.account.auth import current_user
-from pycil.account.schemas import CurrentUser
-from pycil.assistant import threads
-from pycil.assistant.schemas import ModelCatalogRead, ThreadCreate, ThreadRead, ThreadStateRead
-from pycil.assistant.thread_access import refresh_retention, require_owned_thread
-from pycil.assistant.turns.leases import lease_ttl_seconds, thread_lease_key
-from pycil.assistant.turns.stream import register_turn_routes
-from pycil.platform.database import get_session
-from pycil.platform.errors import ConflictError, ServiceUnavailableError
-from pycil.platform.redis import acquire_lease, get_redis, release_lease
+from pycil.account.auth import Actor
+from pycil.account.lifecycle import require_user, row_data
+from pycil.assistant.conversations import delete_conversation, owned
+from pycil.assistant.models import Conversation
+from pycil.assistant.stream import prepare_turn
+from pycil.dependencies import Product, Session
+from pycil.http import Problem
 
-__all__ = ["router"]
-
-router = APIRouter(prefix="/assistant", tags=["assistant"])
-register_turn_routes(router)
+router = APIRouter(prefix="/v1/assistant", tags=["assistant"])
 
 
-def _graph(request: Request):
-    graph = getattr(request.app.state, "assistant_graph", None)
-    if graph is None:
-        raise ServiceUnavailableError("assistant_not_configured", code="assistant_not_configured")
-    return graph
+class CreateConversation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    title: str | None = Field(default=None, max_length=255)
 
 
-@router.get("/models", response_model=ModelCatalogRead)
-async def list_models(user: CurrentUser = Depends(current_user)) -> ModelCatalogRead:
-    del user
-    return ModelCatalogRead.from_config()
+@router.get("/models")
+async def models(user: Actor, config: Product):
+    return [
+        {"id": m.id, "name": m.name, "vision": m.vision, "efforts": m.efforts}
+        for m in config.models
+    ]
 
 
-@router.post("/threads", response_model=ThreadRead, status_code=201)
-async def create_thread(
-    body: ThreadCreate,
-    user: CurrentUser = Depends(current_user),
-    session: AsyncSession = Depends(get_session),
-) -> ThreadRead:
-    thread = await threads.create_thread(session, owner_id=user.id, title=body.title)
-    return ThreadRead.model_validate(thread)
+@router.post("/conversations", status_code=201)
+async def create(data: CreateConversation, user: Actor, session: Session):
+    async with session.begin():
+        await require_user(session, user.id)
+        conversation = Conversation(user_id=user.id, title=data.title)
+        session.add(conversation)
+        await session.flush()
+        return row_data(conversation)
 
 
-@router.get("/threads", response_model=list[ThreadRead])
-async def list_threads(
-    user: CurrentUser = Depends(current_user),
-    session: AsyncSession = Depends(get_session),
-) -> list[ThreadRead]:
-    rows = await threads.list_active_threads(session, owner_id=user.id)
-    return [ThreadRead.model_validate(row) for row in rows]
-
-
-@router.get("/threads/{thread_id}", response_model=ThreadRead)
-async def get_thread(
-    thread_id: UUID,
-    user: CurrentUser = Depends(current_user),
-    session: AsyncSession = Depends(get_session),
-) -> ThreadRead:
-    thread = await require_owned_thread(session, thread_id, user.id)
-    await refresh_retention(session, thread)
-    return ThreadRead.model_validate(thread)
-
-
-@router.get("/threads/{thread_id}/state", response_model=ThreadStateRead)
-async def get_thread_state(
-    thread_id: UUID,
-    request: Request,
-    user: CurrentUser = Depends(current_user),
-    session: AsyncSession = Depends(get_session),
-) -> ThreadStateRead:
-    await require_owned_thread(session, thread_id, user.id)
-    state = await threads.read_state(_graph(request), user.id, thread_id)
-    state.status = "interrupted" if state.interrupts else "idle"
-    return state
-
-
-@router.delete("/threads/{thread_id}", status_code=204)
-async def delete_thread(
-    thread_id: UUID,
-    request: Request,
-    user: CurrentUser = Depends(current_user),
-    session: AsyncSession = Depends(get_session),
-    redis: Redis = Depends(get_redis),
-) -> None:
-    thread = await require_owned_thread(session, thread_id, user.id)
-    key = thread_lease_key(thread_id)
-    token = await acquire_lease(redis, key, lease_ttl_seconds())
-    if token is None:
-        raise ConflictError("assistant_turn_in_progress")
-    try:
-        await threads.delete_thread(
-            session,
-            thread,
-            getattr(request.app.state, "assistant_checkpointer", None),
+@router.get("/conversations")
+async def listing(
+    user: Actor,
+    session: Session,
+    config: Product,
+    after_updated_at: datetime | None = None,
+    after_id: UUID | None = None,
+):
+    query = select(Conversation).where(Conversation.user_id == user.id)
+    if (after_updated_at is None) != (after_id is None):
+        raise Problem(422, "invalid_cursor")
+    if after_updated_at is not None:
+        if after_updated_at.utcoffset() is None:
+            raise Problem(422, "invalid_cursor")
+        query = query.where(
+            tuple_(Conversation.updated_at, Conversation.id) < tuple_(after_updated_at, after_id)
         )
-    finally:
-        await release_lease(redis, key, token)
+    rows = (
+        await session.scalars(
+            query.order_by(Conversation.updated_at.desc(), Conversation.id.desc()).limit(
+                config.library.page_size + 1
+            )
+        )
+    ).all()
+    page = rows[: config.library.page_size]
+    return {
+        "conversations": [row_data(row) for row in page],
+        "next_after": (
+            {"updated_at": page[-1].updated_at, "id": page[-1].id}
+            if len(rows) > len(page)
+            else None
+        ),
+    }
+
+
+@router.get("/conversations/{identifier}")
+async def state(identifier: UUID, user: Actor, session: Session, request: Request):
+    row = await owned(session, user.id, identifier)
+    await session.commit()
+    checkpoint = await AsyncPostgresSaver(request.app.state.checkpoint_pool).aget(
+        {"configurable": {"thread_id": str(identifier)}}
+    )
+    return row_data(row) | {"state": checkpoint}
+
+
+@router.delete("/conversations/{identifier}", status_code=204)
+async def remove(identifier: UUID, user: Actor, request: Request):
+    await delete_conversation(request.app.state, user, identifier)
+    return Response(status_code=204)
+
+
+@router.post("")
+async def stream(data: RunAgentInput, user: Actor, request: Request, config: Product):
+    return TurnResponse(request, user, data, config)
+
+
+class TurnResponse(StreamingResponse):
+    """Acquire/release turn resources around ASGI streaming, including send failure."""
+
+    def __init__(self, request, user, data, config):
+        super().__init__(
+            iter(()), media_type="text/event-stream", headers={"Cache-Control": "no-cache"}
+        )
+        self.request, self.user, self.data, self.config = request, user, data, config
+
+    async def __call__(self, scope, receive, send):
+        async with prepare_turn(
+            self.request.app.state,
+            self.request.app.state.deployment,
+            self.user,
+            self.data,
+            self.config,
+        ) as events:
+            self.body_iterator = events
+            await super().__call__(scope, receive, send)
