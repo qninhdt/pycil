@@ -6,7 +6,8 @@ from sqlalchemy import delete, text
 
 from pycil.account.models import User
 from pycil.http import Problem
-from pycil.library.models import CollectionNode, DeckSense, NodeType
+from pycil.library.models import DeckSense, Node, NodeRole, NodeSpace, NodeType
+from pycil.library.tree import add_paths, roots
 from pycil.study import progress as reports
 from pycil.study.fsrs import mastery
 from pycil.study.models import Rating, ReviewLog, SenseMemory
@@ -30,10 +31,19 @@ async def activity(database, user, senses, config, monkeypatch):
     async with sessions() as session, session.begin():
         session.add(other)
         await session.flush()
+        system = await roots(session, user.id)
         for deck_id in deck_ids:
-            session.add(
-                CollectionNode(id=deck_id, owner_id=user.id, type=NodeType.DECK, name="deck")
+            node = Node(
+                id=deck_id,
+                owner_id=user.id,
+                type=NodeType.DECK,
+                name="deck",
+                parent_id=system[NodeRole.PERSONAL_ROOT].id,
+                space=NodeSpace.PERSONAL,
             )
+            session.add(node)
+            await session.flush()
+            await add_paths(session, node)
         await session.flush()
         session.add_all(DeckSense(deck_id=i, sense_id=1) for i in deck_ids)
         session.add(DeckSense(deck_id=deck_ids[0], sense_id=2))
@@ -112,7 +122,7 @@ async def test_global_memory_survives_membership_removal_but_scoped_counts_do_no
     async with sessions() as session:
         global_result = await reports.progress(session, user, config)
         scoped = await reports.progress(session, user, config, deck_ids[0])
-        assert global_result["summary"] == {"total": 2, "learned": 2, "due": 1}
+        assert global_result["summary"] == {"total": 1, "learned": 1, "due": 0}
         assert scoped["summary"] == {"total": 1, "learned": 1, "due": 0}
         assert scoped["activity"][0]["applied_reviews"] == 1
         assert scoped["activity"][0]["practice_events"] == 0

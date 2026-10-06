@@ -57,12 +57,12 @@ def graph(resources, user, config, selected_model):
     protected = {
         t.name: {"allowed_decisions": ["approve", "reject"]}
         for t in surface
-        if t.name in {"create_collection", "update_collection", "delete_collection"}
+        if t.name in {"create_node", "update_node", "delete_node"}
     }
     return create_agent(
         selected_model,
         tools=surface,
-        system_prompt=Path(__file__).with_name("prompt.md").read_text(),
+        system_prompt=Path(__file__).with_name("system_prompt.txt").read_text(),
         middleware=[
             Boundary(config),
             HumanInTheLoopMiddleware(interrupt_on=protected),

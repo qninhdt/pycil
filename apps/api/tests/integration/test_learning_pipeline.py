@@ -546,30 +546,30 @@ async def test_http_search_selected_generation_prepare_native_grade_and_rating(
         word = await client.get("/v1/words/1")
         assert word.status_code == 200 and len(word.json()["senses"]) == 2
         created = await client.post(
-            "/v1/library/nodes", json={"type": "DECK", "name": "learn", "sense_ids": [1, 2]}
+            "/v1/nodes", json={"type": "DECK", "name": "learn", "sense_ids": [1, 2]}
         )
         assert created.status_code == 201, created.text
         deck = created.json()
         assert deck["sense_ids"] == [1, 2]
         saved = await client.put(
-            f"/v1/library/nodes/{deck['id']}",
-            json={"name": "edited", "visibility": "PRIVATE", "sense_ids": [1, 2]},
+            f"/v1/nodes/{deck['id']}",
+            json={"name": "edited", "sense_ids": [1, 2]},
         )
         assert saved.status_code == 200, saved.text
         assert saved.json()["sense_ids"] == [1, 2] and saved.json()["name"] == "edited"
-        folder = await client.post("/v1/library/nodes", json={"type": "FOLDER", "name": "folder"})
+        folder = await client.post("/v1/nodes", json={"type": "FOLDER", "name": "folder"})
         assert folder.status_code == 201 and "sense_ids" not in folder.json()
-        folder_detail = await client.get(f"/v1/library/nodes/{folder.json()['id']}")
-        assert folder_detail.status_code == 200 and folder_detail.json()["sense_count"] == 0
+        folder_detail = await client.get(f"/v1/nodes/{folder.json()['id']}")
+        assert folder_detail.status_code == 200 and "sense_count" not in folder_detail.json()
         assert "senses" not in folder_detail.json()
-        listing = await client.get("/v1/library/nodes")
+        listing = await client.get("/v1/nodes")
         assert listing.status_code == 200 and len(listing.json()["nodes"]) == 2
-        deck_senses = await client.get(f"/v1/library/nodes/{deck['id']}/senses")
+        deck_senses = await client.get(f"/v1/nodes/{deck['id']}/senses")
         assert deck_senses.status_code == 200, deck_senses.text
         assert len(deck_senses.json()["senses"]) == 2
-        assert "next_after_id" not in deck_senses.json()
-        deck_detail = await client.get(f"/v1/library/nodes/{deck['id']}")
-        assert len(deck_detail.json()["senses"]) == 2
+        assert deck_senses.json()["next_after_id"] is None
+        deck_detail = await client.get(f"/v1/nodes/{deck['id']}")
+        assert "senses" not in deck_detail.json()
         assert "sense_page" not in deck_detail.json()
         prepared = await client.post("/v1/study/prepare", json={"node_id": str(deck["id"])})
         assert prepared.status_code == 200

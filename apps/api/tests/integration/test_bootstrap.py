@@ -8,12 +8,12 @@ from typing import TypedDict
 
 import httpx
 import pytest
+from alembic import command
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.graph import END, START, StateGraph
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from alembic import command
 from pycil import dependencies
 from pycil.account.models import User
 from pycil.config import Deployment
@@ -56,10 +56,11 @@ async def test_migration_gate_separates_all_three_schema_owners(database):
         )
         assert ("lexi", "senses") in owners
         assert ("public", "users") in owners
-    # Pycil downgrade affects neither Lexi nor native checkpoint DDL/data/version.
-    await asyncio.to_thread(command.downgrade, migration_config(url), "base")
+    # A lossy placement downgrade is explicitly blocked; external schemas stay intact.
+    with pytest.raises(RuntimeError, match="pre-upgrade backup"):
+        await asyncio.to_thread(command.downgrade, migration_config(url), "base")
     async with engine.connect() as connection:
-        assert await connection.scalar(text("SELECT to_regclass('public.users')")) is None
+        assert await connection.scalar(text("SELECT to_regclass('public.users')")) is not None
         assert (
             await connection.scalar(text("SELECT version_num FROM lexi.alembic_version"))
             == "20261003_base"
@@ -72,6 +73,7 @@ async def test_migration_gate_separates_all_three_schema_owners(database):
     await asyncio.to_thread(command.check, migration_config(url))
 
 
+@pytest.mark.parametrize("database", ["0001_baseline"], indirect=True)
 async def test_fresh_baseline_refuses_existing_public_data_without_reset(database):
     engine, _, url = database
     await asyncio.to_thread(command.downgrade, migration_config(url), "base")

@@ -22,7 +22,7 @@ from pycil.assistant.stream import prepare_turn, validate_input
 from pycil.assistant.tools import tools
 from pycil.dependencies import process_resources
 from pycil.http import Problem
-from pycil.library.models import CollectionNode
+from pycil.library.models import Node, NodeRole
 from pycil.library.nodes import create_node, delete_node
 from pycil.library.schemas import NodeCreate
 from pycil.main import create_app
@@ -152,7 +152,7 @@ async def test_native_approval_and_free_rejection(
                 "",
                 tool_calls=[
                     {
-                        "name": "create_collection",
+                        "name": "create_node",
                         "args": {"data": {"type": "DECK", "name": "created"}},
                         "id": "call_create",
                     }
@@ -239,9 +239,9 @@ async def test_native_approval_and_free_rejection(
         assert stale.status_code == 409 and stale.json() == {"error": "approval_not_pending"}
     assert resumed[-1]["type"] == "RUN_FINISHED", resumed
     async with runtime.sessions() as session:
-        assert await session.scalar(select(func.count()).select_from(CollectionNode)) == int(
-            decision == "approve"
-        )
+        assert await session.scalar(
+            select(func.count()).select_from(Node).where(Node.role == NodeRole.NORMAL)
+        ) == int(decision == "approve")
         assert await session.scalar(select(func.count()).select_from(UsageEvent)) == (
             2 if decision == "approve" else 1
         )
@@ -341,18 +341,18 @@ async def test_approval_reauthorizes_live_library_ownership(
         )
     surface = {t.name: t for t in tools(runtime, user, config)}
     assert "edit_membership" not in surface
-    detail = await surface["get_collection"].ainvoke({"node_id": str(deck["id"])})
-    assert detail["id"] == deck["id"] and detail["senses"] == []
+    detail = await surface["get_node_editor"].ainvoke({"node_id": str(deck["id"])})
+    assert detail["id"] == deck["id"] and detail["sense_ids"] == []
     provider = Completion(
         responses=[
             answer(
                 "",
                 tool_calls=[
                     {
-                        "name": "update_collection",
+                        "name": "update_node",
                         "args": {
                             "node_id": str(deck["id"]),
-                            "data": {"name": "edited", "visibility": "PRIVATE", "sense_ids": []},
+                            "data": {"name": "edited", "sense_ids": []},
                         },
                         "id": "call_save",
                     }
@@ -369,7 +369,7 @@ async def test_approval_reauthorizes_live_library_ownership(
     async with runtime.sessions() as session:
         await delete_node(session, user.id, deck["id"], config)
     with pytest.raises(Problem, match="node_not_found"):
-        await surface["get_collection"].ainvoke({"node_id": str(deck["id"])})
+        await surface["get_node_editor"].ainvoke({"node_id": str(deck["id"])})
     events = await collect(
         runtime,
         deployment,
@@ -391,7 +391,7 @@ async def test_approval_reauthorizes_live_library_ownership(
                 "",
                 tool_calls=[
                     {
-                        "name": "list_collection",
+                        "name": "list_nodes",
                         "args": {"parent_id": "invalid-uuid"},
                         "id": "bad_call",
                     }

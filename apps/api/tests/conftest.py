@@ -8,6 +8,8 @@ from urllib.parse import urlsplit
 from uuid import uuid4
 
 import pytest
+from alembic import command
+from lexi_ai.migrations import upgrade_to_head
 from pydantic import SecretStr
 from redis.asyncio import Redis
 from sqlalchemy import text
@@ -17,7 +19,8 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from pycil.account.models import User
 from pycil.config import Deployment, load_config
 from pycil.database import connect
-from pycil.migrate import migrate
+from pycil.library.tree import provision_library
+from pycil.migrate import migrate, migration_config
 
 
 @pytest.fixture
@@ -26,7 +29,7 @@ def config():
 
 
 @pytest.fixture
-async def database():
+async def database(request):
     target = os.environ.get("PYCIL_TEST_DB_URL")
     if not target:
         pytest.fail("Integration tests require explicit disposable PYCIL_TEST_DB_URL")
@@ -40,7 +43,12 @@ async def database():
     url = admin_url.set(database=name).render_as_string(hide_password=False)
     engine = None
     try:
-        await asyncio.to_thread(migrate, url)
+        revision = getattr(request, "param", "head")
+        if revision == "head":
+            await asyncio.to_thread(migrate, url)
+        else:
+            await asyncio.to_thread(upgrade_to_head, url, db_schema="lexi")
+            await asyncio.to_thread(command.upgrade, migration_config(url), revision)
         engine, sessions = connect(url)
         yield engine, sessions, url
     finally:
@@ -62,6 +70,7 @@ async def user(database):
         )
         session.add(user)
         await session.flush()
+        await provision_library(session, user.id)
     return user
 
 

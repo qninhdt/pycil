@@ -6,7 +6,8 @@ from sqlalchemy.dialects.postgresql import JSONB, aggregate_order_by
 
 from pycil.account.schemas import preferences
 from pycil.http import Problem
-from pycil.library.access import readable, scope_ids
+from pycil.library.access import readable
+from pycil.library.scope import scope_ids
 from pycil.library.senses import member_ids
 from pycil.study.fsrs import mastery
 from pycil.study.models import ReviewLog, SenseMemory
@@ -24,11 +25,9 @@ async def progress(session, user, config, node_id=None):
     now = datetime.now(UTC)
     if node_id:
         node = await readable(session, node_id, user.id, config)
-        scope = member_ids(node, user.id, config)
+        scope = await member_ids(session, node, user.id, config)
     else:
-        scope = scope_ids(None, user.id, config).union(
-            select(SenseMemory.sense_id).where(SenseMemory.user_id == user.id)
-        )
+        scope = await scope_ids(session, None, user.id, config)
     scope = scope.cte("progress_scope").prefix_with("MATERIALIZED")
     memory = SenseMemory
     scoped = (

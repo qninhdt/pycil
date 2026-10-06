@@ -58,6 +58,15 @@ class Profile(Strict):
     settings: Preferences
     effective_learning: LearningPreferences | None
     learning_restriction: str | None
+    library_node_id: UUID
+    personal_node_id: UUID
+    published_node_id: UUID
+
+
+class PublicProfile(Strict):
+    id: UUID
+    display_name: str | None
+    published_node_id: UUID
 
 
 class Allowance(Strict):

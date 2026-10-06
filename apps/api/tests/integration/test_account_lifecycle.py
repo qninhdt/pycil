@@ -220,7 +220,7 @@ async def test_actor_cache_detached_hits_jwt_gate_outage_and_fresh_entitlements(
 
         async with resources.sessions() as session:
             await change_plan(session, user.id, Plan.PRO, config, datetime.now(UTC))
-        assert await resources.cache.get(f"actor:{user.clerk_subject}", ActorContext) is None
+        assert await resources.cache.get(f"actor:v2:{user.clerk_subject}", ActorContext) is None
         async with resources.sessions() as session:
             pro = await actor(request(), session, await bearer(request()))
         assert pro.plan is Plan.PRO
@@ -229,7 +229,7 @@ async def test_actor_cache_detached_hits_jwt_gate_outage_and_fresh_entitlements(
         async with sessions() as session:
             await change_plan(session, user.id, Plan.FREE, config, datetime.now(UTC))
         assert (
-            await resources.cache.get(f"actor:{user.clerk_subject}", ActorContext)
+            await resources.cache.get(f"actor:v2:{user.clerk_subject}", ActorContext)
         ).plan is Plan.PRO
         app = create_app()
         for name, value in vars(state).items():
@@ -250,7 +250,7 @@ async def test_actor_cache_detached_hits_jwt_gate_outage_and_fresh_entitlements(
             )
             assert denied.status_code == 403
             assert (await client.get("/v1/me/usage")).json()["allowance_units"] == 1_000_000
-        assert await resources.redis.ttl(resources.cache.key(f"actor:{user.clerk_subject}")) > 0
+        assert await resources.redis.ttl(resources.cache.key(f"actor:v2:{user.clerk_subject}")) > 0
 
         async def unavailable(*args, **kwargs):
             raise ConnectionError("cache unavailable")

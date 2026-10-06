@@ -29,6 +29,9 @@ build-backend = "setuptools.build_meta"
 include = ["pycil*"]
 
 [tool.setuptools.package-data]
+"pycil.assistant" = ["system_prompt.txt"]
+
+[tool.setuptools.exclude-package-data]
 "pycil.assistant" = ["prompt.md"]
 
 [tool.pytest.ini_options]

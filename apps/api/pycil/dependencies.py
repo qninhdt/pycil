@@ -7,12 +7,14 @@ import httpx
 from fastapi import Depends, Request
 from lexi_ai import DecisionConfig, Lexicon, LLMConfig
 from redis.asyncio import Redis
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pycil.assistant.checkpoints import checkpoint_pool
 from pycil.cache import RedisCache
 from pycil.config import Deployment, ProductConfig
 from pycil.database import connect, verify_schema
+from pycil.http import Problem
 
 
 @asynccontextmanager
@@ -91,7 +93,12 @@ async def process_resources(config: ProductConfig, deployment: Deployment):
 
 async def session(request: Request):
     async with request.app.state.sessions() as connection:
-        yield connection
+        try:
+            yield connection
+        except DBAPIError as exc:
+            if getattr(exc.orig, "sqlstate", None) == "57014":
+                raise Problem(503, "query_timeout") from None
+            raise
 
 
 def product(request: Request) -> ProductConfig:

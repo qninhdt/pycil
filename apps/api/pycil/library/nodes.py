@@ -2,15 +2,15 @@ from datetime import UTC, datetime
 from uuid import uuid7
 
 from lexi_ai import Sense
-from sqlalchemy import delete, func, literal, or_, select, tuple_
+from sqlalchemy import delete, func, or_, select, tuple_
 
 from pycil.account.lifecycle import require_user, row_data
 from pycil.database import transaction_lock
 from pycil.http import Problem
-from pycil.library.access import readable, readable_path, reference_visible
-from pycil.library.models import CollectionNode as Node
-from pycil.library.models import DeckSense, NodeType, Visibility
+from pycil.library.access import published, readable, readable_path, reference_visible
+from pycil.library.models import DeckSense, Node, NodePath, NodeRole, NodeSpace, NodeType
 from pycil.library.schemas import DeckSnapshot
+from pycil.library.tree import add_paths, delete_subtree, move_paths, roots, subtree
 
 
 async def lock_owner(session, owner_id):
@@ -18,60 +18,167 @@ async def lock_owner(session, owner_id):
     await require_user(session, owner_id)
 
 
-async def owned(session, node_id, owner_id):
-    node = await session.get(Node, node_id)
-    if node is None or node.owner_id != owner_id or node.deleted_at is not None:
+async def owned(session, node_id, owner_id, config):
+    node = await readable(session, node_id, owner_id, config)
+    if node.owner_id != owner_id:
         raise Problem(404, "node_not_found")
+    if node.role is NodeRole.NORMAL:
+        is_published = await session.scalar(
+            select(published(Node.__table__)).where(Node.id == node.id)
+        )
+        expected = NodeSpace.PUBLISHED if is_published else NodeSpace.PERSONAL
+        if node.space is not expected:
+            raise Problem(409, "invalid_tree_space")
     return node
 
 
-async def validate_parent(session, node, parent_id, config):
-    path = []
-    parent_depth = 0
+def normal(node):
+    if node.role is not NodeRole.NORMAL:
+        raise Problem(422, "system_node_protected")
+
+
+async def default_parent(session, owner_id, parent_id):
     if parent_id is not None:
-        parent, path, _, _ = await readable_path(session, parent_id, node.owner_id, config)
-        if parent.owner_id != node.owner_id or parent.type is not NodeType.FOLDER:
-            raise Problem(422, "invalid_parent")
-        parent_depth = len(path)
-        if node.id in path or node.reference_id in path:
-            raise Problem(422, "collection_cycle")
-    # Account for the whole moved subtree, not just its root.
-    descendants = (
-        select(Node.id, literal(1).label("depth"))
-        .where(Node.id == node.id, Node.deleted_at.is_(None))
-        .cte("descendants", recursive=True)
+        return parent_id
+    system = await roots(session, owner_id)
+    return system[NodeRole.PERSONAL_ROOT].id
+
+
+async def validate_parent(session, node, parent_id, config, *, creating=False):
+    parent, ancestors = await readable_path(session, parent_id, node.owner_id, config)
+    if (
+        parent.owner_id != node.owner_id
+        or parent.type is not NodeType.FOLDER
+        or parent.role is NodeRole.LIBRARY_ROOT
+    ):
+        raise Problem(422, "invalid_parent")
+    ancestor_ids = {n.id for n in ancestors}
+    actual_space = (
+        NodeSpace.PUBLISHED
+        if any(n.role is NodeRole.PUBLISHED_ROOT for n in ancestors)
+        else NodeSpace.PERSONAL
     )
-    descendants = descendants.union_all(
-        select(Node.id, descendants.c.depth + 1)
-        .join(descendants, Node.parent_id == descendants.c.id)
+    if parent.space is not actual_space:
+        raise Problem(409, "invalid_tree_space")
+    if node.id in ancestor_ids or node.reference_id in ancestor_ids:
+        raise Problem(422, "node_cycle")
+    height = (
+        await session.scalar(
+            select(func.max(NodePath.depth)).where(
+                NodePath.ancestor_id == node.id,
+            )
+        )
+        or 0
+    )
+    library_id = ancestors[0].id
+    new_depth = len(ancestors) + height
+    old_depth = (
+        await session.scalar(
+            select(func.max(NodePath.depth)).where(
+                NodePath.ancestor_id == library_id,
+                NodePath.descendant_id.in_(subtree(node.id)),
+            )
+        )
+        or 0
+    )
+    if new_depth > config.library.max_depth and (creating or new_depth > old_depth):
+        raise Problem(422, "node_depth_exceeded")
+    # A descendant reference may become a direct ancestor-reference after this move.
+    invalid = await session.scalar(
+        select(Node.id)
         .where(
-            Node.owner_id == node.owner_id,
+            Node.id.in_(subtree(node.id)),
+            Node.reference_id.in_(ancestor_ids),
+        )
+        .limit(1)
+    )
+    if invalid:
+        raise Problem(422, "node_cycle")
+    if creating or parent.id != node.parent_id:
+        children = await session.scalar(
+            select(func.count())
+            .select_from(Node)
+            .where(
+                Node.parent_id == parent.id,
+                Node.deleted_at.is_(None),
+            )
+        )
+        if children >= config.library.max_children_per_folder:
+            raise Problem(422, "quota_exceeded")
+    return parent
+
+
+async def check_node_quota(session, owner_id):
+    count = await session.scalar(
+        select(func.count())
+        .select_from(Node)
+        .where(
+            Node.owner_id == owner_id,
             Node.deleted_at.is_(None),
-            descendants.c.depth <= config.library.max_depth,
+            Node.role != NodeRole.LIBRARY_ROOT,
         )
     )
-    height = await session.scalar(select(func.max(descendants.c.depth))) or 1
-    if parent_depth + height > config.library.max_depth:
-        raise Problem(422, "collection_depth_exceeded")
+    return count
+
+
+async def validate_publication(session, node, parent, data, *, creating=False):
+    entering = parent.space is NodeSpace.PUBLISHED and (
+        creating or node.space is not NodeSpace.PUBLISHED
+    )
+    if entering and not data.confirm_publication:
+        raise Problem(409, "publication_confirmation_required")
+    if not entering:
+        return
+    references = list(
+        (
+            await session.scalars(
+                select(Node).where(
+                    Node.id.in_(subtree(node.id)),
+                    Node.type == NodeType.REFERENCE,
+                )
+            )
+        ).all()
+    )
+    if creating and node.type is NodeType.REFERENCE:
+        references.append(node)
+    targets = {n.reference_id for n in references}
+    if not targets:
+        return
+    # Targets inside the same canonical moved subtree will become published atomically.
+    allowed = set(
+        (
+            await session.scalars(
+                select(Node.id).where(
+                    Node.id.in_(targets),
+                    Node.deleted_at.is_(None),
+                    Node.type.in_([NodeType.FOLDER, NodeType.DECK]),
+                    or_(published(Node.__table__), Node.id.in_(subtree(node.id))),
+                )
+            )
+        ).all()
+    )
+    if targets != allowed:
+        raise Problem(422, "private_reference_cannot_be_published")
 
 
 async def create_node(session, owner_id, data, config):
     async with session.begin():
         await lock_owner(session, owner_id)
-        if data.visibility is Visibility.PUBLIC and not data.confirm_publication:
-            raise Problem(409, "publication_confirmation_required")
-        node = Node(
-            id=uuid7(),
-            owner_id=owner_id,
-            **data.model_dump(exclude={"confirm_publication", "sense_ids"}),
-        )
-        await validate_parent(session, node, node.parent_id, config)
+        if await check_node_quota(session, owner_id) >= config.library.max_owned_nodes:
+            raise Problem(422, "quota_exceeded")
+        values = data.model_dump(exclude={"confirm_publication", "sense_ids"})
+        values["parent_id"] = await default_parent(session, owner_id, values["parent_id"])
+        node = Node(id=uuid7(), owner_id=owner_id, role=NodeRole.NORMAL, **values)
+        parent = await validate_parent(session, node, node.parent_id, config, creating=True)
+        await validate_publication(session, node, parent, data, creating=True)
+        node.space = parent.space
         if node.reference_id:
             target = await readable(session, node.reference_id, owner_id, config)
             if target.type is NodeType.REFERENCE:
                 raise Problem(422, "invalid_reference_target")
         session.add(node)
         await session.flush()
+        await add_paths(session, node)
         sense_ids = None
         if node.type is NodeType.DECK:
             sense_ids = await replace_membership(session, node, data.sense_ids or [], config)
@@ -84,17 +191,14 @@ async def create_node(session, owner_id, data, config):
 async def save_node(session, owner_id, node_id, data, config):
     async with session.begin():
         await lock_owner(session, owner_id)
-        node = await owned(session, node_id, owner_id)
-        await readable(session, node_id, owner_id, config)
-        values = data.model_dump(exclude={"confirm_publication", "sense_ids"})
-        if (
-            values.get("visibility") is Visibility.PUBLIC
-            and node.visibility is not Visibility.PUBLIC
-            and not data.confirm_publication
-        ):
-            raise Problem(409, "publication_confirmation_required")
-        if values["parent_id"] != node.parent_id:
-            await validate_parent(session, node, values["parent_id"], config)
+        node = await owned(session, node_id, owner_id, config)
+        normal(node)
+        parent_id = await default_parent(session, owner_id, data.parent_id)
+        old_parent, old_space = node.parent_id, node.space
+        if parent_id != node.parent_id:
+            parent = await validate_parent(session, node, parent_id, config)
+            await validate_publication(session, node, parent, data)
+            await move_paths(session, node, parent)
         sense_ids = None
         if node.type is NodeType.DECK:
             if data.sense_ids is None:
@@ -102,11 +206,31 @@ async def save_node(session, owner_id, node_id, data, config):
             sense_ids = await replace_membership(session, node, data.sense_ids, config)
         elif data.sense_ids is not None:
             raise Problem(422, "membership_is_deck_only")
-        for key, value in values.items():
-            setattr(node, key, value)
+        node.name, node.description = data.name, data.description
         node.updated_at = datetime.now(UTC)
+        retained_id = None
+        if data.retain_personal_reference:
+            if old_space is not NodeSpace.PERSONAL or node.space is not NodeSpace.PUBLISHED:
+                raise Problem(422, "invalid_retained_reference")
+            if await check_node_quota(session, owner_id) >= config.library.max_owned_nodes:
+                raise Problem(422, "quota_exceeded")
+            reference = Node(
+                id=uuid7(),
+                owner_id=owner_id,
+                parent_id=old_parent,
+                type=NodeType.REFERENCE,
+                role=NodeRole.NORMAL,
+                space=NodeSpace.PERSONAL,
+                name=node.name,
+                description=node.description,
+                reference_id=node.reference_id or node.id,
+            )
+            session.add(reference)
+            await session.flush()
+            await add_paths(session, reference)
+            retained_id = reference.id
         await session.flush()
-        result = row_data(node)
+        result = row_data(node) | {"retained_reference_id": retained_id}
         if sense_ids is not None:
             result["sense_ids"] = sense_ids
     await invalidate_deck(session, node)
@@ -116,49 +240,66 @@ async def save_node(session, owner_id, node_id, data, config):
 async def delete_node(session, owner_id, node_id, config):
     async with session.begin():
         await lock_owner(session, owner_id)
-        node = await owned(session, node_id, owner_id)
-        node.deleted_at = node.updated_at = datetime.now(UTC)
+        node = await owned(session, node_id, owner_id, config)
+        normal(node)
+        await delete_subtree(session, node)
     await invalidate_deck(session, node)
 
 
 async def list_nodes(session, viewer_id, parent_id, after_id, config):
-    statement = select(Node).where(Node.parent_id == parent_id, Node.deleted_at.is_(None))
-    if parent_id is not None:
-        parent = await readable(session, parent_id, viewer_id, config)
-        if parent.type is not NodeType.FOLDER:
-            raise Problem(422, "invalid_parent")
-        statement = statement.where(Node.owner_id == parent.owner_id)
-    else:
-        statement = statement.where(
-            or_(Node.owner_id == viewer_id, Node.visibility == Visibility.PUBLIC)
-        )
-    statement = statement.where(
-        or_(
-            Node.type != NodeType.REFERENCE,
-            reference_visible(Node.__table__, viewer_id, config.library.max_depth),
-        )
+    if parent_id is None:
+        if viewer_id is None:
+            raise Problem(422, "parent_required")
+        system = await roots(session, viewer_id)
+        parent_id = system[NodeRole.LIBRARY_ROOT].id
+    parent = await readable(session, parent_id, viewer_id, config)
+    if parent.type is NodeType.REFERENCE:
+        if not await session.scalar(
+            select(reference_visible(Node.__table__, viewer_id)).where(
+                Node.id == parent.id,
+            )
+        ):
+            raise Problem(404, "reference_unavailable")
+        parent = await readable(session, parent.reference_id, viewer_id, config)
+    if parent.type is not NodeType.FOLDER:
+        raise Problem(422, "invalid_parent")
+    statement = select(Node).where(
+        Node.parent_id == parent.id,
+        Node.owner_id == parent.owner_id,
+        Node.deleted_at.is_(None),
     )
+    if parent.owner_id != viewer_id:
+        statement = statement.where(
+            or_(
+                Node.type != NodeType.REFERENCE,
+                reference_visible(Node.__table__, viewer_id),
+            )
+        )
     if after_id is not None:
         cursor = await readable(session, after_id, viewer_id, config)
-        if cursor.parent_id != parent_id:
+        if cursor.parent_id != parent.id:
             raise Problem(422, "invalid_cursor")
         statement = statement.where(
             tuple_(Node.created_at, Node.id) > tuple_(cursor.created_at, cursor.id)
         )
-    rows = (
-        await session.scalars(
-            statement.order_by(Node.created_at, Node.id).limit(config.library.page_size + 1)
-        )
-    ).all()
+    rows = list(
+        (
+            await session.scalars(
+                statement.order_by(Node.created_at, Node.id).limit(config.library.page_size + 1)
+            )
+        ).all()
+    )
     page = rows[: config.library.page_size]
-    return {
-        "nodes": [row_data(n) for n in page],
-        "next_after_id": page[-1].id if len(rows) > len(page) else None,
-    }
+    data = [row_data(n) for n in page]
+    if parent.role is NodeRole.LIBRARY_ROOT:
+        for item in data:
+            if item["owner_id"] != viewer_id:
+                item["parent_id"] = None
+    return {"nodes": data, "next_after_id": page[-1].id if len(rows) > len(page) else None}
 
 
 async def replace_membership(session, node, sense_ids, config):
-    """Final state diff inside the already serialized editor transaction."""
+    """Full-state editor diff inside the owner lock; never use a paginated read."""
     present = set(
         (
             await session.scalars(select(DeckSense.sense_id).where(DeckSense.deck_id == node.id))
@@ -168,6 +309,18 @@ async def replace_membership(session, node, sense_ids, config):
     additions, removals = final - present, present - final
     if additions and len(final) > config.library.max_senses_per_deck:
         raise Problem(422, "deck_sense_limit_exceeded")
+    if len(final) > len(present):
+        count = await session.scalar(
+            select(func.count())
+            .select_from(DeckSense)
+            .join(
+                Node,
+                Node.id == DeckSense.deck_id,
+            )
+            .where(Node.owner_id == node.owner_id, Node.deleted_at.is_(None))
+        )
+        if count + len(final) - len(present) > config.library.max_owned_memberships:
+            raise Problem(422, "quota_exceeded")
     if additions:
         existing = set(
             (await session.scalars(select(Sense.id).where(Sense.id.in_(additions)))).all()
@@ -177,7 +330,10 @@ async def replace_membership(session, node, sense_ids, config):
         session.add_all(DeckSense(deck_id=node.id, sense_id=s) for s in additions)
     if removals:
         await session.execute(
-            delete(DeckSense).where(DeckSense.deck_id == node.id, DeckSense.sense_id.in_(removals))
+            delete(DeckSense).where(
+                DeckSense.deck_id == node.id,
+                DeckSense.sense_id.in_(removals),
+            )
         )
     await session.flush()
     return sorted(final)
@@ -185,59 +341,62 @@ async def replace_membership(session, node, sense_ids, config):
 
 async def invalidate_deck(session, node):
     if node.type is NodeType.DECK and (cache := session.info.get("cache")):
-        await cache.discard(f"deck:{node.id}")
+        await cache.discard(f"node-editor:{node.id}")
 
 
 async def deck_snapshot(session, node):
-    """Caller must perform live access checks before using this shared value."""
+    """Owner-only editor payload; no cached snapshot is an access grant."""
     cache = session.info.get("cache")
-    key = f"deck:{node.id}"
-    if cache and (snapshot := await cache.get(key, DeckSnapshot)) is not None:
-        return snapshot
-    identifiers = (
-        await session.scalars(
-            select(DeckSense.sense_id)
-            .where(DeckSense.deck_id == node.id)
-            .order_by(DeckSense.sense_id)
-        )
-    ).all()
-    snapshot = DeckSnapshot(
-        **{
-            field: getattr(node, field)
-            for field in DeckSnapshot.model_fields
-            if field != "sense_ids"
-        },
-        sense_ids=list(identifiers),
+    key = f"node-editor:{node.id}"
+    metadata = {
+        field: getattr(node, field) for field in DeckSnapshot.model_fields if field != "sense_ids"
+    }
+    if cache and (cached := await cache.get(key, DeckSnapshot)) is not None:
+        # Moves of an ancestor can update this node's derived space. Metadata always
+        # comes from the already-authorized live node, never the cached permission.
+        return cached.model_copy(update=metadata)
+    identifiers = list(
+        (
+            await session.scalars(
+                select(DeckSense.sense_id)
+                .where(
+                    DeckSense.deck_id == node.id,
+                )
+                .order_by(DeckSense.sense_id)
+            )
+        ).all()
     )
+    snapshot = DeckSnapshot(**metadata, sense_ids=identifiers)
     if cache:
         await cache.put(key, snapshot, cache.policy.deck_ttl_seconds)
     return snapshot
 
 
-async def node_details(session, node_id, viewer_id, config, lexicon):
-    from pycil.library.senses import member_ids, sense_page
-
-    node, path, names, published = await readable_path(session, node_id, viewer_id, config)
-    breadcrumbs = []
-    visible = node.owner_id == viewer_id
-    for identifier, name, public in zip(
-        reversed(path), reversed(names), reversed(published), strict=True
-    ):
-        visible = visible or public
-        if visible:
-            breadcrumbs.append({"id": identifier, "name": name})
-    data = row_data(node)
-    if node.parent_id not in {crumb["id"] for crumb in breadcrumbs}:
-        data["parent_id"] = None
-    result = data | {"breadcrumbs": breadcrumbs}
+async def editor_snapshot(session, node_id, owner_id, config):
+    node = await owned(session, node_id, owner_id, config)
+    normal(node)
     if node.type is NodeType.DECK:
-        snapshot = await deck_snapshot(session, node)
-        result["sense_count"] = len(snapshot.sense_ids)
-        result.update(
-            await sense_page(session, node, viewer_id, config, lexicon, snapshot=snapshot)
+        return (await deck_snapshot(session, node)).model_dump()
+    return row_data(node)
+
+
+async def node_details(session, node_id, viewer_id, config):
+    node, ancestors = await readable_path(session, node_id, viewer_id, config)
+    data = row_data(node)
+    if node.parent_id not in {n.id for n in ancestors}:
+        data["parent_id"] = None
+    available = None
+    if node.type is NodeType.REFERENCE:
+        available = bool(
+            await session.scalar(
+                select(reference_visible(Node.__table__, viewer_id)).where(
+                    Node.id == node.id,
+                )
+            )
         )
-    else:
-        result["sense_count"] = await session.scalar(
-            select(func.count()).select_from(member_ids(node, viewer_id, config).subquery())
-        )
-    return result
+        if not available:
+            data["reference_id"] = None
+    return data | {
+        "breadcrumbs": [{"id": n.id, "name": n.name} for n in ancestors],
+        "reference_available": available,
+    }

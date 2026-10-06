@@ -3,10 +3,10 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
+from alembic import command
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 
-from alembic import command
 from pycil.account.models import UsageEvent, UsagePeriod
 from pycil.account.plans import Feature, Plan
 from pycil.account.usage import allowance, change_plan, settle
@@ -21,7 +21,7 @@ async def test_fresh_ordered_migrations_repeat_without_drift(database):
     async with engine.connect() as connection:
         assert (
             await connection.scalar(text("SELECT version_num FROM public.alembic_version"))
-            == "0001_baseline"
+            == "0002_nodes_spaces_paths"
         )
         assert (
             await connection.scalar(text("SELECT version_num FROM lexi.alembic_version"))
@@ -41,7 +41,8 @@ async def test_fresh_ordered_migrations_repeat_without_drift(database):
             "users",
             "usage_periods",
             "usage_events",
-            "collection_nodes",
+            "nodes",
+            "node_paths",
             "deck_senses",
             "sense_memory",
             "review_log",

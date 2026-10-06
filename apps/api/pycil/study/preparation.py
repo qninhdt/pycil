@@ -87,7 +87,9 @@ async def prepare(session, lexicon, user, node_id, config):
         await session.connection(execution_options={"isolation_level": "REPEATABLE READ"})
         node = await readable(session, node_id, user.id, config)
         scope = (
-            member_ids(node, user.id, config).cte("preparation_scope").prefix_with("MATERIALIZED")
+            (await member_ids(session, node, user.id, config))
+            .cte("preparation_scope")
+            .prefix_with("MATERIALIZED")
         )
         memory = SenseMemory
         learned = select(memory.sense_id, memory.last_rating, memory.due_at).where(

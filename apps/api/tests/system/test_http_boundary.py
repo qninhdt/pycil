@@ -133,7 +133,7 @@ async def test_invalid_authorization_stays_401_even_on_optional_viewer_routes(ap
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
-        for path in ("/v1/me", "/v1/words/search?query=bank", "/v1/library/nodes"):
+        for path in ("/v1/me", "/v1/words/search?query=bank", "/v1/nodes"):
             response = await client.get(path, headers={"Authorization": authorization})
             assert response.status_code == 401
             assert response.json() == {"error": "invalid_credentials"}
@@ -150,9 +150,10 @@ def test_openapi_has_typed_success_errors_optional_bearer_and_sse():
     viewers = {
         ("get", "/v1/words/search"),
         ("get", "/v1/words/{word_id}"),
-        ("get", "/v1/library/nodes"),
-        ("get", "/v1/library/nodes/{node_id}"),
-        ("get", "/v1/library/nodes/{node_id}/senses"),
+        ("get", "/v1/nodes"),
+        ("get", "/v1/nodes/{node_id}"),
+        ("get", "/v1/nodes/{node_id}/senses"),
+        ("get", "/v1/users/{user_id}"),
     }
     count = 0
     for path, operations in schema["paths"].items():
@@ -171,7 +172,7 @@ def test_openapi_has_typed_success_errors_optional_bearer_and_sse():
                 else:
                     for content in response["content"].values():
                         assert content["schema"]
-    assert count == 24
+    assert count == 26
     assert set(schema["paths"]["/v1/assistant"]["post"]["responses"]["200"]["content"]) == {
         "text/event-stream"
     }

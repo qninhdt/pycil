@@ -106,7 +106,14 @@ providers:
 library:
   max_depth: 20
   page_size: 50
-  max_senses_per_deck: 200
+  max_senses_per_deck: 1000
+  max_children_per_folder: 500
+  max_owned_nodes: 2000
+  max_owned_memberships: 100000
+  max_scope_nodes: 10000
+  max_scope_memberships: 200000
+  statement_timeout_ms: 3000
+  scope_timeout_seconds: 5
 cache:
   actor_ttl_seconds: 60
   deck_ttl_seconds: 60

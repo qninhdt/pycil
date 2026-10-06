@@ -19,38 +19,42 @@ def tools(resources, user, config):
         return asdict(await resources.lexicon.search(query, include_available=True))
 
     @tool
-    async def list_collection(parent_id: str | None = None):
-        """List readable collection nodes, optionally within a readable folder."""
+    async def list_nodes(parent_id: str | None = None):
+        """List Library roots or children of a readable folder/reference."""
         async with resources.sessions() as session:
             return await nodes.list_nodes(
                 session, user.id, UUID(parent_id) if parent_id else None, None, config
             )
 
     @tool
-    async def get_collection(node_id: str):
-        """Read live-access metadata and deck Senses before constructing a final editor save."""
+    async def get_node(node_id: str):
+        """Read authorized node metadata and breadcrumbs, not deck membership."""
         async with resources.sessions() as session:
-            return await nodes.node_details(
-                session, UUID(node_id), user.id, config, resources.lexicon
-            )
+            return await nodes.node_details(session, UUID(node_id), user.id, config)
 
     @tool
-    async def create_collection(data: dict):
+    async def get_node_editor(node_id: str):
+        """Read owned editable metadata and complete deck sense_ids before a full save."""
+        async with resources.sessions() as session:
+            return await nodes.editor_snapshot(session, UUID(node_id), user.id, config)
+
+    @tool
+    async def create_node(data: dict):
         """Create a folder, deck or live reference. Publication requires approval."""
         value = NodeCreate.model_validate(data)
         async with resources.sessions() as session:
             return await nodes.create_node(session, user.id, value, config)
 
     @tool
-    async def update_collection(node_id: str, data: dict):
+    async def update_node(node_id: str, data: dict):
         """Save final metadata and deck sense_ids atomically; requires user approval."""
         value = NodeSave.model_validate(data)
         async with resources.sessions() as session:
             return await nodes.save_node(session, user.id, UUID(node_id), value, config)
 
     @tool
-    async def delete_collection(node_id: str):
-        """Delete an owned collection node; requires user approval."""
+    async def delete_node(node_id: str):
+        """Delete an owned normal subtree; requires user approval."""
         async with resources.sessions() as session:
             await nodes.delete_node(session, user.id, UUID(node_id), config)
         return {"deleted": True}
@@ -64,10 +68,11 @@ def tools(resources, user, config):
 
     return [
         search_words,
-        list_collection,
-        get_collection,
-        create_collection,
-        update_collection,
-        delete_collection,
+        list_nodes,
+        get_node,
+        get_node_editor,
+        create_node,
+        update_node,
+        delete_node,
         learning_progress,
     ]

@@ -7,6 +7,7 @@ from fastapi.exceptions import RequestValidationError
 from sqlalchemy import text
 from starlette.exceptions import HTTPException
 
+from pycil.account.api import public_router
 from pycil.account.api import router as account_router
 from pycil.account.auth import Identity
 from pycil.assistant.api import router as assistant_router
@@ -58,6 +59,7 @@ def create_app() -> FastAPI:
     app.add_exception_handler(RequestValidationError, validation_response)
     app.add_exception_handler(HTTPException, http_error_response)
     app.include_router(account_router)
+    app.include_router(public_router)
     app.include_router(library_router)
     app.include_router(vocabulary_router)
     app.include_router(study_router)

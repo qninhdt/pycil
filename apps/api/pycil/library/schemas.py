@@ -5,7 +5,7 @@ from uuid import UUID
 from lexi_ai import CEFRLevel, EntryType, PartOfSpeech, Register, Tier
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from pycil.library.models import NodeType, Visibility
+from pycil.library.models import NodeRole, NodeSpace, NodeType
 from pycil.study.models import Rating
 
 
@@ -17,7 +17,6 @@ class EditableNode(Strict):
     name: str = Field(min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=8000)
     parent_id: UUID | None = None
-    visibility: Visibility = Visibility.PRIVATE
     confirm_publication: bool = False
     sense_ids: list[Annotated[int, Field(strict=True, gt=0)]] | None = None
 
@@ -44,7 +43,7 @@ class NodeCreate(EditableNode):
 
 
 class NodeSave(EditableNode):
-    visibility: Visibility
+    retain_personal_reference: bool = False
 
 
 class DeckSnapshot(Strict):
@@ -54,7 +53,8 @@ class DeckSnapshot(Strict):
     name: str
     description: str | None
     parent_id: UUID | None
-    visibility: Visibility
+    role: NodeRole
+    space: NodeSpace
     created_at: datetime
     updated_at: datetime
     sense_ids: list[int]
@@ -62,7 +62,6 @@ class DeckSnapshot(Strict):
 
 class LearningPreview(Strict):
     state: Literal["NEW", "DUE", "NOT_YET_DUE"]
-    mastery: int = Field(ge=0, le=100)
     due_at: datetime | None
     last_rating: Rating | None
 
@@ -82,12 +81,10 @@ class SensePreview(Strict):
     learning: LearningPreview | None
 
 
-class DeckSenses(Strict):
+class SensePage(Strict):
     senses: list[SensePreview]
-
-
-class SensePage(DeckSenses):
     next_after_id: int | None
+    as_of: datetime
 
 
 class NodeView(Strict):
@@ -98,7 +95,8 @@ class NodeView(Strict):
     reference_id: UUID | None
     name: str
     description: str | None
-    visibility: Visibility
+    role: NodeRole
+    space: NodeSpace
     deleted_at: datetime | None
     created_at: datetime
     updated_at: datetime
@@ -116,9 +114,14 @@ class ContainerNode(NodeView):
 class SavedDeck(NodeView):
     type: Literal[NodeType.DECK]
     sense_ids: list[int]
+    retained_reference_id: UUID | None = None
 
 
-SavedNode = Annotated[SavedDeck | ContainerNode, Field(discriminator="type")]
+class SavedContainer(ContainerNode):
+    retained_reference_id: UUID | None = None
+
+
+SavedNode = Annotated[SavedDeck | SavedContainer, Field(discriminator="type")]
 
 
 class Breadcrumb(Strict):
@@ -126,16 +129,6 @@ class Breadcrumb(Strict):
     name: str
 
 
-class ContainerDetails(ContainerNode):
+class NodeDetails(NodeView):
     breadcrumbs: list[Breadcrumb]
-    sense_count: int
-
-
-class DeckDetails(NodeView):
-    type: Literal[NodeType.DECK]
-    breadcrumbs: list[Breadcrumb]
-    sense_count: int
-    senses: list[SensePreview]
-
-
-NodeDetails = Annotated[DeckDetails | ContainerDetails, Field(discriminator="type")]
+    reference_available: bool | None = None

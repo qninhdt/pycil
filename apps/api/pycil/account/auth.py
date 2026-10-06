@@ -17,6 +17,7 @@ from pycil.account.models import User
 from pycil.account.plans import Plan
 from pycil.dependencies import Session
 from pycil.http import Problem
+from pycil.library.tree import provision_library
 
 
 class Identity:
@@ -69,7 +70,7 @@ async def actor(request: Request, session: Session, credentials: Credentials) ->
         raise Problem(401, "invalid_credentials")
     subject = await request.app.state.identity.subject(credentials.credentials)
     cache = session.info.get("cache")
-    key = f"actor:{subject}"
+    key = f"actor:v2:{subject}"
     if cache and (context := await cache.get(key, ActorContext)) is not None:
         return context
     # Verify missing identities with Clerk before provisioning, preventing stale
@@ -92,6 +93,7 @@ async def actor(request: Request, session: Session, credentials: Credentials) ->
                 .on_conflict_do_nothing(index_elements=[User.clerk_subject])
             )
             user = await session.scalar(select(User).where(User.clerk_subject == subject))
+            await provision_library(session, user.id)
     context = ActorContext.model_validate(user)
     if cache:
         await cache.put(key, context, cache.policy.actor_ttl_seconds)

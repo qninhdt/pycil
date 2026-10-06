@@ -44,4 +44,4 @@ async def require_user(session, user_id):
 
 async def invalidate_actor(session, user):
     if cache := session.info.get("cache"):
-        await cache.discard(f"actor:{user.clerk_subject}")
+        await cache.discard(f"actor:v2:{user.clerk_subject}")
