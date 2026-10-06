@@ -37,15 +37,15 @@ async def test_preferences_route_persists_jsonb_without_lost_updates(
                 assert persisted.settings == {}
             responses = await asyncio.gather(
                 client.patch("/v1/me/settings", json={"locale": "vi"}),
-                client.patch("/v1/me/settings", json={"learning": {"question_budget": 12}}),
+                client.patch("/v1/me/settings", json={"learning": {"max_sense_count": 12}}),
             )
             assert [r.status_code for r in responses] == [200, 200]
             refreshed = (await client.get("/v1/me")).json()
             assert refreshed["settings"]["locale"] == "vi"
-            assert refreshed["settings"]["learning"]["question_budget"] == 12
+            assert refreshed["settings"]["learning"]["max_sense_count"] == 12
             async with sessions() as session:
                 persisted = await session.scalar(select(User).where(User.id == user.id))
-                assert persisted.settings == {"locale": "vi", "learning": {"question_budget": 12}}
+                assert persisted.settings == {"locale": "vi", "learning": {"max_sense_count": 12}}
             assert (await client.patch("/v1/me/settings", json={"plan": "PRO"})).status_code == 422
             denied = await client.patch(
                 "/v1/me/settings", json={"learning": {"formats": ["SHORT_ANSWER"]}}

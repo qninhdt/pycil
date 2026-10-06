@@ -19,11 +19,16 @@ from pycil.database import Base, enum_column
 
 class User(Base):
     __tablename__ = "users"
-    __table_args__ = (CheckConstraint("jsonb_typeof(settings) = 'object'", name="settings_object"),)
+    __table_args__ = (
+        CheckConstraint("jsonb_typeof(settings) = 'object'", name="settings_object"),
+        CheckConstraint("handle IS NULL OR handle ~ '^[a-z][a-z0-9_]{2,29}$'", name="handle_shape"),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
     clerk_subject: Mapped[str] = mapped_column(String(255), unique=True)
     display_name: Mapped[str | None] = mapped_column(String(255))
+    handle: Mapped[str | None] = mapped_column(String(30), unique=True)
+    bio: Mapped[str | None] = mapped_column(String(500))
     plan: Mapped[Plan] = mapped_column(enum_column(Plan), default=Plan.FREE)
     settings: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     cycle_anchor: Mapped[datetime] = mapped_column(

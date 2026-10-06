@@ -37,7 +37,8 @@ async def process_resources(config: ProductConfig, deployment: Deployment):
             await verify_schema(engine)
             await redis.ping()
             namespace = (
-                "pycil:cache:" + sha256((url + "\0" + deployment.clerk_issuer).encode()).hexdigest()
+                "pycil:cache:v3:"
+                + sha256((url + "\0" + deployment.clerk_issuer).encode()).hexdigest()
             )
             cache = RedisCache(redis, namespace, config.cache)
             sessions.configure(info={"cache": cache})

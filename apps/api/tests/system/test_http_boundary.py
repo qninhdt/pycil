@@ -1,3 +1,5 @@
+import json
+from pathlib import Path
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
@@ -154,6 +156,12 @@ def test_openapi_has_typed_success_errors_optional_bearer_and_sse():
         ("get", "/v1/nodes/{node_id}"),
         ("get", "/v1/nodes/{node_id}/senses"),
         ("get", "/v1/users/{user_id}"),
+        ("get", "/v1/users/by-handle/{handle}"),
+        ("get", "/v1/discovery/nodes"),
+        ("get", "/v1/nodes/{node_id}/search"),
+        ("get", "/v1/nodes/{node_id}/senses/{sense_id}/sources"),
+        ("post", "/v1/words/previews"),
+        ("post", "/v1/study/summaries"),
     }
     count = 0
     for path, operations in schema["paths"].items():
@@ -172,7 +180,7 @@ def test_openapi_has_typed_success_errors_optional_bearer_and_sse():
                 else:
                     for content in response["content"].values():
                         assert content["schema"]
-    assert count == 26
+    assert count == 37
     assert set(schema["paths"]["/v1/assistant"]["post"]["responses"]["200"]["content"]) == {
         "text/event-stream"
     }
@@ -245,3 +253,22 @@ async def test_body_limit_handles_disconnect_without_calling_endpoint(app):
         send,
     )
     assert sent == []
+
+
+def test_exported_openapi_matches_without_startup_or_obsolete_contracts():
+    schema = create_app().openapi()
+    exported = Path(__file__).resolve().parents[4] / "docs/backend/openapi.json"
+    assert json.loads(exported.read_text()) == schema
+    assert "/v1/study/history" not in schema["paths"]
+    obsolete = {
+        "question_budget",
+        "mastery",
+        "mastery_after",
+        "weakest",
+        "after_id",
+        "after_updated_at",
+        "next_after",
+        "next_after_id",
+    }
+    for component in schema["components"]["schemas"].values():
+        assert not obsolete.intersection(component.get("properties", {}))

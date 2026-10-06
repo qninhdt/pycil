@@ -54,15 +54,15 @@ def store_environment(environment):
         return urlunsplit(url._replace(netloc=f"{credentials}@{host}:{port}"))
 
     return {
-        "_PYCIL_DB_URL": internal(db, "postgres", 5432),
-        "_PYCIL_DB_USER": unquote(db.username),
-        "_PYCIL_DB_PASSWORD": unquote(db.password),
-        "_PYCIL_DB_NAME": unquote(db.path.lstrip("/")),
-        "_PYCIL_DB_BIND": f"127.0.0.1:{db.port or 5432}",
-        "_PYCIL_REDIS_URL": internal(redis, "redis", 6379),
-        "_PYCIL_REDIS_PASSWORD": unquote(redis.password),
-        "_PYCIL_REDIS_USER": unquote(redis.username or "default"),
-        "_PYCIL_REDIS_BIND": f"127.0.0.1:{redis.port or 6379}",
+        "_DB_URL": internal(db, "postgres", 5432),
+        "_DB_USER": unquote(db.username),
+        "_DB_PASSWORD": unquote(db.password),
+        "_DB_NAME": unquote(db.path.lstrip("/")),
+        "_DB_BIND": f"127.0.0.1:{db.port or 5432}",
+        "_REDIS_URL": internal(redis, "redis", 6379),
+        "_REDIS_PASSWORD": unquote(redis.password),
+        "_REDIS_USER": unquote(redis.username or "default"),
+        "_REDIS_BIND": f"127.0.0.1:{redis.port or 6379}",
     }
 
 

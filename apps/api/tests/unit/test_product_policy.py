@@ -34,7 +34,7 @@ def test_config_native_types_and_integer_levels(config):
     [
         lambda d: d.update(unknown_policy=True),
         lambda d: d["learning"]["defaults"].update(questions_per_sense=8),
-        lambda d: d["learning"]["defaults"].update(question_budget=1),
+        lambda d: d["learning"]["defaults"].update(max_sense_count=101),
         lambda d: d["learning"]["pair_levels"]["DEFINITION_TO_WORD"].update(SINGLE_CHOICE="1"),
         lambda d: d["learning"]["pair_levels"]["DEFINITION_TO_WORD"].update(SHORT_ANSWER=4),
         lambda d: d["models"].append(copy.deepcopy(d["models"][0])),
@@ -61,15 +61,15 @@ def test_duplicate_yaml_key_is_an_error(tmp_path):
 
 def test_jsonb_preferences_merge_only_known_levels(config):
     saved = {"locale": "vi", "learning": {"show_explanations": False}}
-    patch = PreferencesPatch.model_validate({"learning": {"question_budget": 12}})
+    patch = PreferencesPatch.model_validate({"learning": {"max_sense_count": 12}})
     merged = merge_preferences(saved, patch, Plan.FREE, config)
     assert merged == {
         "locale": "vi",
-        "learning": {"show_explanations": False, "question_budget": 12},
+        "learning": {"show_explanations": False, "max_sense_count": 12},
     }
     assert saved["learning"] == {"show_explanations": False}
     assert preferences({}, config).timezone == "UTC"
-    assert effective_learning(merged, Plan.FREE, config).question_budget == 12
+    assert effective_learning(merged, Plan.FREE, config).max_sense_count == 12
 
 
 @pytest.mark.parametrize(

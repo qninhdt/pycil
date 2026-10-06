@@ -11,7 +11,7 @@ from pycil.account.models import UsageEvent, UsagePeriod
 from pycil.account.plans import Feature, Plan
 from pycil.account.usage import allowance, change_plan, settle
 from pycil.migrate import migrate, migration_config
-from pycil.study.models import Rating, SenseMemory
+from pycil.study.models import Rating, UserSense
 
 
 async def test_fresh_ordered_migrations_repeat_without_drift(database):
@@ -21,7 +21,7 @@ async def test_fresh_ordered_migrations_repeat_without_drift(database):
     async with engine.connect() as connection:
         assert (
             await connection.scalar(text("SELECT version_num FROM public.alembic_version"))
-            == "0002_nodes_spaces_paths"
+            == "0005_profile_handle_bio"
         )
         assert (
             await connection.scalar(text("SELECT version_num FROM lexi.alembic_version"))
@@ -44,7 +44,8 @@ async def test_fresh_ordered_migrations_repeat_without_drift(database):
             "nodes",
             "node_paths",
             "deck_senses",
-            "sense_memory",
+            "user_senses",
+            "user_daily_activity",
             "review_log",
             "word_generations",
             "conversations",
@@ -66,7 +67,7 @@ async def test_actual_lexi_sense_fk_rejects_synthetic_identity(database, user):
     with pytest.raises(IntegrityError) as caught:
         async with sessions() as session, session.begin():
             session.add(
-                SenseMemory(
+                UserSense(
                     user_id=user.id,
                     sense_id=10_000_000,
                     stability=1.0,
@@ -80,7 +81,7 @@ async def test_actual_lexi_sense_fk_rejects_synthetic_identity(database, user):
             )
     assert caught.value.orig.sqlstate == "23503"
     async with sessions() as session:
-        assert await session.scalar(select(func.count()).select_from(SenseMemory)) == 0
+        assert await session.scalar(select(func.count()).select_from(UserSense)) == 0
 
 
 async def test_usage_read_is_read_only_and_settlement_is_idempotent(database, user, config):

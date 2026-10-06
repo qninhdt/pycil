@@ -4,6 +4,7 @@ from uuid import UUID, uuid7
 
 from sqlalchemy import (
     CheckConstraint,
+    Computed,
     DateTime,
     ForeignKey,
     ForeignKeyConstraint,
@@ -13,6 +14,7 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
+from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column
 
 from pycil.database import Base, enum_column
@@ -40,6 +42,14 @@ class NodeSpace(StrEnum):
 class Node(Base):
     __tablename__ = "nodes"
     __table_args__ = (
+        Index("ix_nodes_search_vector", "search_vector", postgresql_using="gin"),
+        Index(
+            "ix_nodes_published_owner_order",
+            "owner_id",
+            "created_at",
+            "id",
+            postgresql_where=text("deleted_at IS NULL AND space = 'PUBLISHED' AND role = 'NORMAL'"),
+        ),
         CheckConstraint("parent_id IS NULL OR parent_id != id", name="not_own_parent"),
         CheckConstraint("reference_id IS NULL OR reference_id != id", name="not_own_reference"),
         CheckConstraint(
@@ -83,6 +93,14 @@ class Node(Base):
     )
     name: Mapped[str] = mapped_column(String(255))
     description: Mapped[str | None] = mapped_column(Text)
+    search_vector: Mapped[str] = mapped_column(
+        TSVECTOR,
+        Computed(
+            "setweight(to_tsvector('simple'::regconfig, coalesce(name, '')), 'A') || "
+            "setweight(to_tsvector('simple'::regconfig, coalesce(description, '')), 'B')",
+            persisted=True,
+        ),
+    )
     role: Mapped[NodeRole] = mapped_column(enum_column(NodeRole), default=NodeRole.NORMAL)
     space: Mapped[NodeSpace] = mapped_column(enum_column(NodeSpace))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

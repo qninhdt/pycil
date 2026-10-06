@@ -27,18 +27,18 @@ learning:
       ]
     formats: [SINGLE_CHOICE]
     questions_per_sense: 3
-    question_budget: 30
+    max_sense_count: 10
     show_explanations: true
   limits:
     min_questions_per_sense: 1
     max_questions_per_sense: 7
-    max_question_budget: 100
+    max_questions_per_prepare: 100
     candidate_read_batch_size: 100
     max_answer_chars: 8000
-    history_page_size: 50
-    max_history_days: 365
-    forecast_days: 30
-    weakest_senses_limit: 20
+    max_review_batch: 100
+    max_summary_nodes: 50
+    max_activity_days: 366
+    max_schedule_days: 30
   pair_levels:
     DEFINITION_TO_WORD: { SINGLE_CHOICE: 1, SINGLE_WORD: 3 }
     CONTEXT_TO_WORD: { SINGLE_CHOICE: 2, SINGLE_WORD: 3 }
@@ -56,7 +56,6 @@ learning:
   fsrs:
     desired_retention: 0.9
     max_interval_days: 365
-    mastery_stability_scale_days: 30
 generation:
   questions_per_type: 8
   distractor_count: 3
@@ -119,5 +118,14 @@ cache:
   deck_ttl_seconds: 60
   max_entries: 1000
   max_value_bytes: 65536
+projections:
+  max_page_size: 100
+  max_summary_memberships: 200000
+  max_word_ids: 30
+  max_word_senses: 500
+  max_context_senses: 100
+  inline_sources: 5
+  inline_examples: 2
+  max_query_chars: 200
 http:
   max_body_bytes: 15000000

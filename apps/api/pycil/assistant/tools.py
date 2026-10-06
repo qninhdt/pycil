@@ -7,7 +7,9 @@ from langchain_core.tools import tool
 from pycil.account.models import User
 from pycil.library import nodes
 from pycil.library.schemas import NodeCreate, NodeSave
+from pycil.library.search import search_nodes as search_service
 from pycil.study.progress import progress
+from pycil.vocabulary.context import SenseIDs, viewer_context
 
 
 def tools(resources, user, config):
@@ -19,11 +21,22 @@ def tools(resources, user, config):
         return asdict(await resources.lexicon.search(query, include_available=True))
 
     @tool
-    async def list_nodes(parent_id: str | None = None):
+    async def list_nodes(
+        parent_id: str | None = None,
+        cursor: str | None = None,
+        limit: int = 50,
+        include: str | None = None,
+    ):
         """List Library roots or children of a readable folder/reference."""
         async with resources.sessions() as session:
             return await nodes.list_nodes(
-                session, user.id, UUID(parent_id) if parent_id else None, None, config
+                session,
+                user.id,
+                UUID(parent_id) if parent_id else None,
+                cursor,
+                config,
+                limit=limit,
+                include=include,
             )
 
     @tool
@@ -61,10 +74,38 @@ def tools(resources, user, config):
 
     @tool
     async def learning_progress(node_id: str | None = None):
-        """Read current Sense progress, optionally scoped to a readable node."""
+        """Read exact new/studied/due counts and applied-review recency, not history or mastery."""
         async with resources.sessions() as session:
             current = await session.get(User, user.id)
             return await progress(session, current, config, UUID(node_id) if node_id else None)
+
+    @tool
+    async def search_nodes(
+        query: str | None = None,
+        node_id: str | None = None,
+        cursor: str | None = None,
+        limit: int = 50,
+        include: str | None = None,
+    ):
+        """Search a readable Library/folder scope, or browse/search public Discovery."""
+        async with resources.sessions() as session:
+            return await search_service(
+                session,
+                user.id,
+                config,
+                q=query,
+                node_id=UUID(node_id) if node_id else None,
+                cursor=cursor,
+                limit=limit,
+                include=include,
+            )
+
+    @tool
+    async def sense_context(sense_ids: list[int]):
+        """Read personal state and readable Library decks for up to 100 distinct senses."""
+        data = SenseIDs(sense_ids=sense_ids)
+        async with resources.sessions() as session:
+            return await viewer_context(session, user.id, config, data.sense_ids)
 
     return [
         search_words,
@@ -75,4 +116,6 @@ def tools(resources, user, config):
         update_node,
         delete_node,
         learning_progress,
+        search_nodes,
+        sense_context,
     ]

@@ -10,7 +10,9 @@ from pycil.http import Problem
 from pycil.library.access import published, readable, readable_path, reference_visible
 from pycil.library.models import DeckSense, Node, NodePath, NodeRole, NodeSpace, NodeType
 from pycil.library.schemas import DeckSnapshot
+from pycil.library.scope import ScopeBudget
 from pycil.library.tree import add_paths, delete_subtree, move_paths, roots, subtree
+from pycil.pagination import decode, encode, includes, page_limit
 
 
 async def lock_owner(session, owner_id):
@@ -246,7 +248,12 @@ async def delete_node(session, owner_id, node_id, config):
     await invalidate_deck(session, node)
 
 
-async def list_nodes(session, viewer_id, parent_id, after_id, config):
+async def list_nodes(session, viewer_id, parent_id, cursor, config, *, limit=None, include=None):
+    budget = ScopeBudget(viewer_id)
+    limit = page_limit(limit, config)
+    enrichment = includes(include, {"summary"})
+    binding = {"kind": "nodes", "viewer": str(viewer_id), "parent": str(parent_id)}
+    seek, _ = decode(cursor, binding, ["time", "uuid"])
     if parent_id is None:
         if viewer_id is None:
             raise Problem(422, "parent_required")
@@ -275,27 +282,29 @@ async def list_nodes(session, viewer_id, parent_id, after_id, config):
                 reference_visible(Node.__table__, viewer_id),
             )
         )
-    if after_id is not None:
-        cursor = await readable(session, after_id, viewer_id, config)
-        if cursor.parent_id != parent.id:
-            raise Problem(422, "invalid_cursor")
-        statement = statement.where(
-            tuple_(Node.created_at, Node.id) > tuple_(cursor.created_at, cursor.id)
-        )
+    if seek is not None:
+        statement = statement.where(tuple_(Node.created_at, Node.id) > tuple_(*seek))
     rows = list(
-        (
-            await session.scalars(
-                statement.order_by(Node.created_at, Node.id).limit(config.library.page_size + 1)
-            )
-        ).all()
+        (await session.scalars(statement.order_by(Node.created_at, Node.id).limit(limit + 1))).all()
     )
-    page = rows[: config.library.page_size]
+    page = rows[:limit]
     data = [row_data(n) for n in page]
     if parent.role is NodeRole.LIBRARY_ROOT:
         for item in data:
             if item["owner_id"] != viewer_id:
                 item["parent_id"] = None
-    return {"nodes": data, "next_after_id": page[-1].id if len(rows) > len(page) else None}
+    if "summary" in enrichment and page:
+        from pycil.study.progress import summaries
+
+        summary = await summaries(session, viewer_id, config, [n.id for n in page], budget=budget)
+        for item, counts in zip(data, summary, strict=True):
+            item["summary"] = counts
+    return {
+        "nodes": data,
+        "next_cursor": encode(binding, [page[-1].created_at, page[-1].id])
+        if len(rows) > len(page)
+        else None,
+    }
 
 
 async def replace_membership(session, node, sense_ids, config):

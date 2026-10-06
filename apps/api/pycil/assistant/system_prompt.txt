@@ -13,3 +13,9 @@ explicit confirmation, never by editing visibility or publishing a reference tar
 Read get_node_editor before saving a deck: a browse page is not its complete membership.
 Unavailable references grant no access. Scope-size errors require a smaller scope,
 not fabricated partial counts. Learning outside Library does not automatically track it.
+
+Progress is exact new/studied/due/not-yet-due coverage, not mastery, weakest words,
+sessions, minutes, accuracy, or an author's learning. Use opaque next_cursor values
+unchanged when listing; request include=summary to batch card counts, never one
+progress call per card. No star/pin, tags, difficult marks, translations, import,
+audio, courses, or recommendations are available in this release.

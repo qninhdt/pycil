@@ -10,7 +10,7 @@ from pycil.library.models import Node, NodePath, NodeRole, NodeSpace
 from pycil.library.scope import scope_ids
 from pycil.library.tree import roots
 from pycil.migrate import migrate, migration_config
-from pycil.study.models import SenseMemory
+from pycil.study.models import UserSense
 
 
 async def legacy_user(connection, identifier):
@@ -137,7 +137,7 @@ async def test_populated_upgrade_preserves_effective_publication_identity_and_pr
         assert (await session.get(Node, private_deck)).space is NodeSpace.PERSONAL
         assert (await session.get(Node, hidden)).deleted_at is not None
         assert await session.get(NodePath, (hidden, hidden)) is None
-        state = await session.get(SenseMemory, (owner, 1))
+        state = await session.get(UserSense, (owner, 1))
         assert (state.stability, state.review_count, state.lapse_count) == (12, 4, 1)
         query = await scope_ids(session, system[NodeRole.PUBLISHED_ROOT].id, None, config)
         assert set((await session.scalars(query)).all()) == {1, 2}

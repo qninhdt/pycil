@@ -417,7 +417,7 @@ def deployment_environment(deployment):
     for key, field in fields.items():
         value = getattr(deployment, field)
         env[key] = value.get_secret_value() if hasattr(value, "get_secret_value") else str(value)
-    env["PYCIL_CONFIG_PATH"] = str(Path(__file__).resolve().parents[4] / "config/config.yaml")
+    env["CONFIG_PATH"] = str(Path(__file__).resolve().parents[4] / "config/config.yaml")
     env["CLERK_AUDIENCE"] = "pycil"
     env["ALLOWED_ORIGINS"] = "https://client.invalid"
     return env

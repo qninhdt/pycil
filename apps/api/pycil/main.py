@@ -24,6 +24,7 @@ from pycil.http import (
     validation_response,
 )
 from pycil.library.api import router as library_router
+from pycil.library.search import router as discovery_router
 from pycil.study.api import router as study_router
 from pycil.vocabulary.api import router as vocabulary_router
 
@@ -61,6 +62,7 @@ def create_app() -> FastAPI:
     app.include_router(account_router)
     app.include_router(public_router)
     app.include_router(library_router)
+    app.include_router(discovery_router)
     app.include_router(vocabulary_router)
     app.include_router(study_router)
     app.include_router(assistant_router)

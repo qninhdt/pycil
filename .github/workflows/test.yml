@@ -30,8 +30,8 @@ jobs:
           --health-cmd "redis-cli ping"
           --health-interval 5s --health-timeout 3s --health-retries 10
     env:
-      PYCIL_TEST_DB_URL: postgresql+asyncpg://test:test@127.0.0.1:5432/rewrite_test
-      PYCIL_TEST_REDIS_URL: redis://127.0.0.1:6379/15
+      TEST_DB_URL: postgresql+asyncpg://test:test@127.0.0.1:5432/rewrite_test
+      TEST_REDIS_URL: redis://127.0.0.1:6379/15
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: astral-sh/setup-uv@v10.2.0
@@ -44,9 +44,9 @@ jobs:
         working-directory: vendor/lexi-ai
       - run: uv sync --locked
         working-directory: apps/api
-      - run: uv run --locked ruff check pycil tests migrations
+      - run: uv run --locked ruff check pycil tests migrations ../../scripts/test_api.py ../../scripts/export_openapi.py
         working-directory: apps/api
-      - run: uv run --locked ruff format --check pycil tests migrations
+      - run: uv run --locked ruff format --check pycil tests migrations ../../scripts/test_api.py ../../scripts/export_openapi.py
         working-directory: apps/api
       # Each test creates/drops only its own database; providers are deterministic.
       # Cambridge fixtures are newly written native SQLite records, not evidence.

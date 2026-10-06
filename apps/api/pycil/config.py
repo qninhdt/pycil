@@ -57,7 +57,7 @@ class LearningPreferences(Policy):
     question_types: list[QuestionType]
     formats: list[ResponseFormat]
     questions_per_sense: PositiveInt
-    question_budget: PositiveInt
+    max_sense_count: PositiveInt
     show_explanations: Annotated[bool, Field(strict=True)]
 
     @model_validator(mode="after")
@@ -69,21 +69,21 @@ class LearningPreferences(Policy):
             any((kind, fmt) in ALLOWED_PAIRS for fmt in self.formats)
             for kind in self.question_types
         )
-        if not feasible or self.question_budget < self.questions_per_sense:
-            raise ValueError("infeasible K or question budget")
+        if not feasible:
+            raise ValueError("infeasible question selection")
         return self
 
 
 class LearningLimits(Policy):
     min_questions_per_sense: PositiveInt
-    max_questions_per_sense: PositiveInt
-    max_question_budget: PositiveInt
+    max_questions_per_sense: Annotated[int, Field(strict=True, ge=1, le=7)]
+    max_questions_per_prepare: Annotated[int, Field(strict=True, ge=1, le=100)]
     candidate_read_batch_size: PositiveInt
     max_answer_chars: PositiveInt
-    history_page_size: PositiveInt
-    max_history_days: PositiveInt
-    forecast_days: PositiveInt
-    weakest_senses_limit: PositiveInt
+    max_review_batch: Annotated[int, Field(strict=True, ge=1, le=100)] = 100
+    max_summary_nodes: Annotated[int, Field(strict=True, ge=1, le=50)] = 50
+    max_activity_days: Annotated[int, Field(strict=True, ge=1, le=366)] = 366
+    max_schedule_days: Annotated[int, Field(strict=True, ge=1, le=30)] = 30
 
 
 class FormatMix(Policy):
@@ -94,7 +94,6 @@ class FormatMix(Policy):
 class FSRSPolicy(Policy):
     desired_retention: Annotated[float, Field(gt=0, lt=1)]
     max_interval_days: PositiveInt
-    mastery_stability_scale_days: Annotated[float, Field(gt=0)]
 
 
 class LearningPolicy(Policy):
@@ -120,8 +119,8 @@ class LearningPolicy(Policy):
         k = preferences.questions_per_sense
         if not self.limits.min_questions_per_sense <= k <= self.limits.max_questions_per_sense:
             raise ValueError("questions_per_sense outside configured bounds")
-        if preferences.question_budget > self.limits.max_question_budget:
-            raise ValueError("question_budget outside configured bounds")
+        if preferences.max_sense_count * k > self.limits.max_questions_per_prepare:
+            raise ValueError("maximum prepared questions exceeded")
         feasible = any(
             any(fmt in self.pair_levels.get(kind, {}) for fmt in preferences.formats)
             for kind in preferences.question_types
@@ -219,11 +218,23 @@ class CachePolicy(Policy):
     max_value_bytes: PositiveInt
 
 
+class ProjectionPolicy(Policy):
+    max_page_size: Annotated[int, Field(strict=True, ge=1, le=100)] = 100
+    max_summary_memberships: PositiveInt = 200000
+    max_word_ids: Annotated[int, Field(strict=True, ge=1, le=30)] = 30
+    max_word_senses: Annotated[int, Field(strict=True, ge=1, le=500)] = 500
+    max_context_senses: Annotated[int, Field(strict=True, ge=1, le=100)] = 100
+    inline_sources: Annotated[int, Field(strict=True, ge=1, le=5)] = 5
+    inline_examples: Annotated[int, Field(strict=True, ge=1, le=2)] = 2
+    max_query_chars: Annotated[int, Field(strict=True, ge=1, le=200)] = 200
+
+
 class HTTPPolicy(Policy):
     max_body_bytes: PositiveInt
 
 
 class ProductConfig(Policy):
+    projections: ProjectionPolicy = Field(default_factory=ProjectionPolicy)
     plans: dict[Plan, PlanPolicy]
     account: AccountPolicy
     learning: LearningPolicy
@@ -237,6 +248,8 @@ class ProductConfig(Policy):
 
     @model_validator(mode="after")
     def validate_product(self):
+        if self.library.page_size > self.projections.max_page_size:
+            raise ValueError("default page size exceeds API read bound")
         if set(self.plans) != set(Plan):
             raise ValueError("every subscription plan must be configured")
         for plan, policy in self.plans.items():
@@ -365,9 +378,7 @@ UniqueKeyLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, 
 
 def load_config(path: Path | None = None) -> ProductConfig:
     path = path or Path(
-        os.environ.get(
-            "PYCIL_CONFIG_PATH", Path(__file__).resolve().parents[3] / "config/config.yaml"
-        )
+        os.environ.get("CONFIG_PATH", Path(__file__).resolve().parents[3] / "config/config.yaml")
     )
     try:
         data = yaml.load(path.read_text(), Loader=UniqueKeyLoader)

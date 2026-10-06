@@ -6,14 +6,14 @@ from datetime import UTC, datetime
 from lexi_ai import ResponseFormat
 from lexi_ai.contract import Question
 from lexi_ai.errors import QuestionBankChangedError
-from sqlalchemy import DateTime, literal, select, union_all
+from sqlalchemy import DateTime, literal, select
 
 from pycil.account.models import User
 from pycil.account.schemas import effective_learning
 from pycil.http import Problem
 from pycil.library.access import readable
 from pycil.library.senses import member_ids
-from pycil.study.models import SenseMemory
+from pycil.study.models import UserSense
 
 randomness = random.SystemRandom()
 
@@ -64,13 +64,24 @@ def bundle(questions, preferences, last_rating, config):
     return result
 
 
-async def prepare(session, lexicon, user, node_id, config):
+async def prepare(
+    session, lexicon, user, node_id, config, *, selection="AUTO", max_sense_count=None
+):
     async with session.begin():
-        plan = await session.scalar(select(User.plan).where(User.id == user.id))
-    if plan is None:
+        current = await session.scalar(
+            select(User).where(User.id == user.id).execution_options(populate_existing=True)
+        )
+    if current is None:
         raise Problem(404, "account_not_found")
-    preferences = effective_learning(user.settings, plan, config)
-    target = preferences.question_budget // preferences.questions_per_sense
+    preferences = effective_learning(current.settings, current.plan, config)
+    target = max_sense_count if max_sense_count is not None else preferences.max_sense_count
+    if (
+        selection not in {"AUTO", "NEW", "DUE"}
+        or not 1 <= target
+        or target * preferences.questions_per_sense
+        > config.learning.limits.max_questions_per_prepare
+    ):
+        raise Problem(422, "invalid_preparation")
     now = datetime.now(UTC)
     k = preferences.questions_per_sense
     types = [
@@ -91,7 +102,7 @@ async def prepare(session, lexicon, user, node_id, config):
             .cte("preparation_scope")
             .prefix_with("MATERIALIZED")
         )
-        memory = SenseMemory
+        memory = UserSense
         learned = select(memory.sense_id, memory.last_rating, memory.due_at).where(
             memory.user_id == user.id,
             memory.sense_id.in_(select(scope.c.sense_id)),
@@ -125,21 +136,12 @@ async def prepare(session, lexicon, user, node_id, config):
                 .limit(target)
             ),
         )
-        candidates = union_all(*phases).subquery("learning_candidates")
-        selected = (
-            select(candidates)
-            .order_by(candidates.c.priority, candidates.c.due_at, candidates.c.sense_id)
-            .limit(target)
-            .cte("selected_senses")
-            .prefix_with("MATERIALIZED")
-        )
-        rows = (
-            await session.execute(
-                select(selected).order_by(
-                    selected.c.priority, selected.c.due_at, selected.c.sense_id
-                )
-            )
-        ).all()
+        rows = []
+        indices = {"AUTO": (0, 1, 2), "DUE": (0,), "NEW": (1,)}[selection]
+        for index in indices:
+            if len(rows) == target:
+                break
+            rows.extend((await session.execute(phases[index].limit(target - len(rows)))).all())
     selected_senses = {row.sense_id: row for row in rows}
     counts = await lexicon.count_questions_for_senses(list(selected_senses), types)
     requests = []
@@ -172,7 +174,9 @@ async def prepare(session, lexicon, user, node_id, config):
         for sense_id, row in selected_senses.items()
     ]
     return {
-        "requested_sense_count": target,
+        "node_id": node_id,
+        "selection": selection,
+        "max_sense_count": target,
         "actual_sense_count": len(result),
         "actual_question_count": len(result) * preferences.questions_per_sense,
         "preferences": preferences,

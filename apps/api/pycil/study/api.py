@@ -1,28 +1,32 @@
+from datetime import date
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Header
+from fastapi import APIRouter, Header, Request
 from lexi_ai import ResponseFormat
 from lexi_ai.errors import LexiconError, QuestionNotFoundError, UnsupportedQuestionFormatError
 from sqlalchemy import select
 
-from pycil.account.auth import Actor
+from pycil.account.auth import Actor, Viewer
 from pycil.account.models import User
 from pycil.account.plans import Feature
 from pycil.dependencies import Dictionary, Product, Session
 from pycil.http import Problem
+from pycil.pagination import strict_query
 from pycil.study.preparation import prepare
-from pycil.study.progress import history, progress
+from pycil.study.progress import activity, progress, schedule, summaries
 from pycil.study.reviews import review
 from pycil.study.schemas import (
+    Activity,
+    BatchResult,
     Grade,
     GradeResult,
-    History,
     Preparation,
     Prepare,
-    Progress,
-    Review,
-    ReviewResult,
+    ReviewBatch,
+    Schedule,
+    Summary,
+    SummaryBatch,
 )
 
 router = APIRouter(prefix="/v1/study", tags=["study"])
@@ -32,7 +36,15 @@ router = APIRouter(prefix="/v1/study", tags=["study"])
 async def preparation(
     data: Prepare, user: Actor, session: Session, config: Product, lexicon: Dictionary
 ):
-    return await prepare(session, lexicon, user, data.node_id, config)
+    return await prepare(
+        session,
+        lexicon,
+        user,
+        data.node_id,
+        config,
+        selection=data.selection,
+        max_sense_count=data.max_sense_count,
+    )
 
 
 @router.post("/grade", response_model=GradeResult)
@@ -69,9 +81,9 @@ async def grade(data: Grade, user: Actor, config: Product, lexicon: Dictionary, 
         raise Problem(503, "grading_unavailable") from None
 
 
-@router.post("/reviews", response_model=ReviewResult)
+@router.post("/reviews", response_model=BatchResult)
 async def rating(
-    data: Review,
+    data: ReviewBatch,
     user: Actor,
     session: Session,
     config: Product,
@@ -80,13 +92,41 @@ async def rating(
     return await review(session, user.id, data, idempotency_key, config)
 
 
-@router.get("/progress", response_model=Progress)
-async def summary(user: Actor, session: Session, config: Product, node_id: UUID | None = None):
+@router.get("/progress", response_model=Summary)
+async def summary(
+    request: Request, user: Actor, session: Session, config: Product, node_id: UUID | None = None
+):
+    strict_query(request, {"node_id"})
     return await progress(session, user, config, node_id)
 
 
-@router.get("/history", response_model=History)
-async def events(
-    user: Actor, session: Session, config: Product, days: int = 30, after: UUID | None = None
+@router.post("/summaries", response_model=list[Summary], openapi_extra={"security": [{}]})
+async def cards(data: SummaryBatch, viewer: Viewer, session: Session, config: Product):
+    return await summaries(session, viewer.id if viewer else None, config, data.node_ids)
+
+
+@router.get("/activity", response_model=Activity)
+async def days(
+    request: Request,
+    user: Actor,
+    session: Session,
+    config: Product,
+    start_date: date | None = None,
+    end_date: date | None = None,
 ):
-    return await history(session, user, config, days, after)
+    strict_query(request, {"start_date", "end_date"})
+    return await activity(session, user.id, config, start_date, end_date)
+
+
+@router.get("/review-schedule", response_model=Schedule)
+async def upcoming(
+    request: Request,
+    user: Actor,
+    session: Session,
+    config: Product,
+    node_id: UUID | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
+):
+    strict_query(request, {"node_id", "start_date", "end_date"})
+    return await schedule(session, user.id, config, node_id, start_date, end_date)

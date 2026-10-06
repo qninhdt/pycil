@@ -10,21 +10,33 @@ from lexi_ai.references.cambridge import encode_available_id
 from sqlalchemy import event, func, select, text
 
 from pycil.account.auth import actor, optional_actor
-from pycil.account.models import UsageEvent
+from pycil.account.models import UsageEvent, User
 from pycil.account.plans import Plan
 from pycil.account.usage import change_plan
 from pycil.http import Problem
 from pycil.library.nodes import create_node
 from pycil.library.schemas import NodeCreate
 from pycil.main import create_app
-from pycil.study.models import Rating, ReviewLog, SenseMemory
+from pycil.study.models import Rating, ReviewReceipt, UserSense
 from pycil.study.preparation import prepare
-from pycil.study.reviews import review
-from pycil.study.schemas import Review
+from pycil.study.reviews import review as submit_batch
+from pycil.study.schemas import Review, ReviewBatch
 from pycil.vocabulary.api import GenerationRequest
 from pycil.vocabulary.generation import claim, coverage, execute, recover, submit
 from pycil.vocabulary.models import GenerationStatus, WordGeneration
 from pycil.worker import ownership
+
+
+async def review(session, user_id, item, key, config):
+    """Exercise the native rating matrix through the final one-item batch contract."""
+    return (await submit_batch(session, user_id, ReviewBatch(results=[item]), key, config))[
+        "results"
+    ][0]
+
+
+async def save_settings(sessions, user):
+    async with sessions() as session, session.begin():
+        (await session.get(User, user.id)).settings = user.settings
 
 
 class LocalCompletion:
@@ -202,7 +214,7 @@ async def test_append_before_status_crash_recovery_fills_only_missing_without_se
         assert await session.scalar(select(func.count()).select_from(UsageEvent)) == 0
 
 
-async def test_preparation_priority_small_unready_scope_and_nonmultiple_budget(
+async def test_preparation_priority_small_unready_scope_and_maximum_senses(
     database,
     dictionary,
     user,
@@ -216,18 +228,20 @@ async def test_preparation_priority_small_unready_scope_and_nonmultiple_budget(
         )
     async with sessions() as session:
         await review(session, user.id, Review(sense_id=2, rating=Rating.GOOD), uuid4(), config)
-    user.settings = {"learning": {"questions_per_sense": 1, "question_budget": 2}}
+    user.settings = {"learning": {"questions_per_sense": 1, "max_sense_count": 2}}
+    await save_settings(sessions, user)
     async with sessions() as session:
         result = await prepare(session, dictionary[0], user, node["id"], config)
         assert [b["reason"] for b in result["bundles"]] == ["NEW", "NOT_YET_DUE"]
     async with sessions() as session, session.begin():
-        memory = await session.get(SenseMemory, (user.id, 2))
+        memory = await session.get(UserSense, (user.id, 2))
         memory.due_at = datetime.now(UTC) - timedelta(seconds=1)
     async with sessions() as session:
         result = await prepare(session, dictionary[0], user, node["id"], config)
         assert [b["sense"].id for b in result["bundles"]] == [2, 1]
         assert [b["reason"] for b in result["bundles"]] == ["DUE", "NEW"]
-    user.settings = {"learning": {"questions_per_sense": 7, "question_budget": 15}}
+    user.settings = {"learning": {"questions_per_sense": 7, "max_sense_count": 2}}
+    await save_settings(sessions, user)
     async with sessions() as session:
         result = await prepare(session, dictionary[0], user, node["id"], config)
         assert result["actual_question_count"] == 14
@@ -256,6 +270,49 @@ async def test_preparation_priority_small_unready_scope_and_nonmultiple_budget(
         empty = await create_node(session, user.id, NodeCreate(type="DECK", name="empty"), config)
     async with sessions() as session:
         assert (await prepare(session, dictionary[0], user, empty["id"], config))["bundles"] == []
+
+
+async def test_explicit_prepare_selection_and_short_circuit(database, dictionary, user, config):
+    engine, sessions, _ = database
+    await fill(database, dictionary, config)
+    async with sessions() as session:
+        node = await create_node(
+            session, user.id, NodeCreate(type="DECK", name="selection", sense_ids=[1, 2]), config
+        )
+    async with sessions() as session:
+        await review(session, user.id, Review(sense_id=1, rating=Rating.GOOD), uuid4(), config)
+    async with sessions() as session, session.begin():
+        (await session.get(UserSense, (user.id, 1))).due_at = datetime.now(UTC) - timedelta(
+            seconds=1
+        )
+    phases = []
+
+    def capture(_connection, _cursor, statement, parameters, *_):
+        if " AS reason" in statement:
+            phases.append(parameters)
+
+    event.listen(engine.sync_engine, "before_cursor_execute", capture)
+    try:
+        for selection, expected in (("NEW", 2), ("DUE", 1), ("AUTO", 1)):
+            phases.clear()
+            async with sessions() as session:
+                result = await prepare(
+                    session,
+                    dictionary[0],
+                    user,
+                    node["id"],
+                    config,
+                    selection=selection,
+                    max_sense_count=1,
+                )
+            assert [b["sense"].id for b in result["bundles"]] == [expected]
+            assert result["max_sense_count"] == 1 and result["actual_question_count"] == 3
+            assert len(phases) == 1  # AUTO filled by DUE never executes NEW or early work
+        async with sessions() as session:
+            with pytest.raises(Problem, match="invalid_preparation"):
+                await prepare(session, dictionary[0], user, node["id"], config, max_sense_count=34)
+    finally:
+        event.remove(engine.sync_engine, "before_cursor_execute", capture)
 
 
 async def test_readonly_preparation_and_typed_only_feasibility(
@@ -288,8 +345,8 @@ async def test_readonly_preparation_and_typed_only_feasibility(
         assert (result["actual_sense_count"], result["actual_question_count"]) == (2, 6)
         assert all(len({q["question"].id for q in b["questions"]}) == 3 for b in result["bundles"])
         assert all(type(q["level"]) is int for b in result["bundles"] for q in b["questions"])
-        assert await session.scalar(select(func.count()).select_from(SenseMemory)) == 0
-        assert await session.scalar(select(func.count()).select_from(ReviewLog)) == 0
+        assert await session.scalar(select(func.count()).select_from(UserSense)) == 0
+        assert await session.scalar(select(func.count()).select_from(ReviewReceipt)) == 0
     assert len(calls) == 1
     user.plan = Plan.PRO
     async with sessions() as session:
@@ -301,6 +358,7 @@ async def test_readonly_preparation_and_typed_only_feasibility(
             "questions_per_sense": 3,
         }
     }
+    await save_settings(sessions, user)
     async with sessions() as session:
         result = await prepare(session, dictionary[0], user, node["id"], config)
         assert all(
@@ -337,7 +395,7 @@ async def test_exact_review_eligibility_and_practice_immutability(
     if state != "new":
         async with sessions() as session, session.begin():
             now = datetime.now(UTC)
-            memory = SenseMemory(
+            memory = UserSense(
                 user_id=user.id,
                 sense_id=1,
                 stability=10,
@@ -360,7 +418,7 @@ async def test_exact_review_eligibility_and_practice_immutability(
     expected = state != "early" or rating is Rating.AGAIN
     assert response["applied"] is expected
     async with sessions() as session:
-        memory = await session.get(SenseMemory, (user.id, 1))
+        memory = await session.get(UserSense, (user.id, 1))
         if not expected:
             from pycil.account.lifecycle import row_data
 
@@ -380,7 +438,7 @@ async def test_review_retry_interleaving_cross_sense_conflict_and_concurrency(
     async with sessions() as session:
         await review(session, user.id, Review(sense_id=1, rating=Rating.AGAIN), uuid4(), config)
         assert await review(session, user.id, data, key, config) == first
-        with pytest.raises(Problem, match="review_event_conflict"):
+        with pytest.raises(Problem, match="review_batch_conflict"):
             await review(session, user.id, Review(sense_id=2, rating=Rating.GOOD), key, config)
 
     async def submit_review():
@@ -413,7 +471,7 @@ async def test_due_equality_same_day_repeat_and_zero_native_calls_for_practice(
     monkeypatch.setattr(reviews, "datetime", Clock)
     async with sessions() as session, session.begin():
         session.add(
-            SenseMemory(
+            UserSense(
                 user_id=user.id,
                 sense_id=1,
                 stability=10,
@@ -431,7 +489,7 @@ async def test_due_equality_same_day_repeat_and_zero_native_calls_for_practice(
         )
         assert first["applied"]
     async with sessions() as session, session.begin():
-        (await session.get(SenseMemory, (user.id, 1))).due_at = now
+        (await session.get(UserSense, (user.id, 1))).due_at = now
     async with sessions() as session:
         second = await review(
             session, user.id, Review(sense_id=1, rating=Rating.GOOD), uuid4(), config
@@ -462,8 +520,8 @@ async def test_concurrent_identical_key_commits_one_event(database, user, senses
     first, second = await asyncio.gather(send(), send())
     assert first == second
     async with sessions() as session:
-        assert await session.scalar(select(func.count()).select_from(ReviewLog)) == 1
-        memory = await session.get(SenseMemory, (user.id, 1))
+        assert await session.scalar(select(func.count()).select_from(ReviewReceipt)) == 1
+        memory = await session.get(UserSense, (user.id, 1))
         assert memory.review_count == 1 and memory.lapse_count == 0
 
 
@@ -567,7 +625,7 @@ async def test_http_search_selected_generation_prepare_native_grade_and_rating(
         deck_senses = await client.get(f"/v1/nodes/{deck['id']}/senses")
         assert deck_senses.status_code == 200, deck_senses.text
         assert len(deck_senses.json()["senses"]) == 2
-        assert deck_senses.json()["next_after_id"] is None
+        assert deck_senses.json()["next_cursor"] is None
         deck_detail = await client.get(f"/v1/nodes/{deck['id']}")
         assert "senses" not in deck_detail.json()
         assert "sense_page" not in deck_detail.json()
@@ -691,18 +749,16 @@ async def test_http_search_selected_generation_prepare_native_grade_and_rating(
             )
             assert result.status_code == code, result.text
         async with sessions() as session:
-            assert await session.scalar(select(func.count()).select_from(SenseMemory)) == 0
+            assert await session.scalar(select(func.count()).select_from(UserSense)) == 0
             assert await session.scalar(select(func.count()).select_from(UsageEvent)) == 0
         rated = await client.post(
             "/v1/study/reviews",
             headers={"Idempotency-Key": str(uuid4())},
-            json={"sense_id": 1, "rating": "GOOD"},
+            json={"results": [{"sense_id": 1, "rating": "GOOD"}]},
         )
-        assert rated.status_code == 200 and rated.json()["applied"] is True
-        assert (await client.get("/v1/study/progress")).json()["summary"]["learned"] == 1
+        assert rated.status_code == 200 and rated.json()["results"][0]["applied"] is True
+        assert (await client.get("/v1/study/progress")).json()["studied"] == 1
         history = await client.get("/v1/study/history")
-        assert history.status_code == 200, history.text
-        assert history.json()["events"][0]["sense_id"] == 1
-        assert history.json()["events"][0]["mastery_after"] == rated.json()["mastery_after"]
-        assert history.json()["applied_count"] == 1
+        assert history.status_code == 404
+        assert (await client.get("/v1/study/activity")).json()["applied_events"] == 1
         assert llm.calls == 14

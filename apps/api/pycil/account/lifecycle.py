@@ -26,7 +26,11 @@ async def clerk_user(http, deployment, subject):
 
 
 def row_data(row):
-    return {column.name: getattr(row, column.name) for column in row.__table__.columns}
+    return {
+        column.name: getattr(row, column.name)
+        for column in row.__table__.columns
+        if column.computed is None
+    }
 
 
 async def require_user(session, user_id):

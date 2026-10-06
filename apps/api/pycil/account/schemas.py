@@ -1,15 +1,16 @@
 """The complete two-level preference contract, without a settings subsystem."""
 
+import re
 from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from lexi_ai import ResponseFormat
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from lexi_ai import QuestionType, ResponseFormat
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from pycil.account.plans import Feature, Plan
-from pycil.config import LearningPreferences, ProductConfig
+from pycil.config import LearningLimits, LearningPreferences, ProductConfig
 from pycil.http import Problem
 
 
@@ -21,7 +22,7 @@ class LearningPatch(Strict):
     question_types: list[str] | None = None
     formats: list[str] | None = None
     questions_per_sense: Annotated[int, Field(strict=True, gt=0)] | None = None
-    question_budget: Annotated[int, Field(strict=True, gt=0)] | None = None
+    max_sense_count: Annotated[int, Field(strict=True, gt=0)] | None = None
     show_explanations: Annotated[bool, Field(strict=True)] | None = None
 
     @model_validator(mode="after")
@@ -51,9 +52,25 @@ class Preferences(Strict):
     learning: LearningPreferences
 
 
+class LearningPair(Strict):
+    question_type: QuestionType
+    format: ResponseFormat
+    level: Annotated[int, Field(ge=1, le=4)]
+
+
+class LearningOptions(Strict):
+    pairs: list[LearningPair]
+    limits: LearningLimits
+    advanced_grading: bool
+
+
 class Profile(Strict):
     id: UUID
     display_name: str | None
+    handle: str | None
+    bio: str | None
+    joined_at: datetime
+    learning_options: LearningOptions
     plan: Plan
     settings: Preferences
     effective_learning: LearningPreferences | None
@@ -66,7 +83,36 @@ class Profile(Strict):
 class PublicProfile(Strict):
     id: UUID
     display_name: str | None
+    handle: str | None
+    bio: str | None
+    joined_at: datetime
     published_node_id: UUID
+
+
+class ProfilePatch(Strict):
+    handle: str | None = None
+    bio: str | None = None
+
+    @field_validator("handle")
+    @classmethod
+    def valid_handle(cls, value):
+        if value is None:
+            raise ValueError("handle cannot be cleared")
+        if not value.isascii():
+            raise ValueError("handle must be ASCII")
+        value = value.strip().lower()
+        if re.fullmatch(r"[a-z][a-z0-9_]{2,29}", value, flags=re.ASCII) is None:
+            raise ValueError("invalid handle")
+        return value
+
+    @field_validator("bio")
+    @classmethod
+    def valid_bio(cls, value):
+        if value is not None:
+            value = value.strip()
+            if len(value) > 500:
+                raise ValueError("bio too long")
+        return value
 
 
 class Allowance(Strict):

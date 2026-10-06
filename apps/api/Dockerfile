@@ -22,7 +22,7 @@ RUN cd /app/vendor/lexi-ai && sha256sum --check SHA256SUMS
 # regardless of where their process was started. It holds no secrets; those
 # arrive through the environment.
 COPY config/config.yaml /app/config/config.yaml
-ENV PYCIL_CONFIG_PATH=/app/config/config.yaml
+ENV CONFIG_PATH=/app/config/config.yaml
 
 WORKDIR /app/apps/api
 

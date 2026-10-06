@@ -3,10 +3,12 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from lexi_ai import CEFRLevel, EntryType, PartOfSpeech, Register, Tier
+from lexi_ai.models import Example
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from pycil.library.models import NodeRole, NodeSpace, NodeType
 from pycil.study.models import Rating
+from pycil.study.schemas import Summary
 
 
 class Strict(BaseModel):
@@ -64,6 +66,19 @@ class LearningPreview(Strict):
     state: Literal["NEW", "DUE", "NOT_YET_DUE"]
     due_at: datetime | None
     last_rating: Rating | None
+    last_reviewed_at: datetime | None
+
+
+class SourceDeck(Strict):
+    id: UUID
+    name: str
+    owner_id: UUID
+    editable: bool
+
+
+class Sources(Strict):
+    decks: list[SourceDeck]
+    next_cursor: str | None
 
 
 class SensePreview(Strict):
@@ -79,11 +94,15 @@ class SensePreview(Strict):
     ipa_uk: str | None
     ipa_us: str | None
     learning: LearningPreview | None
+    examples: list[Example] | None = None
+    sources: list[SourceDeck] | None = None
+    source_count: int | None = None
+    sources_has_more: bool | None = None
 
 
 class SensePage(Strict):
     senses: list[SensePreview]
-    next_after_id: int | None
+    next_cursor: str | None
     as_of: datetime
 
 
@@ -100,11 +119,12 @@ class NodeView(Strict):
     deleted_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    summary: Summary | None = None
 
 
 class NodePage(Strict):
     nodes: list[NodeView]
-    next_after_id: UUID | None
+    next_cursor: str | None
 
 
 class ContainerNode(NodeView):

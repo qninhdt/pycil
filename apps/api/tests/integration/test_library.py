@@ -25,7 +25,7 @@ from pycil.library.scope import ScopeBudget, scope_ids
 from pycil.library.senses import sense_page
 from pycil.library.tree import provision_library, roots
 from pycil.main import create_app
-from pycil.study.models import Rating, SenseMemory
+from pycil.study.models import Rating, UserSense
 
 
 @pytest.fixture
@@ -377,7 +377,7 @@ async def test_editor_http_contract_paginated_senses_and_safe_profiles(
     now = datetime.now(UTC)
     async with sessions() as session, session.begin():
         session.add(
-            SenseMemory(
+            UserSense(
                 user_id=user.id,
                 sense_id=1,
                 stability=5,
@@ -395,7 +395,7 @@ async def test_editor_http_contract_paginated_senses_and_safe_profiles(
     async with sessions() as session:
         node = await readable(session, deck["id"], user.id, config)
         first = await sense_page(session, node, user.id, limited, lexicon)
-        second = await sense_page(session, node, user.id, limited, lexicon, first["next_after_id"])
+        second = await sense_page(session, node, user.id, limited, lexicon, first["next_cursor"])
         assert [s["sense_id"] for s in first["senses"]] == [1]
         assert [s["sense_id"] for s in second["senses"]] == [2]
         assert first["senses"][0]["learning"]["state"] == "DUE"
@@ -431,6 +431,9 @@ async def test_editor_http_contract_paginated_senses_and_safe_profiles(
         assert public == {
             "id": str(user.id),
             "display_name": None,
+            "handle": None,
+            "bio": None,
+            "joined_at": profile["joined_at"],
             "published_node_id": profile["published_node_id"],
         }
         assert "personal_node_id" not in public and "settings" not in public

@@ -30,9 +30,9 @@ def config():
 
 @pytest.fixture
 async def database(request):
-    target = os.environ.get("PYCIL_TEST_DB_URL")
+    target = os.environ.get("TEST_DB_URL")
     if not target:
-        pytest.fail("Integration tests require explicit disposable PYCIL_TEST_DB_URL")
+        pytest.fail("Run make test-api (automatic stores), or supply disposable TEST_DB_URL")
     admin_url = make_url(target)
     if admin_url.database != "rewrite_test":
         pytest.fail("Use the dedicated rewrite_test container database, not application data")
@@ -76,9 +76,9 @@ async def user(database):
 
 @pytest.fixture
 def redis_url():
-    url = os.environ.get("PYCIL_TEST_REDIS_URL")
+    url = os.environ.get("TEST_REDIS_URL")
     if not url:
-        pytest.fail("Bootstrap tests require explicit disposable PYCIL_TEST_REDIS_URL")
+        pytest.fail("Run make test-api (automatic stores), or set disposable TEST_REDIS_URL")
     parsed = urlsplit(url)
     if parsed.scheme != "redis" or parsed.hostname != "127.0.0.1" or parsed.path != "/15":
         pytest.fail("Use localhost DB 15 on the dedicated rewrite test Redis container")

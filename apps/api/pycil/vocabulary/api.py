@@ -1,13 +1,27 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from lexi_ai.errors import InvalidResourceError
 from lexi_ai.models import SearchResult, Word
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import select
 
 from pycil.account.auth import Actor, Viewer
 from pycil.dependencies import Dictionary, Product, Session
 from pycil.http import Problem
+from pycil.library.models import Node, NodeRole
+from pycil.library.schemas import Sources
+from pycil.library.senses import sources_page
+from pycil.pagination import strict_query
+from pycil.vocabulary.context import (
+    Context,
+    SenseIDs,
+    WordIDs,
+    WordPreview,
+    viewer_context,
+    word_context,
+    word_previews,
+)
 from pycil.vocabulary.generation import projection, submit
 from pycil.vocabulary.models import GenerationStatus, WordGeneration
 
@@ -44,6 +58,40 @@ async def word(word_id: int, viewer: Viewer, lexicon: Dictionary):
     if value is None:
         raise Problem(404, "word_not_found")
     return value
+
+
+@router.post("/words/previews", response_model=list[WordPreview], openapi_extra={"security": [{}]})
+async def previews(
+    data: WordIDs, viewer: Viewer, session: Session, lexicon: Dictionary, config: Product
+):
+    return await word_previews(session, lexicon, data.word_ids, config)
+
+
+@router.get("/me/words/{word_id}", response_model=Context)
+async def personal_word(word_id: int, user: Actor, session: Session, config: Product):
+    return await word_context(session, user.id, config, word_id)
+
+
+@router.post("/me/senses/context", response_model=Context)
+async def personal_senses(data: SenseIDs, user: Actor, session: Session, config: Product):
+    return await viewer_context(session, user.id, config, data.sense_ids)
+
+
+@router.get("/me/senses/{sense_id}/decks", response_model=Sources)
+async def containing_decks(
+    request: Request,
+    sense_id: int,
+    user: Actor,
+    session: Session,
+    config: Product,
+    cursor: str | None = Query(default=None, max_length=2048),
+    limit: int | None = Query(default=None, ge=1, le=100),
+):
+    strict_query(request, {"cursor", "limit"})
+    root = await session.scalar(
+        select(Node.id).where(Node.owner_id == user.id, Node.role == NodeRole.LIBRARY_ROOT)
+    )
+    return await sources_page(session, root, sense_id, user.id, config, cursor, limit)
 
 
 @router.post("/word-generations", status_code=202, response_model=GenerationResult)

@@ -5,10 +5,10 @@ import asyncio
 import os
 from pathlib import Path
 
+from alembic import command
 from alembic.config import Config
 from lexi_ai.migrations import upgrade_to_head
 
-from alembic import command
 from pycil.assistant.checkpoints import setup_checkpoints
 from pycil.database import connect, verify_schema
 

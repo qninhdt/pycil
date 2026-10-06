@@ -31,14 +31,9 @@ class ConversationView(Strict):
     updated_at: datetime
 
 
-class ConversationCursor(Strict):
-    updated_at: datetime
-    id: UUID
-
-
 class ConversationPage(Strict):
     conversations: list[ConversationView]
-    next_after: ConversationCursor | None
+    next_cursor: str | None
 
 
 class ApprovalAction(Strict):

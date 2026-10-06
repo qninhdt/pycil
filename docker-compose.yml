@@ -2,9 +2,9 @@ name: pycil
 
 # All policy is baked from config/config.yaml; only addresses/credentials go here.
 x-runtime-env: &runtime-env
-  # _PYCIL_* are derived by scripts/compose.py, never user configuration.
-  DB_URL: ${_PYCIL_DB_URL:?run scripts/compose.py instead of raw docker compose}
-  REDIS_URL: ${_PYCIL_REDIS_URL:?run scripts/compose.py instead of raw docker compose}
+  # _DB_* / _REDIS_* are derived by scripts/compose.py, never user configuration.
+  DB_URL: ${_DB_URL:?run scripts/compose.py instead of raw docker compose}
+  REDIS_URL: ${_REDIS_URL:?run scripts/compose.py instead of raw docker compose}
   CLERK_JWKS_URL: ${CLERK_JWKS_URL}
   CLERK_ISSUER: ${CLERK_ISSUER}
   CLERK_AUDIENCE: ${CLERK_AUDIENCE:-}
@@ -35,11 +35,11 @@ services:
     image: postgres:18.6-alpine3.24
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${_PYCIL_DB_USER}
-      POSTGRES_PASSWORD: ${_PYCIL_DB_PASSWORD}
-      POSTGRES_DB: ${_PYCIL_DB_NAME}
+      POSTGRES_USER: ${_DB_USER}
+      POSTGRES_PASSWORD: ${_DB_PASSWORD}
+      POSTGRES_DB: ${_DB_NAME}
     ports:
-      - "${_PYCIL_DB_BIND}:5432"
+      - "${_DB_BIND}:5432"
     volumes:
       - pgdata:/var/lib/postgresql
     healthcheck:
@@ -53,10 +53,10 @@ services:
     restart: unless-stopped
     command: ["sh", "-c", "exec redis-server --appendonly yes --requirepass \"$$REDIS_PASSWORD\" --user \"$$REDIS_USER\" on \">$$REDIS_PASSWORD\" '~*' '&*' +@all"]
     environment:
-      REDIS_PASSWORD: ${_PYCIL_REDIS_PASSWORD}
-      REDIS_USER: ${_PYCIL_REDIS_USER}
+      REDIS_PASSWORD: ${_REDIS_PASSWORD}
+      REDIS_USER: ${_REDIS_USER}
     ports:
-      - "${_PYCIL_REDIS_BIND}:6379"
+      - "${_REDIS_BIND}:6379"
     volumes:
       - redisdata:/data
     healthcheck:
@@ -68,7 +68,7 @@ services:
   migrate:
     <<: *backend
     environment:
-      DB_URL: ${_PYCIL_DB_URL}
+      DB_URL: ${_DB_URL}
     depends_on:
       postgres:
         condition: service_healthy

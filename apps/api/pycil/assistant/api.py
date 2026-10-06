@@ -1,9 +1,8 @@
-from datetime import datetime
 from uuid import UUID
 
 from ag_ui.core import RunAgentInput
 from ag_ui_langgraph.utils import langchain_messages_to_agui
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select, tuple_
 
@@ -21,7 +20,7 @@ from pycil.assistant.schemas import (
 )
 from pycil.assistant.stream import prepare_turn
 from pycil.dependencies import Product, Session
-from pycil.http import Problem
+from pycil.pagination import decode, encode, page_limit, strict_query
 
 router = APIRouter(prefix="/v1/assistant", tags=["assistant"])
 
@@ -46,35 +45,30 @@ async def create(data: CreateConversation, user: Actor, session: Session):
 
 @router.get("/conversations", response_model=ConversationPage)
 async def listing(
+    request: Request,
     user: Actor,
     session: Session,
     config: Product,
-    after_updated_at: datetime | None = None,
-    after_id: UUID | None = None,
+    cursor: str | None = Query(default=None, max_length=2048),
+    limit: int | None = Query(default=None, ge=1, le=100),
 ):
+    strict_query(request, {"cursor", "limit"})
+    limit = page_limit(limit, config)
+    binding = {"kind": "conversations", "viewer": str(user.id)}
+    seek, _ = decode(cursor, binding, ["time", "uuid"])
     query = select(Conversation).where(Conversation.user_id == user.id)
-    if (after_updated_at is None) != (after_id is None):
-        raise Problem(422, "invalid_cursor")
-    if after_updated_at is not None:
-        if after_updated_at.utcoffset() is None:
-            raise Problem(422, "invalid_cursor")
-        query = query.where(
-            tuple_(Conversation.updated_at, Conversation.id) < tuple_(after_updated_at, after_id)
-        )
+    if seek is not None:
+        query = query.where(tuple_(Conversation.updated_at, Conversation.id) < tuple_(*seek))
     rows = (
         await session.scalars(
-            query.order_by(Conversation.updated_at.desc(), Conversation.id.desc()).limit(
-                config.library.page_size + 1
-            )
+            query.order_by(Conversation.updated_at.desc(), Conversation.id.desc()).limit(limit + 1)
         )
     ).all()
-    page = rows[: config.library.page_size]
+    page = rows[:limit]
     return {
         "conversations": [row_data(row) for row in page],
-        "next_after": (
-            {"updated_at": page[-1].updated_at, "id": page[-1].id}
-            if len(rows) > len(page)
-            else None
+        "next_cursor": (
+            encode(binding, [page[-1].updated_at, page[-1].id]) if len(rows) > len(page) else None
         ),
     }
 

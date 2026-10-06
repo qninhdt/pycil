@@ -11,7 +11,7 @@ from pycil.config import Deployment, ProductConfig, load_config
 
 
 def test_import_needs_neither_yaml_secrets_nor_network():
-    env = os.environ | {"PYCIL_CONFIG_PATH": "/does-not-exist/policy.yaml"}
+    env = os.environ | {"CONFIG_PATH": "/does-not-exist/policy.yaml"}
     result = subprocess.run(
         [
             sys.executable,
@@ -72,6 +72,17 @@ def test_config_error_does_not_echo_input(tmp_path):
     with pytest.raises(ValueError, match="Invalid product policy") as caught:
         load_config(path)
     assert "unexpected-secret-sentinel" not in str(caught.value)
+
+
+def test_config_path_environment_override(monkeypatch, tmp_path, config):
+    import yaml
+
+    path = tmp_path / "policy.yaml"
+    data = config.model_dump(mode="json")
+    data["account"]["defaults"]["locale"] = "vi"
+    path.write_text(yaml.safe_dump(data))
+    monkeypatch.setenv("CONFIG_PATH", str(path))
+    assert load_config().account.defaults.locale == "vi"
 
 
 def test_missing_environment_lists_only_variable_names(monkeypatch):

@@ -275,7 +275,7 @@ async def test_http_conversation_create_list_empty_state_and_delete(
         listed = await client.get("/v1/assistant/conversations")
         assert listed.status_code == 200
         assert listed.json()["conversations"] == [created.json()]
-        assert listed.json()["next_after"] is None
+        assert listed.json()["next_cursor"] is None
         detail = await client.get(f"/v1/assistant/conversations/{identifier}")
         assert detail.status_code == 200, detail.text
         assert detail.json() == created.json() | {
