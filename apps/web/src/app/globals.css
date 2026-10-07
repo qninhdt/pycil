@@ -1,0 +1,218 @@
+@import "tailwindcss" source("../");
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/manrope";
+@import "tw-shimmer";
+
+/* Canonical values from root DESIGN.md: Flat UI Palette v1 (defo).
+ * Only this file contains palette literals. Semantic roles belong in app/globals.css.
+ * Dark mode changes roles, not the palette. */
+:root {
+  --palette-primary-red: #E74C3C;
+  --palette-primary-blue: #3498DB;
+  --palette-primary-yellow: #F1C40F;
+  --palette-red-dark: #C0392B;
+  --palette-blue-dark: #2980B9;
+  --palette-yellow-dark: #F39C12;
+  --palette-ink: #2C3E50;
+  --palette-ink-soft: #34495E;
+  --palette-text-muted: #7F8C8D;
+  --palette-text-subtle: #95A5A6;
+  --palette-border: #BDC3C7;
+  --palette-canvas: #ECF0F1;
+  --palette-success: #27AE60;
+  --palette-teal: #1ABC9C;
+  --palette-purple: #9B59B6;
+  --palette-red-soft: #E74C3C1A;
+  --palette-blue-soft: #3498DB1A;
+  --palette-yellow-soft: #F1C40F1F;
+  --palette-ink-overlay: #2C3E507A;
+}
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: 'Manrope Variable', sans-serif;
+  --font-heading: var(--font-sans);
+  --color-background: var(--background); --color-foreground: var(--foreground);
+  --color-card: var(--card); --color-card-foreground: var(--foreground);
+  --color-popover: var(--popover); --color-popover-foreground: var(--foreground);
+  --color-primary: var(--primary); --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary); --color-secondary-foreground: var(--foreground);
+  --color-muted: var(--muted); --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent); --color-accent-foreground: var(--foreground);
+  --color-destructive: var(--destructive); --color-border: var(--border);
+  --color-input: var(--input); --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar); --color-sidebar-foreground: var(--foreground);
+  --color-sidebar-primary: var(--primary); --color-sidebar-primary-foreground: var(--primary-foreground);
+  --color-sidebar-accent: var(--accent); --color-sidebar-accent-foreground: var(--foreground);
+  --color-sidebar-border: var(--border); --color-sidebar-ring: var(--ring);
+  --color-chart-1: var(--chart-1); --color-chart-2: var(--chart-2); --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4); --color-chart-5: var(--chart-5);
+  --color-art-red: var(--art-red); --color-art-blue: var(--art-blue);
+  --color-art-yellow: var(--art-yellow); --color-art-ink: var(--art-ink);
+  --color-success: var(--success);
+  --color-action-red: var(--action-red);
+  --color-on-action-red: var(--on-action-red);
+  --color-on-yellow: var(--on-yellow);
+  --color-overlay: var(--palette-ink-overlay);
+  --radius-sm: 2px; --radius-md: 3px; --radius-lg: 4px; --radius-xl: 5px;
+  --radius-2xl: 6px; --radius-3xl: 6px; --radius-4xl: 6px;
+  @keyframes collapsible-down {
+  from {
+    height: 0;
+    }
+  to {
+    height: var(--radix-collapsible-content-height, var(--collapsible-panel-height, auto));
+    }
+  }
+  @keyframes collapsible-up {
+  from {
+    height: var(--radix-collapsible-content-height, var(--collapsible-panel-height, auto));
+    }
+  to {
+    height: 0;
+    }
+  }
+}
+
+:root {
+  color-scheme: light;
+  --background: var(--palette-canvas); --foreground: var(--palette-ink);
+  --card: var(--palette-canvas); --popover: var(--palette-canvas);
+  --primary: var(--palette-ink); --primary-foreground: var(--palette-canvas);
+  --secondary: var(--palette-border); --muted: var(--palette-border);
+  --muted-foreground: var(--palette-ink-soft);
+  --accent: var(--palette-blue-soft); --border: var(--palette-border);
+  --input: var(--palette-text-muted); --ring: var(--palette-blue-dark);
+  --destructive: var(--palette-red-dark); --success: var(--palette-success); --radius: .2rem;
+  --sidebar: var(--palette-canvas);
+  --art-red: var(--palette-primary-red); --art-blue: var(--palette-primary-blue);
+  --art-yellow: var(--palette-primary-yellow); --art-ink: var(--palette-ink); --art-paper: var(--palette-canvas);
+  --chart-1: var(--palette-primary-blue); --chart-2: var(--palette-primary-red);
+  --chart-3: var(--palette-primary-yellow); --chart-4: var(--palette-teal); --chart-5: var(--palette-purple);
+  /* DESIGN.md's contrast requirement: Pomegranate + Clouds supports small labels;
+     Alizarin remains the unaltered art color. */
+  --action-red: var(--palette-red-dark); --on-action-red: var(--palette-canvas);
+  --on-yellow: var(--palette-ink);
+  --scrollbar-track: var(--background);
+  --scrollbar-thumb: var(--palette-text-muted);
+  --scrollbar-thumb-hover: var(--palette-blue-dark);
+}
+.dark {
+  color-scheme: dark;
+  --background: var(--palette-ink); --foreground: var(--palette-canvas);
+  --card: var(--palette-ink-soft); --popover: var(--palette-ink-soft);
+  --primary: var(--palette-canvas); --primary-foreground: var(--palette-ink);
+  --secondary: var(--palette-ink-soft); --muted: var(--palette-ink-soft);
+  --muted-foreground: var(--palette-border);
+  --accent: color-mix(in srgb, var(--palette-primary-blue) 24%, var(--palette-ink-soft));
+  --border: var(--palette-text-muted); --input: var(--palette-text-subtle); --ring: var(--palette-primary-yellow);
+  --destructive: var(--palette-canvas);
+  --sidebar: var(--palette-ink); --art-ink: var(--palette-canvas); --art-paper: var(--palette-ink);
+  --scrollbar-thumb: var(--palette-text-subtle);
+  --scrollbar-thumb-hover: var(--palette-primary-blue);
+}
+@layer base {
+  * { @apply border-border outline-ring/50; }
+  html { @apply font-sans; scroll-behavior: smooth; scroll-padding-top: 100px; }
+  body { @apply bg-background text-foreground; margin: 0; min-width: 320px; }
+  button, a, input, textarea { -webkit-tap-highlight-color: transparent; }
+  button:not(:disabled), [role=button] { cursor: pointer; }
+  ::selection { background: var(--art-yellow); color: var(--palette-ink); }
+  :focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+  input, textarea { caret-color: var(--art-blue); }
+  ::placeholder { color: var(--muted-foreground); opacity: 1; }
+  * { scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track); scrollbar-width: thin; }
+}
+
+/* Native scrolling stays native. Square rails also cover portals, textareas and horizontal scroll. */
+@supports selector(::-webkit-scrollbar) {
+  * { scrollbar-width: auto; scrollbar-color: auto; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: var(--scrollbar-track); }
+  ::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border: 2px solid var(--scrollbar-track); border-radius: 0; min-height: 32px; }
+  ::-webkit-scrollbar-thumb:hover, ::-webkit-scrollbar-thumb:active { background: var(--scrollbar-thumb-hover); }
+  ::-webkit-scrollbar-button { display: none; }
+}
+@media (forced-colors: active) {
+  * { scrollbar-color: auto; }
+  ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: Canvas; }
+  ::-webkit-scrollbar-thumb { background: CanvasText; border-color: Canvas; }
+  ::-webkit-scrollbar-thumb:hover { background: Highlight; }
+}
+
+/* The workshop sidebar begins below its own 72px header. */
+.showcase-shell [data-slot=sidebar-container] { top: 72px; height: calc(100svh - 72px); }
+.showcase-shell[data-slot=sidebar-wrapper] { min-height: calc(100svh - 72px); }
+
+.bauhaus-icon { flex: none; overflow: visible; }
+.bauhaus-motif { overflow: hidden; }
+.bauhaus-motif:not(.library-node-motif) { width: 100%; height: 100%; }
+.header-motif-art,
+.library-header-art {
+  position: relative;
+  height: 100%;
+  min-height: 124px;
+  overflow: hidden;
+  border-left: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.header-motif-art .bauhaus-motif,
+.library-header-art .bauhaus-motif {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 200px;
+  height: 150px;
+  max-width: none;
+  max-height: none;
+  flex: none;
+}
+@media(max-width: 1279px) {
+  .header-motif-art .bauhaus-motif,
+  .library-header-art .bauhaus-motif {
+    width: 170px;
+    height: 128px;
+  }
+}
+@media(max-width: 767px) {
+  .header-motif-art,
+  .library-header-art {
+    display: none !important;
+  }
+}
+.library-node-motif { position: absolute; right: 0; bottom: 0; width: 100px; height: 75px; opacity: 0.85; pointer-events: none; }
+.bauhaus-background { width: 100%; height: 100%; display: block; }
+[data-tone=mono] { --art-red: var(--art-ink); --art-blue: var(--art-ink); --art-yellow: var(--art-ink); }
+.bauhaus-icon--control { display: inline-block; }
+
+.skip-link { position: fixed; top: -100px; left: 15px; padding: 12px; background: var(--primary); color: var(--primary-foreground); z-index: 100; }
+.skip-link:focus { top: 10px; }
+
+/* The rail preference is applied by the document script before React hydrates. */
+:root[data-navigation-collapsed=true] .application-shell { --rail-width: 72px; }
+:root[data-navigation-collapsed=true] .shell-desktop .shell-nav-label { visibility: hidden; opacity: 0; }
+:root[data-navigation-collapsed=true] .shell-desktop .shell-brand-detail,
+:root[data-navigation-collapsed=true] .shell-desktop .shell-new-corner { opacity: 0; }
+:root[data-navigation-collapsed=true] .shell-desktop .shell-brand-zone .pycil-wordmark { visibility: hidden; opacity: 0; }
+
+@media(prefers-reduced-motion:reduce) { html { scroll-behavior: auto; } *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+@media(forced-colors:active) { .bauhaus-shape, .bauhaus-icon, .bauhaus-motif, .bauhaus-background { --art-ink: CanvasText; --art-red: CanvasText; --art-blue: CanvasText; --art-yellow: CanvasText; --art-paper: Canvas; } }
+:root[data-time-of-day] .shell-brand-period { display: none; }
+:root[data-time-of-day=morning] [data-period=morning],
+:root[data-time-of-day=afternoon] [data-period=afternoon],
+:root[data-time-of-day=night] [data-period=night] { display: inline; }
+
+@media (forced-colors: active) {
+  [data-status=due], [data-status=new], [data-status=not-due] { forced-color-adjust: none; --art-red: CanvasText; --art-blue: CanvasText; --art-yellow: CanvasText; }
+  [data-calendar-day] { background: Canvas; color: CanvasText; border: 1px solid CanvasText; }
+  [data-calendar-day][data-level="3"], [data-calendar-day][data-level="4"] { background: Highlight; color: HighlightText; }
+}
+
+@custom-variant data-open (&:where([data-state="open"], [data-open]:not([data-open="false"])));
+
+@custom-variant data-closed (&:where([data-state="closed"], [data-closed]:not([data-closed="false"])));
