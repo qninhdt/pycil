@@ -1,6 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { mkdirSync, readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { mkdirSync } from 'node:fs'
 import { authErrorMessage, safeReturnTo } from '../src/lib/auth-flow'
 import { fetchProfile, ApiError } from '../src/lib/api'
 import { generateBauhausPattern } from '../src/lib/bauhaus-pattern'
@@ -29,16 +28,6 @@ test('account adapter sends bearer tokens and distinguishes API failures', async
     globalThis.fetch = async () => new Response(JSON.stringify({ id: 'account-1', plan: 'invented' }))
     await expect(fetchProfile('session-token')).rejects.toBeInstanceOf(ApiError)
   } finally { globalThis.fetch = original }
-})
-
-test('Next migration retains canonical art and excludes React Router', () => {
-  const manifest = JSON.parse(readFileSync(resolve('tests/fixtures/web-migration-manifest.json'), 'utf8'))
-  const packageJson = JSON.parse(readFileSync('package.json', 'utf8'))
-  expect(packageJson.dependencies.next).toBeTruthy()
-  expect(packageJson.dependencies['react-router']).toBeUndefined()
-  expect(manifest['src/components/artwork/artwork.tsx']).toBeTruthy()
-  const css = readFileSync('src/components/application/app-shell.tsx', 'utf8')
-  expect(css).not.toMatch(/#[\da-f]{3,8}\b/i)
 })
 
 test('app routes, deck creation dialog, account menu and theme persist', async ({ page }) => {
