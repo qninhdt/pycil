@@ -6,6 +6,7 @@ from uuid import uuid7
 
 from lexi_ai import QuestionType
 from lexi_ai.errors import InvalidHandleError, InvalidResourceError, WordCollisionError
+from lexi_ai.inference.retry import retryable
 from lexi_ai.references.cambridge import decode_available_id
 from lexi_ai.text import validate_lemma
 from sqlalchemy import and_, case, or_, select, update
@@ -133,6 +134,7 @@ async def record(sessions, identifier, **values):
 async def execute(sessions, lexicon, row, config, ensure_owner):
     import asyncio
 
+    word = None
     try:
         async with asyncio.timeout(config.generation.worker.attempt_timeout_seconds):
             word = await lexicon.generate(
@@ -146,34 +148,66 @@ async def execute(sessions, lexicon, row, config, ensure_owner):
             await record(sessions, row.id, word_id=word.id, stage="QUESTION_POOLS")
             ids = [sense.id for sense in word.senses]
             counts = await coverage(lexicon, ids, config)
-            for sense_id in ids:
-                for kind in QuestionType:
-                    missing = max(0, config.generation.questions_per_type - counts[sense_id, kind])
-                    if missing:
-                        await ensure_owner()
-                        await lexicon.generate_questions(
-                            sense_id,
-                            kind,
-                            missing,
-                            distractor_count=config.generation.distractor_count,
-                        )
-            counts = await coverage(lexicon, ids, config)
-            if any(
-                counts[s, k] < config.generation.questions_per_type
-                for s in ids
-                for k in QuestionType
-            ):
-                raise RuntimeError("incomplete banks")
+
+            async def fill_pool(sense_id, kind):
+                try:
+                    await lexicon.generate_questions(
+                        sense_id,
+                        kind,
+                        config.generation.questions_per_type,
+                        distractor_count=config.generation.distractor_count,
+                    )
+                except Exception as error:
+                    # Native inference already exhausted its bounded retry budget.
+                    if not retryable(error):
+                        raise
+
             await ensure_owner()
-            await record(sessions, row.id, status=Status.SUCCEEDED, stage="READY", error=None)
+            tasks = [
+                asyncio.create_task(fill_pool(sense_id, kind))
+                for sense_id in ids
+                for kind in QuestionType
+                if not counts[sense_id, kind]
+            ]
+            try:
+                await asyncio.gather(*tasks)
+            finally:
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+            counts = await coverage(lexicon, ids, config)
+            partial = any(not counts[s, k] for s in ids for k in QuestionType)
+            await ensure_owner()
+            await record(
+                sessions,
+                row.id,
+                status=Status.SUCCEEDED,
+                stage="PARTIAL" if partial else "READY",
+                error="question_pools_incomplete" if partial else None,
+            )
     except asyncio.CancelledError:
         raise  # RUNNING is intentionally recovered by the next lock-owning process.
     except Exception as error:
         await ensure_owner()
+        if isinstance(error, TimeoutError) and word is not None:
+            await record(
+                sessions,
+                row.id,
+                word_id=word.id,
+                status=Status.SUCCEEDED,
+                stage="PARTIAL",
+                error="question_pools_incomplete",
+            )
+            return
         terminal = isinstance(
             error, (InvalidHandleError, InvalidResourceError, WordCollisionError, ValueError)
         )
-        failed = terminal or row.attempts >= config.generation.worker.max_attempts
+        failed = (
+            terminal
+            or not (retryable(error) or isinstance(error, TimeoutError))
+            or row.attempts >= config.generation.worker.max_attempts
+        )
         await record(
             sessions,
             row.id,

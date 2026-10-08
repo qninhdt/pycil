@@ -1,8 +1,9 @@
+import type { LibraryDetails } from '../../library-model'
 import type { MockDatabase } from '../mock'
 import { parseDictionaryWord, type DictionaryWord, type WordContext, type WordGeneration, type WordSearch } from '../../dictionary-model'
 import { HomeApiError } from '../../home-api'
 
-export function createMockDictionary(db: MockDatabase, now: () => Date) {
+export function createMockDictionary(db: MockDatabase, now: () => Date, details: (id: string) => LibraryDetails) {
   const words = new Map<number, DictionaryWord>(db.dictionary.words.map(entry => [entry.id, parseDictionaryWord(entry)]))
   const readyWords = db.dictionary.words as DictionaryWord[]
   const pending = new Map(db.dictionary.pending_words.map(entry => [entry.lemma, parseDictionaryWord(entry)]))
@@ -43,7 +44,7 @@ export function createMockDictionary(db: MockDatabase, now: () => Date) {
     const names = new Map([...db.nodes, ...db.library.nodes].map(node => [node.id, node.name]))
     const memberships = db.library.membership as Record<string, number[]>
     const senses = value.senses.map(sense => {
-      const decks = Object.entries(memberships).filter(([, ids]) => ids.includes(sense.id)).map(([deckId]) => ({ id: deckId, name: names.get(deckId) ?? deckId }))
+      const decks = Object.entries(memberships).filter(([, ids]) => ids.includes(sense.id)).map(([deckId]) => ({ id: deckId, name: names.get(deckId) ?? deckId, owner_id: details(deckId).owner_id, space: details(deckId).space as 'PERSONAL' | 'PUBLISHED' }))
       const state = due.has(sense.id) ? 'DUE' : fresh.has(sense.id) || sense.id > 48 ? 'NEW' : 'NOT_YET_DUE'
       return { sense_id: sense.id, learning: { state: state as 'DUE' | 'NEW' | 'NOT_YET_DUE', due_at: null, last_reviewed_at: null },
         decks, deck_count: decks.length, decks_has_more: false }

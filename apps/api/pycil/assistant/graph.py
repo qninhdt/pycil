@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from langchain.agents import create_agent
@@ -6,10 +7,12 @@ from langchain.agents.middleware import (
     HumanInTheLoopMiddleware,
     ModelCallLimitMiddleware,
     ToolCallLimitMiddleware,
+    hook_config,
 )
 from langchain_core.messages import trim_messages
-from langchain_openai import ChatOpenAI
+from langchain_openrouter import ChatOpenRouter
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from langgraph.config import get_config
 
 from pycil.assistant.tools import tools
 
@@ -17,6 +20,11 @@ from pycil.assistant.tools import tools
 class Boundary(AgentMiddleware):
     def __init__(self, config):
         self.config = config
+
+    @hook_config(can_jump_to=["end"])
+    async def aafter_model(self, state, runtime):
+        if get_config()["configurable"].get("reject_all"):
+            return {"jump_to": "end"}
 
     async def awrap_model_call(self, request, handler):
         messages = trim_messages(
@@ -38,18 +46,24 @@ class Boundary(AgentMiddleware):
             raise RuntimeError("assistant_tool_failed") from None
 
 
-def model(deployment, policy, effort, http):
-    return ChatOpenAI(
+@asynccontextmanager
+async def model(deployment, policy, effort, timeout_seconds):
+    selected = ChatOpenRouter(
         model=policy.id,
         api_key=deployment.inference_api_key.get_secret_value(),
         base_url=deployment.inference_base_url,
+        timeout=timeout_seconds * 1000,
+        app_url=None,
+        app_title=None,
         max_tokens=policy.max_output_tokens,
-        timeout=60,
         max_retries=0,
-        reasoning_effort=None if effort == "none" else effort,
+        reasoning={"effort": effort, "exclude": False},
+        streaming=True,
+        output_version="v1",
         stream_usage=True,
-        http_async_client=http,
     )
+    async with selected.client:
+        yield selected
 
 
 def graph(resources, user, config, selected_model):

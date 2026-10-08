@@ -24,6 +24,7 @@ export function FlashcardFocus() {
     setLoading(true); setError('')
     async function load() {
       const detail = await services.library.details(nodeId, controller.signal)
+      if (detail.reference_available === false) throw new Error('The source is no longer available.')
       const pages: Meaning[] = []
       let cursor: string | undefined
       do {

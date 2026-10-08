@@ -32,6 +32,7 @@ def source(row, viewer_id):
         "id": row.id,
         "name": row.name,
         "owner_id": row.owner_id,
+        "space": row.space,
         "editable": row.owner_id == viewer_id,
     }
 
@@ -43,6 +44,7 @@ async def source_batch(session, decks, identifiers, viewer_id, config):
             Node.id,
             Node.name,
             Node.owner_id,
+            Node.space,
             func.row_number()
             .over(partition_by=DeckSense.sense_id, order_by=Node.id)
             .label("position"),

@@ -8,10 +8,10 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        red: "bg-action-red text-on-action-red hover:bg-action-red/90",
-        blue: "border-art-blue bg-art-blue/10 text-foreground hover:bg-art-blue/20",
-        yellow: "bg-art-yellow text-on-yellow hover:bg-art-yellow/85",
-        default: "bg-primary text-primary-foreground hover:bg-primary/80",
+        red: "bg-action-red text-on-action-red hover:bg-[color-mix(in_srgb,var(--action-red),black_12%)] active:bg-[color-mix(in_srgb,var(--action-red),black_20%)]",
+        blue: "border-art-blue bg-[color-mix(in_srgb,var(--art-blue)_10%,var(--background))] text-foreground hover:bg-[color-mix(in_srgb,var(--art-blue)_20%,var(--background))]",
+        yellow: "bg-art-yellow text-on-yellow hover:bg-[color-mix(in_srgb,var(--art-yellow),black_10%)] active:bg-[color-mix(in_srgb,var(--art-yellow),black_16%)]",
+        default: "bg-primary text-primary-foreground hover:bg-[color-mix(in_srgb,var(--primary),var(--primary-foreground)_12%)] active:bg-[color-mix(in_srgb,var(--primary),var(--primary-foreground)_20%)]",
         outline:
           "border-border bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground",
         secondary:
@@ -19,7 +19,7 @@ const buttonVariants = cva(
         ghost:
           "hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground",
         destructive:
-          "border-art-red bg-art-red/10 text-foreground hover:bg-art-red/20",
+          "border-art-red bg-[color-mix(in_srgb,var(--art-red)_10%,var(--background))] text-foreground hover:bg-[color-mix(in_srgb,var(--art-red)_20%,var(--background))]",
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {

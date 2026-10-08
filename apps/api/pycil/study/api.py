@@ -32,7 +32,7 @@ from pycil.study.schemas import (
 router = APIRouter(prefix="/v1/study", tags=["study"])
 
 
-@router.post("/prepare", response_model=Preparation)
+@router.post(":prepare", response_model=Preparation)
 async def preparation(
     data: Prepare, user: Actor, session: Session, config: Product, lexicon: Dictionary
 ):
@@ -47,7 +47,7 @@ async def preparation(
     )
 
 
-@router.post("/grade", response_model=GradeResult)
+@router.post(":grade", response_model=GradeResult)
 async def grade(data: Grade, user: Actor, config: Product, lexicon: Dictionary, session: Session):
     async with session.begin():
         plan = await session.scalar(select(User.plan).where(User.id == user.id))
@@ -81,7 +81,7 @@ async def grade(data: Grade, user: Actor, config: Product, lexicon: Dictionary, 
         raise Problem(503, "grading_unavailable") from None
 
 
-@router.post("/reviews", response_model=BatchResult)
+@router.post(":submitReviews", response_model=BatchResult)
 async def rating(
     data: ReviewBatch,
     user: Actor,
@@ -100,7 +100,7 @@ async def summary(
     return await progress(session, user, config, node_id)
 
 
-@router.post("/summaries", response_model=list[Summary], openapi_extra={"security": [{}]})
+@router.post(":batchSummarize", response_model=list[Summary], openapi_extra={"security": [{}]})
 async def cards(data: SummaryBatch, viewer: Viewer, session: Session, config: Product):
     return await summaries(session, viewer.id if viewer else None, config, data.node_ids)
 

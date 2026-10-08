@@ -14,7 +14,7 @@ test.beforeAll(async () => {
     // The isolated fixture tests UI + API hooks, not Next routing or Clerk authentication.
     // Production routing/auth remain covered on the real /app route, without bypasses.
     plugins: [{ name: 'fixture-platform', setup(builder) {
-      builder.onResolve({ filter: /^(next\/link|next\/navigation|@clerk\/nextjs)$/ }, args => ({ path: args.path, namespace: 'fixture-platform' }))
+      builder.onResolve({ filter: /^(next\/link|next\/navigation|@clerk\/react)$/ }, args => ({ path: args.path, namespace: 'fixture-platform' }))
       builder.onLoad({ filter: /.*/, namespace: 'fixture-platform' }, args => ({ loader: 'tsx', resolveDir: process.cwd(), contents:
         args.path === 'next/link' ? `import {forwardRef} from 'react'; export default forwardRef(function Link({prefetch,replace,scroll,locale,...props},ref){return <a {...props} ref={ref}/>})`
           : args.path === 'next/navigation' ? `export function usePathname(){return '/app'}`

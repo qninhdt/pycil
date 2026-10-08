@@ -1,8 +1,10 @@
+from collections.abc import AsyncIterator
+from typing import Annotated
 from uuid import UUID
 
 from ag_ui.core import RunAgentInput
 from ag_ui_langgraph.utils import langchain_messages_to_agui
-from fastapi import APIRouter, Query, Request, Response
+from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select, tuple_
 
@@ -79,13 +81,15 @@ async def state(identifier: UUID, user: Actor, session: Session, request: Reques
     await session.commit()
     resources = request.app.state
     policy = next(m for m in config.models if m.id == config.assistant.default_model)
-    selected = agents.model(
-        resources.deployment, policy, config.assistant.default_effort, resources.http
-    )
-    # Reconstruct the native graph for a read only; never invoke the model or tools.
-    snapshot = await agents.graph(resources, user, config, selected).aget_state(
-        {"configurable": {"thread_id": str(identifier)}}
-    )
+    async with agents.model(
+        resources.deployment,
+        policy,
+        config.assistant.default_effort,
+        config.assistant.llm_timeout_seconds,
+    ) as selected:
+        snapshot = await agents.graph(resources, user, config, selected).aget_state(
+            {"configurable": {"thread_id": str(identifier)}}
+        )
     return row_data(row) | {
         "state": {
             "messages": langchain_messages_to_agui(snapshot.values.get("messages", [])),
@@ -104,8 +108,15 @@ async def remove(identifier: UUID, user: Actor, request: Request):
     return Response(status_code=204)
 
 
+async def turn_events(data: RunAgentInput, user: Actor, request: Request, config: Product):
+    async with prepare_turn(
+        request.app.state, request.app.state.deployment, user, data, config
+    ) as events:
+        yield events
+
+
 @router.post(
-    "",
+    ":run",
     response_class=StreamingResponse,
     responses={
         200: {
@@ -114,26 +125,10 @@ async def remove(identifier: UUID, user: Actor, request: Request):
         }
     },
 )
-async def stream(data: RunAgentInput, user: Actor, request: Request, config: Product):
-    return TurnResponse(request, user, data, config)
-
-
-class TurnResponse(StreamingResponse):
-    """Acquire/release turn resources around ASGI streaming, including send failure."""
-
-    def __init__(self, request, user, data, config):
-        super().__init__(
-            iter(()), media_type="text/event-stream", headers={"Cache-Control": "no-cache"}
-        )
-        self.request, self.user, self.data, self.config = request, user, data, config
-
-    async def __call__(self, scope, receive, send):
-        async with prepare_turn(
-            self.request.app.state,
-            self.request.app.state.deployment,
-            self.user,
-            self.data,
-            self.config,
-        ) as events:
-            self.body_iterator = events
-            await super().__call__(scope, receive, send)
+async def stream(events: Annotated[AsyncIterator[str], Depends(turn_events, scope="request")]):
+    return StreamingResponse(
+        events,
+        media_type="text/event-stream",
+        # Next's compression middleware buffers small SSE chunks without no-transform.
+        headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
+    )

@@ -13,14 +13,25 @@ from pycil.http import Problem
 from pycil.library.access import readable
 from pycil.library.models import Node, NodePath, NodeRole
 from pycil.library.nodes import (
+    copy_node,
     create_node,
     delete_node,
     editor_snapshot,
     list_nodes,
+    move_node,
     node_details,
+    patch_node,
+    patch_senses,
     save_node,
 )
-from pycil.library.schemas import NodeCreate, NodeSave
+from pycil.library.schemas import (
+    NodeCreate,
+    NodeDestination,
+    NodeMove,
+    NodePatch,
+    NodeSave,
+    SenseDelta,
+)
 from pycil.library.scope import ScopeBudget, scope_ids
 from pycil.library.senses import sense_page
 from pycil.library.tree import provision_library, roots
@@ -556,3 +567,202 @@ async def test_editor_retains_all_memberships_beyond_browse_page(database, user,
         await save(sessions, user, deck, config, sense_ids=list(range(1, 1002)))
     async with sessions() as session:
         assert (await session.get(Node, deck["id"])).name == "full"
+
+
+async def test_targeted_metadata_and_concurrent_membership_preserve_state(
+    database, user, config, senses
+):
+    _, sessions, _ = database
+    folder = await create(sessions, user, config, type="FOLDER", name="folder")
+    deck = await create(
+        sessions, user, config, type="DECK", name="deck", parent_id=folder["id"], sense_ids=senses
+    )
+    async with sessions() as session:
+        await patch_node(session, user.id, deck["id"], NodePatch(description="changed"), config)
+    async with sessions() as session:
+        snapshot = await editor_snapshot(session, deck["id"], user.id, config)
+        assert snapshot["parent_id"] == folder["id"]
+        assert snapshot["name"] == "deck" and snapshot["sense_ids"] == senses
+    async with sessions() as session:
+        await patch_senses(session, user.id, deck["id"], SenseDelta(remove=senses), config)
+
+    async def add(sense_id):
+        async with sessions() as session:
+            await patch_senses(session, user.id, deck["id"], SenseDelta(add=[sense_id]), config)
+
+    await asyncio.gather(*(add(sense_id) for sense_id in senses))
+    async with sessions() as session:
+        assert (await editor_snapshot(session, deck["id"], user.id, config))["sense_ids"] == senses
+    with pytest.raises(Problem, match="sense_not_found"):
+        async with sessions() as session:
+            await patch_senses(
+                session, user.id, deck["id"], SenseDelta(add=[999999], remove=senses), config
+            )
+    async with sessions() as session:
+        assert (await editor_snapshot(session, deck["id"], user.id, config))["sense_ids"] == senses
+    with pytest.raises(Problem, match="membership_is_deck_only"):
+        async with sessions() as session:
+            await patch_senses(session, user.id, folder["id"], SenseDelta(add=senses), config)
+    other = await other_user(sessions)
+    with pytest.raises(Problem, match="node_not_found"):
+        async with sessions() as session:
+            await patch_node(session, other.id, deck["id"], NodePatch(name="stolen"), config)
+
+
+async def test_targeted_move_publication_preserves_membership_and_reference(
+    database, user, config, senses
+):
+    _, sessions, _ = database
+    system = await system_roots(sessions, user)
+    deck = await create(sessions, user, config, type="DECK", name="deck", sense_ids=senses)
+    with pytest.raises(Problem, match="publication_confirmation_required"):
+        async with sessions() as session:
+            await move_node(
+                session,
+                user.id,
+                deck["id"],
+                NodeMove(parent_id=system[NodeRole.PUBLISHED_ROOT].id),
+                config,
+            )
+    async with sessions() as session:
+        moved = await move_node(
+            session,
+            user.id,
+            deck["id"],
+            NodeMove(
+                parent_id=system[NodeRole.PUBLISHED_ROOT].id,
+                confirm_publication=True,
+                retain_personal_reference=True,
+            ),
+            config,
+        )
+    assert moved["id"] == deck["id"] and moved["retained_reference_id"]
+    assert await ids(sessions, deck["id"], None, config) == set(senses)
+    async with sessions() as session:
+        assert (await editor_snapshot(session, deck["id"], user.id, config))["sense_ids"] == senses
+        reference = await node_details(session, moved["retained_reference_id"], user.id, config)
+        assert reference["reference_id"] == deck["id"]
+    async with sessions() as session:
+        await move_node(
+            session,
+            user.id,
+            deck["id"],
+            NodeMove(parent_id=system[NodeRole.PERSONAL_ROOT].id),
+            config,
+        )
+    async with sessions() as session:
+        with pytest.raises(Problem, match="node_not_found"):
+            await readable(session, deck["id"], None, config)
+
+
+async def test_copy_is_atomic_independent_and_remaps_internal_references(
+    database, user, config, senses
+):
+    _, sessions, _ = database
+    system = await system_roots(sessions, user)
+    folder = await create(sessions, user, config, type="FOLDER", name="folder")
+    nested = await create(
+        sessions, user, config, type="FOLDER", name="nested", parent_id=folder["id"]
+    )
+    deck = await create(
+        sessions, user, config, type="DECK", name="deck", parent_id=nested["id"], sense_ids=senses
+    )
+    await create(
+        sessions,
+        user,
+        config,
+        type="REFERENCE",
+        name="linked deck",
+        parent_id=folder["id"],
+        reference_id=deck["id"],
+    )
+    async with sessions() as session:
+        copied = await copy_node(
+            session,
+            user.id,
+            folder["id"],
+            NodeDestination(parent_id=system[NodeRole.PERSONAL_ROOT].id),
+            config,
+        )
+    async with sessions() as session:
+        children = (await list_nodes(session, user.id, copied["id"], None, config))["nodes"]
+    copy_nested = next(node for node in children if node["type"].value == "FOLDER")
+    async with sessions() as session:
+        copy_deck = (await list_nodes(session, user.id, copy_nested["id"], None, config))["nodes"][
+            0
+        ]
+    copy_ref = next(node for node in children if node["type"].value == "REFERENCE")
+    assert copy_deck["id"] != deck["id"] and copy_ref["reference_id"] == copy_deck["id"]
+    async with sessions() as session:
+        await patch_senses(session, user.id, copy_deck["id"], SenseDelta(remove=senses), config)
+    assert await ids(sessions, deck["id"], user.id, config) == set(senses)
+    assert await ids(sessions, copied["id"], user.id, config) == set()
+    with pytest.raises(Problem, match="publication_confirmation_required"):
+        async with sessions() as session:
+            await copy_node(
+                session,
+                user.id,
+                folder["id"],
+                NodeDestination(parent_id=system[NodeRole.PUBLISHED_ROOT].id),
+                config,
+            )
+    async with sessions() as session:
+        assert (await list_nodes(session, None, system[NodeRole.PUBLISHED_ROOT].id, None, config))[
+            "nodes"
+        ] == []
+    async with sessions() as session:
+        published = await copy_node(
+            session,
+            user.id,
+            folder["id"],
+            NodeDestination(parent_id=system[NodeRole.PUBLISHED_ROOT].id, confirm_publication=True),
+            config,
+        )
+    assert await ids(sessions, published["id"], None, config) == set(senses)
+    with pytest.raises(Problem, match="node_cycle"):
+        async with sessions() as session:
+            await copy_node(
+                session, user.id, folder["id"], NodeDestination(parent_id=folder["id"]), config
+            )
+
+
+async def test_targeted_routes_http_contract(resources, user, config, senses):
+    sessions = resources.sessions
+    deck = await create(sessions, user, config, type="DECK", name="deck", sense_ids=senses)
+    system = await system_roots(sessions, user)
+    app = create_app()
+    for name, value in vars(resources).items():
+        setattr(app.state, name, value)
+    app.state.product = config
+
+    async def authenticated():
+        return user
+
+    app.dependency_overrides[actor] = authenticated
+    app.dependency_overrides[optional_actor] = authenticated
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app), base_url="http://test"
+    ) as client:
+        assert (
+            await client.patch(f"/v1/nodes/{deck['id']}", json={"name": "renamed"})
+        ).status_code == 200
+        changed = await client.post(
+            f"/v1/nodes/{deck['id']}:modifySenses", json={"add": [], "remove": [senses[0]]}
+        )
+        assert changed.status_code == 200 and changed.json()["sense_ids"] == senses[1:]
+        copied = await client.post(
+            f"/v1/nodes/{deck['id']}:copy",
+            json={"parent_id": str(system[NodeRole.PERSONAL_ROOT].id)},
+        )
+        assert copied.status_code == 201 and copied.json()["sense_ids"] == senses[1:]
+        moved = await client.post(
+            f"/v1/nodes/{deck['id']}:move",
+            json={
+                "parent_id": str(system[NodeRole.PUBLISHED_ROOT].id),
+                "confirm_publication": True,
+            },
+        )
+        assert moved.status_code == 200 and moved.json()["id"] == str(deck["id"])
+        assert (await client.get(f"/v1/nodes/{deck['id']}/editor")).json()["sense_ids"] == senses[
+            1:
+        ]

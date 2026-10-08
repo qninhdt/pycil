@@ -2,8 +2,8 @@
 # DOMAIN and uses its local CA for localhost development.
 {$DOMAIN:localhost} {
 	# Conversation turns stream AG-UI events without compression or buffering.
-	@assistant_sse path /v1/assistant
-	@non_sse not path /v1/assistant
+	@assistant_sse path /v1/assistant:run
+	@non_sse not path /v1/assistant:run
 	encode @non_sse zstd gzip
 	@api path /v1/* /health /ready /openapi.json /docs* /redoc*
 	# Exact byte cap mirrors config/config.yaml for both streaming and JSON routes.

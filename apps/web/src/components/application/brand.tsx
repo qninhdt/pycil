@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { cn } from '@/lib/utils'
 
 export function MarkPaths() {
   return <>
@@ -12,9 +13,9 @@ export function PycilMark() {
   return <svg className="block h-8 w-7 flex-none" viewBox="0 0 312 362" aria-hidden="true"><MarkPaths /></svg>
 }
 
-export function PycilBrand({ compact = false, markOnly = false }: { compact?: boolean; markOnly?: boolean }) {
-  return <Link href="/app" className={`pycil-brand relative inline-flex items-center text-foreground no-underline ${compact ? 'z-1 h-9 w-[86px] min-w-8' : ''} ${markOnly ? 'w-8 overflow-hidden' : ''}`} aria-label="Pycil home">
-    <svg className={`pycil-logo pycil-logo-full ${compact ? 'absolute left-[2.21px] top-0.5 h-8 w-[82.74px]' : 'h-auto w-44'} block shrink-0`} viewBox="0 0 936 362" aria-hidden="true">
+export function PycilBrand({ compact = false, markOnly = false, className }: { compact?: boolean; markOnly?: boolean; className?: string }) {
+  return <Link href="/app" className={cn('pycil-brand relative inline-flex items-center text-foreground no-underline', compact && 'z-1 h-9 w-[86px] min-w-8', markOnly && 'w-8 overflow-hidden', className)} aria-label="Pycil home">
+    <svg className={cn('pycil-logo pycil-logo-full block shrink-0', compact ? 'absolute left-[2.21px] top-0.5 h-8 w-[82.74px]' : 'h-auto w-24 md:w-28')} viewBox="0 0 936 362" aria-hidden="true">
       <MarkPaths />
       <g className={`pycil-wordmark transition-[opacity,visibility] duration-200 motion-reduce:transition-none ${markOnly ? 'invisible opacity-0' : ''}`} transform="translate(392 80)" fill="currentColor">
         <path fillRule="evenodd" d="M0 14H84C125 14 156 44 156 85C156 126 126 158 84 158H48V216H0ZM48 58V114H84C101 114 109 102 109 86C109 70 101 58 84 58Z" />

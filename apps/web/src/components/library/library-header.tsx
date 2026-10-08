@@ -18,7 +18,7 @@ export function LibraryHeader({ node, profile, editable }: { node: LibraryDetail
   const published = node.space === 'PUBLISHED'
   const rootId = published ? profile.published_node_id : profile.personal_node_id
   const rootHref = published ? publishedHref(profile.id, rootId) : libraryHref(rootId)
-  const parents = node.breadcrumbs.filter(parent => parent.id !== profile.library_node_id && parent.id !== rootId)
+  const parents = node.breadcrumbs.filter(parent => parent.id !== node.id && parent.id !== profile.library_node_id && parent.id !== rootId)
   const title = node.id === profile.personal_node_id ? 'Personal' : node.name
   async function copyLink() {
     try { await navigator.clipboard.writeText(new URL(nodeHref(node), location.origin).href); toast.success('Link copied') }
@@ -37,7 +37,7 @@ export function LibraryHeader({ node, profile, editable }: { node: LibraryDetail
       <div className="flex items-center gap-3 flex-wrap">
         <h1 className="text-[clamp(2.25rem,2.6vw,3rem)] font-extrabold leading-[1.12] tracking-[-.03em] max-[700px]:text-[34px] overflow-wrap-anywhere text-balance">{title}<span className="text-art-red" aria-hidden="true">.</span></h1>
         {node.space !== 'LIBRARY' && <LibraryNodeActions node={node} space={node.space}
-          allowEdit={editable} onCopyLink={() => { void copyLink() }} onDeleted={editable ? () => router.push(node.breadcrumbs.at(-1) ? published ? publishedHref(profile.id, node.breadcrumbs.at(-1)!.id) : libraryHref(node.breadcrumbs.at(-1)!.id) : rootHref) : undefined} className="relative top-auto right-auto" />}
+          allowEdit={editable} onCopyLink={() => { void copyLink() }} onDeleted={editable ? () => router.push(parents.at(-1) ? published ? publishedHref(profile.id, parents.at(-1)!.id) : libraryHref(parents.at(-1)!.id) : rootHref) : undefined} className="relative top-auto right-auto" />}
       </div>
       {node.description && <p className="text-muted-foreground leading-relaxed text-sm max-w-[58ch] mt-1">{node.description}</p>}
       <div className={`${node.role !== 'NORMAL' ? 'hidden' : 'flex'} flex-wrap items-center gap-3 mt-2 [&_a]:inline-flex [&_a]:items-center [&_a]:gap-1.5 [&_a]:text-xs [&_a]:underline [&_a]:underline-offset-4 [&_a_svg]:size-3.5`}><Badge variant="outline">{node.space === 'PUBLISHED' ? <Globe aria-hidden="true" /> : <Lock aria-hidden="true" />}{node.space === 'PUBLISHED' ? 'Published' : 'Personal'}</Badge>

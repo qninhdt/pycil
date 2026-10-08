@@ -14,6 +14,45 @@ from pycil.vocabulary.context import SenseIDs, WordIDs
 
 
 @pytest.mark.parametrize(
+    "inf,surface", [("past_participle", "harbored"), ("present_3sg", "harbors")]
+)
+def test_native_dialogue_distinguishes_inflection_markup_from_visible_blanks(inf, surface):
+    from lexi_ai import QuestionType
+    from lexi_ai.errors import InvalidOutputError
+    from lexi_ai.questions.schemas import QuestionBatch, validate_batch
+    from lexi_ai.vocab import TargetPlacement
+
+    batch = QuestionBatch.model_validate(
+        {
+            "questions": [
+                {
+                    "content": [
+                        {"speaker": "Mia", "text": f'He <t inf="{inf}">{surface}</t> a secret.'},
+                        {"speaker": "Noah", "text": None},
+                    ],
+                    "correct": {
+                        "content": "He kept it hidden.",
+                        "explanation": "The intended meaning.",
+                    },
+                    "distractors": [
+                        {"content": answer, "explanation": "A different meaning."}
+                        for answer in ("He shared it.", "He forgot it.", "He invented it.")
+                    ],
+                }
+            ]
+        }
+    )
+    validate_batch(
+        batch, QuestionType.DIALOGUE_COMPLETION, 1, 3, target_placement=TargetPlacement.DIALOGUE
+    )
+    batch.questions[0].content[0].text += " _"
+    with pytest.raises(InvalidOutputError, match="null rather than a blank"):
+        validate_batch(
+            batch, QuestionType.DIALOGUE_COMPLETION, 1, 3, target_placement=TargetPlacement.DIALOGUE
+        )
+
+
+@pytest.mark.parametrize(
     "body",
     [
         {"sense_id": 1, "rating": "GOOD"},
@@ -123,3 +162,69 @@ def test_streak_and_window_boundaries():
     ):
         with pytest.raises(Problem, match="invalid_date_window"):
             window(start, end, today, 366, future=future)
+
+
+@pytest.mark.parametrize("label", ["BASE", "base", "Base", "PaSt_PaRtIcIpLe"])
+def test_native_markup_normalizes_labels_without_changing_learner_text(label):
+    from lexi_ai.text import canonical_markup, parse_marked_example
+
+    content = f'🌍 <T inf="{label}">Harbor</T>.'
+    assert canonical_markup(content) == f'🌍 <t inf="{label.lower()}">Harbor</t>.'
+    text, spans = parse_marked_example(content)
+    assert text == "🌍 Harbor."
+    assert spans[0].surface == "Harbor"
+    assert spans[0].inf.value == label.upper()
+
+
+@pytest.mark.parametrize("examples", [[], ["No target."], ['<t inf="UNKNOWN">word</t>']])
+def test_native_enrichment_retries_when_no_examples_are_usable(examples):
+    from lexi_ai.words.schemas import SenseEnrichment
+
+    with pytest.raises(ValidationError, match="no usable examples"):
+        SenseEnrichment.model_validate(
+            {
+                "tier": "core",
+                "examples": examples,
+                "forms": [],
+                "patterns": [],
+                "collocations": [],
+                "relations": [],
+                "sources": ["c1"],
+                "cefr_level": "b1",
+                "register": None,
+            }
+        )
+
+
+@pytest.mark.parametrize("count", [1, 3, 5, 6])
+def test_native_examples_request_five_but_accept_any_nonempty_usable_output(count):
+    from lexi_ai.inference.prompting import render_prompt
+    from lexi_ai.words.schemas import SenseEnrichment
+
+    instruction, _ = render_prompt(
+        "words/prompts/enrich_sense.jinja",
+        target="harbor",
+        word={},
+        sense={},
+        references=[],
+        examples_per_sense=5,
+    )
+    assert "Write exactly 5 natural example sentences illustrating this meaning." in instruction
+    assert "return fewer or more" not in instruction
+    schema = SenseEnrichment.model_json_schema()["properties"]["examples"]
+    assert schema["minItems"] == 1
+    assert "maxItems" not in schema
+    output = SenseEnrichment.model_validate(
+        {
+            "tier": "core",
+            "examples": [f'Ships enter the <t inf="BASE">harbor</t> ({i}).' for i in range(count)],
+            "forms": [],
+            "patterns": [],
+            "collocations": [],
+            "relations": [],
+            "sources": ["c1"],
+            "cefr_level": "b1",
+            "register": None,
+        }
+    )
+    assert len(output.examples) == count

@@ -422,6 +422,7 @@ test('Library creation, actions, and view preference work in mock mode', async (
   await picker.getByRole('button', { name: 'Use this folder' }).click()
   await expect(newDeck.getByRole('button', { name: /Published.*Change/ })).toBeVisible()
   await newDeck.getByRole('textbox', { name: 'Title' }).fill('Published practice')
+  await newDeck.getByRole('checkbox', { name: 'Make this deck publicly readable.' }).check()
   await newDeck.getByRole('button', { name: 'Create deck' }).click()
   await expect(page).toHaveURL(/\/app\/u\/preview-alex\/published\/preview-deck-/)
   await expect(page.getByRole('heading', { name: 'Published practice', exact: true })).toBeVisible()

@@ -1,5 +1,5 @@
 import { HomeApiError, parseSummary } from './home-api'
-import type { LibraryDetails, Meaning, MeaningPage, LearningState } from './library-model'
+import type { LibraryDetails, Meaning, MeaningPage, LearningState, SourcesPage } from './library-model'
 
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new HomeApiError(502, 'invalid_response')
@@ -12,6 +12,17 @@ function text(value: unknown): string {
 function nullable(value: unknown): string | null { return value == null ? null : text(value) }
 function timestamp(value: unknown): string { const result = text(value); if (!Number.isFinite(Date.parse(result))) throw new HomeApiError(502, 'invalid_response'); return result }
 function list(value: unknown): unknown[] { if (!Array.isArray(value)) throw new HomeApiError(502, 'invalid_response'); return value }
+
+function sourceDeck(value: unknown): Meaning['sources'][number] {
+  const source = record(value), space = text(source.space)
+  if (space !== 'PERSONAL' && space !== 'PUBLISHED') throw new HomeApiError(502, 'invalid_response')
+  return { id: text(source.id), name: text(source.name), owner_id: text(source.owner_id), space }
+}
+
+export function parseSources(value: unknown): SourcesPage {
+  const page = record(value)
+  return { decks: list(page.decks).map(sourceDeck), next_cursor: nullable(page.next_cursor) }
+}
 
 export function parseNodeDetails(value: unknown): LibraryDetails & { reference_id: string | null } {
   const node = record(value)
@@ -33,7 +44,7 @@ export function parseMeaningPage(value: unknown): MeaningPage {
     return { sense_id: Number(sense.sense_id), lemma: text(sense.lemma), pos: text(sense.pos), definition: nullable(sense.definition), cefr_level: nullable(sense.cefr_level),
       learning: learning ? { state: learning.state as LearningState, last_reviewed_at: learning.last_reviewed_at == null ? null : timestamp(learning.last_reviewed_at), due_at: learning.due_at == null ? null : timestamp(learning.due_at) } : null,
       examples: sense.examples == null ? [] : list(sense.examples).map(value => { const example = record(value); return { text: text(example.content) } }),
-      sources: sense.sources == null ? [] : list(sense.sources).map(value => { const source = record(value); const space = text(source.space); if (space !== 'PERSONAL' && space !== 'PUBLISHED') throw new HomeApiError(502, 'invalid_response'); return { id: text(source.id), name: text(source.name), owner_id: text(source.owner_id), space } }),
+      sources: sense.sources == null ? [] : list(sense.sources).map(sourceDeck),
       sources_has_more: sense.sources_has_more === true }
   })
   if (new Set(senses.map(sense => sense.sense_id)).size !== senses.length) throw new HomeApiError(502, 'invalid_response')

@@ -12,13 +12,14 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectGroup, SelectI
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { HomeFailure, HomeLoading, StatusShape } from '@/components/home/home-state'
 import { useLibraryMeanings } from '@/hooks/use-library'
-import { dateLabel, nodeHref, type Meaning, type MeaningFilter, type MeaningSort } from '@/lib/library-model'
+import { dateLabel, type Meaning, type MeaningFilter, type MeaningSort } from '@/lib/library-model'
 import { MarkedText } from '@/components/content/marked-text'
 import { parseMarkedText } from '@/lib/marked-text'
 import type { StudySummary } from '@/lib/home-api'
 import { WordPickerDialog } from '@/components/dictionary/word-picker-dialog'
 import { useServices } from '@/lib/services/provider'
 import { LearningBadge, LibraryEmpty, LibraryPagination, LibrarySearch } from './library-shared'
+import { MeaningSources } from './meaning-sources'
 
 export function LibraryWords({ nodeId, folder, editable, summary, timezone }: { nodeId: string; folder: boolean; editable: boolean; summary: StudySummary; timezone: string }) {
   const { services } = useServices(), queryClient = useQueryClient()
@@ -78,7 +79,7 @@ export function LibraryWords({ nodeId, folder, editable, summary, timezone }: { 
           <div className="[&_dl_>_div]:flex [&_dl_>_div]:justify-between [&_dl_>_div]:gap-4 [&_dl_>_div]:py-3 [&_dl_>_div]:border-b [&_dl_>_div]:border-border [&_dl_>_div]:text-xs [&_dt]:text-muted-foreground [&_dd]:text-right px-6 pt-2 pb-8 [&_>_section]:my-8 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mb-3 [&_blockquote]:text-muted-foreground [&_blockquote]:text-sm [&_blockquote]:leading-relaxed [&_blockquote]:mt-3">{selected.learning && <LearningBadge state={selected.learning.state} />}<p className="text-xl leading-relaxed mt-5"><MarkedText text={selected.definition ?? 'Definition unavailable.'} /></p>
             {selected.examples.length > 0 && <section><h3>Examples</h3>{selected.examples.map((example, index) => <blockquote key={index}><MarkedText text={example.text} /></blockquote>)}</section>}
             <section><h3>Review</h3><dl><div><dt>Last reviewed</dt><dd>{dateLabel(selected.learning?.last_reviewed_at ?? null, timezone)}</dd></div><div><dt>Next review</dt><dd>{dateLabel(selected.learning?.due_at ?? null, timezone)}</dd></div></dl></section>
-            {selected.sources.length > 0 && <section><h3>Source decks</h3><ul>{selected.sources.map(source => <li key={source.id}><Button asChild variant="link"><Link href={nodeHref(source)}>{source.name}<ArrowUpRight data-icon="inline-end" aria-hidden="true" /></Link></Button></li>)}</ul></section>}
+            <MeaningSources key={selected.sense_id} nodeId={nodeId} sense={selected} />
             <Button asChild variant="outline"><Link href={`/app/dictionary?q=${encodeURIComponent(selected.lemma)}`}>Open in Dictionary<ArrowUpRight data-icon="inline-end" aria-hidden="true" /></Link></Button>
             {editable && !folder && <><Button variant="outline" onClick={() => { void removeSense() }} disabled={removing}>{removing ? 'Removing…' : 'Remove from deck'}</Button>{removeError && <p role="alert">{removeError}</p>}</>}
           </div></>}

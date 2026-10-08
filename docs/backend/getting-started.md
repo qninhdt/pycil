@@ -40,6 +40,36 @@ overwrite an existing `.env`. Fill the values listed in [configuration](configur
 Choose an explicit development database; never use production as a quickstart target.
 Use an absolute path for `LEXI_CAMBRIDGE_DB_PATH`.
 
+Compose mounts only the reference file, read-only. A source SQLite database in WAL
+mode can fail startup with `attempt to write a readonly database` because its WAL/SHM
+sidecars are unavailable in that mount. Prepare a consistent standalone snapshot
+with SQLite's backup API instead of copying only the `.db` file or changing the
+source database's journal mode. From the repository root, with a new output path:
+
+```sh
+mkdir -p tmp
+python - /absolute/path/to/source/cambridge.db "$PWD/tmp/cambridge-runtime.db" <<'PY'
+from contextlib import closing
+from pathlib import Path
+import sqlite3, sys
+
+source, target = map(Path, sys.argv[1:])
+if target.exists():
+    raise SystemExit("Choose a new snapshot path; do not overwrite a mounted reference")
+with closing(sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)) as src:
+    with closing(sqlite3.connect(target)) as dst:
+        src.backup(dst)
+        assert dst.execute("PRAGMA journal_mode=DELETE").fetchone()[0] == "delete"
+        assert dst.execute("PRAGMA quick_check").fetchone()[0] == "ok"
+target.chmod(0o644)
+PY
+```
+
+Set `LEXI_CAMBRIDGE_DB_PATH` in the backend environment file to the snapshot's
+absolute path. The snapshot is ignored by Git and is not updated when the source
+dataset changes. To refresh it, create and verify a new snapshot, update that path,
+then recreate API and worker containers so both mount the same version.
+
 Direct API/worker commands do not automatically read repository `.env`. Export values
 in the process environment, or use uv's explicit `--env-file`. Existing exported values
 take precedence over values in that file, so check the target environment before a migration.

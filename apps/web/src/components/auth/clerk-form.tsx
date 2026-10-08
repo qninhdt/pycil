@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useClerk, useSignIn, useSignUp } from '@clerk/nextjs'
+import { useClerk, useSignIn, useSignUp } from '@clerk/react'
 import { AuthForm } from './auth-form'
 import { safeReturnTo, type AuthDriver, type AuthMode, type AuthResult } from '@/lib/auth-flow'
 

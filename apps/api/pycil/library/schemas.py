@@ -48,6 +48,45 @@ class NodeSave(EditableNode):
     retain_personal_reference: bool = False
 
 
+class NodePatch(Strict):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=8000)
+
+    @model_validator(mode="after")
+    def supplied_fields(self):
+        if not self.model_fields_set or (
+            "name" in self.model_fields_set and (self.name is None or not self.name.strip())
+        ):
+            raise ValueError("Supply a nonblank name or description")
+        return self
+
+
+class SenseDelta(Strict):
+    add: list[Annotated[int, Field(strict=True, gt=0)]] = Field(
+        default_factory=list, max_length=1000
+    )
+    remove: list[Annotated[int, Field(strict=True, gt=0)]] = Field(
+        default_factory=list, max_length=1000
+    )
+
+    @model_validator(mode="after")
+    def distinct_ids(self):
+        if len(set(self.add)) != len(self.add) or len(set(self.remove)) != len(self.remove):
+            raise ValueError("Sense IDs must be unique")
+        if set(self.add) & set(self.remove):
+            raise ValueError("A sense cannot be added and removed together")
+        return self
+
+
+class NodeDestination(Strict):
+    parent_id: UUID
+    confirm_publication: bool = False
+
+
+class NodeMove(NodeDestination):
+    retain_personal_reference: bool = False
+
+
 class DeckSnapshot(Strict):
     id: UUID
     owner_id: UUID
@@ -73,6 +112,7 @@ class SourceDeck(Strict):
     id: UUID
     name: str
     owner_id: UUID
+    space: NodeSpace
     editable: bool
 
 
@@ -125,6 +165,10 @@ class NodeView(Strict):
 class NodePage(Strict):
     nodes: list[NodeView]
     next_cursor: str | None
+
+
+class NodeViewWithReference(NodeView):
+    retained_reference_id: UUID | None = None
 
 
 class ContainerNode(NodeView):

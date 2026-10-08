@@ -9,6 +9,17 @@ import { Input } from '@/components/ui/input'
 import { authConfigured } from '@/components/application/providers'
 import { authErrorMessage, type AuthDriver, type AuthFields, type AuthMode, type AuthStep } from '@/lib/auth-flow'
 
+function GoogleLogo({ className = 'size-5' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+      <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z" />
+      <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z" />
+      <path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.99 0 12s.45 3.82 1.25 5.42l4.03-3.15z" />
+      <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z" />
+    </svg>
+  )
+}
+
 export function AuthForm({ mode, driver, unavailable = false }: { mode: AuthMode; driver?: AuthDriver; unavailable?: boolean }) {
   const signup = mode === 'signup'
   const [step, setStep] = useState<AuthStep>('credentials')
@@ -25,7 +36,7 @@ export function AuthForm({ mode, driver, unavailable = false }: { mode: AuthMode
   const heading = step === 'verify-totp' ? 'Verify your sign-in.' : title
   const description = verifying ? step === 'verify-totp' ? 'Enter the code from your authenticator app.' : 'Enter the verification code sent to your email.'
     : step === 'new-password' ? 'Choose a new password for your account.'
-      : signup ? 'Make room for your next new meaning.' : mode === 'reset' ? 'We’ll send you a code to reset it.' : 'Pick up where you left off.'
+      : mode === 'reset' ? 'We’ll send you a code to reset it.' : ''
   const action = verifying ? 'Verify and continue' : step === 'new-password' ? 'Reset password' : signup ? 'Create account' : mode === 'reset' ? 'Send reset code' : 'Sign in'
   const loading = authConfigured && !driver?.ready && !unavailable
   const apply = (result: { step?: AuthStep; message?: string; continuation?: boolean }) => {
@@ -53,7 +64,7 @@ export function AuthForm({ mode, driver, unavailable = false }: { mode: AuthMode
     </div>{fieldError(name)}
   </div>
   return <>
-    <header className="mb-11 [&_h1]:text-[clamp(36px,3.5vw,52px)] [&_h1]:font-extrabold [&_h1]:tracking-[-0.04em] [&_h1]:leading-[1.08] [&_h1]:text-balance [&_h1_>_span]:text-art-red [&_p]:text-sm [&_p]:text-muted-foreground [&_p]:mt-4 [&_p]:leading-relaxed max-md:mb-8 max-md:[&_h1]:text-4xl max-md:[&_p]:text-[13px] max-md:[&_p]:mt-3 max-[380px]:[&_h1]:text-[32px]"><h1>{heading.replace(/[.]$/, '')}<span>{heading.endsWith('.') ? '.' : ''}</span></h1><p>{description}</p></header>
+    <header className="mb-8 max-md:mb-6 max-md:text-center [&_h1]:text-[clamp(36px,3.5vw,52px)] [&_h1]:font-extrabold [&_h1]:tracking-[-0.04em] [&_h1]:leading-[1.08] [&_h1]:text-balance [&_h1_>_span]:text-art-red [&_p]:text-sm [&_p]:text-muted-foreground [&_p]:mt-3 [&_p]:leading-relaxed max-md:[&_h1]:text-4xl max-md:[&_p]:text-[13px] max-[380px]:[&_h1]:text-[32px]"><h1>{heading.replace(/[.]$/, '')}<span>{heading.endsWith('.') ? '.' : ''}</span></h1>{description ? <p>{description}</p> : null}</header>
     <form className="authentication-form [&_fieldset]:flex [&_fieldset]:flex-col [&_fieldset]:gap-6 [&_fieldset]:min-w-0 [&_label]:text-[13px] [&_label]:font-[650] [&_[data-slot=input]]:h-[52px] [&_[data-slot=input]]:px-4 [&_[data-slot=input]]:py-3 [&_[data-slot=input]]:bg-background max-md:[&_fieldset]:gap-[22px] max-md:[&_[data-slot=input]]:text-base" onSubmit={submit} noValidate aria-busy={busy}>
       <fieldset disabled={busy}>
         {step === 'credentials' && <div className="flex flex-col gap-2.5"><label htmlFor="email">Email</label><Input id="email" type="email" autoComplete="email" inputMode="email" placeholder="you@example.com"
@@ -76,17 +87,23 @@ export function AuthForm({ mode, driver, unavailable = false }: { mode: AuthMode
       <div id="clerk-captcha" />
     </form>
     {step === 'credentials' && mode !== 'reset' && <>
-      <div className="flex items-center gap-5 text-muted-foreground text-[11px] my-7 [&_span]:h-px [&_span]:bg-border [&_span]:flex-1"><span />or<span /></div>
+      <div className="flex items-center gap-5 text-muted-foreground text-xs uppercase tracking-wider font-semibold my-7 [&_span]:h-px [&_span]:bg-border [&_span]:flex-1"><span />or<span /></div>
       <Button className="w-full justify-between" variant="outline" size="lg" disabled={busy || loading} onClick={async () => {
         setError(''); setNotice('')
         if (!driver?.ready) { setError(authConfigured ? 'Google sign-in is unavailable. Please reload and retry.' : 'Google sign-in needs the Clerk configuration.'); return }
         setBusy(true)
         try { apply(await driver.google()) } catch (cause) { setError(authErrorMessage(cause)) } finally { setBusy(false) }
-      }}>Continue with Google<ArrowRight aria-hidden="true" /></Button>
+      }}>
+        <span className="flex items-center gap-3">
+          <GoogleLogo className="size-5 shrink-0" />
+          <span>Continue with Google</span>
+        </span>
+        <ArrowRight aria-hidden="true" />
+      </Button>
     </>}
-    <p className="flex justify-center items-center flex-wrap gap-1.5 mt-8 text-xs leading-relaxed [&_a]:inline-flex [&_a]:items-center [&_a]:gap-2 [&_a]:min-h-[44px] [&_a]:underline [&_a]:underline-offset-4 [&_a_svg]:size-[15px] max-md:mt-6">{mode === 'reset' || verifying || step === 'new-password' ? <Link href={signup ? '/signup' : '/login'}><ArrowLeft aria-hidden="true" />Back to {signup ? 'sign up' : 'sign in'}</Link>
+    <p className="flex justify-center items-center flex-wrap gap-1.5 mt-8 text-sm leading-relaxed text-muted-foreground [&_a]:inline-flex [&_a]:items-center [&_a]:gap-2 [&_a]:min-h-[44px] [&_a]:underline [&_a]:underline-offset-4 [&_a]:text-foreground [&_a]:font-semibold [&_a_svg]:size-[15px] max-md:mt-6">{mode === 'reset' || verifying || step === 'new-password' ? <Link href={signup ? '/signup' : '/login'}><ArrowLeft aria-hidden="true" />Back to {signup ? 'sign up' : 'sign in'}</Link>
       : <>{signup ? 'Already have an account?' : 'New to Pycil?'} <Link href={signup ? '/login' : '/signup'}>{signup ? 'Sign in' : 'Create an account'}<ArrowRight aria-hidden="true" /></Link></>}</p>
-    {(!authConfigured || unavailable) && <p className="text-muted-foreground text-[11px] leading-[1.65] mt-5 border-t border-border pt-4 [&_button]:underline [&_button]:underline-offset-[3px]" role="status">{authConfigured ? <>Unable to reach the sign-in service. <button onClick={() => window.location.reload()}>Reload</button> to retry.</>
+    {(!authConfigured || unavailable) && <p className="text-muted-foreground text-xs leading-relaxed mt-5 border-t border-border pt-4 [&_button]:underline [&_button]:underline-offset-[3px]" role="status">{authConfigured ? <>Unable to reach the sign-in service. <button onClick={() => window.location.reload()}>Reload</button> to retry.</>
       : 'Authentication needs Clerk configuration. You can explore the app foundation without signing in.'}</p>}
   </>
 }

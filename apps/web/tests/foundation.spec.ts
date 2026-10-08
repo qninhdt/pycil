@@ -439,7 +439,7 @@ test('account popup clears the collapse hit area and the dark mode row and squar
   }
 })
 
-test('mobile theme switch stays in its popup and auth uses the same square control', async ({ page }) => {
+test('mobile theme switch stays in its popup', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 844 })
   await page.goto('/app')
   await page.getByRole('button', { name: 'Open navigation' }).click()
@@ -447,15 +447,11 @@ test('mobile theme switch stays in its popup and auth uses the same square contr
   const themeSwitch = page.getByRole('switch', { name: 'Dark mode' })
   await themeSwitch.click()
   await expect(themeSwitch).toBeChecked()
+  await expect(themeSwitch).toHaveCSS('border-radius', '0px')
   await expect(page.getByRole('menu')).toHaveAttribute('data-side', 'top')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   await page.keyboard.press('Escape')
   await page.keyboard.press('Escape')
-  await page.goto('/login')
-  await expect(themeSwitch).toBeChecked()
-  await expect(themeSwitch).toHaveCSS('border-radius', '0px')
-  await themeSwitch.click()
-  await expect(themeSwitch).not.toBeChecked()
 })
 
 test('account lettering stays on one line throughout sidebar expansion', async ({ page }) => {

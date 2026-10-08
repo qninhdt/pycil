@@ -16,7 +16,7 @@ separate local-password login system.
 | `PATCH /v1/me/profile` | Required | Edit handle/bio only |
 | `GET /v1/me/usage` | Required | Current anchored period and remaining units |
 | `GET /v1/users/{user_id}` | Optional | Public identity, handle/bio/joined date and Published root |
-| `GET /v1/users/by-handle/{handle}` | Optional | Same safe profile by current canonical handle |
+| `GET /v1/users:lookup?handle={handle}` | Optional | Same safe profile by current canonical handle |
 
 The private profile exposes `id`, `display_name`, `plan`, `settings`,
 `effective_learning`, `learning_restriction`, safe `learning_options`, handle/bio/joined

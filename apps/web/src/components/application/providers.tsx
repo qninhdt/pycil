@@ -1,7 +1,7 @@
 'use client'
 
 import { createContext, useContext, useMemo, useState, useSyncExternalStore } from 'react'
-import { ClerkProvider, useAuth, useSession, useUser } from '@clerk/nextjs'
+import { ClerkProvider, useAuth, useSession, useUser } from '@clerk/react'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { Toaster } from '@/components/ui/sonner'
 import type { AccountProfile } from '@/lib/api'

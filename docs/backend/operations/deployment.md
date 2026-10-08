@@ -21,6 +21,8 @@ worker and migration use the same code image with different commands.
 Runtime additionally requires PostgreSQL, Redis, a mounted read-only Cambridge reference
 file, Clerk configuration, and inference/decision endpoints. A successful image build
 does not validate deployment credentials, a populated upgrade, or paid provider billing.
+The single-file reference mount requires a standalone SQLite snapshot without WAL/SHM
+dependencies; see [reference preparation](../getting-started.md#2-supply-a-private-environment).
 
 Build from the repository root:
 
@@ -105,10 +107,11 @@ an old image compatible with a new schema.
   to bypass ownership, retry caps, or readiness verification.
 - Correlate HTTP failures with X-Request-ID. Keep secrets/content out of diagnostic bundles.
 
-SSE at `/v1/assistant` must not be compressed or fully buffered by an added proxy.
+SSE at `/v1/assistant:run` must not be compressed or fully buffered by an added proxy.
 Caddy currently excludes it from compression, disables upstream compression, and uses
-a 3-minute response-header timeout. The application turn deadline remains 60 seconds;
-these are different boundaries. An interrupted SSE stream is not successful completion.
+a 3-minute response-header timeout. The Assistant SDK has a 180-second per-request
+network timeout, and the Next rewrite has a 210-second socket inactivity timeout.
+There is no whole-turn deadline; these transport timers are different boundaries. An interrupted SSE stream is not successful completion.
 
 ## Failure response
 

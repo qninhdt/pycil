@@ -146,7 +146,7 @@ class GenerationPolicy(Policy):
 class AssistantPolicy(Policy):
     default_model: str
     default_effort: str
-    turn_timeout_seconds: PositiveInt
+    llm_timeout_seconds: PositiveInt
     max_tool_calls: PositiveInt
     max_message_chars: PositiveInt
     max_context_messages: PositiveInt
@@ -177,6 +177,8 @@ class ModelPolicy(Policy):
             raise ValueError("model efforts must be nonempty and unique")
         if any(not effort.strip() for effort in self.efforts):
             raise ValueError("model effort must not be blank")
+        if any(effort not in {"low", "medium", "high"} for effort in self.efforts):
+            raise ValueError("model effort must be one of: low, medium, high")
         return self
 
 

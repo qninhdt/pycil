@@ -19,7 +19,8 @@ type Node = { id: string; name: string; description: string | null; type: 'FOLDE
 
 export function LibraryNodeActions({ node, space, parentId, onDeleted, onCopyLink, allowEdit = true, className }: { node: Node; space: 'PERSONAL' | 'PUBLISHED'; parentId?: string; onDeleted?: () => void; onCopyLink?: () => void; allowEdit?: boolean; className?: string }) {
   const account = useAccount(), { services } = useServices(), queryClient = useQueryClient(), router = useRouter()
-  const [action, setAction] = useState<'edit' | 'move' | 'copy' | 'delete' | null>(null)
+  const [action, setAction] = useState<'edit' | 'move' | 'copy' | 'delete' | 'publish' | 'unpublish' | null>(null)
+  const [retainReference, setRetainReference] = useState(false)
   const [busy, setBusy] = useState(false), [error, setError] = useState('')
   const profile = account.profile
   const canEdit = allowEdit && !!profile && node.owner_id === profile.id
@@ -29,7 +30,7 @@ export function LibraryNodeActions({ node, space, parentId, onDeleted, onCopyLin
     setBusy(true); setError('')
     try {
       if (action === 'move') await services.library.moveNode(node.id, id, new AbortController().signal)
-      else await services.library.copyNode(node.id, id, new AbortController().signal)
+      else await services.library.copyNode(node.id, id, new AbortController().signal, space === 'PUBLISHED')
       await queryClient.invalidateQueries({ queryKey: [services.mode] })
       toast.success(action === 'move' ? 'Moved' : 'Copied')
       setAction(null)
@@ -48,17 +49,36 @@ export function LibraryNodeActions({ node, space, parentId, onDeleted, onCopyLin
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not delete this item.') }
     finally { setBusy(false) }
   }
+  async function changePublication() {
+    if (!profile || busy) return
+    setBusy(true); setError('')
+    const publishing = action === 'publish'
+    try {
+      await services.library.moveNode(node.id, publishing ? profile.published_node_id : profile.personal_node_id, new AbortController().signal, { confirm: publishing, retainReference: publishing && retainReference })
+      await queryClient.invalidateQueries({ queryKey: [services.mode] })
+      setAction(null)
+      router.push(publishing ? publishedHref(profile.id, node.id) : libraryHref(node.id))
+      toast.success(publishing ? 'Published' : 'Moved to Personal')
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not change publication.') }
+    finally { setBusy(false) }
+  }
   return <>
     <DropdownMenu><DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon-sm" className={className ?? "absolute top-2 right-2 z-[2] group-data-[view=list]:top-1/2 group-data-[view=list]:-translate-y-1/2"} aria-label={`${onCopyLink ? 'Settings' : 'Actions'} for ${node.name}`}><MoreHorizontal aria-hidden="true" /></Button></DropdownMenuTrigger>
       <DropdownMenuContent align="end">{onCopyLink && <DropdownMenuItem onSelect={onCopyLink}><Copy aria-hidden="true" />Copy link</DropdownMenuItem>}
         {canEdit && <>{onCopyLink && <DropdownMenuSeparator />}<DropdownMenuItem onSelect={() => { setError(''); setAction('edit') }}><Icon name="edit" className="size-4" />Edit details</DropdownMenuItem>
         <DropdownMenuItem onSelect={() => { setError(''); setAction('move') }}><MoveRight aria-hidden="true" />Move</DropdownMenuItem>
         <DropdownMenuItem onSelect={() => { setError(''); setAction('copy') }}><Copy aria-hidden="true" />Copy</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => { setError(''); setRetainReference(false); setAction(space === 'PUBLISHED' ? 'unpublish' : 'publish') }}><Icon name="share" />{space === 'PUBLISHED' ? 'Move to Personal' : 'Publish'}</DropdownMenuItem>
         <DropdownMenuSeparator /><DropdownMenuItem variant="destructive" onSelect={() => { setError(''); setAction('delete') }}><Trash2 aria-hidden="true" />Delete</DropdownMenuItem></>}
       </DropdownMenuContent></DropdownMenu>
     {action === 'edit' && profile && <LibraryNodeForm key={node.id} profile={profile} kind={kind} open onOpenChange={open => { if (!open) setAction(null) }} editing={node} />}
     {(action === 'move' || action === 'copy') && profile && <LibraryDestinationDialog open onOpenChange={open => { if (!open) setAction(null) }} profile={profile} kind="FOLDER" action={action === 'move' ? 'Move here' : 'Copy here'}
-      spaceOnly={space === 'PUBLISHED' ? 'published' : 'personal'} excludedIds={new Set([node.id, ...(action === 'move' && parentId ? [parentId] : [])])} onConfirm={selected => destination(selected.id)} />}
+      spaceOnly={space === 'PUBLISHED' ? 'published' : 'personal'} requirePublicationConfirmation={action === 'copy' && space === 'PUBLISHED'} excludedIds={new Set([node.id, ...(action === 'move' && parentId ? [parentId] : [])])} onConfirm={selected => destination(selected.id)} />}
+    <AlertDialog open={action === 'publish' || action === 'unpublish'} onOpenChange={open => { if (!open && !busy) setAction(null) }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>{action === 'publish' ? `Publish “${node.name}”?` : `Move “${node.name}” to Personal?`}</AlertDialogTitle><AlertDialogDescription>{action === 'publish' ? 'Anyone will be able to read this material and its contents.' : 'Other people will lose access to this material. Saved references will become unavailable.'}</AlertDialogDescription></AlertDialogHeader>
+      {action === 'publish' && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={retainReference} onChange={event => setRetainReference(event.target.checked)} />Keep a reference in Personal</label>}
+      {error && <p role="alert" className="text-destructive text-xs">{error}</p>}
+      <AlertDialogFooter><AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel><AlertDialogAction disabled={busy} onClick={event => { event.preventDefault(); void changePublication() }}>{busy ? 'Saving…' : action === 'publish' ? 'Publish' : 'Move to Personal'}</AlertDialogAction></AlertDialogFooter>
+    </AlertDialogContent></AlertDialog>
     <AlertDialog open={action === 'delete'} onOpenChange={open => { if (!open) setAction(null) }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Delete “{node.name}”?</AlertDialogTitle>
       <AlertDialogDescription>{kind === 'FOLDER' ? 'This also deletes everything inside this folder.' : 'This deck and its saved meanings will be removed from your Library.'}</AlertDialogDescription></AlertDialogHeader>
       {error && <p className="text-destructive text-xs" role="alert">{error}</p>}

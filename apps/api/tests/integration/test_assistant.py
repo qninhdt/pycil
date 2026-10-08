@@ -1,5 +1,6 @@
 import asyncio
 import json
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
@@ -114,7 +115,7 @@ async def test_native_stream_units_owned_state_restart_and_delete(
     runtime, deployment, config, user, conversation, monkeypatch
 ):
     provider = Completion(responses=[answer()])
-    monkeypatch.setattr(agents, "model", lambda *args: provider)
+    monkeypatch.setattr(agents, "model", lambda *args: nullcontext(provider))
     events = await collect(runtime, deployment, user, request(conversation.id), config)
     assert events[0]["type"] == "RUN_STARTED"
     assert events[-1]["type"] == "RUN_FINISHED", events
@@ -123,7 +124,7 @@ async def test_native_stream_units_owned_state_restart_and_delete(
         == "Hello"
     ), json.dumps(events)
     async with runtime.sessions() as session:
-        assert await session.scalar(select(UsagePeriod.used_units)) == 8
+        assert await session.scalar(select(UsagePeriod.used_units)) == 2
         assert await session.scalar(select(func.count()).select_from(UsageEvent)) == 1
         event = await session.scalar(select(UsageEvent))
         assert event.id.version == event.execution_key.version == 7
@@ -140,6 +141,154 @@ async def test_native_stream_units_owned_state_restart_and_delete(
         assert state["channel_values"]["messages"][-1].content == "Hello"
         await delete_conversation(restarted, user, conversation.id)
         assert await saver.aget({"configurable": {"thread_id": str(conversation.id)}}) is None
+
+
+@pytest.mark.parametrize("outcome", ["finish", "cancel", "timeout"])
+async def test_openrouter_reasoning_and_text_arrive_before_provider_finishes(
+    runtime, deployment, config, user, conversation, outcome
+):
+    release, text_received, closed = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    events, connections = [], set()
+    config = config.model_copy(
+        update={"assistant": config.assistant.model_copy(update={"llm_timeout_seconds": 1})}
+    )
+
+    async def provider(reader, writer):
+        connections.add(asyncio.current_task())
+        waiting = []
+        try:
+            header = (await reader.readuntil(b"\r\n\r\n")).decode()
+            assert header.startswith("POST /api/v1/chat/completions ")
+            length = next(
+                int(h.split(":", 1)[1])
+                for h in header.splitlines()
+                if h.lower().startswith("content-length:")
+            )
+            body = json.loads(await reader.readexactly(length))
+            assert body["stream"] is True
+            assert body["reasoning"]["effort"] == "medium"
+            assert not body["reasoning"].get("exclude", False)
+            assert body["stream_options"]["include_usage"] is True
+            for message in body["messages"]:
+                if message["role"] == "assistant":
+                    assert message["reasoning"] == "Compare the evidence."
+                    assert all(part["type"] == "text" for part in message["content"])
+                    assert (
+                        "".join(part["text"] for part in message["content"])
+                        == "First paragraph. Last paragraph."
+                    )
+            writer.write(
+                b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n"
+            )
+            chunk = {
+                "id": "completion-test",
+                "object": "chat.completion.chunk",
+                "created": 0,
+                "model": config.models[0].id,
+                "choices": [{"index": 0, "delta": {}, "finish_reason": None}],
+            }
+            for delta in (
+                {"role": "assistant", "reasoning": "Compare "},
+                {"reasoning": "the evidence."},
+                {"content": "First paragraph."},
+            ):
+                chunk["choices"][0]["delta"] = delta
+                writer.write(f"data: {json.dumps(chunk)}\n\n".encode())
+                await writer.drain()
+            waiting = [asyncio.create_task(release.wait()), asyncio.create_task(reader.read())]
+            done, _ = await asyncio.wait(waiting, return_when=asyncio.FIRST_COMPLETED)
+            if waiting[0] in done:
+                for _ in range(3):
+                    await asyncio.sleep(0.45)
+                    writer.write(b": keepalive\n\n")
+                    await writer.drain()
+                chunk["choices"][0].update(
+                    delta={"content": " Last paragraph."}, finish_reason="stop"
+                )
+                chunk["usage"] = {"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12}
+                writer.write(f"data: {json.dumps(chunk)}\n\ndata: [DONE]\n\n".encode())
+                await writer.drain()
+                writer.write_eof()
+                await waiting[1]
+            closed.set()
+        finally:
+            for task in waiting:
+                task.cancel()
+            await asyncio.gather(*waiting, return_exceptions=True)
+            writer.close()
+            await writer.wait_closed()
+            connections.discard(asyncio.current_task())
+
+    server = await asyncio.start_server(provider, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+    deployment = deployment.model_copy(
+        update={"inference_base_url": f"http://127.0.0.1:{port}/api/v1"}
+    )
+
+    async def consume():
+        data = request(conversation.id)
+        data.forwarded_props = {"effort": "medium"}
+        async with prepare_turn(runtime, deployment, user, data, config) as stream:
+            async for event in stream:
+                decoded = json.loads(event.removeprefix("data: ").strip())
+                events.append(decoded)
+                if decoded["type"] == "TEXT_MESSAGE_CONTENT":
+                    text_received.set()
+
+    task = asyncio.create_task(consume())
+    try:
+        await asyncio.wait_for(text_received.wait(), 5)
+        assert not task.done() and not release.is_set()
+        assert (
+            "".join(e.get("delta", "") for e in events if e["type"] == "REASONING_MESSAGE_CONTENT")
+            == "Compare the evidence."
+        )
+        assert (
+            "".join(e.get("delta", "") for e in events if e["type"] == "TEXT_MESSAGE_CONTENT")
+            == "First paragraph."
+        )
+        if outcome == "cancel":
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        elif outcome == "timeout":
+            await asyncio.wait_for(task, 5)
+            assert events[-1]["type"] == "RUN_ERROR", events
+            assert events[-1]["message"] == "assistant_failed"
+        else:
+            release.set()
+            await asyncio.wait_for(task, 5)
+            assert events[-1]["type"] == "RUN_FINISHED", events
+        await asyncio.wait_for(closed.wait(), 2)
+        async with runtime.sessions() as session:
+            event = await session.scalar(select(UsageEvent))
+            assert event.units == (2 if outcome == "finish" else 0)
+        async with guard(runtime.redis, conversation.id):
+            pass
+        if outcome == "finish":
+            from ag_ui_langgraph.utils import langchain_messages_to_agui
+
+            snapshot = await AsyncPostgresSaver(runtime.checkpoint_pool).aget(
+                {"configurable": {"thread_id": str(conversation.id)}}
+            )
+            saved = snapshot["channel_values"]["messages"][-1]
+            assert saved.text == "First paragraph. Last paragraph."
+            assert saved.additional_kwargs["reasoning_content"] == "Compare the evidence."
+            projected = langchain_messages_to_agui([saved])
+            assert [m.role for m in projected] == ["reasoning", "assistant"]
+            assert projected[0].content == "Compare the evidence."
+            events.clear()
+            await consume()
+            assert events[-1]["type"] == "RUN_FINISHED", events
+    finally:
+        release.set()
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        server.close()
+        await server.wait_closed()
+        for connection in connections.copy():
+            connection.cancel()
+        await asyncio.gather(*connections, return_exceptions=True)
 
 
 @pytest.mark.parametrize("decision", ["approve", "reject"])
@@ -161,7 +310,7 @@ async def test_native_approval_and_free_rejection(
             answer("Done"),
         ]
     )
-    monkeypatch.setattr(agents, "model", lambda *args: provider)
+    monkeypatch.setattr(agents, "model", lambda *args: nullcontext(provider))
     events = await collect(runtime, deployment, user, request(conversation.id), config)
     assert events[-1]["type"] == "RUN_FINISHED", events
     native = agents.graph(runtime, user, config, provider)
@@ -226,16 +375,20 @@ async def test_native_approval_and_free_rejection(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
         response = await client.post(
-            "/v1/assistant", json=data.model_dump(mode="json", by_alias=True)
+            "/v1/assistant:run", json=data.model_dump(mode="json", by_alias=True)
         )
         assert response.status_code == 200, response.text
         assert response.headers["content-type"].startswith("text/event-stream")
+        assert response.headers["cache-control"] == "no-cache, no-transform"
+        assert response.headers["x-accel-buffering"] == "no"
         resumed = [
             json.loads(line[6:]) for line in response.text.splitlines() if line.startswith("data: ")
         ]
         completed = await client.get(f"/v1/assistant/conversations/{conversation.id}")
         assert completed.json()["state"]["pending_approvals"] == []
-        stale = await client.post("/v1/assistant", json=data.model_dump(mode="json", by_alias=True))
+        stale = await client.post(
+            "/v1/assistant:run", json=data.model_dump(mode="json", by_alias=True)
+        )
         assert stale.status_code == 409 and stale.json() == {"error": "approval_not_pending"}
     assert resumed[-1]["type"] == "RUN_FINISHED", resumed
     async with runtime.sessions() as session:
@@ -254,7 +407,7 @@ async def test_http_conversation_create_list_empty_state_and_delete(
     runtime, deployment, config, user, monkeypatch
 ):
     provider = Completion()
-    monkeypatch.setattr(agents, "model", lambda *args: provider)
+    monkeypatch.setattr(agents, "model", lambda *args: nullcontext(provider))
     app = create_app()
     app.state.product, app.state.deployment = config, deployment
     for name, value in vars(runtime).items():
@@ -291,7 +444,7 @@ async def test_active_turn_blocks_delete_and_retention_then_purges(
     runtime, deployment, config, user, conversation, monkeypatch
 ):
     provider = Completion(responses=[answer()])
-    monkeypatch.setattr(agents, "model", lambda *args: provider)
+    monkeypatch.setattr(agents, "model", lambda *args: nullcontext(provider))
     async with runtime.sessions() as session, session.begin():
         row = await session.get(Conversation, conversation.id)
         row.updated_at = datetime.now(UTC) - timedelta(days=config.assistant.retention_days + 1)
@@ -361,7 +514,7 @@ async def test_approval_reauthorizes_live_library_ownership(
             answer("should not run"),
         ]
     )
-    monkeypatch.setattr(agents, "model", lambda *args: provider)
+    monkeypatch.setattr(agents, "model", lambda *args: nullcontext(provider))
     await collect(runtime, deployment, user, request(conversation.id), config)
     native = agents.graph(runtime, user, config, provider)
     state = await native.aget_state({"configurable": {"thread_id": str(conversation.id)}})
@@ -399,7 +552,7 @@ async def test_approval_reauthorizes_live_library_ownership(
             )
         ]
     )
-    monkeypatch.setattr(agents, "model", lambda *args: provider)
+    monkeypatch.setattr(agents, "model", lambda *args: nullcontext(provider))
     async with runtime.sessions() as session, session.begin():
         failed = Conversation(user_id=user.id)
         session.add(failed)
@@ -407,15 +560,70 @@ async def test_approval_reauthorizes_live_library_ownership(
     failed_events = await collect(runtime, deployment, user, request(failed.id), config)
     assert failed_events[-1]["type"] == "RUN_ERROR"
     async with runtime.sessions() as session:
-        assert await session.scalar(select(UsagePeriod.used_units)) == 16
+        assert await session.scalar(select(UsagePeriod.used_units)) == 4
         assert await session.scalar(select(func.count()).select_from(UsageEvent)) == 3
+
+
+@pytest.mark.parametrize("failed_event", ["http.response.start", "http.response.body"])
+async def test_native_response_dependency_releases_resources_after_send_failure(
+    runtime, deployment, config, user, conversation, monkeypatch, failed_event
+):
+    provider = Completion(responses=[answer()], delay=10)
+    monkeypatch.setattr(agents, "model", lambda *args: nullcontext(provider))
+    app = create_app()
+    app.state.product, app.state.deployment = config, deployment
+    for name, value in vars(runtime).items():
+        setattr(app.state, name, value)
+
+    async def authenticated():
+        return user
+
+    app.dependency_overrides[actor] = authenticated
+    payload = request(conversation.id).model_dump_json(by_alias=True).encode()
+    sent_request = False
+
+    async def receive():
+        nonlocal sent_request
+        if not sent_request:
+            sent_request = True
+            return {"type": "http.request", "body": payload, "more_body": False}
+        await asyncio.Event().wait()
+
+    async def send(event):
+        if event["type"] == failed_event:
+            raise OSError("Client socket closed")
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0", "spec_version": "2.4"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": "/v1/assistant:run",
+        "raw_path": b"/v1/assistant:run",
+        "query_string": b"",
+        "root_path": "",
+        "headers": [(b"content-type", b"application/json")],
+        "server": ("test", 80),
+        "client": ("127.0.0.1", 12345),
+    }
+    with pytest.raises(RuntimeError, match="Response interrupted; request_id="):
+        await asyncio.wait_for(app(scope, receive, send), 5)
+    assert provider.calls == 0
+    async with guard(runtime.redis, conversation.id):
+        assert runtime.engine.pool.checkedout() == 0
+    async with runtime.sessions() as session:
+        assert (await session.scalar(select(UsagePeriod.used_units)) or 0) == 0
+        assert await session.scalar(select(func.count()).select_from(UsageEvent)) == (
+            1 if failed_event == "http.response.body" else 0
+        )
 
 
 async def test_disconnect_settles_completed_call_once_and_releases_lock(
     runtime, deployment, config, user, conversation, monkeypatch
 ):
     provider = Completion(responses=[answer()])
-    monkeypatch.setattr(agents, "model", lambda *args: provider)
+    monkeypatch.setattr(agents, "model", lambda *args: nullcontext(provider))
     async with prepare_turn(runtime, deployment, user, request(conversation.id), config) as stream:
         async for event in stream:
             decoded = json.loads(event.removeprefix("data: ").strip())
@@ -424,7 +632,7 @@ async def test_disconnect_settles_completed_call_once_and_releases_lock(
     async with guard(runtime.redis, conversation.id):
         pass
     async with runtime.sessions() as session:
-        assert await session.scalar(select(UsagePeriod.used_units)) == 8
+        assert await session.scalar(select(UsagePeriod.used_units)) == 2
         assert await session.scalar(select(func.count()).select_from(UsageEvent)) == 1
 
     async def settlement_failure(*args, **kwargs):
@@ -509,7 +717,7 @@ async def test_cancel_before_completion_releases_lock_without_charging(
     if cause == "lease_loss":
         monkeypatch.setattr("pycil.assistant.conversations.LOCK_TTL_SECONDS", 0.3)
     provider = Completion(responses=[answer()], delay=10)
-    monkeypatch.setattr(agents, "model", lambda *args: provider)
+    monkeypatch.setattr(agents, "model", lambda *args: nullcontext(provider))
     started = asyncio.Event()
 
     async def turn():

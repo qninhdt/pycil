@@ -1,6 +1,7 @@
 import { timeOfDayStarts } from './time-of-day'
 
 export const navigationCollapsedKey = 'pycil-navigation-collapsed'
+export const aiOpenKey = 'pycil-ai-open'
 
 // Runs in <head> before the first paint; React reads the same attributes later.
 export const initialUiScript = `(()=>{
@@ -11,5 +12,6 @@ export const initialUiScript = `(()=>{
   try{
     if(localStorage.getItem('bauhaus-theme')==='dark')root.classList.add('dark');
     root.dataset.navigationCollapsed=localStorage.getItem(${JSON.stringify(navigationCollapsedKey)})==='true'?'true':'false';
-  }catch{root.dataset.navigationCollapsed='false'}
+    root.dataset.aiOpen=localStorage.getItem(${JSON.stringify(aiOpenKey)})==='true'?'true':'false';
+  }catch{root.dataset.navigationCollapsed='false';root.dataset.aiOpen='false'}
 })()`

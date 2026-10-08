@@ -190,17 +190,45 @@ async def create_node(session, owner_id, data, config):
     return result
 
 
+async def move_locked(session, node, data, config):
+    old_parent, old_space = node.parent_id, node.space
+    parent_id = await default_parent(session, node.owner_id, data.parent_id)
+    if parent_id != node.parent_id:
+        parent = await validate_parent(session, node, parent_id, config)
+        await validate_publication(session, node, parent, data)
+        await move_paths(session, node, parent)
+    retained_id = None
+    if data.retain_personal_reference:
+        if old_space is not NodeSpace.PERSONAL or node.space is not NodeSpace.PUBLISHED:
+            raise Problem(422, "invalid_retained_reference")
+        if await check_node_quota(session, node.owner_id) >= config.library.max_owned_nodes:
+            raise Problem(422, "quota_exceeded")
+        reference = Node(
+            id=uuid7(),
+            owner_id=node.owner_id,
+            parent_id=old_parent,
+            type=NodeType.REFERENCE,
+            role=NodeRole.NORMAL,
+            space=NodeSpace.PERSONAL,
+            name=node.name,
+            description=node.description,
+            reference_id=node.reference_id or node.id,
+        )
+        await validate_parent(session, reference, old_parent, config, creating=True)
+        session.add(reference)
+        await session.flush()
+        await add_paths(session, reference)
+        retained_id = reference.id
+    return retained_id
+
+
 async def save_node(session, owner_id, node_id, data, config):
     async with session.begin():
         await lock_owner(session, owner_id)
         node = await owned(session, node_id, owner_id, config)
         normal(node)
-        parent_id = await default_parent(session, owner_id, data.parent_id)
-        old_parent, old_space = node.parent_id, node.space
-        if parent_id != node.parent_id:
-            parent = await validate_parent(session, node, parent_id, config)
-            await validate_publication(session, node, parent, data)
-            await move_paths(session, node, parent)
+        node.name, node.description = data.name, data.description
+        retained_id = await move_locked(session, node, data, config)
         sense_ids = None
         if node.type is NodeType.DECK:
             if data.sense_ids is None:
@@ -208,34 +236,135 @@ async def save_node(session, owner_id, node_id, data, config):
             sense_ids = await replace_membership(session, node, data.sense_ids, config)
         elif data.sense_ids is not None:
             raise Problem(422, "membership_is_deck_only")
-        node.name, node.description = data.name, data.description
         node.updated_at = datetime.now(UTC)
-        retained_id = None
-        if data.retain_personal_reference:
-            if old_space is not NodeSpace.PERSONAL or node.space is not NodeSpace.PUBLISHED:
-                raise Problem(422, "invalid_retained_reference")
-            if await check_node_quota(session, owner_id) >= config.library.max_owned_nodes:
-                raise Problem(422, "quota_exceeded")
-            reference = Node(
-                id=uuid7(),
-                owner_id=owner_id,
-                parent_id=old_parent,
-                type=NodeType.REFERENCE,
-                role=NodeRole.NORMAL,
-                space=NodeSpace.PERSONAL,
-                name=node.name,
-                description=node.description,
-                reference_id=node.reference_id or node.id,
-            )
-            session.add(reference)
-            await session.flush()
-            await add_paths(session, reference)
-            retained_id = reference.id
         await session.flush()
         result = row_data(node) | {"retained_reference_id": retained_id}
         if sense_ids is not None:
             result["sense_ids"] = sense_ids
     await invalidate_deck(session, node)
+    return result
+
+
+async def patch_node(session, owner_id, node_id, data, config):
+    async with session.begin():
+        await lock_owner(session, owner_id)
+        node = await owned(session, node_id, owner_id, config)
+        normal(node)
+        for field, value in data.model_dump(exclude_unset=True).items():
+            setattr(node, field, value)
+        node.updated_at = datetime.now(UTC)
+        await session.flush()
+        result = row_data(node)
+    await invalidate_deck(session, node)
+    return result
+
+
+async def patch_senses(session, owner_id, node_id, data, config):
+    async with session.begin():
+        await lock_owner(session, owner_id)
+        node = await owned(session, node_id, owner_id, config)
+        normal(node)
+        if node.type is not NodeType.DECK:
+            raise Problem(422, "membership_is_deck_only")
+        present = set(
+            (
+                await session.scalars(
+                    select(DeckSense.sense_id).where(DeckSense.deck_id == node.id)
+                )
+            ).all()
+        )
+        final = (present - set(data.remove)) | set(data.add)
+        identifiers = await replace_membership(session, node, final, config)
+        node.updated_at = datetime.now(UTC)
+        await session.flush()
+        result = row_data(node) | {"sense_ids": identifiers}
+    await invalidate_deck(session, node)
+    return result
+
+
+async def move_node(session, owner_id, node_id, data, config):
+    async with session.begin():
+        await lock_owner(session, owner_id)
+        node = await owned(session, node_id, owner_id, config)
+        normal(node)
+        retained_id = await move_locked(session, node, data, config)
+        node.updated_at = datetime.now(UTC)
+        await session.flush()
+        result = row_data(node) | {"retained_reference_id": retained_id}
+    await invalidate_deck(session, node)
+    return result
+
+
+async def copy_node(session, owner_id, node_id, data, config):
+    async with session.begin():
+        await lock_owner(session, owner_id)
+        source = await owned(session, node_id, owner_id, config)
+        normal(source)
+        parent, ancestors = await readable_path(session, data.parent_id, owner_id, config)
+        if source.id in {node.id for node in ancestors}:
+            raise Problem(422, "node_cycle")
+        originals = list(
+            (
+                await session.scalars(
+                    select(Node)
+                    .join(NodePath, NodePath.descendant_id == Node.id)
+                    .where(NodePath.ancestor_id == source.id, Node.deleted_at.is_(None))
+                    .order_by(NodePath.depth, Node.id)
+                    .limit(config.library.max_owned_nodes + 1)
+                )
+            ).all()
+        )
+        if (
+            len(originals) + await check_node_quota(session, owner_id)
+            > config.library.max_owned_nodes
+        ):
+            raise Problem(422, "quota_exceeded")
+        identifiers = {node.id: uuid7() for node in originals}
+        copies = {}
+        root_senses = None
+        # Reference targets must exist before PostgreSQL checks their foreign keys.
+        for original in sorted(originals, key=lambda node: node.type is NodeType.REFERENCE):
+            normal(original)
+            node = Node(
+                id=identifiers[original.id],
+                owner_id=owner_id,
+                role=NodeRole.NORMAL,
+                parent_id=data.parent_id
+                if original.id == source.id
+                else identifiers[original.parent_id],
+                type=original.type,
+                name=original.name,
+                description=original.description,
+                reference_id=identifiers.get(original.reference_id, original.reference_id),
+                space=parent.space,
+            )
+            destination = await validate_parent(
+                session, node, node.parent_id, config, creating=True
+            )
+            node.space = destination.space
+            session.add(node)
+            await session.flush()
+            await add_paths(session, node)
+            if node.type is NodeType.DECK:
+                senses = (
+                    await session.scalars(
+                        select(DeckSense.sense_id).where(DeckSense.deck_id == original.id)
+                    )
+                ).all()
+                senses = await replace_membership(session, node, senses, config)
+                if original.id == source.id:
+                    root_senses = senses
+            copies[original.id] = node
+        root = copies[source.id]
+        for node in copies.values():
+            if node.reference_id:
+                target = await readable(session, node.reference_id, owner_id, config)
+                if target.type is NodeType.REFERENCE:
+                    raise Problem(422, "invalid_reference_target")
+        await validate_publication(session, root, parent, data, creating=True)
+        result = row_data(root)
+        if root_senses is not None:
+            result["sense_ids"] = root_senses
     return result
 
 

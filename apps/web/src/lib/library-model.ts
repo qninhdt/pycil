@@ -21,6 +21,7 @@ export type Meaning = {
   sources: { id: string; name: string; owner_id: string; space: 'PERSONAL' | 'PUBLISHED' }[]; sources_has_more: boolean
 }
 export type MeaningPage = { senses: Meaning[]; next_cursor: string | null }
+export type SourcesPage = { decks: Meaning['sources']; next_cursor: string | null }
 export type MeaningOptions = { q?: string; state?: MeaningFilter; sort?: MeaningSort; cursor?: string; limit?: number }
 export type ContentsOptions = { q?: string; cursor?: string; limit?: number }
 

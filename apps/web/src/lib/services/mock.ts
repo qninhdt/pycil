@@ -16,7 +16,7 @@ export function createMockServices(options: MockOptions = {}): FrontendServices 
   const now = options.now ?? (() => new Date())
   const profile = db.account as AccountProfile
   const library = createMockLibrary(db, now)
-  const dictionary = createMockDictionary(db, now)
+  const dictionary = createMockDictionary(db, now, library.details)
   const questions = createMockQuestions(db, library, now)
   const today = () => reportingDay(now(), profile.settings!.timezone)
   const asOf = () => now().toISOString()
@@ -40,7 +40,9 @@ export function createMockServices(options: MockOptions = {}): FrontendServices 
   }
   return {
     mode: 'mock', notice: 'Design preview · Sample data · Nothing is saved to your account',
+    assistant: null,
     account: { initialProfile: structuredClone(profile), profile: signal => respond(() => profile, signal),
+      usage: signal => respond(() => ({ period_start: new Date(Date.UTC(now().getUTCFullYear(), now().getUTCMonth(), 1)).toISOString(), period_end: new Date(Date.UTC(now().getUTCFullYear(), now().getUTCMonth() + 1, 1)).toISOString(), allowance_units: 1000, used_units: 0, remaining_units: 1000 }), signal),
       publicProfile: (identifier, signal) => respond(() => {
         const user = [profile, ...db.public_users].find(user => user.id === identifier || user.handle === identifier.toLowerCase())
         if (!user) throw new HomeApiError(404, 'account_not_found')
@@ -97,6 +99,9 @@ export function createMockServices(options: MockOptions = {}): FrontendServices 
       review: (input, signal) => respond(() => questions.review(input), signal),
     },
     library: {
+      discovery: (options, signal) => respond(() => library.discovery(options), signal),
+      sources: (id, senseId, cursor, signal) => respond(() => library.sources(id, senseId, cursor), signal),
+      createReference: (parentId, targetId, name, signal) => respond(() => library.createReference(parentId, targetId, name), signal),
       list: (parentId, signal) => respond(() => parseLibrary(library.contents(parentId, { limit: 4 })), signal),
       publicContents: (parentId, cursor, signal) => respond(() => {
         if (library.details(parentId).space !== 'PUBLISHED') throw new HomeApiError(404, 'node_not_found')
@@ -120,7 +125,7 @@ export function createMockServices(options: MockOptions = {}): FrontendServices 
       createDeck: (parentId, name, senseIds, signal) => respond(() => library.createDeck(parentId, name, senseIds), signal),
       createNode: (input, signal) => respond(() => library.createNode(input.parentId, input.type, input.name, input.description), signal),
       updateNode: (id, change, signal) => respond(() => library.updateNode(id, change), signal),
-      moveNode: (id, parentId, signal) => respond(() => library.moveNode(id, parentId), signal),
+      moveNode: (id, parentId, signal, publication) => respond(() => library.moveNode(id, parentId, publication), signal),
       copyNode: (id, parentId, signal) => respond(() => library.copyNode(id, parentId), signal),
       deleteNode: (id, signal) => respond(() => library.deleteNode(id), signal),
     },

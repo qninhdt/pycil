@@ -41,8 +41,10 @@ test('flashcard seeds select only the existing 16 backgrounds, independent of or
 
 test('marked text follows backend inflections, repeated/discontinuous targets and Unicode', () => {
   for (const inf of targetInflections) {
-    const parsed = parseMarkedText(`Before <t inf="${inf}">target</t> after.`)
-    expect(parsed).toEqual({ valid: true, text: 'Before target after.', spans: [{ surface: 'target', inf, start: 7, end: 13 }] })
+    for (const label of [inf, inf.toUpperCase()]) {
+      const parsed = parseMarkedText(`Before <T inf="${label}">Target</T> after.`)
+      expect(parsed).toEqual({ valid: true, text: 'Before Target after.', spans: [{ surface: 'Target', inf, start: 7, end: 13 }] })
+    }
   }
   const split = parseMarkedText('She <t inf="past">gave</t> it <t inf="base">up</t>, then <t inf="past">gave up</t> again.')
   expect(split.text).toBe('She gave it up, then gave up again.')
@@ -58,7 +60,7 @@ test('marked text follows backend inflections, repeated/discontinuous targets an
 })
 
 test('malformed markup remains literal, without partially trusted targets or HTML execution', () => {
-  const invalid = ['<t inf="unknown">word</t>', '<t inf="BASE">word</t>', '<T inf="base">word</T>', '<t inf="base"> </t>', '<t inf="base">word',
+  const invalid = ['<t inf="unknown">word</t>', '<t inf="base"> </t>', '<t inf="base">word',
     '<t inf="base"><b>word</b></t>', '<t inf="base" onclick="alert(1)">word</t>', '<t inf="base">good</t><t>bad</t>', 'x'.repeat(16001)]
   for (const text of invalid) expect(parseMarkedText(text)).toEqual({ text, spans: [], valid: false })
   const html = '<script>alert(1)</script> <img src=x onerror=alert(1)>'

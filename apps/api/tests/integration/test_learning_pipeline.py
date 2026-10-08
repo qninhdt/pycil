@@ -71,7 +71,7 @@ class LocalCompletion:
             item = {
                 "content": content,
                 "distractors": [
-                    {"content": option, "explanation": "Another meaning"}
+                    {"content": f"{option} {i}", "explanation": "Another meaning"}
                     for option in ("tree", "meal", "car")
                 ],
             }
@@ -120,6 +120,153 @@ async def fill(database, dictionary, config):
         row = await claim(sessions, config)
         await execute(sessions, lexicon, row, config, ensure_owner)
     return results[0]["generation_id"]
+
+
+async def test_generation_deduplicates_relations_after_resolving_word_identity(
+    database, dictionary, reference
+):
+    import sqlite3
+
+    with sqlite3.connect(reference) as connection:
+        connection.execute("INSERT INTO words VALUES(42,'harbor','harbor','word','done')")
+        connection.execute(
+            "INSERT INTO entries(id,word_id,pos,definition,examples,entry_order) "
+            "VALUES(42,42,'noun','a sheltered place for ships','[]',1)"
+        )
+        connection.execute(
+            "INSERT INTO senses(id,entry_id,definition,sense_order) "
+            "VALUES(42,42,'a sheltered place for ships',1)"
+        )
+
+    class Completion:
+        async def complete(self, instruction, data, schema):
+            if schema.__name__ == "InventoryOutput":
+                return {
+                    "lemma": "harbor",
+                    "type": "word",
+                    "aliases": [],
+                    "related": [
+                        {"lemma": "harbour", "rel_type": "word_family"},
+                        {"lemma": "HARBOUR", "rel_type": "WORD_FAMILY"},
+                        {"lemma": "harbour", "rel_type": "CONFUSED_WITH"},
+                    ],
+                    "senses": [{"definition": "a sheltered place for ships", "pos": "noun"}],
+                }
+            return {
+                "tier": "core",
+                "examples": [
+                    'The ship entered the <T inf="BASE">harbor</T>.',
+                    'THE SHIP ENTERED THE <t inf="base">HARBOR</t>.',
+                    'Broken <t inf="BASE">harbor',
+                    'Unknown <t inf="TYPO">harbor</t>.',
+                ],
+                "forms": [{"surface": "harbor", "inf": "base"}],
+                "patterns": [],
+                "collocations": [],
+                "relations": [],
+                "sources": ["c1"],
+                "cefr_level": "B1",
+                "register": None,
+            }
+
+    lexicon = dictionary[0]
+    lexicon.llm = Completion()
+    engine, _, _ = database
+    async with engine.begin() as connection:
+        for table in ("words", "senses"):
+            await connection.execute(
+                text(
+                    f"SELECT setval(pg_get_serial_sequence('lexi.{table}', 'id'), "
+                    f"(SELECT max(id) FROM lexi.{table}))"
+                )
+            )
+    word = await lexicon.generate(encode_available_id(42), target="harbor")
+    assert [example.content for example in word.senses[0].examples] == [
+        'The ship entered the <t inf="base">harbor</t>.'
+    ]
+    async with engine.connect() as connection:
+        rows = (
+            await connection.execute(
+                text(
+                    "SELECT target.lemma, relation.rel_type FROM lexi.word_relations relation "
+                    "JOIN lexi.words target ON target.id=relation.to_word_id "
+                    "WHERE relation.from_word_id=:word ORDER BY relation.rel_type"
+                ),
+                {"word": word.id},
+            )
+        ).all()
+    assert sorted(rows) == [("harbour", "CONFUSED_WITH"), ("harbour", "WORD_FAMILY")]
+    assert (await lexicon.generate(encode_available_id(42), target="harbor")).id == word.id
+
+
+@pytest.mark.parametrize("returned_count", [1, 3])
+async def test_native_question_schema_accepts_variable_batch_size(
+    database, dictionary, config, returned_count
+):
+    await fill(database, dictionary, config)
+    lexicon, _ = dictionary
+
+    class Completion(LocalCompletion):
+        async def complete(self, instruction, data, schema):
+            questions = schema.model_json_schema()["properties"]["questions"]
+            assert questions["minItems"] == 1
+            assert "maxItems" not in questions
+            context = json.loads(
+                data.removeprefix("<question_context>").removesuffix("</question_context>").strip()
+            )
+            context["count"] = returned_count
+            output = await super().complete(
+                instruction,
+                "<question_context>" + json.dumps(context) + "</question_context>",
+                schema,
+            )
+            for item in output["questions"]:
+                item["distractors"][-1]["content"] += " variable"
+            return output
+
+    lexicon.llm = Completion()
+    for kind in (QuestionType.WORD_TO_DEFINITION, QuestionType.DIALOGUE_COMPLETION):
+        questions = await lexicon.generate_questions(1, kind, 2, distractor_count=3)
+        assert len(questions) == returned_count
+
+
+async def test_native_question_content_validation_uses_the_llm_retry_budget(
+    database, dictionary, config
+):
+    from types import SimpleNamespace
+
+    from lexi_ai.inference.config import LLMConfig
+    from lexi_ai.inference.llm import OpenAIStructuredLLM
+
+    await fill(database, dictionary, config)
+    calls = 0
+
+    async def parse(**request):
+        nonlocal calls
+        calls += 1
+        output = await LocalCompletion().complete(
+            request["messages"][0]["content"],
+            request["messages"][1]["content"],
+            request["response_format"],
+        )
+        if calls == 1:
+            for item in output["questions"]:
+                item["distractors"][0]["content"] = item["correct"]["content"]
+        for item in output["questions"]:
+            item["distractors"][-1]["content"] += " retry"
+        parsed = request["response_format"].model_validate(output)
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(refusal=None, parsed=parsed))]
+        )
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(parse=parse)))
+    lexicon = dictionary[0]
+    lexicon.llm = OpenAIStructuredLLM(LLMConfig(max_retries=1), client=client)
+    questions = await lexicon.generate_questions(
+        1, QuestionType.DIALOGUE_COMPLETION, 2, distractor_count=3
+    )
+    assert calls == 2
+    assert len(questions) == 2
 
 
 async def test_native_generation_bank_reuse_and_singleton(database, dictionary, config):
@@ -188,9 +335,19 @@ async def test_append_before_status_crash_recovery_fills_only_missing_without_se
     monkeypatch.setattr(Lexicon, "search", no_search)
     original = Lexicon.generate_questions
 
-    async def crash_after_save(self, *args, **kwargs):
-        await original(self, *args, **kwargs)
-        raise asyncio.CancelledError
+    active = 0
+    blocked = asyncio.Event()
+
+    async def crash_after_save(self, sense_id, kind, *args, **kwargs):
+        nonlocal active
+        active += 1
+        try:
+            if (sense_id, kind) == (1, QuestionType.DEFINITION_TO_WORD):
+                await original(self, sense_id, kind, *args, **kwargs)
+                raise asyncio.CancelledError
+            await blocked.wait()
+        finally:
+            active -= 1
 
     monkeypatch.setattr(Lexicon, "generate_questions", crash_after_save)
     async with ownership(engine) as ensure_owner:
@@ -198,6 +355,7 @@ async def test_append_before_status_crash_recovery_fills_only_missing_without_se
         with pytest.raises(asyncio.CancelledError):
             await execute(sessions, lexicon, row, config, ensure_owner)
     assert llm.calls == 1
+    assert active == 0
     async with sessions() as session:
         assert (await session.get(WordGeneration, identifier)).status is GenerationStatus.RUNNING
     monkeypatch.setattr(Lexicon, "generate_questions", original)
@@ -580,7 +738,7 @@ async def test_http_search_selected_generation_prepare_native_grade_and_rating(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
         found = await client.get(
-            "/v1/words/search", params={"query": "bank", "include_available": True}
+            "/v1/words:search", params={"query": "bank", "include_available": True}
         )
         assert found.status_code == 200
         available = found.json()["available"][0]
@@ -629,7 +787,7 @@ async def test_http_search_selected_generation_prepare_native_grade_and_rating(
         deck_detail = await client.get(f"/v1/nodes/{deck['id']}")
         assert "senses" not in deck_detail.json()
         assert "sense_page" not in deck_detail.json()
-        prepared = await client.post("/v1/study/prepare", json={"node_id": str(deck["id"])})
+        prepared = await client.post("/v1/study:prepare", json={"node_id": str(deck["id"])})
         assert prepared.status_code == 200
         assert prepared.json()["actual_question_count"] == 6
         questions = await lexicon.list_questions_for_senses(
@@ -639,7 +797,7 @@ async def test_http_search_selected_generation_prepare_native_grade_and_rating(
         word_q = kinds[QuestionType.DEFINITION_TO_WORD]
         assert (
             await client.post(
-                "/v1/study/grade",
+                "/v1/study:grade",
                 json={
                     "question_id": word_q.id,
                     "format": "SINGLE_WORD",
@@ -664,14 +822,14 @@ async def test_http_search_selected_generation_prepare_native_grade_and_rating(
         event.listen(lexicon.db.engine.sync_engine, "before_cursor_execute", capture)
         try:
             result = await client.post(
-                "/v1/study/grade",
+                "/v1/study:grade",
                 json={"question_id": word_q.id, "format": "SINGLE_WORD", "answer": "bank"},
             )
             assert result.status_code == 200, result.text
             assert reads == []  # Listing/preparation already warmed the native artifact.
             lexicon.db.question_cache.clear()
             result = await client.post(
-                "/v1/study/grade",
+                "/v1/study:grade",
                 json={"question_id": word_q.id, "format": "SINGLE_WORD", "answer": "bank"},
             )
             assert result.status_code == 200, result.text
@@ -697,7 +855,7 @@ async def test_http_search_selected_generation_prepare_native_grade_and_rating(
         )
         app.state.product = restricted
         result = await client.post(
-            "/v1/study/grade",
+            "/v1/study:grade",
             json={"question_id": word_q.id, "format": "SINGLE_WORD", "answer": "bank"},
         )
         assert result.status_code == 422 and result.json()["error"] == "unsupported_question_format"
@@ -728,7 +886,7 @@ async def test_http_search_selected_generation_prepare_native_grade_and_rating(
         ]
         for kind, fmt, expected in expectations:
             result = await client.post(
-                "/v1/study/grade",
+                "/v1/study:grade",
                 json={
                     "question_id": kinds[kind].id,
                     "format": fmt,
@@ -744,7 +902,7 @@ async def test_http_search_selected_generation_prepare_native_grade_and_rating(
             (word_q.id, "SINGLE_WORD", " ", 422),
         ):
             result = await client.post(
-                "/v1/study/grade",
+                "/v1/study:grade",
                 json={"question_id": question_id, "format": fmt, "answer": answer},
             )
             assert result.status_code == code, result.text
@@ -752,7 +910,7 @@ async def test_http_search_selected_generation_prepare_native_grade_and_rating(
             assert await session.scalar(select(func.count()).select_from(UserSense)) == 0
             assert await session.scalar(select(func.count()).select_from(UsageEvent)) == 0
         rated = await client.post(
-            "/v1/study/reviews",
+            "/v1/study:submitReviews",
             headers={"Idempotency-Key": str(uuid4())},
             json={"results": [{"sense_id": 1, "rating": "GOOD"}]},
         )
@@ -762,3 +920,335 @@ async def test_http_search_selected_generation_prepare_native_grade_and_rating(
         assert history.status_code == 404
         assert (await client.get("/v1/study/activity")).json()["applied_events"] == 1
         assert llm.calls == 14
+
+
+async def test_native_question_generation_keeps_valid_items_and_deduplicates_replays(
+    database, dictionary, config
+):
+    from copy import deepcopy
+
+    await fill(database, dictionary, config)
+    lexicon = dictionary[0]
+
+    class Completion(LocalCompletion):
+        async def complete(self, instruction, data, schema):
+            output = await super().complete(instruction, data, schema)
+            good = output["questions"][0]
+            good["distractors"][0]["content"] += " new"
+            good["content"][0]["text"] = good["content"][0]["text"].replace(
+                'inf="base"', 'inf="BASE"'
+            )
+            duplicate = deepcopy(good)
+            duplicate["correct"]["content"] = duplicate["correct"]["content"].upper()
+            malformed = deepcopy(good)
+            malformed["distractors"] = [None]
+            incorrect = deepcopy(good)
+            incorrect["distractors"][0]["content"] = incorrect["correct"]["content"]
+            return {"questions": [good, malformed, incorrect, duplicate]}
+
+    lexicon.llm = Completion()
+    questions = await lexicon.generate_questions(
+        1, QuestionType.DIALOGUE_COMPLETION, 2, distractor_count=3
+    )
+    assert len(questions) == 1
+    assert 'inf="base"' in questions[0].content[0]["text"]
+    assert (
+        await lexicon.generate_questions(1, QuestionType.DIALOGUE_COMPLETION, 2, distractor_count=3)
+        == []
+    )
+    assert (await coverage(lexicon, [1], config))[1, QuestionType.DIALOGUE_COMPLETION] == 9
+
+
+async def test_partial_question_pools_publish_a_usable_word_without_quota_retries(
+    database, dictionary, user, config
+):
+    from lexi_ai.errors import InvalidOutputError
+
+    lexicon, llm = dictionary
+
+    class Completion(LocalCompletion):
+        async def complete(self, instruction, data, schema):
+            context = json.loads(
+                data.removeprefix("<question_context>").removesuffix("</question_context>").strip()
+            )
+            if context["question_type"] == "DIALOGUE_COMPLETION":
+                self.calls += 1
+                raise InvalidOutputError("No usable dialogue")
+            return {
+                "questions": (await super().complete(instruction, data, schema))["questions"][:1]
+            }
+
+    lexicon.llm = llm = Completion()
+    identifier = await fill(database, dictionary, config)
+    assert llm.calls == 2 * len(QuestionType)
+    _, sessions, _ = database
+    async with sessions() as session:
+        row = await session.get(WordGeneration, identifier)
+        assert (row.status, row.stage, row.error) == (
+            GenerationStatus.SUCCEEDED,
+            "PARTIAL",
+            "question_pools_incomplete",
+        )
+    async with sessions() as session:
+        node = await create_node(
+            session, user.id, NodeCreate(type="DECK", name="partial", sense_ids=[1]), config
+        )
+    user.settings = {"learning": {"questions_per_sense": 3, "max_sense_count": 1}}
+    await save_settings(sessions, user)
+    async with sessions() as session:
+        result = await prepare(session, lexicon, user, node["id"], config)
+    assert result["actual_question_count"] == 3
+    assert all(
+        item["question"].question_type != "DIALOGUE_COMPLETION"
+        for item in result["bundles"][0]["questions"]
+    )
+    # Recovery only requests banks with no usable artifacts, never tops up accepted batches.
+    await recover(sessions, config)
+    assert await claim(sessions, config) is None
+
+
+async def test_provider_credentials_fail_without_automatic_worker_retries(
+    database, dictionary, config
+):
+    from openai import AuthenticationError
+
+    class Completion(LocalCompletion):
+        async def complete(self, *args, **kwargs):
+            raise AuthenticationError(
+                "Unauthorized",
+                response=httpx.Response(
+                    401, request=httpx.Request("POST", "https://provider.invalid")
+                ),
+                body=None,
+            )
+
+    dictionary[0].llm = Completion()
+    identifier = await fill(database, dictionary, config)
+    _, sessions, _ = database
+    async with sessions() as session:
+        row = await session.get(WordGeneration, identifier)
+        assert row.status is GenerationStatus.FAILED
+        assert row.attempts == 1
+    assert await claim(sessions, config) is None
+
+
+async def test_generation_deadline_preserves_word_without_faking_study_readiness(
+    database, dictionary, user, config, monkeypatch
+):
+    lexicon = dictionary[0]
+    short = config.model_copy(
+        update={
+            "generation": config.generation.model_copy(
+                update={
+                    "worker": config.generation.worker.model_copy(
+                        update={"attempt_timeout_seconds": 1}
+                    )
+                }
+            )
+        }
+    )
+
+    started = 0
+    active = 0
+
+    async def delayed(*args, **kwargs):
+        nonlocal started, active
+        started += 1
+        active += 1
+        try:
+            await asyncio.sleep(2)
+            pytest.fail("The worker must stop at its configured deadline")
+        finally:
+            active -= 1
+
+    monkeypatch.setattr(lexicon, "generate_questions", delayed)
+    identifier = await fill(database, dictionary, short)
+    assert started == 2 * len(QuestionType)
+    assert active == 0
+    _, sessions, _ = database
+    async with sessions() as session:
+        row = await session.get(WordGeneration, identifier)
+        assert (row.status, row.stage, row.word_id) == (GenerationStatus.SUCCEEDED, "PARTIAL", 1)
+    assert (await lexicon.get_word(1)).senses
+    async with sessions() as session:
+        node = await create_node(
+            session, user.id, NodeCreate(type="DECK", name="waiting", sense_ids=[1]), config
+        )
+    async with sessions() as session:
+        result = await prepare(session, lexicon, user, node["id"], config)
+    assert result["actual_question_count"] == 0
+    assert result["bundles"] == []
+
+
+async def test_empty_usable_question_batch_preserves_the_rejection_reason(
+    database, dictionary, config
+):
+    from lexi_ai.errors import InvalidOutputError
+
+    await fill(database, dictionary, config)
+    lexicon = dictionary[0]
+
+    class Completion(LocalCompletion):
+        async def complete(self, instruction, data, schema):
+            output = await super().complete(instruction, data, schema)
+            for item in output["questions"]:
+                item["distractors"][0]["content"] = item["correct"]["content"]
+            return output
+
+    lexicon.llm = Completion()
+    with pytest.raises(InvalidOutputError, match="no usable questions") as rejected:
+        await lexicon.generate_questions(1, QuestionType.DIALOGUE_COMPLETION, 2, distractor_count=3)
+    assert isinstance(rejected.value.__cause__, InvalidOutputError)
+    assert str(rejected.value.__cause__) == "correct or distractor option repeated"
+    assert (await coverage(lexicon, [1], config))[1, QuestionType.DIALOGUE_COMPLETION] == 8
+
+
+async def test_question_pools_fan_out_all_sense_type_pairs_before_any_completion(
+    database, dictionary, config
+):
+    class Completion(LocalCompletion):
+        def __init__(self):
+            super().__init__()
+            self.started = 0
+            self.active = 0
+            self.gate = asyncio.Event()
+
+        async def complete(self, instruction, data, schema):
+            self.started += 1
+            self.active += 1
+            if self.started == 2 * len(QuestionType):
+                self.gate.set()
+            try:
+                await asyncio.wait_for(self.gate.wait(), 3)
+                return await super().complete(instruction, data, schema)
+            finally:
+                self.active -= 1
+
+    lexicon = dictionary[0]
+    lexicon.llm = llm = Completion()
+    identifier = await fill(database, dictionary, config)
+    assert llm.started == 2 * len(QuestionType)
+    assert llm.active == 0
+    counts = await coverage(lexicon, [1, 2], config)
+    assert all(counts[s, kind] == 8 for s in [1, 2] for kind in QuestionType)
+    _, sessions, _ = database
+    async with sessions() as session:
+        row = await session.get(WordGeneration, identifier)
+        assert (row.status, row.stage) == (GenerationStatus.SUCCEEDED, "READY")
+
+
+async def test_parallel_pools_cancel_and_join_siblings_on_nonretryable_failure(
+    database, dictionary, config
+):
+    from openai import AuthenticationError
+
+    class Completion(LocalCompletion):
+        def __init__(self):
+            super().__init__()
+            self.started = 0
+            self.active = 0
+            self.gate = asyncio.Event()
+            self.blocked = asyncio.Event()
+
+        async def complete(self, *args, **kwargs):
+            self.started += 1
+            index = self.started
+            self.active += 1
+            if self.started == 2 * len(QuestionType):
+                self.gate.set()
+            try:
+                await asyncio.wait_for(self.gate.wait(), 3)
+                if index == 1:
+                    raise AuthenticationError(
+                        "Unauthorized",
+                        response=httpx.Response(
+                            401, request=httpx.Request("POST", "https://provider.invalid")
+                        ),
+                        body=None,
+                    )
+                await self.blocked.wait()
+            finally:
+                self.active -= 1
+
+    dictionary[0].llm = llm = Completion()
+    identifier = await fill(database, dictionary, config)
+    assert llm.started == 2 * len(QuestionType)
+    assert llm.active == 0
+    _, sessions, _ = database
+    async with sessions() as session:
+        assert (await session.get(WordGeneration, identifier)).status is GenerationStatus.FAILED
+
+
+async def test_native_enrichment_fans_out_every_sense_without_four_request_cap(
+    database, dictionary, reference
+):
+    import sqlite3
+
+    with sqlite3.connect(reference) as connection:
+        connection.execute("INSERT INTO words VALUES(43,'jetty','jetty','word','done')")
+        connection.execute(
+            "INSERT INTO entries(id,word_id,pos,definition,examples,entry_order) "
+            "VALUES(43,43,'noun','a place for boats','[]',1)"
+        )
+        connection.execute(
+            "INSERT INTO senses(id,entry_id,definition,sense_order) "
+            "VALUES(43,43,'a place for boats',1)"
+        )
+
+    class Completion:
+        def __init__(self):
+            self.inventory_done = False
+            self.started = 0
+            self.active = 0
+            self.gate = asyncio.Event()
+
+        async def complete(self, instruction, data, schema):
+            if schema.__name__ == "InventoryOutput":
+                assert self.started == 0
+                self.inventory_done = True
+                return {
+                    "lemma": "jetty",
+                    "type": "WORD",
+                    "aliases": [],
+                    "related": [],
+                    "senses": [
+                        {"definition": f"boat landing meaning {i}", "pos": "NOUN"} for i in range(5)
+                    ],
+                }
+            assert self.inventory_done
+            assert schema.__name__ == "SenseEnrichment"
+            self.started += 1
+            self.active += 1
+            if self.started == 5:
+                self.gate.set()
+            try:
+                await asyncio.wait_for(self.gate.wait(), 3)
+                return {
+                    "tier": "CORE",
+                    "examples": ['Boats dock at the <t inf="base">jetty</t>.'],
+                    "forms": [],
+                    "patterns": [],
+                    "collocations": [],
+                    "relations": [],
+                    "sources": ["c1"],
+                    "cefr_level": "B1",
+                    "register": None,
+                }
+            finally:
+                self.active -= 1
+
+    lexicon = dictionary[0]
+    lexicon.llm = llm = Completion()
+    engine, _, _ = database
+    async with engine.begin() as connection:
+        for table in ("words", "senses"):
+            await connection.execute(
+                text(
+                    f"SELECT setval(pg_get_serial_sequence('lexi.{table}', 'id'), "
+                    f"(SELECT max(id) FROM lexi.{table}))"
+                )
+            )
+    word = await lexicon.generate(encode_available_id(43), target="jetty")
+    assert llm.started == 5
+    assert llm.active == 0
+    assert len(word.senses) == 5

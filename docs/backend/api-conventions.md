@@ -2,7 +2,7 @@
 
 ## Contract discovery
 
-Business routes use `/v1`. The working tree has 37 business operations.
+Business routes use `/v1`. The working tree has 41 business operations.
 `/health` and `/ready` are excluded from OpenAPI; generated `/docs`, `/redoc`,
 and `/openapi.json` remain available with FastAPI defaults.
 
@@ -13,6 +13,23 @@ identical contracts. The node redesign is deliberately breaking under the curren
 Route groups and payload examples live in module pages. There is no old
 `/v1/library/nodes` alias or raw study-history route. Search and Discovery are separate
 from native word search; Star/Pin and sense preference routes remain absent.
+
+## Custom actions
+
+Custom methods follow [Google AIP-136](https://google.aip.dev/136): append `:verb`
+to the resource, with camelCase for multiple words. Mutations use POST; simple
+reads use GET. Bounded batch reads use POST for their structured request bodies.
+Standard resource CRUD keeps its existing paths and methods.
+
+Examples: `POST /v1/nodes/{node_id}:move`,
+`POST /v1/nodes/{node_id}:modifySenses`, `GET /v1/words:search`,
+and `POST /v1/assistant:run`. Handle lookup is
+`GET /v1/users:lookup?handle=...`; the handle is a required query parameter.
+
+This is a breaking URL change, including PATCH-to-POST for sense deltas.
+Previous slash-action paths are not aliases. Deploy matching clients and ingress;
+payloads, authorization, review idempotency and response formats are unchanged.
+The [exported OpenAPI](openapi.json) lists every current path and method.
 
 ## Authentication and authorization
 
@@ -119,7 +136,7 @@ clients can inspect safe error responses. Caddy has a matching byte cap.
 
 ## Assistant streaming
 
-`POST /v1/assistant` returns native AG-UI events over `text/event-stream`, not a JSON
+`POST /v1/assistant:run` returns native AG-UI events over `text/event-stream`, not a JSON
 assistant transcript or a WebSocket. Pre-stream failures can still return normal JSON
 errors. After headers have started, a failed/truncated stream cannot be replaced with
 a second HTTP status. Clients must handle run-error events and disconnects explicitly;

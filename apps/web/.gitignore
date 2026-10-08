@@ -17,6 +17,8 @@ dist
 dist-ssr
 test-results
 playwright-report
+e2e-report
+e2e-results
 *.local
 
 # Editor directories and files

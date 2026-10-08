@@ -79,7 +79,7 @@ test('membership deltas and preparation are consistent in the mock contract', as
   await services.library.updateDeckSenses('everyday', { add: [49], remove: [50] }, signal())
   expect((await services.library.meanings('everyday', { q: 'run' }, signal())).senses.map(sense => sense.sense_id)).toEqual([49])
   const created = await services.library.createDeck('preview-personal', 'Verbs', [51], signal())
-  expect((await services.dictionary.context(1001, signal())).senses.find(sense => sense.sense_id === 51)?.decks).toContainEqual({ id: created, name: 'Verbs' })
+  expect((await services.dictionary.context(1001, signal())).senses.find(sense => sense.sense_id === 51)?.decks).toContainEqual({ id: created, name: 'Verbs', owner_id: 'preview-alex', space: 'PERSONAL' })
   const orbit = (await services.dictionary.search('orbit', signal())).available[0]
   const job = await services.dictionary.prepare(orbit.available_id, orbit.display, signal())
   await services.dictionary.generation(job.generation_id, signal())
@@ -128,6 +128,6 @@ test('live adapter sends a membership delta without reading or replacing a deck'
   }
   try {
     await createHttpServices(async () => 'test-token').library.updateDeckSenses('deck', { add: [49], remove: [50] }, signal())
-    expect(requests).toEqual([{ path: '/api/v1/nodes/deck/senses', method: 'PATCH', body: { add: [49], remove: [50] } }])
+    expect(requests).toEqual([{ path: '/api/v1/nodes/deck:modifySenses', method: 'POST', body: { add: [49], remove: [50] } }])
   } finally { globalThis.fetch = original }
 })

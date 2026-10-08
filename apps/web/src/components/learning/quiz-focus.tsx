@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
+import { useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, ArrowRight, Check, RotateCcw, X } from '@/components/artwork/artwork'
 import { useAccount } from '@/components/application/providers'
 import { Background } from '@/components/artwork/artwork'
@@ -52,6 +53,7 @@ function GradeDetails({ grade }: { grade: GradeResult | null }) {
 
 export function QuizFocus() {
   const account = useAccount(), { services } = useServices(), params = useSearchParams()
+  const queryClient = useQueryClient()
   const profile = account.profile, accountId = profile?.id ?? ''
   const nodeId = params.get('node') || profile?.library_node_id || ''
   const selection = (params.get('selection') === 'NEW' || params.get('selection') === 'DUE' ? params.get('selection') : 'AUTO') as SessionSelection
@@ -133,9 +135,10 @@ export function QuizFocus() {
       const expected = new Map(current.submission.results.map(result => [result.sense_id, result.rating]))
       if (receipt.results.length !== expected.size || receipt.results.some(result => expected.get(result.sense_id) !== result.rating)) throw new HomeApiError(502, 'invalid_response')
       if (!commit({ ...current, receipt, phase: 'complete' })) setSubmitError('Results were accepted, but this tab could not save the confirmation. Reload or free browser storage, then retry the same submission.')
+      await queryClient.invalidateQueries({ queryKey: [services.mode] })
     } catch (cause) { setSubmitError(cause instanceof Error ? cause.message : 'Results could not be confirmed. Retry the same submission.') }
     finally { submitting.current = false }
-  }, [commit, services.learning])
+  }, [commit, services.learning, services.mode, queryClient])
   useEffect(() => { if (session?.phase === 'submitting' && !session.receipt) void submit(session) }, [session, submit])
   useEffect(() => {
     if (phase !== 'question' || !item || item.format !== 'SINGLE_CHOICE') return

@@ -1,0 +1,17 @@
+--- a/lexi_ai/words/generate.py
++++ b/lexi_ai/words/generate.py
+@@ -195,9 +195,11 @@
+             (
+                 WordRelation,
+                 [
+-                    dict(from_word_id=word.id, to_word_id=targets[match_key(lemma)], rel_type=kind)
+-                    for lemma, kind in word_edges
+-                    if targets[match_key(lemma)] != word.id
++                    dict(from_word_id=word.id, to_word_id=target_id, rel_type=kind)
++                    for target_id, kind in dict.fromkeys(
++                        (targets[match_key(lemma)], kind) for lemma, kind in word_edges
++                    )
++                    if target_id != word.id
+                 ],
+             ),
+             (

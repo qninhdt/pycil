@@ -241,7 +241,7 @@ async def test_actor_cache_detached_hits_jwt_gate_outage_and_fresh_entitlements(
             headers={"Authorization": "Bearer verified"},
         ) as client:
             denied = await client.post(
-                "/v1/study/grade",
+                "/v1/study:grade",
                 json={
                     "question_id": 123,
                     "format": "SINGLE_WORD",

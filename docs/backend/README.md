@@ -30,14 +30,15 @@ Final local checks and phase-to-test mapping: [verification record](verification
 
 - One Python application under `apps/api`, with API and worker entry points.
 - Five business modules: account, library, vocabulary, study, and assistant.
-- 37 business API operations; `/health` and `/ready` are operational routes.
+- 41 business API operations; `/health` and `/ready` are operational routes.
 - PostgreSQL schemas `public`, `lexi`, and `checkpoints`, with separate DDL ownership.
 - Redis for optional cached values and required coordination.
 - A local vendored Lexi wheel, an external read-only Cambridge SQLite artifact, and
   configured inference/decision services.
 - Node FTS/Discovery, atomic reviews, durable activity and jointly bounded summaries.
-- No integrated product FE client or Star/Pin/tag/translation/import/audio subsystem.
-  Local `apps/web` starter/showcase work is not an approved integration target.
+- Product frontend under `apps/web` with live services and a separate full-stack E2E
+  profile; live execution remains an external verification gate. No Star/Pin/tag/
+  translation/import/audio subsystem.
 
 ## Sources of truth
 

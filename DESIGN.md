@@ -478,7 +478,7 @@ Flashcard backgrounds are selected deterministically per sense ID from the exist
 
 Quiz mode prepares questions using the user's learning settings, then presents the seven backend question types through choice, single-word, or short-answer controls as permitted by the prepared format. Each question has a deterministic art background with a translucent overlay. Questions are grouped into rounds of up to eight. A miss or partial answer returns in the next round, with at most three attempts per question. Round recaps show cleared and returning questions. The final recap shows one Again/Hard/Good/Easy rating per sense and whether its scheduler result was applied.
 
-The quiz session, feedback, round position, and pending submission persist locally for the signed-in account. Reloading resumes the same question. Only a completed session submits a review batch; retries reuse the same idempotency key. Choice answers are checked against the prepared correct option; typed answers use `/study/grade` and display its detailed feedback. If saving locally fails, the UI stops progress and asks the user to restore browser storage.
+The quiz session, feedback, round position, and pending submission persist locally for the signed-in account. Reloading resumes the same question. Only a completed session submits a review batch; retries reuse the same idempotency key. Choice answers are checked against the prepared correct option; typed answers use `/study:grade` and display its detailed feedback. If saving locally fails, the UI stops progress and asks the user to restore browser storage.
 
 ### Profile
 

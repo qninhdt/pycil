@@ -15,26 +15,56 @@ Library [owner-only, depth 0]
 ```
 
 System identity is role/ID based, never determined by names. Normal content cannot
-live directly under Library. Omitted/null parent on create or save resolves to Personal.
+live directly under Library. Omitted/null parent on create resolves to Personal.
 All ordinary editing/deleting is owner-only and rejects system nodes.
 
 ## Current API
+
+Read, creation, targeted metadata/membership writes, move/publication and subtree copy
+are implemented. The frontend uses the targeted contracts. Legacy complete PUT saves
+and editor reads remain available for existing Assistant callers.
 
 | Operation | Contract |
 | --- | --- |
 | `GET /v1/nodes` | Child metadata page; default authenticated scope is Library |
 | `POST /v1/nodes` | Create normal folder/deck/reference; return saved metadata and deck IDs |
 | `GET /v1/nodes/{node_id}` | Metadata, safe breadcrumbs, reference availability; no senses/counts |
-| `GET /v1/nodes/{node_id}/editor` | Owner-only complete editable deck membership or container metadata |
-| `PUT /v1/nodes/{node_id}` | Atomic full-state save/move; optional retained reference |
+| `PATCH /v1/nodes/{node_id}` | Edit name and/or description without replacing membership |
+| `POST /v1/nodes/{node_id}:modifySenses` | Atomic add/remove of deck sense IDs |
+| `POST /v1/nodes/{node_id}:move` | Move without replacing metadata/membership; explicit publication consent and optional retained reference |
+| `POST /v1/nodes/{node_id}:copy` | Atomically copy an owned normal subtree into an owned folder |
 | `DELETE /v1/nodes/{node_id}` | Soft-delete owned normal subtree; 204 |
 | `GET /v1/nodes/{node_id}/senses` | Same paginated lexical/learning response for every node type |
 | `GET /v1/nodes/{node_id}/senses/{sense_id}/sources` | Scope-local authorized provenance overflow |
-| `GET /v1/nodes/{node_id}/search` | Name/description FTS within container/reference scope |
+| `GET /v1/nodes/{node_id}:search` | Name/description FTS within container/reference scope |
 | `GET /v1/discovery/nodes` | Public catalog browse/search, owner/type filters |
 
+### Targeted writes and compatibility
+
+`POST /v1/nodes/{node_id}:modifySenses` accepts `{"add":[123],"remove":[456]}` and
+returns saved deck metadata with the resulting complete `sense_ids`. Both arrays
+are bounded to 1,000 distinct strict positive IDs. Overlapping IDs are rejected.
+The owner lock serializes the delta against current membership before applying
+existing sense/quota validation; adding a present member or removing an absent
+one is idempotent. Unrelated concurrent membership changes are preserved.
+
+Metadata PATCH accepts only supplied `name`/`description`; omission preserves a
+field and `description: null` clears it. It cannot move a node or replace senses.
+Empty patches and blank/null names are rejected.
+
+Move accepts `parent_id`, `confirm_publication` and `retain_personal_reference`.
+It shares destination/cycle/depth/publication rules with legacy Save. Copy accepts
+`parent_id` and `confirm_publication`, returns the new root, and runs the entire
+physical subtree in one owner-locked transaction. Deck memberships are independent;
+references to copied internal targets are remapped to their copies. External targets
+retain live authorization checks. Quota or publication failure rolls back every copy.
+
+Legacy `PUT /v1/nodes/{node_id}` and `GET /v1/nodes/{node_id}/editor` preserve
+existing complete-state callers. New frontend mutations do not read a browse/editor
+snapshot and then overwrite it. No migration is required for these route additions.
+
 There are no mutable visibility flags or old collection/library-route aliases. Role,
-space, owner, and type changes cannot be supplied in Save. Reference target is immutable.
+space, owner, and type changes cannot be supplied through metadata edit. Reference target is immutable.
 
 ## Live authorization
 
@@ -51,7 +81,7 @@ Anonymous listing requires an explicit public parent. A reference to a folder ca
 used as `parent_id`: the server resolves it and lists the target's immediate children.
 A reference to a deck is a learning/sense scope, not a folder child list.
 
-## Create and full-state Save
+## Create and targeted edits
 
 Create an empty Personal folder:
 
@@ -69,25 +99,15 @@ Create a reference by supplying `type=REFERENCE` and a readable folder/deck's UU
 `reference_id`. Reference-to-reference targets are rejected. Containers cannot contain
 `sense_ids`. Names are nonblank up to 255 characters; description is up to 8,000.
 
-For editing, fetch `/editor` and retain the complete `sense_ids`, not just the visible
-page. PUT supplies final metadata and complete membership. Even a rename requires the
-deck's full set; a missing deck set produces `deck_membership_required`. Missing/null
-parent means Personal and missing description means null, not "unchanged."
-
-Writes run under one owner advisory lock. Membership computes additions/removals,
-validates new sense existence, checks quota growth, and flushes within the same transaction
-as metadata and movement. No partial rename/move survives invalid senses. Saved deck
-responses contain sorted final IDs for reconciliation.
-
-There is no optimistic revision token or three-way merge for concurrent editor drafts.
-Owner locking serializes writes and quota checks, but does not make an outdated draft
-merge with a later one. A final Save can replace membership from an earlier draft.
+Targeted membership edits validate new sense existence and quota growth under the owner
+lock. Metadata edits change only supplied fields. The move operation preserves
+the current cycle, destination, publication and retained-reference checks.
 
 ## Publication boundary
 
 Publishing is a move to Published or one of its folders, not a separate visibility API.
-Save includes the explicit Published destination, `confirm_publication=true`, final
-metadata/membership, and optionally `retain_personal_reference=true`.
+The move operation takes the Published destination, `confirm_publication=true`,
+and optionally `retain_personal_reference=true`.
 
 - Entering Published needs consent; leaving it does not need subscribers' permission.
 - The canonical node/subtree IDs and memberships are preserved.
@@ -163,13 +183,14 @@ dimensions is rejected. Foreign expansion does not count against ownership, but 
 exceed work budgets. Whole-Library tracking includes both spaces and readable references;
 historical progress outside Library is not automatically included.
 
-## Browsing and editor caching
+## Browsing
 
 Child pages sort creation time/ID; opaque tokens bind the requested parent/viewer without
 reopening a deleted anchor. Sense pages support literal case-insensitive lemma `q`, state
 filters, ID/lemma/last-review sorts, `cursor`, `limit` and optional `include=examples,sources`.
 Filters/order precede LIMIT. Last-review means applied FSRS review, not early practice.
 Source decks are unique canonical decks in this scope, up to 5 inline with count/overflow;
+each source includes `owner_id` and `space` so clients can link to its canonical Personal or Published route.
 examples use one native page batch, up to 2 each. No per-sense SQL/HTTP enrichment loop.
 Missing native content raises `learning_content_changed`. `as_of` freezes classification
 within cursor traversal, not a membership snapshot. Anonymous personal fields are null.
@@ -181,13 +202,6 @@ unavailable public references, and does not expand the whole global catalog to p
 Catalog without `q` browses newest first; FTS uses rank/ID. No popularity counts, tags,
 autocomplete/fuzzy promise or exact global result count is added. Broad rank queries
 still depend on candidate count and are subject to deadlines.
-
-Optional `node-editor:<id>` values cache complete membership for 60 seconds. Every
-editor read first authorizes the live node; cached metadata is replaced with live
-metadata because ancestor moves can change space. Save/delete invalidate the affected
-deck key after commit. Scope counts and prepare do not depend on cached editor membership.
-This cache is not a revision guarantee; failed optional invalidation can leave a value
-until expiry, and editor drafts still need normal concurrency care.
 
 ## Failure codes and evidence
 

@@ -2,7 +2,7 @@
 
 import { useDeferredValue, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowRight, ChevronRight, Search } from '@/components/artwork/artwork'
+import { ChevronRight, Search } from '@/components/artwork/artwork'
 import { Icon } from '@/components/artwork/artwork'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -14,8 +14,9 @@ export type Destination = { id: string; name: string; type: 'DECK' | 'FOLDER'; s
 type Props = {
   open: boolean; onOpenChange: (open: boolean) => void; profile: AccountProfile
   kind: 'DECK' | 'FOLDER'; action: string; onConfirm: (destination: Destination) => Promise<void>
-  excludedIds?: ReadonlySet<string>; onCreateDeck?: (parentId: string, name: string) => Promise<void>
+  excludedIds?: ReadonlySet<string>; onCreateDeck?: (parentId: string, name: string, confirmPublication: boolean) => Promise<void>
   spaceOnly?: 'personal' | 'published'
+  requirePublicationConfirmation?: boolean
 }
 
 export function LibraryDestinationDialog(props: Props) {
@@ -23,12 +24,14 @@ export function LibraryDestinationDialog(props: Props) {
   const { services, scope } = useServices()
   const root = spaceOnly === 'personal' ? profile.personal_node_id : spaceOnly === 'published' ? profile.published_node_id : profile.library_node_id
   const [path, setPath] = useState<Destination[]>([])
-  const current = path.at(-1) ?? { id: root, name: spaceOnly === 'personal' ? 'Personal' : spaceOnly === 'published' ? 'Published' : 'My Library', type: 'FOLDER' as const }
+  const current = path.at(-1) ?? { id: root, name: spaceOnly === 'personal' ? 'Personal' : spaceOnly === 'published' ? 'Published' : 'My Library', type: 'FOLDER' as const, space: spaceOnly === 'published' ? 'PUBLISHED' as const : 'PERSONAL' as const }
   const [search, setSearch] = useState(''), q = useDeferredValue(search)
   const [cursors, setCursors] = useState<string[]>([])
   const [selected, setSelected] = useState<Destination | null>(null)
   const [creating, setCreating] = useState(false), [newName, setNewName] = useState('')
   const [busy, setBusy] = useState(false), [error, setError] = useState('')
+  const [confirmed, setConfirmed] = useState(false)
+  const needsConfirmation = props.requirePublicationConfirmation || (creating && current.space === 'PUBLISHED')
   const query = useQuery({ queryKey: [services.mode, scope, 'destination', current.id, q, cursors.at(-1)],
     queryFn: ({ signal }) => services.library.contents(current.id, { q, cursor: cursors.at(-1), limit: 20 }, signal), enabled: open })
   async function navigate(item: Destination) {
@@ -36,23 +39,23 @@ export function LibraryDestinationDialog(props: Props) {
     try {
       const detail = await services.library.details(item.id, new AbortController().signal)
       const rootIndex = detail.breadcrumbs.findIndex(parent => parent.id === root)
-      const parents = rootIndex < 0 ? path : detail.breadcrumbs.slice(rootIndex + 1).map(parent => ({ ...parent, type: 'FOLDER' as const }))
-      setPath([...parents, item]); setSearch(''); setCursors([]); setSelected(null); setCreating(false)
+      const parents = rootIndex < 0 ? path : detail.breadcrumbs.slice(rootIndex + 1).map(parent => ({ ...parent, type: 'FOLDER' as const, space: detail.space === 'PUBLISHED' ? 'PUBLISHED' as const : 'PERSONAL' as const }))
+      setPath([...parents, { ...item, space: detail.space === 'PUBLISHED' ? 'PUBLISHED' : 'PERSONAL' }]); setSearch(''); setCursors([]); setSelected(null); setCreating(false); setConfirmed(false)
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not open this folder. Please retry.') }
     finally { setBusy(false) }
   }
   async function confirm() {
     const target = selected ?? (canSelectCurrent ? current : null)
-    if (!target) return
+    if (!target || (props.requirePublicationConfirmation && !confirmed) || busy) return
     setBusy(true); setError('')
     try { await onConfirm(target); onOpenChange(false) }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not save this selection. Please retry.') }
     finally { setBusy(false) }
   }
   async function create() {
-    if (!onCreateDeck || !newName.trim()) return
+    if (!onCreateDeck || !newName.trim() || (needsConfirmation && !confirmed) || busy) return
     setBusy(true); setError('')
-    try { await onCreateDeck(current.id, newName.trim()); onOpenChange(false) }
+    try { await onCreateDeck(current.id, newName.trim(), confirmed); onOpenChange(false) }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not create this deck. Please retry.') }
     finally { setBusy(false) }
   }
@@ -85,12 +88,13 @@ export function LibraryDestinationDialog(props: Props) {
       <Button variant="link" disabled={!query.data.next_cursor} onClick={() => setCursors([...cursors, query.data!.next_cursor!])}>Next</Button>
     </div>}
     {onCreateDeck && <div className="destination-create my-2.5 mx-6">
-      {creating ? <form onSubmit={event => { event.preventDefault(); void create() }} className="flex gap-2"><Input aria-label="New deck name" placeholder="Deck name" value={newName} onChange={event => setNewName(event.target.value)} maxLength={255} autoFocus className="min-w-0" /><Button type="submit" disabled={busy || !newName.trim()}>Create and add</Button></form>
+      {creating ? <form onSubmit={event => { event.preventDefault(); void create() }} className="flex gap-2"><Input aria-label="New deck name" placeholder="Deck name" value={newName} onChange={event => setNewName(event.target.value)} maxLength={255} autoFocus className="min-w-0" /><Button type="submit" disabled={busy || !newName.trim() || (needsConfirmation && !confirmed)}>Create and add</Button></form>
         : <Button variant="link" onClick={() => setCreating(true)}>Create a deck in {current.name}</Button>}
     </div>}
+    {needsConfirmation && <label className="flex gap-2 px-6 py-2 text-xs"><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />Make the new content publicly readable.</label>}
     {error && <p className="destination-error text-destructive text-xs px-6 py-2" role="alert">{error}</p>}
     <div className="destination-footer flex items-center gap-2 px-6 py-3.5 border-t border-border mt-auto"><span className="flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[11px] text-muted-foreground">{selected ? `Selected: ${selected.name}` : canSelectCurrent ? `Current: ${current.name}` : 'Choose a destination'}</span>
-      <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>Cancel</Button><Button onClick={() => { void confirm() }} disabled={(!selected && !canSelectCurrent) || busy}>{busy ? 'Saving…' : (!selected && canSelectCurrent) ? 'Use this folder' : action}</Button>
+      <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>Cancel</Button><Button onClick={() => { void confirm() }} disabled={(!selected && !canSelectCurrent) || busy || (props.requirePublicationConfirmation && !confirmed)}>{busy ? 'Saving…' : (!selected && canSelectCurrent) ? 'Use this folder' : action}</Button>
     </div>
   </DialogContent></Dialog>
 }

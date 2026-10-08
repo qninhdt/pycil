@@ -18,7 +18,7 @@ export default defineConfig({
   },
   webServer: {
     command: `pnpm run dev --hostname 127.0.0.1 --port ${port}`,
-    env: { NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: '', CLERK_SECRET_KEY: '' },
+    env: { NEXT_PUBLIC_DATA_MODE: 'mock', NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: '' },
     url: baseURL,
     reuseExistingServer: !process.env.CI,
   },

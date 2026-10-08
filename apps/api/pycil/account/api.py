@@ -124,9 +124,7 @@ async def edit_profile(data: ProfilePatch, actor: Actor, config: Product, sessio
     return result
 
 
-@public_router.get(
-    "/by-handle/{handle}", response_model=PublicProfile, openapi_extra={"security": [{}]}
-)
+@public_router.get(":lookup", response_model=PublicProfile, openapi_extra={"security": [{}]})
 async def by_handle(handle: str, session: Session, viewer: Viewer):
     return await public_projection(
         await session.scalar(select(User).where(User.handle == handle.strip().lower())), session

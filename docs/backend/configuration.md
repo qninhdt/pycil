@@ -49,8 +49,8 @@ configuration does not load `.env` by itself. See [getting started](getting-star
 - FREE: 1,000,000 monthly units, ASSISTANT.
 - PRO: 10,000,000 monthly units, ASSISTANT and ADVANCED_GRADING.
 
-Units are internal integer accounting, not currency prices. Model rate values were
-carried forward and have not been independently verified against current provider billing.
+Units are internal integer accounting. Assistant rates use the fetched provider
+catalog prices described below; unit totals do not reconcile provider invoices.
 
 ### Learning
 
@@ -100,20 +100,67 @@ the static schema ceilings; batches fail rather than silently return partial wor
 
 ### Generation
 
-Generation fills 8 questions for every supported question type, with 3 distractors and
-5 examples per generated sense request. Worker polling is every second, each attempt
+Generation targets 8 questions per supported question type. The enrichment prompt
+requests exactly 5 examples per sense (the configured count); validation accepts any
+nonempty list of usable examples. Question output may contain fewer or more items. Each question still requires 3 distractors.
+Known generated enum and target-markup labels accept either case. Invalid individual
+examples/questions are discarded, canonical duplicates are removed, and empty usable
+output is retried within the native LLM budget. Existing nonempty banks are reused
+without topping them up to a quota. Inventory, enrichment and question-pool generation
+are the three sequential phases; every sense enrichment request runs concurrently,
+then every missing sense/type pool runs concurrently. Pending fan-out tasks are
+cancelled and joined before returning on error or deadline. Provider rate limits
+still apply. Worker polling is every second, each attempt
 has a 600-second deadline, at most 3 attempts, and a 5-second retry delay.
+Lexi requests use structured outputs so native output schemas, including enum values,
+are sent as the provider response format and validated by the SDK.
+Question schemas require usable output without an exact batch-length constraint.
+Native question content and target checks run per item during parsing; invalid answers
+are never appended to the question bank. After bounded inference retries, missing
+question types produce `SUCCEEDED` with stage `PARTIAL` and sanitized error
+`question_pools_incomplete`; the word remains readable. Study still needs enough
+eligible questions for the user's chosen preferences.
 
 ### Assistant
 
-Current limits: 60-second turn timeout, 10 tool calls, 8,000 message characters, 100
+Current limits: 180-second SDK request timeout, 32 tool calls, 8,000 message characters, 100
 context messages, 4 images of at most 10,000,000 bytes each, and 20 admitted starts per
-user/minute. Conversation retention is 30 days; worker cleanup runs at a 3,600-second
+user/minute. There is no whole-agent-turn deadline. `assistant.llm_timeout_seconds`
+controls SDK network timeouts, including read inactivity, for each model request. Conversation retention is 30 days; worker cleanup runs at a 3,600-second
 interval in batches of 100.
 
-The configured default is `gemini-3.8-flash` with effort `none`. Public model choices
-come from the allowlist, not arbitrary client model IDs. Output/token rates and unknown
-cache-write rates belong to accounting policy, not a claimed live provider catalog.
+The Assistant default is `openai/gpt-6-luna` with effort `medium`; its allowlist also
+includes `google/gemini-3.8-flash` with low/medium/high effort choices.
+Luna's supported effort choices are `low`, `medium`, and `high`. Lexi generation and the decision fallback use Luna with
+`medium` reasoning, a 16,384-token completion budget (including reasoning), and a
+120-second request timeout, after the live 8,192-token run exhausted its output limit. Jev decisions use `typesafe/jev-1.13`. Public Assistant choices come
+from the allowlist, not arbitrary client model IDs; the decision-only model is
+not an Assistant choice.
+
+OpenRouter prices were fetched on 2026-10-08. Luna's base input/output/cache-read/
+cache-write prices are $0.10/$0.50/$0.01/$0.125 per million tokens. The policy
+preserves the existing integer unit scale: one million units equals $1 of configured
+token cost. Jev input costs $0.042 per million tokens with zero output charge;
+grading does not currently deduct Assistant allowance. See the
+[Luna catalog](https://openrouter.ai/openai/gpt-6-luna) and
+[Jev catalog](https://openrouter.ai/typesafe/jev-1.13).
+
+Gemini 3.8 Flash's fetched input/output/cache-read/cache-write prices are
+$0.75/$3.75/$0.075/$0.0416666666666667 per million tokens. Reasoning tokens use the
+output rate. See the [Gemini catalog](https://openrouter.ai/google/gemini-3.8-flash).
+These are the current OpenRouter catalog rates, not a guarantee of future prices.
+
+The configured rates are the base tier. Luna input at or above 272,000 tokens uses
+higher provider rates; the current meter does not implement context-tier pricing
+and its unit total is not an invoice reconciliation. Actual provider cost remains
+the provider's reported charge.
+
+Backend secrets use `INFERENCE_API_KEY` and `LEXI_DECISION_API_KEY` in the private
+environment. The same OpenRouter key can serve both. Chat uses
+`INFERENCE_BASE_URL=https://openrouter.ai/api/v1`; the TypeSafe SDK uses
+`LEXI_DECISION_BASE_URL=https://openrouter.ai/api` and appends `/v1/systemone`, as
+documented in the [OpenRouter TypeSafe SDK guide](https://openrouter.ai/docs/guides/community/typesafe-sdk).
+These keys never belong in the frontend environment.
 
 ### Cache and HTTP
 

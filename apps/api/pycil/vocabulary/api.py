@@ -44,7 +44,7 @@ class GenerationResult(BaseModel):
     status_url: str
 
 
-@router.get("/words/search", response_model=SearchResult, openapi_extra={"security": [{}]})
+@router.get("/words:search", response_model=SearchResult, openapi_extra={"security": [{}]})
 async def search(query: str, viewer: Viewer, lexicon: Dictionary, include_available: bool = False):
     try:
         return await lexicon.search(query, include_available=include_available)
@@ -60,7 +60,9 @@ async def word(word_id: int, viewer: Viewer, lexicon: Dictionary):
     return value
 
 
-@router.post("/words/previews", response_model=list[WordPreview], openapi_extra={"security": [{}]})
+@router.post(
+    "/words:batchPreview", response_model=list[WordPreview], openapi_extra={"security": [{}]}
+)
 async def previews(
     data: WordIDs, viewer: Viewer, session: Session, lexicon: Dictionary, config: Product
 ):
@@ -72,7 +74,7 @@ async def personal_word(word_id: int, user: Actor, session: Session, config: Pro
     return await word_context(session, user.id, config, word_id)
 
 
-@router.post("/me/senses/context", response_model=Context)
+@router.post("/me/senses:batchReadContext", response_model=Context)
 async def personal_senses(data: SenseIDs, user: Actor, session: Session, config: Product):
     return await viewer_context(session, user.id, config, data.sense_ids)
 

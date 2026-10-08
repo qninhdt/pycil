@@ -25,9 +25,10 @@ import { ArtGallery, Foundations } from '@/components/showcase/art-gallery'
 import { componentDemos, compositionDemos } from '@/components/showcase/component-demos'
 import { SectionIntro, Specimen } from '@/components/showcase/specimen'
 import IconGallery from '@/components/showcase/icon-gallery'
+import { AssistantShowcase } from '@/components/assistant-ui/showcase'
 
-type View = 'components' | 'artwork' | 'icons' | 'foundations' | 'compositions'
-const views: View[] = ['components', 'artwork', 'icons', 'foundations', 'compositions']
+type View = 'components' | 'artwork' | 'icons' | 'foundations' | 'compositions' | 'assistant'
+const views: View[] = ['components', 'artwork', 'icons', 'foundations', 'compositions', 'assistant']
 const artworkNames = [...motifNames, ...backgroundNames]
 const counts = {
   components: componentDemos.length,
@@ -35,6 +36,7 @@ const counts = {
   icons: iconNames.length + compactIconNames.length + learningIconNames.length,
   foundations: 3,
   compositions: compositionDemos.length,
+  assistant: 1,
 }
 const specimenId = (title: string) => title.toLowerCase().replaceAll(/[^a-z0-9]+/g, '-')
 
@@ -71,7 +73,7 @@ function CatalogSidebar({ view, navigate }: {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
-        {view !== 'foundations' && view !== 'icons' && (
+        {view !== 'foundations' && view !== 'icons' && view !== 'assistant' && (
           <SidebarGroup>
             <SidebarGroupLabel>{view === 'artwork' ? 'Artwork collection' : 'Specimen index'}</SidebarGroupLabel>
             <SidebarGroupContent>
@@ -99,7 +101,7 @@ function CatalogSidebar({ view, navigate }: {
 }
 
 function Showcase() {
-  const [view, setView] = useState<View>('components')
+  const [view, setView] = useState<View>(() => new URLSearchParams(window.location.search).get('view') === 'assistant' ? 'assistant' : 'components')
   const [query, setQuery] = useState('')
   const [commandOpen, setCommandOpen] = useState(false)
   const [theme, updateTheme] = useState<'light' | 'dark'>(() =>
@@ -148,7 +150,7 @@ function Showcase() {
     `${demo.title} ${demo.components}`.toLowerCase().includes(query.toLowerCase()))
   const noResults = view === 'artwork'
     ? !artworkNames.some(name => displayName(name).toLowerCase().includes(query.toLowerCase()))
-    : view !== 'foundations' && view !== 'icons' && !filtered.length
+    : view !== 'foundations' && view !== 'icons' && view !== 'assistant' && !filtered.length
 
   return (
     <TooltipProvider>
@@ -224,7 +226,7 @@ function Showcase() {
                 </Empty>
               ) : view === 'icons' ? <IconGallery query={query} />
                 : view === 'artwork' ? <ArtGallery query={query} />
-                : view === 'foundations' ? <Foundations /> : (
+                : view === 'foundations' ? <Foundations /> : view === 'assistant' ? <AssistantShowcase /> : (
                   <>
                     <SectionIntro title={view === 'compositions' ? 'Pieces, working together.' : 'Components with character.'}
                       description={view === 'compositions' ? 'Reusable compositions for real interfaces. Try the interactions.'

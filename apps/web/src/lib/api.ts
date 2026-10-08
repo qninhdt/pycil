@@ -25,6 +25,17 @@ export type LearningSettings = {
 }
 export type SettingsPatch = { locale?: string; timezone?: string; translation_language?: string; learning?: Partial<LearningSettings> }
 export type PublicProfile = Pick<AccountProfile, 'id' | 'display_name' | 'handle' | 'bio' | 'joined_at' | 'published_node_id'>
+export type UsageAllowance = { period_start: string; period_end: string; allowance_units: number; used_units: number; remaining_units: number }
+
+export function parseUsageAllowance(value: unknown): UsageAllowance {
+  if (!value || typeof value !== 'object') throw new ApiError(502, 'invalid_response')
+  const item = value as UsageAllowance
+  if (![item.period_start, item.period_end].every(value => typeof value === 'string' && Number.isFinite(Date.parse(value))) ||
+    Date.parse(item.period_end) <= Date.parse(item.period_start) ||
+    ![item.allowance_units, item.used_units, item.remaining_units].every(value => Number.isSafeInteger(value) && value >= 0) ||
+    item.remaining_units !== Math.max(0, item.allowance_units - item.used_units)) throw new ApiError(502, 'invalid_response')
+  return { period_start: item.period_start, period_end: item.period_end, allowance_units: item.allowance_units, used_units: item.used_units, remaining_units: item.remaining_units }
+}
 
 export class ApiError extends Error {
   constructor(public status: number, public code: string) {

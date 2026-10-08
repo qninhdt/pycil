@@ -1,5 +1,5 @@
 import { HomeApiError } from './home-api'
-import type { LearningState } from './library-model'
+import type { LearningState, Meaning } from './library-model'
 
 export type WordHit = { word_id: number; lemma: string; entry_type: string; match_kind: string; matched_surface: string }
 export type AvailableHit = { available_id: string; display: string; entry_type: string }
@@ -16,7 +16,7 @@ export type DictionaryWord = {
   related: { rel_type: string; to_word_id: number; to_word_lemma: string }[]
 }
 export type WordPreview = { word_id: number; lemma: string; entry_type: string; senses: DictionarySense[] }
-export type SenseContext = { sense_id: number; learning: { state: LearningState; due_at: string | null; last_reviewed_at: string | null }; decks: { id: string; name: string }[]; deck_count: number; decks_has_more: boolean }
+export type SenseContext = { sense_id: number; learning: { state: LearningState; due_at: string | null; last_reviewed_at: string | null }; decks: Meaning['sources']; deck_count: number; decks_has_more: boolean }
 export type WordContext = { as_of: string; senses: SenseContext[]; total: number; studied: number; new: number; due: number; not_due: number }
 export type WordGeneration = { generation_id: string; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED'; word_id: number | null; stage: string | null; error: string | null; status_url: string }
 
@@ -82,7 +82,7 @@ export function parseWordContext(value: unknown): WordContext {
     const item = object(value), learning = object(item.learning)
     if (!['NEW', 'DUE', 'NOT_YET_DUE'].includes(string(learning.state))) throw new HomeApiError(502, 'invalid_response')
     return { sense_id: id(item.sense_id), learning: { state: learning.state as LearningState, due_at: optional(learning.due_at), last_reviewed_at: optional(learning.last_reviewed_at) },
-      decks: array(item.decks).map(value => { const deck = object(value); return { id: string(deck.id), name: string(deck.name) } }),
+      decks: array(item.decks).map(value => { const deck = object(value), space = string(deck.space); if (space !== 'PERSONAL' && space !== 'PUBLISHED') throw new HomeApiError(502, 'invalid_response'); return { id: string(deck.id), name: string(deck.name), owner_id: string(deck.owner_id), space } }),
       deck_count: count(item.deck_count), decks_has_more: boolean(item.decks_has_more) }
   }) }
 }

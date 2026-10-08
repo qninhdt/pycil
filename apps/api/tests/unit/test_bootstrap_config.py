@@ -36,8 +36,8 @@ assert pycil.main.create_app().title == 'Pycil'
 
 def test_caddy_uses_current_stream_path_and_product_body_limit(config):
     caddy = (Path(__file__).resolve().parents[4] / "Caddyfile").read_text()
-    assert "@assistant_sse path /v1/assistant\n" in caddy
-    assert "@non_sse not path /v1/assistant\n" in caddy
+    assert "@assistant_sse path /v1/assistant:run\n" in caddy
+    assert "@non_sse not path /v1/assistant:run\n" in caddy
     assert "/turns" not in caddy
     assert [int(value) for value in re.findall(r"max_size (\d+)", caddy)] == [
         config.http.max_body_bytes

@@ -3,6 +3,8 @@
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/manrope";
 @import "tw-shimmer";
+@import "katex/dist/katex.min.css";
+@import "../components/assistant-ui/assistant.css";
 
 /* Canonical values from root DESIGN.md: Flat UI Palette v1 (defo).
  * Only this file contains palette literals. Semantic roles belong in app/globals.css.
@@ -83,7 +85,8 @@
   --primary: var(--palette-ink); --primary-foreground: var(--palette-canvas);
   --secondary: var(--palette-border); --muted: var(--palette-border);
   --muted-foreground: var(--palette-ink-soft);
-  --accent: var(--palette-blue-soft); --border: var(--palette-border);
+  --accent: color-mix(in srgb, var(--palette-primary-blue) 14%, var(--palette-canvas));
+  --border: var(--palette-border);
   --input: var(--palette-text-muted); --ring: var(--palette-blue-dark);
   --destructive: var(--palette-red-dark); --success: var(--palette-success); --radius: .2rem;
   --sidebar: var(--palette-canvas);
@@ -106,7 +109,10 @@
   --primary: var(--palette-canvas); --primary-foreground: var(--palette-ink);
   --secondary: var(--palette-ink-soft); --muted: var(--palette-ink-soft);
   --muted-foreground: var(--palette-border);
-  --accent: color-mix(in srgb, var(--palette-primary-blue) 24%, var(--palette-ink-soft));
+  --palette-red-soft: color-mix(in srgb, var(--palette-primary-red) 22%, var(--palette-ink-soft));
+  --palette-blue-soft: color-mix(in srgb, var(--palette-primary-blue) 24%, var(--palette-ink-soft));
+  --palette-yellow-soft: color-mix(in srgb, var(--palette-primary-yellow) 22%, var(--palette-ink-soft));
+  --accent: var(--palette-blue-soft);
   --border: var(--palette-text-muted); --input: var(--palette-text-subtle); --ring: var(--palette-primary-yellow);
   --destructive: var(--palette-canvas);
   --sidebar: var(--palette-ink); --art-ink: var(--palette-canvas); --art-paper: var(--palette-ink);
@@ -216,3 +222,26 @@
 @custom-variant data-open (&:where([data-state="open"], [data-open]:not([data-open="false"])));
 
 @custom-variant data-closed (&:where([data-state="closed"], [data-closed]:not([data-closed="false"])));
+
+/* Application shell flex layout: side-by-side panes with zero browser scrolling */
+:root {
+  --ai-panel-width: 460px;
+}
+
+.application-shell {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100svh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: row;
+}
+
+.shell-workspace {
+  flex: 1 1 0%;
+  min-width: 0;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+}

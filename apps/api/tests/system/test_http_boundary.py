@@ -135,11 +135,39 @@ async def test_invalid_authorization_stays_401_even_on_optional_viewer_routes(ap
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
-        for path in ("/v1/me", "/v1/words/search?query=bank", "/v1/nodes"):
+        for path in ("/v1/me", "/v1/words:search?query=bank", "/v1/nodes"):
             response = await client.get(path, headers={"Authorization": authorization})
             assert response.status_code == 401
             assert response.json() == {"error": "invalid_credentials"}
             assert response.headers["www-authenticate"] == "Bearer"
+
+
+@pytest.mark.parametrize(
+    "method, path",
+    [
+        ("GET", "/v1/users:lookup?handle=learner"),
+        ("GET", "/v1/words:search?query=bank"),
+        ("GET", f"/v1/nodes/{uuid4()}:search?q=bank"),
+        ("POST", "/v1/words:batchPreview"),
+        ("POST", "/v1/me/senses:batchReadContext"),
+        ("POST", f"/v1/nodes/{uuid4()}:modifySenses"),
+        ("POST", f"/v1/nodes/{uuid4()}:move"),
+        ("POST", f"/v1/nodes/{uuid4()}:copy"),
+        ("POST", "/v1/study:prepare"),
+        ("POST", "/v1/study:grade"),
+        ("POST", "/v1/study:submitReviews"),
+        ("POST", "/v1/study:batchSummarize"),
+        ("POST", "/v1/assistant:run"),
+    ],
+)
+async def test_custom_actions_dispatch_through_bearer_validation(app, method, path):
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.request(method, path, headers={"Authorization": "Basic invalid"})
+    assert response.status_code == 401
+    assert response.json() == {"error": "invalid_credentials"}
+    assert response.headers["www-authenticate"] == "Bearer"
 
 
 def test_openapi_has_typed_success_errors_optional_bearer_and_sse():
@@ -150,18 +178,18 @@ def test_openapi_has_typed_success_errors_optional_bearer_and_sse():
         "bearerFormat": "JWT",
     }
     viewers = {
-        ("get", "/v1/words/search"),
+        ("get", "/v1/words:search"),
         ("get", "/v1/words/{word_id}"),
         ("get", "/v1/nodes"),
         ("get", "/v1/nodes/{node_id}"),
         ("get", "/v1/nodes/{node_id}/senses"),
         ("get", "/v1/users/{user_id}"),
-        ("get", "/v1/users/by-handle/{handle}"),
+        ("get", "/v1/users:lookup"),
         ("get", "/v1/discovery/nodes"),
-        ("get", "/v1/nodes/{node_id}/search"),
+        ("get", "/v1/nodes/{node_id}:search"),
         ("get", "/v1/nodes/{node_id}/senses/{sense_id}/sources"),
-        ("post", "/v1/words/previews"),
-        ("post", "/v1/study/summaries"),
+        ("post", "/v1/words:batchPreview"),
+        ("post", "/v1/study:batchSummarize"),
     }
     count = 0
     for path, operations in schema["paths"].items():
@@ -180,8 +208,8 @@ def test_openapi_has_typed_success_errors_optional_bearer_and_sse():
                 else:
                     for content in response["content"].values():
                         assert content["schema"]
-    assert count == 37
-    assert set(schema["paths"]["/v1/assistant"]["post"]["responses"]["200"]["content"]) == {
+    assert count == 41
+    assert set(schema["paths"]["/v1/assistant:run"]["post"]["responses"]["200"]["content"]) == {
         "text/event-stream"
     }
     assert "HTTPValidationError" not in schema["components"]["schemas"]

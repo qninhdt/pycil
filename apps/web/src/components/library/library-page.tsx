@@ -33,7 +33,7 @@ export function LibraryView({ profile, nodeId, requestedTab, create, routeSpace 
   const timezone = profile.settings?.timezone ?? 'UTC'
   return <div className="library-page w-full [&_h1]:font-extrabold [&_h1]:tracking-tight [&_h2]:font-extrabold [&_h2]:tracking-tight [&_h3]:font-extrabold [&_h3]:tracking-tight" data-kind={deck ? 'deck' : 'folder'} data-system={node.role !== 'NORMAL'}>
     <LibraryHeader node={node} profile={profile} editable={editable} />
-    {node.reference_available === false ? <Empty className="min-h-60"><EmptyHeader><EmptyTitle>Reference unavailable.</EmptyTitle><EmptyDescription>The source is no longer available.</EmptyDescription></EmptyHeader><EmptyContent><Button asChild variant="outline"><Link href={nodeHref({ ...node, id: node.breadcrumbs.at(-1)?.id ?? node.id })}>Back to folder</Link></Button></EmptyContent></Empty>
+    {node.reference_available === false ? <Empty className="min-h-60"><EmptyHeader><EmptyTitle>Reference unavailable.</EmptyTitle><EmptyDescription>The source is no longer available.</EmptyDescription></EmptyHeader><EmptyContent><Button asChild variant="outline"><Link href={nodeHref({ ...node, id: node.breadcrumbs.findLast(parent => parent.id !== node.id)?.id ?? (node.space === 'PUBLISHED' ? profile.published_node_id : profile.personal_node_id) })}>Back to folder</Link></Button></EmptyContent></Empty>
       : node.summary && <>
         <LibrarySummary summary={node.summary} />
         <LibraryStudy key={node.id} nodeId={node.id} summary={node.summary} publishedOwner={node.space === 'PUBLISHED' ? node.owner_id : undefined} />

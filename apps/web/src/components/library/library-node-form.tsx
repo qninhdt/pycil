@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import { Icon } from '@/components/artwork/artwork'
@@ -27,10 +27,13 @@ export function LibraryNodeForm({ profile, kind, open, onOpenChange, parent, des
   const [description, setDescription] = useState(editing?.description ?? '')
   const [destination, setDestination] = useState<Destination>(parent ? { ...parent, type: 'FOLDER' } : { id: profile.personal_node_id, name: 'Personal', type: 'FOLDER', space: 'PERSONAL' })
   const [picking, setPicking] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState('')
+  const [confirmed, setConfirmed] = useState(false)
+  const submitting = useRef(false)
   const label = kind === 'DECK' ? 'deck' : 'folder'
   async function submit(event: React.FormEvent) {
     event.preventDefault()
-    if (!name.trim() || busy) return
+    if (!name.trim() || submitting.current || (!editing && destination.space === 'PUBLISHED' && !confirmed)) return
+    submitting.current = true
     setBusy(true); setError('')
     try {
       if (editing) {
@@ -39,13 +42,13 @@ export function LibraryNodeForm({ profile, kind, open, onOpenChange, parent, des
         onOpenChange(false)
       }
       else {
-        const id = await services.library.createNode({ parentId: destination.id, type: kind, name: name.trim(), description: description.trim() || null }, new AbortController().signal)
+        const id = await services.library.createNode({ parentId: destination.id, type: kind, name: name.trim(), description: description.trim() || null, confirmPublication: confirmed }, new AbortController().signal)
         await queryClient.invalidateQueries({ queryKey: [services.mode] })
         if (onCreated) onCreated(id)
         else router.push(destination.space === 'PUBLISHED' ? publishedHref(profile.id, id) : libraryHref(id))
       }
     } catch (cause) { setError(cause instanceof Error ? cause.message : `Could not save this ${label}. Please retry.`) }
-    finally { setBusy(false) }
+    finally { submitting.current = false; setBusy(false) }
   }
   return <>
     <Dialog open={open && !picking} onOpenChange={onOpenChange}><DialogContent className="w-[min(calc(100%-2rem),480px)] max-w-[480px]">
@@ -56,11 +59,12 @@ export function LibraryNodeForm({ profile, kind, open, onOpenChange, parent, des
         {!editing && <><label>Destination</label>{destinationEnabled
           ? <button type="button" className="library-destination-field hover:bg-accent flex items-center gap-2.5 min-h-[42px] px-3 py-2 border border-border text-left [&_>_svg]:size-[18px] [&_>_span:last-child:not(:first-of-type)]:ml-auto [&_>_span:last-child:not(:first-of-type)]:text-xs [&_>_span:last-child:not(:first-of-type)]:underline" onClick={() => setPicking(true)}><Icon name="folder" /><span>{destination.name}</span><span>Change</span></button>
           : <div className="library-destination-field flex items-center gap-2.5 min-h-[42px] px-3 py-2 border border-border text-left [&_>_svg]:size-[18px] [&_>_span:last-child:not(:first-of-type)]:ml-auto [&_>_span:last-child:not(:first-of-type)]:text-xs [&_>_span:last-child:not(:first-of-type)]:underline" aria-label={`Destination: ${destination.name}`}><Icon name="folder" /><span>{destination.name}</span></div>}</>}
+        {!editing && destination.space === 'PUBLISHED' && <label className="flex items-start gap-2"><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />Make this {label} publicly readable.</label>}
         {error && <p className="text-destructive text-xs" role="alert">{error}</p>}
-        <div className="flex justify-end gap-2 mt-4"><Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>Cancel</Button><Button type="submit" disabled={busy || !name.trim()}>{busy ? 'Saving…' : editing ? 'Save changes' : `Create ${label}`}</Button></div>
+        <div className="flex justify-end gap-2 mt-4"><Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>Cancel</Button><Button type="submit" disabled={busy || !name.trim() || (!editing && destination.space === 'PUBLISHED' && !confirmed)}>{busy ? 'Saving…' : editing ? 'Save changes' : `Create ${label}`}</Button></div>
       </form>
     </DialogContent></Dialog>
     {picking && <LibraryDestinationDialog open onOpenChange={next => { if (!next) setPicking(false) }} profile={profile} kind="FOLDER" action="Use this folder"
-      onConfirm={async selected => { const detail = await services.library.details(selected.id, new AbortController().signal); setDestination({ ...selected, space: detail.space === 'PUBLISHED' ? 'PUBLISHED' : 'PERSONAL' }); setPicking(false) }} />}
+      onConfirm={async selected => { const detail = await services.library.details(selected.id, new AbortController().signal); setDestination({ ...selected, space: detail.space === 'PUBLISHED' ? 'PUBLISHED' : 'PERSONAL' }); setConfirmed(false); setPicking(false) }} />}
   </>
 }

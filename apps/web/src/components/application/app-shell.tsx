@@ -2,12 +2,13 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ArrowRight, Menu, Plus } from '@/components/artwork/artwork'
 import { toast } from 'sonner'
 import { Icon } from '@/components/artwork/artwork'
 import { PatternPanel } from '@/components/artwork/pattern-panel'
 import { useNavigationState } from '@/hooks/use-navigation-state'
+import { useAiPanelState } from '@/hooks/use-ai-panel-state'
 import { useServices } from '@/lib/services/provider'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
@@ -19,6 +20,7 @@ import { DaylightArt } from './daylight-art'
 import { useAccount, useTheme } from './providers'
 import { mainNavigationItems as pages } from '@/lib/navigation'
 import { libraryHref, publishedHref } from '@/lib/library-model'
+import { PycilAI } from '@/components/assistant-ui/pycil-ai'
 
 function AccountMenu({ mobile = false, collapsed = false }: { mobile?: boolean; collapsed?: boolean }) {
   const account = useAccount()
@@ -28,7 +30,7 @@ function AccountMenu({ mobile = false, collapsed = false }: { mobile?: boolean; 
     <button className={`shell-account ${mobile ? 'w-full' : 'w-[calc(100%-22px)]'} relative flex items-center p-0 overflow-hidden text-left h-[84px] transition-colors duration-150 shrink-0 focus:outline-none focus-visible:shadow-[inset_3px_0_0_var(--ring)] focus-visible:bg-accent`} aria-label="Open account menu" disabled={signingOut}>
       <Icon name="person" className="absolute left-[25.5px] size-5 shrink-0" />
       <span className={`account-copy ${collapsed ? 'hidden' : ''} absolute left-[66px] w-[147px] min-w-0 overflow-hidden whitespace-nowrap [&_strong]:block [&_strong]:text-sm [&_strong]:font-bold [&_strong]:overflow-hidden [&_strong]:text-ellipsis [&_small]:block [&_small]:text-xs [&_small]:mt-1 [&_small]:text-muted-foreground [&_small]:overflow-hidden [&_small]:text-ellipsis opacity-100 transition-opacity duration-200 motion-reduce:transition-none`}><strong>{account.status === 'loading' ? 'Loading account…' : account.name}</strong>
-        <small>{account.profile ? `${account.profile.plan.toLowerCase() === 'pro' ? 'Pro' : 'Free'} plan` : account.signedIn ? 'Account connected' : 'Sign in to learn'}</small></span>
+        <small>{account.signedIn ? `${account.profile?.plan?.toLowerCase() === 'pro' ? 'Pro' : 'Free'} plan` : 'Sign in to learn'}</small></span>
     </button>
   </DropdownMenuTrigger><DropdownMenuContent className="w-72 max-w-[calc(100vw-32px)] border-foreground" side={mobile ? 'top' : 'right'} align={mobile ? 'start' : 'end'} sideOffset={mobile ? 8 : 56} collisionPadding={16}>
     <DropdownMenuLabel>{account.signedIn ? account.name : 'Your account'}</DropdownMenuLabel>
@@ -106,10 +108,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { collapsed, toggleCollapsed } = useNavigationState()
   const account = useAccount()
   const { services } = useServices()
-  return <div className="application-shell min-h-svh [--rail-width:256px] data-[collapsed=true]:[--rail-width:72px]" data-collapsed={collapsed}>
+
+  return <div className="application-shell [--rail-width:256px] data-[collapsed=true]:[--rail-width:72px]" data-collapsed={collapsed}>
     <a className="skip-link" href="#app-content">Skip to content</a>
     <aside className="shell-desktop fixed inset-y-0 left-0 w-(--rail-width) z-30 border-r border-foreground bg-background transition-[width] duration-200 motion-reduce:transition-none max-md:hidden" id="desktop-app-navigation"><ShellRail collapsed={collapsed} toggleCollapsed={toggleCollapsed} /></aside>
-    <div className="shell-workspace ml-(--rail-width) flex flex-col min-h-svh min-w-0 transition-[margin-left] duration-200 motion-reduce:transition-none max-md:ml-0">
+    <div className="shell-workspace ml-(--rail-width) flex flex-col min-w-0 transition-[margin] duration-200 motion-reduce:transition-none max-md:ml-0">
       <div className="hidden max-md:flex max-md:px-4 max-md:pt-4"><Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
           <SheetTrigger asChild><Button variant="ghost" size="icon" aria-label="Open navigation"><Menu /></Button></SheetTrigger>
           <SheetContent side="left" className="max-md:data-[slot=sheet-content]:w-[min(300px,calc(100vw-32px))] max-md:data-[slot=sheet-content]:gap-0 max-md:data-[slot=sheet-content]:p-0 max-md:data-[slot=sheet-content]:bg-background !border-foreground">
@@ -125,5 +128,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <PatternPanel className="shell-main-pattern" seed="pycil-1923" />
       </main>
     </div>
+    <PycilAI />
   </div>
 }

@@ -65,3 +65,32 @@ separate from deployment or artifact promotion.
 Star/Pin, difficult/bookmark, tags, translations, country, Import, TTS, courses,
 recommendations and session/time/accuracy metrics remain deliberately absent.
 Legacy documentation cleanup and unrelated user work are outside this backend commit.
+
+## Frontend integration update — 2026-10-08
+
+The user authorized `apps/web` product integration and changes to both frontend and
+backend. Four targeted Library operations extend the generated contract to 41
+operations: metadata PATCH, sense delta action, move and atomic subtree copy. Legacy
+PUT/editor callers are preserved. Discovery, publication consent, saved public
+references and source overflow are connected in the frontend.
+
+The earlier counts above describe the 2026-10-06 backend verification only. Current
+contract/unit checks and live browser execution have separate evidence in the
+[frontend E2E plan](../../tmp/frontend-backend-e2e-plan.md). Real store/browser/provider
+execution must not be inferred from those historical counts.
+
+## Custom-action naming update — 2026-10-08
+
+All 13 custom methods use `resource:verb` with camelCase action names; see
+[API conventions](api-conventions.md#custom-actions) and the regenerated
+[OpenAPI](openapi.json). Frontend callers, browser fixtures, backend tests and
+Caddy's Assistant SSE matcher use the same URLs. Sense deltas now use POST;
+handle lookup uses a required query parameter. Old action URLs have no aliases.
+
+Validation: all backend tests passed against managed disposable PostgreSQL/Redis
+(276 passed, one opt-in benchmark skipped, 11 upstream LangGraph warnings).
+Backend Ruff lint/format, frontend production build and Caddy validation passed.
+Focused frontend adapters and three Assistant browser fixtures passed. These
+browser fixtures intercept API responses; they do not establish live Clerk or
+provider success. Live full-stack execution remains recorded separately in the
+[frontend E2E plan](../../tmp/frontend-backend-e2e-plan.md).

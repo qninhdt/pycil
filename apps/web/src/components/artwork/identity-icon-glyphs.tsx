@@ -16,6 +16,7 @@ const referenceBadge = (m: boolean) => <>
 
 // Color and mono are composed together, icon by icon, on the same 48-unit grid.
 export const identityIcons = {
+  robot: (m) => <><path d="M24 8v5M5 22v13m38-13v13"/><circle cx="24" cy="5" r="3" {...plane(m, red)}/><rect x="9" y="13" width="30" height="28"/><rect x="15" y="21" width="6" height="6" {...plane(m, blue)}/><circle cx="30" cy="24" r="3" {...plane(m, red)}/><path d="m18 35 6-5 6 5Z" {...plane(m, yellow)}/></>,
   dictionary: (m) => <><path d="M24 11C17 7 11 8 5 10v29c6-2 12-3 19 1 7-4 13-3 19-1V10c-6-2-12-3-19 1Z"/><path d="M24 11v29M9 17h10M29 17h10M9 24h10M29 24h10"/><path d="M29 11c5-2 9-2 14-1v15H29Z" {...plane(m, red)}/></>,
   vocabulary: (m) => <><rect x="6" y="11" width="29" height="31"/><rect x="13" y="5" width="29" height="31" {...plane(m, blue)}/><path d="m20 28 7-15 7 15m-12-5h10" stroke="var(--art-paper)"/></>,
   translate: (m) => <><path d="M3 37h42"/><rect x="4" y="8" width="18" height="23" {...plane(m, blue)}/><rect x="26" y="15" width="18" height="23" {...plane(m, yellow)}/><path d="m8 25 5-11 5 11m-8-4h6" stroke="var(--art-paper)"/><path d="M31 22h9m-5-4v9m-4 0h8m-7-5 6 7" stroke={m ? 'var(--art-paper)' : 'var(--art-ink)'}/></>,
@@ -72,5 +73,5 @@ export const identityIcons = {
   play: (m) => <><circle cx="24" cy="24" r="19"/><path d="m19 13 16 11-16 11Z" {...plane(m, red)}/></>,
   sound: (m) => <><path d="M4 18h9l12-10v32L13 30H4Z"/><path d="M13 18 25 8v32L13 30Z" {...plane(m, blue)}/><path d="M31 17a10 10 0 0 1 0 14m5-19a17 17 0 0 1 0 24"/></>,
   message: (m) => <><path d="M5 8h38v28H17L7 44v-8H5Z"/><rect x="13" y="18" width="18" height="5" {...plane(m, blue)}/></>,
-  spark: (m) => <><path d="M21 19 24 4l3 15ZM29 21l15 3-15 3ZM27 29l-3 15-3-15ZM19 27 4 24l15-3Z" {...plane(m, yellow)}/><rect x="20" y="20" width="8" height="8"/></>,
+  spark: (m) => <><path d="M20 6 C20 16 23 21 33 24 C23 27 20 32 20 42 C20 32 17 27 7 24 C17 21 20 16 20 6 Z" {...plane(m, yellow)}/><path d="M36 7 C36 11 37.5 12.5 41 14 C37.5 15.5 36 17 36 21 C36 17 34.5 15.5 31 14 C34.5 12.5 36 11 36 7 Z" {...plane(m, blue)} strokeWidth={1.8}/><circle cx="11" cy="37" r="2.5" {...plane(m, red)} stroke="none"/></>,
 } satisfies Record<string, Glyph>

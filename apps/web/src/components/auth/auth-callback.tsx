@@ -1,6 +1,6 @@
 'use client'
 import Link from 'next/link'
-import { AuthenticateWithRedirectCallback, SignIn, SignUp } from '@clerk/nextjs'
+import { AuthenticateWithRedirectCallback, SignIn, SignUp } from '@clerk/react'
 import { authConfigured } from '@/components/application/providers'
 
 export function AuthCallback({ continuation = false, signupContinuation = false }: { continuation?: boolean; signupContinuation?: boolean }) {

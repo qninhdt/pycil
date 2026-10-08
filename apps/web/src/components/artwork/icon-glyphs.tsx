@@ -7,6 +7,7 @@ const ink = (mono: boolean, color: string) => mono ? 'currentColor' : color
 
 // Every entry owns both drawings on one 24-unit construction grid.
 export const compactIcons = {
+  paperclip: (m) => <><path d="m8 13 6-6a3 3 0 0 1 4 4l-8 8a5 5 0 0 1-7-7l9-9"/><path d="m7 14 7-7" stroke={ink(m, blue)}/></>,
   'arrow-right': (m) => <><path d="M3 12h14"/><path d="m17 8 4 4-4 4Z" {...plane(m, blue)}/></>,
   'arrow-left': (m) => <><path d="M21 12H7"/><path d="m7 8-4 4 4 4Z" {...plane(m, blue)}/></>,
   'arrow-up-right': (m) => <><path d="M8 16 15 9"/><path d="M13 6h5v5Z" {...plane(m, blue)}/></>,

@@ -8,11 +8,11 @@ Question answer keys/explanations and typed grading remain native Lexi artifacts
 
 | Operation | Result |
 | --- | --- |
-| `POST /v1/study/prepare` | Read-only native question bundles |
-| `POST /v1/study/grade` | Pro-only native typed grade; no progress/activity write |
-| `POST /v1/study/reviews` | Atomic batch and immutable original-result replay |
+| `POST /v1/study:prepare` | Read-only native question bundles |
+| `POST /v1/study:grade` | Pro-only native typed grade; no progress/activity write |
+| `POST /v1/study:submitReviews` | Atomic batch and immutable original-result replay |
 | `GET /v1/study/progress` | Exact lightweight scope summary |
-| `POST /v1/study/summaries` | Joint bounded card summaries; optional public viewer |
+| `POST /v1/study:batchSummarize` | Joint bounded card summaries; optional public viewer |
 | `GET /v1/study/activity` | Frozen accepted dates, zero-filled grid and streaks |
 | `GET /v1/study/review-schedule` | Current future due counts, not predictions |
 
@@ -60,7 +60,7 @@ There is no normalized feedback subsystem or automatic recall-rating conversion.
 ## Atomic reviews
 
 ```http
-POST /v1/study/reviews
+POST /v1/study:submitReviews
 Idempotency-Key: <client-generated UUID>
 ```
 

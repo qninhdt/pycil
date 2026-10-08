@@ -1,9 +1,9 @@
 # Frontend integration handoff
 
-This backend tranche supplies real contracts, not a new FE framework or app. Local
-`apps/web` starter/showcase material was not overwritten or chosen as the product
-integration target without agreement.
-The checked-out API exposes 37 operations. Use `/openapi.json` for exact native
+The product frontend in `apps/web` consumes these contracts in live mode. Its
+Clerk browser session supplies bearer tokens; the Next rewrite forwards API requests.
+Mock UI tests and live full-stack browser tests are separate verification profiles.
+The checked-out API exposes 41 operations. Use `/openapi.json` for exact native
 Lexi/AG-UI types, nullable fields and enums; this guide specifies usage and semantics.
 The backend contract is not deployed automatically.
 
@@ -45,17 +45,17 @@ No live provider calls, production migration or deployment were performed here.
 | Upcoming reviews | `GET /v1/study/review-schedule` | Future current due dates, not prediction |
 | Library/folder cards | `GET /v1/nodes?parent_id=...&include=summary` | One joint card read; budgets can reject enrichment |
 | Folder/deck word table | `/nodes/{id}/senses`: state/q/sort/include | Sources confined to scope; native CEFR retained, no topic tags |
-| Folder search | `/nodes/{id}/search?q=...` | Name/description token FTS, no fuzzy/autocomplete promise |
+| Folder search | `/nodes/{id}:search?q=...` | Name/description token FTS, no fuzzy/autocomplete promise |
 | New folder/deck/reference | Node POST | Creation is not universally idempotent |
-| Deck edit/add meanings | GET `/editor`, local union/selection, PUT final set | Never replace full deck from one browse page |
-| Publish/unpublish | PUT destination + explicit confirmation | Canonical move; retained Personal reference optional |
+| Deck add/remove meanings | `POST /nodes/{id}:modifySenses` with add/remove ID arrays | Atomic current-state delta; no browse snapshot replacement |
+| Publish/unpublish | `POST /nodes/{id}:move`; see [Library](modules/library.md) | Canonical move; retained Personal reference optional |
 | Discovery | `/discovery/nodes`, optional q/type/owner/include | No categories/popularity/learners/recommendations |
-| Author public profile/tree | `/users/{id}` or by-handle, public Published node ID | No private settings/progress/activity/root IDs |
+| Author public profile/tree | `/users/{id}` or `/users:lookup?handle=...`, public Published node ID | No private settings/progress/activity/root IDs |
 | Self profile edit | PATCH `/me/profile` handle/bio | No country/avatar/display-name write or identity sync |
-| Dictionary search | `/words/search?query=...&include_available=true` | Native hits; no invented global POS count/paging |
-| Search/add-word groups | POST `/words/previews` | <=30 words / <=500 senses, fail if incomplete |
+| Dictionary search | `/words:search?query=...&include_available=true` | Native hits; no invented global POS count/paging |
+| Search/add-word groups | POST `/words:batchPreview` | <=30 words / <=500 senses, fail if incomplete |
 | Dictionary word | GET `/words/{id}` plus GET `/me/words/{id}` | Shared native content separate from private viewer state |
-| Membership/progress badges | POST `/me/senses/context` | <=100 senses; inline source limit and explicit overflow |
+| Membership/progress badges | POST `/me/senses:batchReadContext` | <=100 senses; inline source limit and explicit overflow |
 | Learn / Review / practice | POST prepare NEW / DUE / AUTO | <=100 questions; client-local session |
 | Flashcards | Scoped senses with `include=examples` | Flip/shuffle/viewing adds no activity |
 | Completion | One atomic reviews batch + retained UUID/body | Recall rating is not inferred from Correct/Incorrect |
@@ -78,7 +78,7 @@ personal counts; empty coverage is null. `last_studied_at` means latest applied 
 of a current member sense anywhere, not a source session or latest early practice.
 
 Folder display uses a bounded child request with inline summary and independent parent
-summary if needed. Mixed cards use one POST `/study/summaries` body `node_ids`; maximum
+summary if needed. Mixed cards use one POST `/study:batchSummarize` body `node_ids`; maximum
 50, one cutoff/deadline/budget. Never send one progress request per card. A `limit=100`
 metadata page may need summaries split into <=50 with user-controlled loading; do not
 pretend page-larger-than-summary bounds is one unbounded operation.
@@ -113,7 +113,7 @@ Established handle cannot be cleared; rename replaces old handle lookup, UUID st
 {"node_id":"00000000-0000-0000-0000-000000000001","selection":"NEW","max_sense_count":10}
 ```
 
-POST `/study/prepare`: maximum is an upper bound. Default AUTO and saved maximum.
+POST `/study:prepare`: maximum is an upper bound. Default AUTO and saved maximum.
 NEW never fills with studied; DUE never fills with NEW. Response has actual counts,
 effective preferences, native sense/question artifacts, shuffled options and reasons.
 No session ID or progress write. Local draft carries index/answers/shuffle/resume.
@@ -122,7 +122,7 @@ No session ID or progress write. Local draft carries index/answers/shuffle/resum
 {"results":[{"sense_id":123,"rating":"GOOD"},{"sense_id":456,"rating":"AGAIN"}]}
 ```
 
-POST `/study/reviews` with UUID `Idempotency-Key`. 1-100 distinct strict positive IDs.
+POST `/study:submitReviews` with UUID `Idempotency-Key`. 1-100 distinct strict positive IDs.
 One final explicit recall rating per sense (AGAIN/HARD/GOOD/EASY). Freeze ordered body
 and key in durable client-local storage **before first request**. Unknown network
 outcome stays uncertain; retry exactly. New key means new accepted practice, not retry.
@@ -147,13 +147,13 @@ already known lexical result submission or reopen the source.
 {"node_ids":["00000000-0000-0000-0000-000000000001"]}
 ```
 
-POST `/study/summaries` returns a list of Summary objects, no raw lexical payloads.
+POST `/study:batchSummarize` returns a list of Summary objects, no raw lexical payloads.
 
 ```json
 {"word_ids":[1,2]}
 ```
 
-POST `/words/previews` returns complete native sense groups/examples for the requested
+POST `/words:batchPreview` returns complete native sense groups/examples for the requested
 bounded words. Select-all must use the full group, not a truncated search response.
 Dictionary private context is independent: no public artifact contains viewer state.
 
@@ -161,10 +161,11 @@ Dictionary private context is independent: no public artifact contains viewer st
 {"sense_ids":[123,456]}
 ```
 
-POST `/me/senses/context`: learning state/due/applied-review time and readable Library
+POST `/me/senses:batchReadContext`: learning state/due/applied-review time and readable Library
 decks/editability/count/more. Learned-but-untracked senses retain state with no sources.
 Lookup never creates progress or Library membership. Keep modal selections local across
-search/filter changes; load full editor and union once for save.
+search/filter changes. The batch-delta API applies the final selection without
+replacing unrelated deck membership; see [Library](modules/library.md#targeted-writes-and-compatibility).
 
 ## Error actions
 

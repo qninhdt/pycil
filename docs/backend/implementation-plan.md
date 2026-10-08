@@ -13,6 +13,10 @@ Current evidence: [verification record](verification.md), [implementation status
 [performance procedure/evidence](operations/performance.md). Unchecked items below are
 explicit external gates, not silent claims of production/FE completion.
 
+This dated plan retains its original action URLs. The 2026-10-08 custom-method
+rename is documented in [API conventions](api-conventions.md#custom-actions);
+use [OpenAPI](openapi.json) for the current contract.
+
 ## 1. Outcome and authority
 
 ### Deliverable

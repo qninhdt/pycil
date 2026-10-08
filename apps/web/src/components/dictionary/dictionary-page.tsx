@@ -10,12 +10,13 @@ import { useAccount } from '@/components/application/providers'
 import { MarkedText } from '@/components/content/marked-text'
 import { HomeFailure, HomeLoading } from '@/components/home/home-state'
 import { LibraryDestinationDialog } from '@/components/library/library-destination-dialog'
+import { MeaningSources } from '@/components/library/meaning-sources'
 import { LearningBadge } from '@/components/library/library-shared'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type { AvailableHit, DictionaryWord, SenseContext } from '@/lib/dictionary-model'
-import { libraryHref } from '@/lib/library-model'
+import { nodeHref } from '@/lib/library-model'
 import { useServices } from '@/lib/services/provider'
 
 const label = (value: string) => value.toLowerCase().replaceAll('_', ' ')
@@ -31,7 +32,7 @@ function WordDetail({ word, contexts, contextError, retryContext, onAdd, onSelec
   const decks = [...(contexts ?? []).reduce((items, sense) => {
     for (const deck of sense.decks) items.set(deck.id, { ...deck, count: (items.get(deck.id)?.count ?? 0) + 1 })
     return items
-  }, new Map<string, { id: string; name: string; count: number }>()).values()]
+  }, new Map<string, SenseContext['decks'][number] & { count: number }>()).values()]
   const deckCountsPartial = contexts?.some(sense => sense.decks_has_more) ?? false
   const studied = contexts?.filter(sense => sense.learning.state !== 'NEW').length ?? 0
   const pronunciation = word.senses.find(sense => sense.ipa_uk || sense.ipa_us)
@@ -55,7 +56,7 @@ function WordDetail({ word, contexts, contextError, retryContext, onAdd, onSelec
             {sense.relations.length > 0 && <div className="grid grid-cols-[116px_minmax(0,1fr)] gap-3 mt-3 text-[11px] leading-normal [&_>_strong]:text-muted-foreground [&_>_strong]:font-bold [&_>_div]:flex [&_>_div]:flex-wrap [&_>_div]:gap-x-3 [&_>_div]:gap-y-1 [&_span]:text-left [&_button]:text-left [&_small]:text-muted-foreground [&_small]:ml-1 [&_button]:text-art-blue [&_button]:underline [&_button]:underline-offset-2 max-[700px]:grid-cols-1 max-[700px]:gap-1"><strong>Related meanings</strong><div>{sense.relations.map(relation => <button key={`${relation.rel_type}:${relation.to_word_id}:${relation.to_sense_id}`} type="button" onClick={() => onSelectWord(relation.to_word_id, relation.to_word_lemma)}>{relation.to_word_lemma} <small>{label(relation.rel_type)}</small></button>)}</div></div>}
             {personal && <div className={`flex items-start gap-2 mt-3.5 text-muted-foreground text-[11px] leading-normal${personal.deck_count ? ' text-foreground' : ''}`}>
               <span className={`mt-[3px] size-2.5 shrink-0 rounded-full ${personal.deck_count ? 'bg-art-blue' : 'bg-border'}`} aria-hidden="true" />
-              {personal.deck_count ? <span><strong>In {personal.deck_count} {personal.deck_count === 1 ? 'deck' : 'decks'}</strong>{personal.decks.length > 0 && <span className="flex flex-wrap gap-x-2 gap-y-0.5 mt-0.5 text-muted-foreground [&_a]:underline [&_a]:underline-offset-2">{personal.decks.map(deck => <Link key={deck.id} href={libraryHref(deck.id)}>{deck.name}</Link>)}{personal.decks_has_more && <span>+ more</span>}</span>}</span>
+              {personal.deck_count ? <div><strong>In {personal.deck_count} {personal.deck_count === 1 ? 'deck' : 'decks'}</strong>{account.profile && <MeaningSources nodeId={account.profile.library_node_id} sense={{ sense_id: personal.sense_id, sources: personal.decks, sources_has_more: personal.decks_has_more }} />}</div>
                 : <span>Not in your decks</span>}
             </div>}
           </div><div className="[&_[data-slot=button]]:whitespace-nowrap  max-[700px]:col-start-2">{account.status === 'ready' ? <Button variant="outline" onClick={() => onAdd(sense.id)}><Plus aria-hidden="true" />Add to deck</Button>
@@ -67,7 +68,7 @@ function WordDetail({ word, contexts, contextError, retryContext, onAdd, onSelec
       {account.status === 'ready' && <section><h3>Your progress</h3>{contextError ? <p>Could not load your learning state. <Button variant="link" onClick={retryContext}>Retry</Button></p>
         : contexts ? <><div className="flex items-center gap-3.5 pb-4 [&_>_div]:flex [&_>_div]:flex-col [&_strong]:text-xl [&_strong]:tabular-nums [&_div_span]:text-muted-foreground [&_div_span]:text-[11px]"><span className="size-[54px] flex-none rounded-full relative after:content-[''] after:absolute after:inset-[7px] after:rounded-full after:bg-background" style={{ background: `conic-gradient(var(--art-blue) ${contexts.length ? studied / contexts.length * 100 : 0}%, var(--border) 0)` }} aria-hidden="true" /><div><strong>{studied} / {contexts.length}</strong><span>senses learned</span></div></div><div className="grid grid-cols-3 gap-2.5 [&_>_div]:flex [&_>_div]:flex-col [&_>_div]:gap-1 [&_strong]:text-[23px] [&_strong]:tabular-nums [&_span]:text-[11px] [&_span]:text-muted-foreground"><div><strong>{contexts.filter(item => item.learning.state === 'NEW').length}</strong><span>New</span></div><div><strong>{contexts.filter(item => item.learning.state === 'DUE').length}</strong><span>Due</span></div><div><strong>{contexts.filter(item => item.learning.state === 'NOT_YET_DUE').length}</strong><span>Not yet due</span></div></div></>
           : <p>Loading your learning state…</p>}</section>}
-      {account.status === 'ready' && <section><h3>In your Library</h3>{contexts ? decks.length > 0 ? <><ul className="[&_li]:flex [&_li]:gap-2 [&_li]:items-center [&_li]:border-t [&_li]:border-border [&_li]:py-2.5 [&_li_>_svg]:size-5.5 [&_li_>_svg]:flex-none [&_a]:flex [&_a]:justify-between [&_a]:items-center [&_a]:gap-2.5 [&_a]:w-full [&_a]:text-xs [&_a]:text-left [&_a_span]:min-w-0 [&_a_span]:overflow-hidden [&_a_span]:text-ellipsis [&_a_span]:whitespace-nowrap [&_a_small]:ml-auto [&_a_small]:whitespace-nowrap [&_a_small]:text-muted-foreground [&_a_small]:text-[10px] [&_a_svg]:size-3.5 [&_a_svg]:flex-none">{decks.map(deck => <li key={deck.id}><Icon name="collection" /><Link href={libraryHref(deck.id)}><span>{deck.name}</span><small>{deckCountsPartial ? 'at least ' : ''}{deck.count} {deck.count === 1 ? 'sense' : 'senses'}</small><ArrowRight aria-hidden="true" /></Link></li>)}</ul>{deckCountsPartial && <p>Some deck memberships are not shown here.</p>}</> : <p>Not in a deck yet.</p> : contextError ? <p>Decks unavailable.</p> : <p>Loading decks…</p>}</section>}
+      {account.status === 'ready' && <section><h3>In your Library</h3>{contexts ? decks.length > 0 ? <><ul className="[&_li]:flex [&_li]:gap-2 [&_li]:items-center [&_li]:border-t [&_li]:border-border [&_li]:py-2.5 [&_li_>_svg]:size-5.5 [&_li_>_svg]:flex-none [&_a]:flex [&_a]:justify-between [&_a]:items-center [&_a]:gap-2.5 [&_a]:w-full [&_a]:text-xs [&_a]:text-left [&_a_span]:min-w-0 [&_a_span]:overflow-hidden [&_a_span]:text-ellipsis [&_a_span]:whitespace-nowrap [&_a_small]:ml-auto [&_a_small]:whitespace-nowrap [&_a_small]:text-muted-foreground [&_a_small]:text-[10px] [&_a_svg]:size-3.5 [&_a_svg]:flex-none">{decks.map(deck => <li key={deck.id}><Icon name="collection" /><Link href={nodeHref(deck)}><span>{deck.name}</span><small>{deckCountsPartial ? 'at least ' : ''}{deck.count} {deck.count === 1 ? 'sense' : 'senses'}</small><ArrowRight aria-hidden="true" /></Link></li>)}</ul>{deckCountsPartial && <p>Some deck memberships are not shown here.</p>}</> : <p>Not in a deck yet.</p> : contextError ? <p>Decks unavailable.</p> : <p>Loading decks…</p>}</section>}
       {account.status !== 'ready' && <section><h3>Your Library</h3><p>Sign in to see learning state and saved decks.</p></section>}
       {word.related.length > 0 && <section><h3>Related words</h3><ul className="[&_li]:flex [&_li]:gap-2 [&_li]:items-center [&_li]:border-t [&_li]:border-border [&_li]:py-2.5 [&_button]:flex [&_button]:justify-between [&_button]:items-center [&_button]:gap-2.5 [&_button]:w-full [&_button]:text-xs [&_button]:text-left [&_button_svg]:size-3.5 [&_button_svg]:flex-none [&_small]:text-muted-foreground [&_small]:ml-auto">{word.related.map(related => <li key={related.to_word_id}><button type="button" onClick={() => onSelectWord(related.to_word_id, related.to_word_lemma)}>{related.to_word_lemma} <small>{label(related.rel_type)}</small></button></li>)}</ul></section>}
     </aside>
@@ -88,6 +89,7 @@ export function DictionaryPage({ initialQuery = '' }: { initialQuery?: string })
   const job = useQuery({ queryKey: [services.mode, scope, 'dictionary-generation', jobId], queryFn: ({ signal }) => services.dictionary.generation(jobId!, signal), enabled: Boolean(jobId),
     refetchInterval: query => ['QUEUED', 'RUNNING'].includes(query.state.data?.status ?? '') ? 1500 : false })
   useEffect(() => { if (job.data?.status === 'SUCCEEDED' && job.data.word_id) {
+    if (job.data.stage === 'PARTIAL') toast.info('Entry ready. Some question types are unavailable; study uses the available questions.')
     void queryClient.invalidateQueries({ queryKey: [services.mode, scope, 'dictionary-search'] }).then(() => {
       setSelectedWordId(job.data!.word_id); setAvailable(null); setJobId(null)
     })
@@ -96,7 +98,10 @@ export function DictionaryPage({ initialQuery = '' }: { initialQuery?: string })
     setPreparing(true); setPrepareError('')
     try {
       const result = await services.dictionary.prepare(hit.available_id, hit.display, new AbortController().signal)
-      if (result.status === 'SUCCEEDED' && result.word_id) { setSelectedWordId(result.word_id); setAvailable(null) }
+      if (result.status === 'SUCCEEDED' && result.word_id) {
+        if (result.stage === 'PARTIAL') toast.info('Entry ready. Some question types are unavailable; study uses the available questions.')
+        setSelectedWordId(result.word_id); setAvailable(null)
+      }
       else setJobId(result.generation_id)
     } catch (cause) { setPrepareError(cause instanceof Error ? cause.message : 'Could not prepare this entry. Please retry.') }
     finally { setPreparing(false) }
@@ -108,9 +113,9 @@ export function DictionaryPage({ initialQuery = '' }: { initialQuery?: string })
     toast.success('Meaning added to deck')
     setSenseId(null)
   }
-  async function createDeck(parentId: string, name: string) {
+  async function createDeck(parentId: string, name: string, confirmPublication: boolean) {
     if (senseId == null) return
-    await services.library.createDeck(parentId, name, [senseId], new AbortController().signal)
+    await services.library.createDeck(parentId, name, [senseId], new AbortController().signal, confirmPublication)
     await queryClient.invalidateQueries()
     toast.success('Deck created with this meaning')
     setSenseId(null)

@@ -63,9 +63,10 @@ export function createMockLibrary(db: MockDatabase, now: () => Date) {
     const parents = ancestors(id)
     const target = node.type === 'REFERENCE' ? byId.get(references[id]) : null
     const available = node.type !== 'REFERENCE' || Boolean(target)
-    const foreign = node.id === 'travel-source' || db.public_users.some(user => user.published_node_id === node.id)
+    const author = db.public_users.find(user => user.published_node_id === node.id || parents.some(parent => parent.id === user.published_node_id))
+    const foreign = node.id === 'travel-source' || Boolean(author)
     return { id, name: node.name, type: node.type as LibraryDetails['type'], description: node.description,
-      owner_id: foreign ? 'preview-sam' : account.id,
+      owner_id: author?.id ?? (foreign ? 'preview-sam' : account.id),
       space: foreign || id === account.published_node_id || parents.some(parent => parent.id === account.published_node_id || db.public_users.some(user => user.published_node_id === parent.id)) ? 'PUBLISHED' : id === account.library_node_id ? 'LIBRARY' : 'PERSONAL',
       role: id === account.library_node_id ? 'LIBRARY_ROOT' : id === account.personal_node_id ? 'PERSONAL_ROOT' : id === account.published_node_id ? 'PUBLISHED_ROOT' : 'NORMAL',
       created_at: db.library.created_at, updated_at: node.updated_at ?? db.library.updated_at,
@@ -126,6 +127,33 @@ export function createMockLibrary(db: MockDatabase, now: () => Date) {
     memberships[deckId] = [...new Set([...ids.filter(id => !change.remove.includes(id)), ...change.add])]
     for (const senseId of change.add) if (!due.has(senseId) && senseId > 48) fresh.add(senseId)
   }
+  function discovery(options: ContentsOptions & { type?: 'DECK' | 'FOLDER'; ownerId?: string }) {
+    const q = options.q?.trim().toLowerCase() ?? ''
+    const matches = nodes.filter(node => {
+      const detail = details(node.id)
+      return detail.space === 'PUBLISHED' && detail.role === 'NORMAL' && detail.reference_available !== false &&
+        (!options.type || node.type === options.type) && (!options.ownerId || detail.owner_id === options.ownerId) &&
+        (!q || `${node.name} ${node.description ?? ''}`.toLowerCase().includes(q))
+    })
+    const result = page(matches, options, `discovery:${q}:${options.type ?? ''}:${options.ownerId ?? ''}`)
+    return { nodes: result.items.map(node => ({ id: node.id, name: node.name, type: node.type as LibraryDetails['type'], description: node.description, owner_id: details(node.id).owner_id, summary: null, reference_id: details(node.id).target?.id ?? null, target_type: details(node.id).target?.type ?? null })), next_cursor: result.next_cursor }
+  }
+  function sources(id: string, senseId: number, cursor?: string) {
+    if (!senseIds(id).has(senseId)) throw new HomeApiError(404, 'sense_not_found')
+    const decks = deckIds(id).filter(deck => memberships[deck]?.includes(senseId)).map(deck => ({ id: deck, name: get(deck).name, owner_id: details(deck).owner_id, space: details(deck).space as 'PERSONAL' | 'PUBLISHED' }))
+    const result = page(decks, { cursor, limit: 20 }, `sources:${id}:${senseId}`)
+    return { decks: result.items, next_cursor: result.next_cursor }
+  }
+  function createReference(parentId: string, targetId: string, name: string) {
+    const parent = get(parentId), target = get(targetId)
+    if (parent.type !== 'FOLDER' || parentId === account.library_node_id || details(parentId).owner_id !== account.id || target.type === 'REFERENCE') throw new HomeApiError(422, 'invalid_reference_target')
+    if (parentId === targetId || ancestors(parentId).some(node => node.id === targetId)) throw new HomeApiError(422, 'node_cycle')
+    if (!name.trim() || name.length > 255) throw new HomeApiError(422, 'invalid_node')
+    const id = `preview-reference-${Date.now()}-${nodes.length}`
+    const node = { id, parent_id: parentId, name: name.trim(), type: 'REFERENCE', description: null }
+    nodes.push(node); storedNodes.push(node); byId.set(id, node); references[id] = targetId
+    return id
+  }
   function createNode(parentId: string, type: 'FOLDER' | 'DECK', name: string, description: string | null, senseIds: number[] = []) {
     const parent = get(parentId)
     if (parent.type !== 'FOLDER' || parentId === account.library_node_id || details(parentId).owner_id !== account.id) throw new HomeApiError(422, 'invalid_destination')
@@ -148,11 +176,15 @@ export function createMockLibrary(db: MockDatabase, now: () => Date) {
     if (!change.name.trim() || change.name.trim().length > 255 || change.description !== null && change.description.length > 8000) throw new HomeApiError(422, 'invalid_node')
     node.name = change.name.trim(); node.description = change.description?.trim() || null; node.updated_at = now().toISOString()
   }
-  function moveNode(id: string, parentId: string) {
+  function moveNode(id: string, parentId: string, publication?: { confirm: boolean; retainReference: boolean }) {
     const node = get(id), parent = get(parentId)
     if (details(id).role !== 'NORMAL' || details(id).owner_id !== account.id || parent.type !== 'FOLDER' || parentId === account.library_node_id ||
-      details(parentId).owner_id !== account.id || details(id).space !== details(parentId).space || id === parentId || ancestors(parentId).some(item => item.id === id)) throw new HomeApiError(422, 'invalid_destination')
+      details(parentId).owner_id !== account.id || id === parentId || ancestors(parentId).some(item => item.id === id)) throw new HomeApiError(422, 'invalid_destination')
+    const oldParent = node.parent_id!, oldSpace = details(id).space
+    if (oldSpace === 'PERSONAL' && details(parentId).space === 'PUBLISHED' && !publication?.confirm) throw new HomeApiError(409, 'publication_confirmation_required')
+    if (publication?.retainReference && (oldSpace !== 'PERSONAL' || details(parentId).space !== 'PUBLISHED')) throw new HomeApiError(422, 'invalid_retained_reference')
     node.parent_id = parentId; node.updated_at = now().toISOString()
+    if (publication?.retainReference) createReference(oldParent, references[id] ?? id, node.name)
   }
   function copyNode(id: string, parentId: string): string {
     const source = get(id), parent = get(parentId)
@@ -186,5 +218,5 @@ export function createMockLibrary(db: MockDatabase, now: () => Date) {
     db.library.new_sense_ids = db.library.new_sense_ids.filter(id => id !== senseId)
     db.library.due_sense_ids = db.library.due_sense_ids.filter(id => id !== senseId)
   }
-  return { details, contents, meanings, summary, updateDeckSenses, createDeck, createNode, updateNode, moveNode, copyNode, deleteNode, setLearning }
+  return { discovery, sources, createReference, details, contents, meanings, summary, updateDeckSenses, createDeck, createNode, updateNode, moveNode, copyNode, deleteNode, setLearning }
 }

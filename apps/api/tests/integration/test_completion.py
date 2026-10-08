@@ -130,7 +130,7 @@ async def test_search_vector_weights_updates_and_authoritative_paths(
         result = (await guest.get("/v1/discovery/nodes", params={"q": "Động"})).json()
         assert [node["id"] for node in result["nodes"]] == [str(title["id"])]
         denied = await guest.post(
-            "/v1/study/summaries", json={"node_ids": [str(title["id"]), str(private["id"])]}
+            "/v1/study:batchSummarize", json={"node_ids": [str(title["id"]), str(private["id"])]}
         )
         assert denied.status_code == 404 and "total" not in denied.json()
 
@@ -178,7 +178,7 @@ async def test_native_examples_batched_and_explicit_read_windows(
         )
     deck = await make_node(database[1], user, config, type="DECK", name="bank", sense_ids=senses)
     async with client_for(resources, config, user) as client:
-        word = (await client.post("/v1/words/previews", json={"word_ids": [1]})).json()[0]
+        word = (await client.post("/v1/words:batchPreview", json={"word_ids": [1]})).json()[0]
         assert len(word["senses"][0]["examples"]) == 2
         page = (
             await client.get(f"/v1/nodes/{deck['id']}/senses", params={"include": "examples"})
@@ -515,7 +515,7 @@ async def test_profile_handle_concurrency_and_public_privacy(resources, user, co
         )
         assert sorted(r.status_code for r in responses) == [200, 409]
         winner = next(r.json() for r in responses if r.status_code == 200)
-        public = (await a.get("/v1/users/by-handle/" + handle)).json()
+        public = (await a.get("/v1/users:lookup?handle=" + handle)).json()
         assert public["id"] == winner["id"] and public["handle"] == handle
         assert set(public) == {
             "id",
@@ -530,7 +530,7 @@ async def test_profile_handle_concurrency_and_public_privacy(resources, user, co
         assert (await a.patch("/v1/me/profile", json={"bio": None})).status_code == 200
         assert "pairs" in (await a.get("/v1/me")).json()["learning_options"]
     async with client_for(resources, config, None) as guest:
-        assert (await guest.get("/v1/users/by-handle/" + handle)).status_code == 200
+        assert (await guest.get("/v1/users:lookup?handle=" + handle)).status_code == 200
         assert (await guest.patch("/v1/me/profile", json={"bio": "x"})).status_code == 401
 
 
@@ -572,7 +572,7 @@ async def test_search_discovery_revoke_and_bound_cursors(resources, user, senses
             == 1
         )
         assert (
-            await guest.get(f"/v1/nodes/{deck['id']}/search", params={"q": "bank"})
+            await guest.get(f"/v1/nodes/{deck['id']}:search", params={"q": "bank"})
         ).status_code == 422
         async with sessions() as session:
             system = await roots(session, user.id)
@@ -591,7 +591,7 @@ async def test_search_discovery_revoke_and_bound_cursors(resources, user, senses
         profile = (await owner.get("/v1/me")).json()
         page = (
             await owner.get(
-                f"/v1/nodes/{profile['library_node_id']}/search", params={"q": "secret"}
+                f"/v1/nodes/{profile['library_node_id']}:search", params={"q": "secret"}
             )
         ).json()
         assert page["nodes"][0]["id"] == str(private["id"])
@@ -607,7 +607,7 @@ async def test_dictionary_context_sources_examples_and_sort(resources, user, sen
         for i in range(7)
     ]
     async with client_for(resources, config, user) as client:
-        previews = await client.post("/v1/words/previews", json={"word_ids": [1]})
+        previews = await client.post("/v1/words:batchPreview", json={"word_ids": [1]})
         assert previews.status_code == 200, previews.text
         assert len(previews.json()[0]["senses"]) == 2
         context = await client.get("/v1/me/words/1")
@@ -648,7 +648,9 @@ async def test_dictionary_context_sources_examples_and_sort(resources, user, sen
         key = str(uuid4())
         body = {"results": [{"sense_id": 1, "rating": "GOOD"}]}
         assert (
-            await client.post("/v1/study/reviews", json=body, headers={"Idempotency-Key": key})
+            await client.post(
+                "/v1/study:submitReviews", json=body, headers={"Idempotency-Key": key}
+            )
         ).status_code == 200
         context = (await client.get("/v1/me/words/1")).json()
         assert context["studied"] == 1 and context["new"] == 1
@@ -735,8 +737,10 @@ async def test_deleted_anchor_and_profile_rename(resources, user, config):
         assert (
             await client.patch("/v1/me/profile", json={"handle": "new_handle"})
         ).status_code == 200
-        assert (await client.get("/v1/users/by-handle/old_handle")).status_code == 404
-        assert (await client.get("/v1/users/by-handle/new_handle")).json()["handle"] == "new_handle"
+        assert (await client.get("/v1/users:lookup?handle=old_handle")).status_code == 404
+        assert (await client.get("/v1/users:lookup?handle=new_handle")).json()[
+            "handle"
+        ] == "new_handle"
 
 
 async def test_direct_public_learning_tracking_and_live_context_revocation(
@@ -753,7 +757,7 @@ async def test_direct_public_learning_tracking_and_live_context_revocation(
     )
     async with client_for(resources, config, user) as client:
         submitted = await client.post(
-            "/v1/study/reviews",
+            "/v1/study:submitReviews",
             json={"results": [{"sense_id": 1, "rating": "GOOD"}]},
             headers={"Idempotency-Key": str(uuid4())},
         )
@@ -815,6 +819,6 @@ async def test_lower_hydration_bound_fails_not_partial(resources, user, senses, 
         }
     )
     async with client_for(resources, limited, user) as client:
-        result = await client.post("/v1/words/previews", json={"word_ids": [1]})
+        result = await client.post("/v1/words:batchPreview", json={"word_ids": [1]})
         assert result.status_code == 422 and result.json()["error"] == "lexical_batch_too_large"
         assert (await client.get("/v1/me/words/1")).status_code == 422

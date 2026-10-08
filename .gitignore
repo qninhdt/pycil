@@ -108,6 +108,9 @@ worktrees/
 *.sql.gz
 backup-manifest-*.json
 
+# Local Cambridge snapshot used by the read-only container mount.
+/tmp/cambridge-runtime.db*
+
 # Node.js
 node_modules/
 .pnpm-debug.log*

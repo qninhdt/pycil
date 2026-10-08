@@ -22,7 +22,7 @@ def tools(resources, user, config):
 
     @tool
     async def list_nodes(
-        parent_id: str | None = None,
+        parent_id: UUID | None = None,
         cursor: str | None = None,
         limit: int = 50,
         include: str | None = None,
@@ -32,7 +32,7 @@ def tools(resources, user, config):
             return await nodes.list_nodes(
                 session,
                 user.id,
-                UUID(parent_id) if parent_id else None,
+                parent_id,
                 cursor,
                 config,
                 limit=limit,
@@ -40,72 +40,69 @@ def tools(resources, user, config):
             )
 
     @tool
-    async def get_node(node_id: str):
+    async def get_node(node_id: UUID):
         """Read authorized node metadata and breadcrumbs, not deck membership."""
         async with resources.sessions() as session:
-            return await nodes.node_details(session, UUID(node_id), user.id, config)
+            return await nodes.node_details(session, node_id, user.id, config)
 
     @tool
-    async def get_node_editor(node_id: str):
+    async def get_node_editor(node_id: UUID):
         """Read owned editable metadata and complete deck sense_ids before a full save."""
         async with resources.sessions() as session:
-            return await nodes.editor_snapshot(session, UUID(node_id), user.id, config)
+            return await nodes.editor_snapshot(session, node_id, user.id, config)
 
     @tool
-    async def create_node(data: dict):
-        """Create a folder, deck or live reference. Publication requires approval."""
-        value = NodeCreate.model_validate(data)
+    async def create_node(data: NodeCreate):
+        """Create a folder, deck or live reference in the specified parent."""
         async with resources.sessions() as session:
-            return await nodes.create_node(session, user.id, value, config)
+            return await nodes.create_node(session, user.id, data, config)
 
     @tool
-    async def update_node(node_id: str, data: dict):
-        """Save final metadata and deck sense_ids atomically; requires user approval."""
-        value = NodeSave.model_validate(data)
+    async def update_node(node_id: UUID, data: NodeSave):
+        """Save final metadata and complete deck sense_ids atomically."""
         async with resources.sessions() as session:
-            return await nodes.save_node(session, user.id, UUID(node_id), value, config)
+            return await nodes.save_node(session, user.id, node_id, data, config)
 
     @tool
-    async def delete_node(node_id: str):
-        """Delete an owned normal subtree; requires user approval."""
+    async def delete_node(node_id: UUID):
+        """Delete an owned normal node and its descendants."""
         async with resources.sessions() as session:
-            await nodes.delete_node(session, user.id, UUID(node_id), config)
+            await nodes.delete_node(session, user.id, node_id, config)
         return {"deleted": True}
 
     @tool
-    async def learning_progress(node_id: str | None = None):
+    async def learning_progress(node_id: UUID | None = None):
         """Read exact new/studied/due counts and applied-review recency, not history or mastery."""
         async with resources.sessions() as session:
             current = await session.get(User, user.id)
-            return await progress(session, current, config, UUID(node_id) if node_id else None)
+            return await progress(session, current, config, node_id)
 
     @tool
     async def search_nodes(
         query: str | None = None,
-        node_id: str | None = None,
+        node_id: UUID | None = None,
         cursor: str | None = None,
         limit: int = 50,
         include: str | None = None,
     ):
-        """Search a readable Library/folder scope, or browse/search public Discovery."""
+        """Search a readable Library/folder with node_id; otherwise search public Discovery."""
         async with resources.sessions() as session:
             return await search_service(
                 session,
                 user.id,
                 config,
                 q=query,
-                node_id=UUID(node_id) if node_id else None,
+                node_id=node_id,
                 cursor=cursor,
                 limit=limit,
                 include=include,
             )
 
-    @tool
+    @tool(args_schema=SenseIDs)
     async def sense_context(sense_ids: list[int]):
         """Read personal state and readable Library decks for up to 100 distinct senses."""
-        data = SenseIDs(sense_ids=sense_ids)
         async with resources.sessions() as session:
-            return await viewer_context(session, user.id, config, data.sense_ids)
+            return await viewer_context(session, user.id, config, sense_ids)
 
     return [
         search_words,

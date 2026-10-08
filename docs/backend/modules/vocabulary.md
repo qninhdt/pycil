@@ -16,11 +16,11 @@ the container installs and verifies it during build.
 
 | Operation | Auth | Result |
 | --- | --- | --- |
-| `GET /v1/words/search?query=...` | Optional | Native saved-word matches; optional available reference entries |
+| `GET /v1/words:search?query=...` | Optional | Native saved-word matches; optional available reference entries |
 | `GET /v1/words/{word_id}` | Optional | Native complete Word with separate senses |
-| `POST /v1/words/previews` | Optional | Up to 30 complete word groups / 500 senses, native examples |
+| `POST /v1/words:batchPreview` | Optional | Up to 30 complete word groups / 500 senses, native examples |
 | `GET /v1/me/words/{word_id}` | Required | Viewer progress and Library membership context |
-| `POST /v1/me/senses/context` | Required | Same bounded viewer projection for up to 100 senses |
+| `POST /v1/me/senses:batchReadContext` | Required | Same bounded viewer projection for up to 100 senses |
 | `GET /v1/me/senses/{sense_id}/decks` | Required | Authorized containing-deck overflow |
 | `POST /v1/word-generations` | Required | 202 shared request status and polling URL |
 | `GET /v1/word-generations/{generation_id}` | Required | Current shared status |
@@ -97,16 +97,28 @@ Claim uses an eligible-time/status query, ordering by next attempt/creation/ID, 
 `FOR UPDATE SKIP LOCKED`. It increments attempts and marks RUNNING in a short transaction;
 provider work is not done while holding that row transaction.
 
-Execution calls native generate/resume, records `word_id`, reads existing question-bank
-coverage in batches, and requests only missing questions for each sense/type. Every
-supported question type must reach the configured bank size before READY. Defaults
-are 8 questions/type, 3 distractors, and 5 examples.
+Generation has three sequential phases: one inventory request, concurrent enrichment
+for every inventory sense, then concurrent question generation for every empty
+sense/type bank. Lexi enrichment has no four-request cap. The worker launches all
+missing pairs together, waits for them, and cancels/joins pending tasks on cancellation,
+deadline or nonretryable failure. Provider rate limits and transport/database pools
+can still constrain actual throughput. Execution records `word_id` after enrichment
+publication and reads existing coverage in bounded batches. Defaults target
+8 questions/type and 5 examples; valid batches may contain fewer or more. Each
+question still needs the configured 3 distractors. Known generated labels accept
+either case, invalid examples/questions are filtered individually, and canonical
+duplicates are removed before persistence. Existing nonempty banks are preserved
+through recovery without quota-driven calls.
 
-Each attempt has a 600-second timeout and at most 3 automatic attempts. A transient
-failure requeues after 5 seconds; invalid handle/resource, collision, or validation
-failure is terminal. Sanitized `invalid_selection` / `generation_failed` errors are
-stored rather than raw provider messages. Cancellation intentionally leaves RUNNING
-for recovery by the next exclusive owner.
+Each attempt has a 600-second timeout and at most 3 automatic word-generation attempts.
+Transient word failures requeue after 5 seconds; invalid selection, credentials,
+refusals and other nonretryable errors fail immediately. Native question inference
+has its own bounded retry budget. Exhausted retryable question errors leave other
+banks available and finish with `SUCCEEDED`, stage `PARTIAL`, and sanitized error
+`question_pools_incomplete`. Deadline expiry after word publication also preserves
+that partial result. `READY` means every sense/type has usable questions, not quota
+completion. Partial publication does not guarantee readiness for every study setting.
+Cancellation intentionally leaves RUNNING for recovery by the next exclusive owner.
 
 The worker periodically checks the PostgreSQL coordination connection's backend PID.
 Lost ownership must stop execution, not reconnect silently and continue as a second
