@@ -32,7 +32,7 @@ test('account adapter sends bearer tokens and distinguishes API failures', async
 })
 
 test('Next migration retains canonical art and excludes React Router', () => {
-  const manifest = JSON.parse(readFileSync(resolve('../../tmp/web-migration-manifest.json'), 'utf8'))
+  const manifest = JSON.parse(readFileSync(resolve('tests/fixtures/web-migration-manifest.json'), 'utf8'))
   const packageJson = JSON.parse(readFileSync('package.json', 'utf8'))
   expect(packageJson.dependencies.next).toBeTruthy()
   expect(packageJson.dependencies['react-router']).toBeUndefined()
