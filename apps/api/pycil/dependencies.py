@@ -15,7 +15,10 @@ from pycil.cache import RedisCache
 from pycil.config import Deployment, ProductConfig
 from pycil.database import connect, verify_schema
 from pycil.http import Problem
+from pycil.logging import get_logger
 from pycil.vocabulary.generation import Generations
+
+logger = get_logger(__name__)
 
 
 @asynccontextmanager
@@ -70,7 +73,8 @@ async def process_resources(config: ProductConfig, deployment: Deployment):
             await lexicon.start()
             generations = Generations(lexicon, config)
             stack.push_async_callback(generations.close)
-        except Exception:
+        except Exception as exc:
+            logger.error("resources_initialization_failed", error_type=type(exc).__name__)
             raise RuntimeError(
                 "Runtime initialization failed; verify deployment, reference dataset, "
                 "PostgreSQL/Redis and explicit migration gate"
@@ -89,7 +93,8 @@ async def process_resources(config: ProductConfig, deployment: Deployment):
         try:
             # ExitStack runs every registered closer even when one closer fails.
             await stack.aclose()
-        except Exception:
+        except Exception as exc:
+            logger.error("resources_cleanup_failed", error_type=type(exc).__name__)
             raise RuntimeError("Runtime resource cleanup failed") from None
 
 
@@ -99,6 +104,7 @@ async def session(request: Request):
             yield connection
         except DBAPIError as exc:
             if getattr(exc.orig, "sqlstate", None) == "57014":
+                logger.warning("database_query_timeout", sqlstate="57014")
                 raise Problem(503, "query_timeout") from None
             raise
 

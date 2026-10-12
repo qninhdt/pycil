@@ -20,6 +20,9 @@ from pycil.account.plans import Plan
 from pycil.dependencies import Session
 from pycil.http import Problem
 from pycil.library.tree import provision_library
+from pycil.logging import bind_contextvars, get_logger
+
+logger = get_logger(__name__)
 
 
 class Identity:
@@ -46,6 +49,7 @@ class Identity:
                 raise jwt.InvalidTokenError("invalid subject")
             return subject
         except (jwt.InvalidTokenError, jwt.PyJWKClientError) as exc:
+            logger.warning("auth_token_verification_failed", error_type=type(exc).__name__)
             raise Problem(401, "invalid_credentials") from exc
 
 
@@ -68,13 +72,16 @@ Credentials = Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)]
 
 async def actor(request: Request, session: Session, credentials: Credentials) -> ActorContext:
     if request.headers.get("authorization") is None:
+        logger.warning("auth_credentials_missing")
         raise Problem(401, "authentication_required")
     if credentials is None or not credentials.credentials.strip():
+        logger.warning("auth_credentials_missing")
         raise Problem(401, "invalid_credentials")
     subject = await request.app.state.identity.subject(credentials.credentials)
     cache = session.info.get("cache")
     key = f"actor:v3:{subject}"
     if cache and (context := await cache.get(key, ActorContext)) is not None:
+        bind_contextvars(actor_id=str(context.id))
         return context
     # Verify missing identities with Clerk before provisioning, preventing stale
     # signed tokens from recreating an account whose identity was deleted.
@@ -116,12 +123,15 @@ async def actor(request: Request, session: Session, credentials: Credentials) ->
                 except IntegrityError as exc:
                     if getattr(exc.orig, "sqlstate", None) != "23505":
                         raise
+                    logger.warning("account_handle_collision")
             else:
                 raise Problem(503, "handle_generation_failed")
             await provision_library(session, user.id)
+            logger.info("account_provisioned", user_id=str(user.id))
     context = ActorContext.model_validate(user)
     if cache:
         await cache.put(key, context, cache.policy.actor_ttl_seconds)
+    bind_contextvars(actor_id=str(context.id))
     return context
 
 

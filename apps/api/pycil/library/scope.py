@@ -12,6 +12,9 @@ from sqlalchemy.exc import DBAPIError
 from pycil.http import Problem
 from pycil.library.access import reference_visible, visible
 from pycil.library.models import DeckSense, Node, NodePath, NodeRole, NodeType
+from pycil.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -41,6 +44,10 @@ class Scope:
 async def bounded(session, config, budget):
     remaining = config.library.scope_timeout_seconds - (monotonic() - budget.started_at)
     if remaining <= 0:
+        logger.warning(
+            "library_scope_budget_exhausted",
+            viewer_id=str(budget.viewer_id) if budget.viewer_id is not None else None,
+        )
         raise Problem(503, "scope_timeout")
     try:
         async with asyncio.timeout(remaining):
@@ -50,9 +57,17 @@ async def bounded(session, config, budget):
             )
             yield
     except TimeoutError:
+        logger.warning(
+            "library_scope_timeout",
+            viewer_id=str(budget.viewer_id) if budget.viewer_id is not None else None,
+        )
         raise Problem(503, "scope_timeout") from None
     except DBAPIError as exc:
         if getattr(exc.orig, "sqlstate", None) == "57014":
+            logger.error(
+                "library_statement_timeout",
+                viewer_id=str(budget.viewer_id) if budget.viewer_id is not None else None,
+            )
             raise Problem(503, "scope_timeout") from None
         raise
 

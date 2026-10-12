@@ -70,8 +70,12 @@ export const Reasoning: ReasoningMessagePartComponent = ({ status }) => {
 };
 
 function Attachment({ removable = false }: { removable?: boolean }) {
-  const t = useTranslations("assistant");
   const attachment = useAuiState((s) => s.attachment);
+  return <AttachmentView attachment={attachment} removable={removable} />;
+}
+
+function AttachmentView({ attachment, removable = false }: { attachment: import('@assistant-ui/react').Attachment; removable?: boolean }) {
+  const t = useTranslations("assistant");
   const [preview, setPreview] = useState<string>();
   useEffect(() => {
     if (!attachment.file || !attachment.file.type.startsWith("image/")) return;
@@ -91,14 +95,14 @@ function Attachment({ removable = false }: { removable?: boolean }) {
       ? image.image
       : undefined);
   return (
-    <AttachmentPrimitive.Root className="ai-attachment">
+    <div className="ai-attachment">
       {src ? (
         <img src={src} alt={attachment.name} />
       ) : (
         <Icon name="image" variant="control" tone="color" />
       )}
       <span>
-        <AttachmentPrimitive.Name />
+        <span>{attachment.name}</span>
         {attachment.status.type === "running" && (
           <small>{t("preparingImage")}</small>
         )}
@@ -119,7 +123,7 @@ function Attachment({ removable = false }: { removable?: boolean }) {
           </Button>
         </AttachmentPrimitive.Remove>
       )}
-    </AttachmentPrimitive.Root>
+    </div>
   );
 }
 function ComposerAttachment() {
@@ -139,12 +143,12 @@ function Markdown() {
 }
 
 export function UserMessage() {
+  const submission = useAuiState((s) => s.message.submission);
   return (
     <MessagePrimitive.Root className="ai-message ai-message-user">
       <div className="ai-message-content">
-        <MessagePrimitive.Attachments
-          components={{ Attachment: MessageAttachment }}
-        />
+        {submission ? submission.attachments.map(attachment => <AttachmentView key={attachment.id} attachment={attachment} />)
+          : <MessagePrimitive.Attachments components={{ Attachment: MessageAttachment }} />}
         <MessagePrimitive.Parts components={{ Text: Markdown }} />
       </div>
     </MessagePrimitive.Root>

@@ -11,7 +11,10 @@ from pycil.library.access import published, readable, readable_path, reference_v
 from pycil.library.models import DeckSense, Node, NodePath, NodeRole, NodeSpace, NodeType
 from pycil.library.scope import ScopeBudget
 from pycil.library.tree import add_paths, delete_subtree, move_paths, roots, subtree
+from pycil.logging import get_logger
 from pycil.pagination import decode, encode, includes, page_limit
+
+logger = get_logger(__name__)
 
 
 async def lock_owner(session, owner_id):
@@ -186,6 +189,15 @@ async def create_node(session, owner_id, data, config):
         result = row_data(node)
         if sense_ids is not None:
             result["sense_ids"] = sense_ids
+        logger.info(
+            "library_node_created",
+            node_id=str(node.id),
+            owner_id=str(owner_id),
+            parent_id=str(node.parent_id),
+            type=node.type.value,
+            space=node.space.value,
+            name=node.name,
+        )
     return result
 
 
@@ -268,10 +280,18 @@ async def move_node(session, owner_id, node_id, data, config):
         await lock_owner(session, owner_id)
         node = await owned(session, node_id, owner_id, config)
         normal(node)
+        old_parent = node.parent_id
         retained_id = await move_locked(session, node, data, config)
         node.updated_at = datetime.now(UTC)
         await session.flush()
         result = row_data(node) | {"retained_reference_id": retained_id}
+        logger.info(
+            "library_node_moved",
+            node_id=str(node.id),
+            owner_id=str(owner_id),
+            old_parent_id=str(old_parent),
+            new_parent_id=str(node.parent_id),
+        )
     return result
 
 
@@ -421,6 +441,14 @@ async def copy_node(session, owner_id, node_id, data, config):
         result = row_data(root)
         if root.type is NodeType.DECK:
             result["sense_ids"] = sorted(sense for d, sense in members if d == source.id)
+        logger.info(
+            "library_node_copied",
+            source_node_id=str(source.id),
+            new_node_id=str(root.id),
+            owner_id=str(owner_id),
+            copied_node_count=len(originals),
+            copied_membership_count=len(members),
+        )
     return result
 
 
@@ -430,6 +458,12 @@ async def delete_node(session, owner_id, node_id, config):
         node = await owned(session, node_id, owner_id, config)
         normal(node)
         await delete_subtree(session, node)
+        logger.info(
+            "library_node_deleted",
+            node_id=str(node_id),
+            owner_id=str(owner_id),
+            node_type=node.type.value,
+        )
 
 
 async def list_nodes(session, viewer_id, parent_id, cursor, config, *, limit=None, include=None):
@@ -529,6 +563,14 @@ async def replace_membership(session, node, sense_ids, config):
             )
         )
     await session.flush()
+    logger.info(
+        "library_deck_senses_modified",
+        deck_id=str(node.id),
+        owner_id=str(node.owner_id),
+        added_count=len(additions),
+        removed_count=len(removals),
+        total_count=len(final),
+    )
     return sorted(final)
 
 

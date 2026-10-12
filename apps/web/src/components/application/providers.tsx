@@ -49,6 +49,7 @@ export function useTheme() {
 }
 
 const ACCOUNT_CACHE_KEY = 'pycil-account-cache'
+const subscribeHydration = () => () => {}
 function getCachedAccount(): { name: string; plan?: string } | null {
   if (typeof window === 'undefined') return null
   try {
@@ -101,21 +102,21 @@ function AccountProfileProvider({ state, fallbackName = 'Your account', signOut,
 }
 
 function AccountProvider({ initialAccount, children }: { initialAccount?: AccountProfile | null; children: React.ReactNode }) {
+  const hydrated = useSyncExternalStore(subscribeHydration, () => true, () => false)
   const { isLoaded, isSignedIn, sessionId, getToken, signOut } = useAuth()
   const { isLoaded: sessionLoaded, session } = useSession()
   const { user } = useUser()
   const services = useMemo(() => createHttpServices(getToken), [getToken])
   const scope = sessionId ?? 'signed-out'
   const cached = useMemo(() => getCachedAccount(), [])
-  const hasKnownUser = Boolean(initialAccount || cached)
-  const state = !isLoaded || !sessionLoaded
-    ? (hasKnownUser ? 'authenticated' : 'loading')
+  const state = !hydrated || !isLoaded || !sessionLoaded
+    ? 'loading'
     : session?.currentTask
       ? 'task'
       : !isSignedIn
         ? 'signed-out'
         : 'authenticated'
-  const fallbackName = user?.fullName || user?.primaryEmailAddress?.emailAddress || initialAccount?.display_name || cached?.name || 'Your account'
+  const fallbackName = initialAccount?.display_name || (hydrated ? user?.fullName || user?.primaryEmailAddress?.emailAddress || cached?.name : null) || 'Your account'
 
   return <ServicesProvider key={`live:${scope}`} services={services} scope={scope}>
     <AccountProfileProvider

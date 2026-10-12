@@ -82,12 +82,13 @@ export function createHttpServices(getToken: () => Promise<string | null>): Fron
         }
         return { ...node, summary }
       },
-      contents: (id, options, signal) => {
-        const query = new URLSearchParams({ limit: String(options.limit ?? 12), include: 'summary' })
+      contents: (id, options, signal, publicRead = false) => {
+        const query = new URLSearchParams({ limit: String(options.limit ?? 12) })
+        if (!publicRead) query.set('include', 'summary')
         if (options.cursor) query.set('cursor', options.cursor)
-        if (options.q?.trim()) { query.set('q', options.q.trim()); return libraryPage(`nodes/${encodeURIComponent(id)}:search?${query}`, signal) }
+        if (options.q?.trim()) { query.set('q', options.q.trim()); return libraryPage(`nodes/${encodeURIComponent(id)}:search?${query}`, signal, publicRead) }
         query.set('parent_id', id)
-        return libraryPage(`nodes?${query}`, signal)
+        return libraryPage(`nodes?${query}`, signal, publicRead)
       },
       meanings: (id, options, signal) => {
         const query = new URLSearchParams({ limit: String(options.limit ?? 12), include: 'examples,sources', state: options.state ?? 'ALL', sort: options.sort ?? 'LEMMA_ASC' })

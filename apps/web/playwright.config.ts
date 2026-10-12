@@ -1,25 +1,43 @@
 import { defineConfig } from '@playwright/test'
 
-const port = process.env.PORT || '3000'
-const baseURL = process.env.BASE_URL || `http://127.0.0.1:${port}`
+const integrationURL = 'http://127.0.0.1:3100'
+const liveProvider = process.env.E2E_PROVIDER_PROFILE === 'live'
 
 export default defineConfig({
-  testDir: './tests',
-  fullyParallel: false,
   workers: 1,
-  reporter: 'list',
+  fullyParallel: false,
+  retries: 0,
+  reporter: [['list'], ['html', { outputFolder: 'playwright-report', open: 'never' }]],
+  outputDir: 'test-results',
   use: {
-    baseURL,
     viewport: { width: 1440, height: 1000 },
     reducedMotion: 'reduce',
+    screenshot: 'only-on-failure',
     launchOptions: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
       ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH }
       : undefined,
   },
-  webServer: {
-    command: `pnpm run dev --hostname 127.0.0.1 --port ${port}`,
+  webServer: process.env.E2E_BASE_URL ? undefined : {
+    command: 'pnpm dev --port 3100',
     env: { NEXT_PUBLIC_DATA_MODE: 'mock', NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: '' },
-    url: baseURL,
-    reuseExistingServer: !process.env.CI,
+    url: integrationURL, reuseExistingServer: false,
   },
+  projects: [
+    {
+      name: 'integration', testDir: './tests/integration/browser', testMatch: '**/*.test.ts',
+      use: { baseURL: integrationURL },
+    },
+    { name: 'auth-setup', testDir: './tests/e2e', testMatch: 'auth.setup.ts' },
+    {
+      name: 'e2e', testDir: './tests/e2e', testMatch: '**/*.test.ts', dependencies: ['auth-setup'],
+      grep: liveProvider ? /@live-provider/ : undefined,
+      grepInvert: liveProvider ? undefined : /@live-provider/,
+      timeout: 60000, expect: { timeout: 15000 },
+      use: {
+        baseURL: process.env.E2E_BASE_URL, actionTimeout: 15000, navigationTimeout: 30000,
+        // Auth traces contain bearer tokens and Clerk credentials.
+        trace: 'off', screenshot: 'only-on-failure',
+      },
+    },
+  ],
 })

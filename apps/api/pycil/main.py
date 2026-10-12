@@ -25,13 +25,19 @@ from pycil.http import (
 )
 from pycil.library.api import router as library_router
 from pycil.library.search import router as discovery_router
+from pycil.logging import configure_logging, get_logger
 from pycil.study.api import router as study_router
 from pycil.vocabulary.api import router as vocabulary_router
 
+logger = get_logger(__name__)
+
 
 def create_app() -> FastAPI:
+    configure_logging()
+
     @asynccontextmanager
     async def lifespan(app):
+        configure_logging()
         config = load_config()
         deployment = Deployment.from_environment()
         async with process_resources(config, deployment) as resources:
@@ -41,11 +47,13 @@ def create_app() -> FastAPI:
             for name, value in vars(resources).items():
                 setattr(app.state, name, value)
             try:
+                logger.info("app_startup_completed")
                 yield
             finally:
                 # Closed clients must not remain accessible after shutdown/restart.
                 for name in (*vars(resources), "identity", "product", "deployment"):
                     delattr(app.state, name)
+        logger.info("app_shutdown_completed")
 
     app = FastAPI(
         title="Pycil",
@@ -74,9 +82,25 @@ def create_app() -> FastAPI:
     @app.get("/ready", include_in_schema=False)
     async def ready():
         try:
-            async with app.state.engine.connect() as connection:
-                await connection.execute(text("SELECT 1"))
-            await app.state.redis.ping()
+            try:
+                async with app.state.engine.connect() as connection:
+                    await connection.execute(text("SELECT 1"))
+            except Exception as exc:
+                logger.error(
+                    "readiness_check_failed",
+                    component="database",
+                    error_type=type(exc).__name__,
+                )
+                raise
+            try:
+                await app.state.redis.ping()
+            except Exception as exc:
+                logger.error(
+                    "readiness_check_failed",
+                    component="redis",
+                    error_type=type(exc).__name__,
+                )
+                raise
         except Exception:
             raise Problem(503, "not_ready") from None
         return {"status": "ready"}

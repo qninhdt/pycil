@@ -22,7 +22,10 @@ from pycil.assistant.schemas import (
 )
 from pycil.assistant.stream import prepare_turn
 from pycil.dependencies import Product, Session
+from pycil.logging import get_logger
 from pycil.pagination import decode, encode, page_limit, strict_query
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/v1/assistant", tags=["assistant"])
 
@@ -42,6 +45,11 @@ async def create(data: CreateConversation, user: Actor, session: Session):
         conversation = Conversation(user_id=user.id, title=data.title)
         session.add(conversation)
         await session.flush()
+        logger.info(
+            "conversation_created",
+            conversation_id=str(conversation.id),
+            user_id=str(user.id),
+        )
         return row_data(conversation)
 
 

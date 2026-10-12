@@ -26,6 +26,10 @@ One pair/level matrix serves Free and Pro. Free effectively uses SINGLE_CHOICE w
 
 Aggregate `(sense_id, question_type, quantity)` and call native retrieval with `generate=True`, batch size 8. Lexi fills contextual shortages, saves the full batch and returns the requested capacity. WORD_DEFINITION and WORD_TO_USAGE each use one row per Sense/namespace. Shared views use the maximum demand, not the sum. Pycil builds each occurrence independently from returned artifacts. No runtime question or session is persisted.
 
+Native generation and inference SDK failures return HTTP 503
+`question_generation_unavailable`; changed artifact banks retain HTTP 409
+`learning_content_changed`. Preparation never writes personal learning state.
+
 ## Grading and local session
 
 ```json
@@ -33,6 +37,9 @@ Aggregate `(sense_id, question_type, quantity)` and call native retrieval with `
 ```
 
 Quiz diagnostics are computed locally. Typed answers, including null for “don't know,” go to backend grading. Lexi reads the artifact and current lexical meaning from its database. The response contains artifact/type/format references and task-specific diagnostics; grading writes no learning state.
+
+Native, inference and decision SDK failures return HTTP 503 `grading_unavailable`.
+Unknown artifacts remain HTTP 404 and unsupported formats HTTP 422.
 
 The client uses local occurrence indices, rounds of eight and retry-first scheduling. Initial answers may have at most two practice retries. Lock and persist the answer/timestamp before grading; a network error keeps them locked and consumes no attempt. Retrying practice never replaces the initial diagnostic. Explicit early finish submits completed initial diagnostics only; exit alone submits nothing. Preparation timeout is 30 seconds.
 
@@ -49,7 +56,7 @@ Idempotency-Key: <client-generated UUID>
 
 Accept 1–60 initial results, including repeated artifacts. Persist the ordered body/key locally before sending. The backend consumes diagnostics without regrading or storing answers/session snapshots. Unknown references, incompatible types/formats and future timestamps fail atomically. Reusing a key with changed data returns `review_batch_conflict`; identical replay returns the original receipt.
 
-Correct single-word/definition diagnostics credit the matched Sense; failure affects the requested Sense. Definition matches must belong to the target Word. Convert diagnostics using the [accepted rubrics](../../../question-generation-design.md), then group by evaluated Sense. Bulk reads/upserts and a user transaction lock avoid per-question SQL. Receipts retain converted evidence, opponent Elo and policy version.
+Correct single-word/definition diagnostics credit the matched Sense; failure affects the requested Sense. Definition matches must belong to the target Word. Convert diagnostics using the [accepted rubrics](../../../apps/api/pycil/study/evidence.py), then group by evaluated Sense. Bulk reads/upserts and a user transaction lock avoid per-question SQL. Receipts retain converted evidence, opponent Elo and policy version.
 
 Each `(user, sense)` has shared Elo and Memory. For one group, any recall 0 invokes FSRS Again; otherwise observed recall 1 invokes Good. All-null recall preserves S/D. A new all-null state starts S=1 day, D=5. Every applied group advances exposure and due; FSRS uses native defaults, same-day behavior, retention .9 and a 365-day maximum. Older evidence remains logged and cannot overwrite newer state.
 

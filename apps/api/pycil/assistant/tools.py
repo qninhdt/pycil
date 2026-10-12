@@ -42,7 +42,10 @@ from pycil.library.scope import ScopeBudget
 from pycil.library.search import search_nodes as search_service
 from pycil.library.senses import sense_page
 from pycil.library.tree import roots
+from pycil.logging import get_logger
 from pycil.study.progress import activity, schedules, summaries
+
+logger = get_logger(__name__)
 
 MUTATION_TOOLS = {
     "create_node",
@@ -287,6 +290,7 @@ def tools(resources, user, config):
                 result = await resources.generations.submit(word)
                 results.append(result | {"target": word})
             except Problem as exc:
+                logger.warning("assistant_word_generation_failed", word=word, error=exc.code)
                 results.append(
                     {
                         "target": word,
@@ -369,6 +373,11 @@ def tools(resources, user, config):
                 if result:
                     saved.append((items[-1], result))
             except Problem as exc:
+                logger.warning(
+                    "assistant_batch_node_failed",
+                    node_id=str(identifier),
+                    error=exc.code,
+                )
                 items.append({"source_node_id": identifier, "status": "FAILED", "error": exc.code})
         if saved:
             enriched = await saved_nodes(resources, user.id, config, [r for _, r in saved])

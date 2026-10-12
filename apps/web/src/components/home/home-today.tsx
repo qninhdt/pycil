@@ -1,20 +1,17 @@
 'use client'
 
-import { useState } from 'react'
 import Link from 'next/link'
 import { useTranslations } from 'next-intl'
 import { Plus, RotateCcw } from '@/components/artwork/artwork'
 import { Button } from '@/components/ui/button'
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription, EmptyContent } from '@/components/ui/empty'
 import type { HomeResource } from '@/hooks/use-learning'
-import type { StudySummary, SessionSelection } from '@/lib/home-api'
+import type { StudySummary } from '@/lib/home-api'
 import { dayLabel } from '@/lib/home-calendar'
 import { HomeFailure, HomeLoading, StatusShape } from './home-state'
-import { HomeSession } from './home-session'
 
 export function HomeToday({ summary, today }: { summary: HomeResource<StudySummary>; today: string | null }) {
   const t = useTranslations('home')
-  const [selection, setSelection] = useState<SessionSelection | null>(null)
   const data = summary.data
 
   return <section aria-labelledby="home-today-title">
@@ -30,13 +27,12 @@ export function HomeToday({ summary, today }: { summary: HomeResource<StudySumma
           <div><dt><StatusShape state="not-due" />{t('notDue')}</dt><dd>{data.not_due.toLocaleString('en')}</dd><p>{t('notDueDesc')}</p></div>
         </dl>
         <div className="flex flex-wrap items-center gap-3 my-7 max-md:my-4 max-md:flex-col max-md:items-stretch max-md:gap-2.5 [&_p]:text-xs [&_p]:text-muted-foreground [&_p]:leading-relaxed">
-          {data.due > 0 ? <Button size="lg" variant="red" className="max-md:w-full" onClick={() => setSelection('DUE')}>{t('startReview')}</Button>
-            : data.new > 0 ? <Button size="lg" variant="yellow" className="max-md:w-full" onClick={() => setSelection('NEW')}>{t('learnNew')}</Button>
-            : <Button size="lg" className="max-md:w-full" onClick={() => setSelection('AUTO')}>{t('practice')}</Button>}
-          {data.due > 0 && data.new > 0 && <Button size="lg" variant="outline" className="max-md:w-full" onClick={() => setSelection('NEW')}>{t('learnNew')}</Button>}
+          {data.due > 0 ? <Button size="lg" variant="red" className="max-md:w-full" asChild><Link href={`/focus/learn?node=${encodeURIComponent(data.node_id)}&selection=DUE`}>{t('startReview')}</Link></Button>
+            : data.new > 0 ? <Button size="lg" variant="yellow" className="max-md:w-full" asChild><Link href={`/focus/learn?node=${encodeURIComponent(data.node_id)}&selection=NEW`}>{t('learnNew')}</Link></Button>
+            : <Button size="lg" className="max-md:w-full" asChild><Link href={`/focus/learn?node=${encodeURIComponent(data.node_id)}&selection=AUTO`}>{t('practice')}</Link></Button>}
+          {data.due > 0 && data.new > 0 && <Button size="lg" variant="outline" className="max-md:w-full" asChild><Link href={`/focus/learn?node=${encodeURIComponent(data.node_id)}&selection=NEW`}>{t('learnNew')}</Link></Button>}
           {data.due === 0 && <p className="max-md:text-center">{t('noReviewsDue')}. {data.new > 0 ? t('makeRoomNew') : t('practiceEarlyOrReturn')}</p>}
         </div>
-        {selection && <HomeSession key={selection} nodeId={data.node_id} selection={selection} close={() => setSelection(null)} />}
         <div className="pt-[18px] border-t border-border [&_p]:flex [&_p]:flex-wrap [&_p]:items-baseline [&_p]:gap-1 [&_p]:text-xs [&_strong]:font-extrabold">
           <p><strong>{data.total.toLocaleString('en')}</strong> {t('meaningsInLibrary')}</p>
           <div className="home-status-band h-1.5 flex w-full mt-3 [&_>_span]:basis-0 [&_[data-status=due]]:bg-art-red [&_[data-status=new]]:bg-art-yellow [&_[data-status=not-due]]:bg-art-blue" role="img" aria-label={t('statusBandAria', { due: data.due, new: data.new, notDue: data.not_due, total: data.total })}>

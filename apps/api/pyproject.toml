@@ -23,6 +23,7 @@ dependencies = [
   "ag-ui-protocol>=1.0.0",
   "ag-ui-langgraph>=0.0.46",
   "langchain-openrouter>=0.2.9",
+  "structlog>=26.1.0",
 ]
 
 [tool.uv]

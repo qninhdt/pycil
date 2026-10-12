@@ -17,6 +17,9 @@ from pydantic import ValidationError
 
 from pycil.assistant.tools import MUTATION_TOOLS, tools, validation_message
 from pycil.http import Problem
+from pycil.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class Boundary(AgentMiddleware):
@@ -67,29 +70,52 @@ class Boundary(AgentMiddleware):
         if self.turn_context is not None:
             position = max(i for i, message in enumerate(history) if message.type == "human")
             history.insert(position + 1, HumanMessage(content=self.turn_context))
+        logger.debug("assistant_llm_call_started")
         try:
             return await handler(request.override(messages=history))
-        except Exception:
+        except Exception as exc:
+            logger.exception("assistant_llm_call_failed", error_type=type(exc).__name__)
             raise RuntimeError("assistant_provider_unavailable") from None
 
     async def awrap_tool_call(self, request, handler):
+        tool_name = request.tool_call["name"]
+        tool_call_id = request.tool_call["id"]
+        logger.info(
+            "assistant_tool_call_started",
+            tool_name=tool_name,
+            tool_call_id=tool_call_id,
+        )
         try:
             return await handler(request)
         except Problem as exc:
+            logger.warning(
+                "assistant_tool_call_problem",
+                tool_name=tool_name,
+                status=exc.status,
+                code=exc.code,
+            )
             return ToolMessage(
                 content=exc.code,
-                tool_call_id=request.tool_call["id"],
-                name=request.tool_call["name"],
+                tool_call_id=tool_call_id,
+                name=tool_name,
                 status="error",
             )
         except ValidationError as exc:
+            logger.warning(
+                "assistant_tool_validation_failed",
+                tool_name=tool_name,
+            )
             return ToolMessage(
                 content=validation_message(exc),
-                tool_call_id=request.tool_call["id"],
-                name=request.tool_call["name"],
+                tool_call_id=tool_call_id,
+                name=tool_name,
                 status="error",
             )
         except Exception:
+            logger.exception(
+                "assistant_tool_call_failed",
+                tool_name=tool_name,
+            )
             raise RuntimeError("assistant_tool_failed") from None
 
 

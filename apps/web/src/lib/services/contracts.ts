@@ -38,7 +38,7 @@ export interface FrontendServices {
     publicNode: (nodeId: string, signal: AbortSignal) => Promise<LibraryDetails>
     publicMeanings: (nodeId: string, cursor: string | undefined, signal: AbortSignal) => Promise<MeaningPage>
     details: (nodeId: string, signal: AbortSignal) => Promise<LibraryDetails>
-    contents: (nodeId: string, options: ContentsOptions, signal: AbortSignal) => Promise<LibraryPage>
+    contents: (nodeId: string, options: ContentsOptions, signal: AbortSignal, publicRead?: boolean) => Promise<LibraryPage>
     meanings: (nodeId: string, options: MeaningOptions, signal: AbortSignal) => Promise<MeaningPage>
     updateDeckSenses: (deckId: string, change: { add: number[]; remove: number[] }, signal: AbortSignal) => Promise<void>
     createDeck: (parentId: string, name: string, senseIds: number[], signal: AbortSignal, confirmPublication?: boolean) => Promise<string>

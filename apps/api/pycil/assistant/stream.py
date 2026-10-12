@@ -26,6 +26,9 @@ from pycil.assistant.models import Conversation
 from pycil.assistant.schemas import CurrentView
 from pycil.http import Problem
 from pycil.library.nodes import node_details
+from pycil.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 def validate_input(data, config):
@@ -83,12 +86,22 @@ def validate_input(data, config):
                     raise Problem(422, "invalid_message_content")
     if chars > config.assistant.max_message_chars or images > config.assistant.max_images:
         raise Problem(413, "assistant_request_too_large")
-    return identifier, policy, effort
+    return identifier, policy, effort, chars, images
 
 
 @asynccontextmanager
 async def prepare_turn(resources, deployment, user, data, config):
-    identifier, policy, effort = validate_input(data, config)
+    identifier, policy, effort, chars, images = validate_input(data, config)
+    logger.info(
+        "assistant_run_started",
+        conversation_id=str(identifier),
+        user_id=str(user.id),
+        model_id=policy.id,
+        effort=effort,
+        message_count=len(data.messages),
+        message_chars=chars,
+        image_count=images,
+    )
     async with resources.sessions() as session:
         await owned(session, user.id, identifier)
         saved_settings = await session.scalar(select(User.settings).where(User.id == user.id))
@@ -170,7 +183,16 @@ async def prepare_turn(resources, deployment, user, data, config):
             moment, key = datetime.now(UTC), uuid7()
             if not rejection:
                 async with resources.sessions() as session:
-                    await admit(session, user.id, config, Feature.ASSISTANT, moment)
+                    try:
+                        await admit(session, user.id, config, Feature.ASSISTANT, moment)
+                    except Problem as exc:
+                        if exc.status == 403:
+                            logger.warning(
+                                "assistant_quota_exhausted",
+                                user_id=str(user.id),
+                                conversation_id=str(identifier),
+                            )
+                        raise
                 minute = int(moment.timestamp()) // 60
                 starts = await resources.redis.eval(
                     "local n=redis.call('INCR',KEYS[1]); "
@@ -179,6 +201,11 @@ async def prepare_turn(resources, deployment, user, data, config):
                     f"pycil:assistant:starts:{user.id}:{minute}",
                 )
                 if starts > config.assistant.starts_per_minute:
+                    logger.warning(
+                        "assistant_rate_limit_exceeded",
+                        user_id=str(user.id),
+                        conversation_id=str(identifier),
+                    )
                     raise Problem(429, "assistant_start_limit")
             encoder = EventEncoder()
 
@@ -196,6 +223,7 @@ async def prepare_turn(resources, deployment, user, data, config):
                     emit_interrupt_outcome=True,
                     emit_raw_events=False,
                 )
+                logger.info("assistant_stream_started", conversation_id=str(identifier))
                 try:
                     async with aclosing(adapter.run(data)) as native_events:
                         async for event in native_events:
@@ -205,6 +233,10 @@ async def prepare_turn(resources, deployment, user, data, config):
                                 )
                             yield encoder.encode(event)
                 except Exception:
+                    logger.exception(
+                        "assistant_stream_failed",
+                        conversation_id=str(identifier),
+                    )
                     yield encoder.encode(
                         RunErrorEvent(type=EventType.RUN_ERROR, message="assistant_failed")
                     )
@@ -222,12 +254,24 @@ async def prepare_turn(resources, deployment, user, data, config):
                                     unmetered_calls=meter.unmetered_calls,
                                     moment=moment,
                                 )
+                            logger.info(
+                                "assistant_units_settled",
+                                user_id=str(user.id),
+                                conversation_id=str(identifier),
+                                units=meter.units,
+                            )
                         async with resources.sessions() as session, session.begin():
                             await session.execute(
                                 update(Conversation)
                                 .where(Conversation.id == identifier)
                                 .values(updated_at=datetime.now(UTC))
                             )
+                        logger.info(
+                            "assistant_stream_closed",
+                            conversation_id=str(identifier),
+                            units=meter.units,
+                            unmetered_calls=meter.unmetered_calls,
+                        )
 
             iterator = events()
             try:

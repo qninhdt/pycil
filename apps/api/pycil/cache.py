@@ -1,11 +1,11 @@
 """Optional detached Redis values; bounded independently of coordination keys."""
 
-import logging
-
 import orjson
 from redis.exceptions import RedisError
 
-logger = logging.getLogger(__name__)
+from pycil.logging import get_logger
+
+logger = get_logger(__name__)
 
 # Expiration-ordered admission bounds keys even across multiple API processes.
 # This touches only this cache namespace, never leases or rate-limit keys.
@@ -43,7 +43,7 @@ class RedisCache:
             payload = await self.redis.get(self.key(key))
             return model.model_validate(orjson.loads(payload)) if payload is not None else None
         except RedisError, ValueError, TypeError:
-            logger.warning("Optional cache read failed")
+            logger.warning("cache_read_failed", cache_key=key)
             return None
 
     async def put(self, key, value, ttl):
@@ -68,7 +68,7 @@ class RedisCache:
                 index_ttl,
             )
         except RedisError:
-            logger.warning("Optional cache write failed")
+            logger.warning("cache_write_failed", cache_key=key)
 
     async def discard(self, key):
         try:
@@ -77,4 +77,4 @@ class RedisCache:
                 pipeline.zrem(self.index, self.key(key))
                 await pipeline.execute()
         except RedisError:
-            logger.warning("Optional cache invalidation failed")
+            logger.warning("cache_invalidation_failed", cache_key=key)

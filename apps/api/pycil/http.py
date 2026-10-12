@@ -1,6 +1,6 @@
 """Safe errors, correlation, CORS and bounded bodies without buffering responses."""
 
-import logging
+import time
 from uuid import UUID, uuid7
 
 from fastapi import Request
@@ -11,6 +11,10 @@ from starlette.datastructures import Headers, MutableHeaders
 from starlette.exceptions import HTTPException
 from starlette.middleware.cors import CORSMiddleware
 from starlette.types import ASGIApp, Receive, Scope, Send
+
+from pycil.logging import bind_contextvars, clear_contextvars, get_logger
+
+logger = get_logger("pycil.http")
 
 
 class Problem(Exception):
@@ -32,6 +36,9 @@ async def problem_response(request: Request, error: Problem):
 
 async def validation_response(request: Request, error: RequestValidationError):
     # FastAPI's default includes input values, which can contain credentials/content.
+    logger.warning(
+        "http_validation_failed", fields=[list(e.get("loc", [])) for e in error.errors()]
+    )
     return JSONResponse({"error": "invalid_request"}, status_code=422)
 
 
@@ -51,32 +58,50 @@ class RequestBoundary:
     async def __call__(self, scope: Scope, receive: Receive, send: Send):
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
+        clear_contextvars()
         incoming = Headers(scope=scope).get("x-request-id", "")
         try:
             request_id = str(UUID(incoming))
         except ValueError:
             request_id = str(uuid7())
         scope.setdefault("state", {})["request_id"] = request_id
+        bind_contextvars(
+            request_id=request_id,
+            method=scope.get("method"),
+            path=scope.get("path"),
+        )
+        started_at = time.perf_counter()
         started = False
+        status_code: int | None = None
 
         async def correlated_send(message):
-            nonlocal started
+            nonlocal started, status_code
             if message["type"] == "http.response.start":
+                status_code = message.get("status")
                 MutableHeaders(scope=message)["X-Request-ID"] = request_id
                 started = True
             await send(message)
 
         try:
-            await self.app(scope, receive, correlated_send)
-        except Exception:
-            # Log correlation only: raw provider/DB exceptions can contain secrets.
-            logging.getLogger("pycil.http").error("request_failed request_id=%s", request_id)
-            if started:
-                # Never send a second status or turn a truncated stream into success.
-                raise RuntimeError(f"Response interrupted; request_id={request_id}") from None
-            await JSONResponse({"error": "internal_error"}, status_code=500)(
-                scope, receive, correlated_send
-            )
+            try:
+                await self.app(scope, receive, correlated_send)
+            except Exception:
+                # Log correlation only: raw provider/DB exceptions can contain secrets.
+                logger.error("request_failed")
+                if started:
+                    # Never send a second status or turn a truncated stream into success.
+                    raise RuntimeError(f"Response interrupted; request_id={request_id}") from None
+                await JSONResponse({"error": "internal_error"}, status_code=500)(
+                    scope, receive, correlated_send
+                )
+            if status_code is not None:
+                logger.info(
+                    "http_request_completed",
+                    status_code=status_code,
+                    duration_ms=round((time.perf_counter() - started_at) * 1000, 2),
+                )
+        finally:
+            clear_contextvars()
 
 
 class RuntimeCORS:
@@ -89,16 +114,19 @@ class RuntimeCORS:
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
         deployment = getattr(scope["app"].state, "deployment", None)
-        origins = tuple(deployment.allowed_origins) if deployment else ()
+        origins = tuple(deployment.allowed_origins) if (deployment and deployment.allowed_origins) else (
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+        )
         if self.cors is None or self.origins != origins:
             self.origins = origins
             self.cors = CORSMiddleware(
                 self.app,
                 allow_origins=origins,
                 allow_credentials=True,
-                allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
-                allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Request-ID"],
-                expose_headers=["X-Request-ID"],
+                allow_methods=["*"],
+                allow_headers=["*"],
+                expose_headers=["*"],
             )
         await self.cors(scope, receive, send)
 
@@ -118,10 +146,17 @@ class BodyLimit:
                 if length < 0:
                     raise ValueError
             except ValueError:
+                logger.warning("http_invalid_content_length", content_length_raw=declared)
                 return await JSONResponse({"error": "invalid_request"}, status_code=400)(
                     scope, receive, send
                 )
             if length > max_bytes:
+                logger.warning(
+                    "http_body_limit_exceeded",
+                    max_bytes=max_bytes,
+                    content_length=length,
+                    phase="header",
+                )
                 return await JSONResponse({"error": "body_too_large"}, status_code=413)(
                     scope, receive, send
                 )
@@ -134,6 +169,12 @@ class BodyLimit:
                 return
             size += len(message.get("body", b""))
             if size > max_bytes:
+                logger.warning(
+                    "http_body_limit_exceeded",
+                    max_bytes=max_bytes,
+                    content_length=size,
+                    phase="stream",
+                )
                 return await JSONResponse({"error": "body_too_large"}, status_code=413)(
                     scope, receive, send
                 )

@@ -1,0 +1,1345 @@
+[
+  {
+    "source": "tests/foundation.spec.ts",
+    "line": 8,
+    "target": "apps/web/tests/unit/auth-flow.test.ts",
+    "title": "test('post-auth destinations cannot leave the application subtree', () => {\n  for (const value of ['https://evil.example', '//evil.example', '/app\\\\ev"
+  },
+  {
+    "source": "tests/foundation.spec.ts",
+    "line": 15,
+    "target": "apps/web/tests/integration/services/http-services.test.ts",
+    "title": "test('account adapter sends bearer tokens and distinguishes API failures', async () => {\n  const original = globalThis.fetch\n  let request: RequestIni"
+  },
+  {
+    "source": "tests/foundation.spec.ts",
+    "line": 33,
+    "target": "apps/web/tests/integration/browser/app-shell.test.ts",
+    "title": "test('app routes, deck creation dialog, account menu and theme persist', async ({ page }) => {\n  const errors: string[] = []\n  page.on('pageerror', er"
+  },
+  {
+    "source": "tests/foundation.spec.ts",
+    "line": 60,
+    "target": "apps/web/tests/integration/browser/workspace-scroll.test.ts",
+    "title": "test('page navigation starts at the top and history restores each visit in the workspace', async ({ page }) => {\n  for (const width of [1440, 390]) {\n"
+  },
+  {
+    "source": "tests/foundation.spec.ts",
+    "line": 115,
+    "target": "apps/web/tests/integration/browser/workspace-scroll.test.ts",
+    "title": "test('history restoration waits for content and stops when the user scrolls', async ({ page }) => {\n  await page.setViewportSize({ width: 1440, height"
+  },
+  {
+    "source": "tests/foundation.spec.ts",
+    "line": 149,
+    "target": "apps/web/tests/integration/browser/app-shell.test.ts",
+    "title": "test('navbar keeps its five primary items on Profile and Settings without a square strip', async ({ page }) => {\n  for (const width of [1440, 390]) {\n"
+  },
+  {
+    "source": "tests/foundation.spec.ts",
+    "line": 181,
+    "target": "apps/web/tests/unit/artwork.test.ts",
+    "title": "test('seeded patterns are deterministic, balanced and extend without changing existing blocks', () => {\n  const blocks = generateBauhausPattern('pycil"
+  },
+  {
+    "source": "tests/foundation.spec.ts",
+    "line": 195,
+    "target": "apps/web/tests/integration/browser/artwork.test.ts",
+    "title": "test('pattern resizes its block count without clipping and keeps its seed across resize and reload', async ({ page }) => {\n  await page.goto('/app')\n "
+  },
+  {
+    "source": "tests/foundation.spec.ts",
+    "line": 222,
+    "target": "apps/web/tests/integration/browser/artwork.test.ts",
+    "title": "test('main pattern renders complete responsive tiles before hydration without JavaScript', async ({ browser, page }) => {\n  const unhydrated = await b"
+  },
+  {
+    "source": "tests/foundation.spec.ts",
+    "line": 248,
+    "target": "apps/web/tests/integration/browser/auth-forms.test.ts",
+    "title": "test('login validates and reveals password without fake authentication', async ({ page }) => {\n  await page.goto('/login')\n  await expect(page.getByRo"
+  },
+  {
+    "source": "tests/foundation.spec.ts",
+    "line": 265,
+    "target": "apps/web/tests/integration/browser/app-shell.test.ts",
+    "title": "test('collapsed navigation has one tooltip, compact logo, no horizontal scrolling and authored active icon', async ({ page }) => {\n  await page.goto('"
+  },
+  {
+    "source": "tests/foundation.spec.ts",
+    "line": 301,
+    "target": "apps/web/tests/integration/browser/app-shell.test.ts",
+    "title": "test('brand uses vector lettering and shell reveal transitions have no stagger', async ({ page }) => {\n  await page.emulateMedia({ reducedMotion: 'no-"
+  },
+  {
+    "source": "tests/foundation.spec.ts",
+    "line": 323,
+    "target": "apps/web/tests/integration/browser/app-shell.test.ts",
+    "title": "test('collapse handle stays at account center and enlarged brand mark stays centered', async ({ page }) => {\n  await page.goto('/app')\n  for (const he"
+  },
+  {
+    "source": "tests/foundation.spec.ts",
+    "line": 347,
+    "target": "apps/web/tests/integration/browser/app-shell.test.ts",
+    "title": "test('mobile rail dropdowns open above their triggers without horizontal overflow', async ({ page }) => {\n  for (const width of [320, 390]) {\n    awai"
+  },
+  {
+    "source": "tests/foundation.spec.ts",
+    "line": 369,
+    "target": "apps/web/tests/integration/browser/app-shell.test.ts",
+    "title": "test('account dropdown shares New item spacing and separators meet the border on desktop and mobile', async ({ page }) => {\n  for (const width of [144"
+  },
+  {
+    "source": "tests/foundation.spec.ts",
+    "line": 409,
+    "target": "apps/web/tests/integration/browser/app-shell.test.ts",
+    "title": "test('dropdown hover and keyboard focus remain visible in both themes', async ({ page }) => {\n  await page.goto('/app')\n  for (const dark of [false, t"
+  },
+  {
+    "source": "tests/foundation.spec.ts",
+    "line": 450,
+    "target": "apps/web/tests/integration/browser/app-shell.test.ts",
+    "title": "test('brand construction axes extend beyond the arc and rail dividers share the outer border color', async ({ page }) => {\n  await page.clock.setFixed"
+  },
+  {
+    "source": "tests/foundation.spec.ts",
+    "line": 476,
+    "target": "apps/web/tests/integration/browser/app-shell.test.ts",
+    "title": "test('account popup clears the collapse hit area and the dark mode row and square switch keep it open', async ({ page }) => {\n  await page.goto('/app'"
+  },
+  {
+    "source": "tests/foundation.spec.ts",
+    "line": 520,
+    "target": "apps/web/tests/integration/browser/app-shell.test.ts",
+    "title": "test('mobile theme switch stays in its popup', async ({ page }) => {\n  await page.setViewportSize({ width: 320, height: 844 })\n  await page.goto('/app"
+  },
+  {
+    "source": "tests/foundation.spec.ts",
+    "line": 535,
+    "target": "apps/web/tests/integration/browser/app-shell.test.ts",
+    "title": "test('account lettering stays on one line throughout sidebar expansion', async ({ page }) => {\n  await page.emulateMedia({ reducedMotion: 'no-preferen"
+  },
+  {
+    "source": "tests/foundation.spec.ts",
+    "line": 558,
+    "target": "apps/web/tests/integration/browser/auth-forms.test.ts",
+    "title": "test('signup requires matching passwords, recovery and callbacks are reachable', async ({ page }) => {\n  await page.goto('/signup')\n  await page.getBy"
+  },
+  {
+    "source": "tests/foundation.spec.ts",
+    "line": 577,
+    "target": "apps/web/tests/integration/browser/app-shell.test.ts",
+    "title": "test('mobile drawer navigates, closes and returns focus; small widths do not overflow', async ({ page }) => {\n  await page.setViewportSize({ width: 39"
+  },
+  {
+    "source": "tests/foundation.spec.ts",
+    "line": 600,
+    "target": "apps/web/tests/integration/browser/app-shell.test.ts",
+    "title": "test('foundation desktop/mobile light/dark visual matrix', async ({ page }) => {\n  const directory = process.env.FOUNDATION_SCREENSHOT_DIR || '.impecc"
+  },
+  {
+    "source": "tests/services.spec.ts",
+    "line": 14,
+    "target": "apps/web/tests/integration/services/preview-services.test.ts",
+    "title": "test('profile edits persist all public fields and reject duplicate handles atomically', async () => {\n  const services = createMockServices({ latency:"
+  },
+  {
+    "source": "tests/services.spec.ts",
+    "line": 24,
+    "target": "apps/web/tests/integration/services/preview-services.test.ts",
+    "title": "test('assistant settings are independent of learning settings and start disabled', async () => {\n  const services = createMockServices({ latency: 0 })"
+  },
+  {
+    "source": "tests/services.spec.ts",
+    "line": 35,
+    "target": "apps/web/tests/integration/services/preview-services.test.ts",
+    "title": "test('Free quiz selection preserves saved Pro formats and prepares the effective pair', async () => {\n  const seed = structuredClone(database)\n  seed."
+  },
+  {
+    "source": "tests/services.spec.ts",
+    "line": 54,
+    "target": "apps/web/tests/integration/services/assistant-service.test.ts",
+    "title": "test('conversation deletion sends authenticated DELETE, handles 204 and preserves backend errors', async () => {\n  const original = globalThis.fetch\n "
+  },
+  {
+    "source": "tests/services.spec.ts",
+    "line": 72,
+    "target": "apps/web/tests/unit/account-contracts.test.ts",
+    "title": "test('AI allowance uses backend units, including overspend, and rejects inconsistent data', async () => {\n  const allowance = { period_start: '2026-10",
+    "current_test": "allowance uses backend units including overspend and rejects inconsistent data"
+  },
+  {
+    "source": "tests/services.spec.ts",
+    "line": 88,
+    "target": "apps/web/tests/unit/data-mode.test.ts",
+    "title": "test('mode selection defaults to live and rejects misspelled configuration', () => {\n  expect(resolveDataMode()).toBe('live')\n  expect(resolveDataMode"
+  },
+  {
+    "source": "tests/services.spec.ts",
+    "line": 95,
+    "target": "apps/web/tests/integration/services/preview-services.test.ts",
+    "title": "test('JSON adapter implements the shared contract entirely offline and protects the seed', async () => {\n  const original = globalThis.fetch\n  let cal"
+  },
+  {
+    "source": "tests/services.spec.ts",
+    "line": 124,
+    "target": "apps/web/tests/integration/services/preview-services.test.ts",
+    "title": "test('mock cancellation, invalid scopes and selection modes behave like a service, not component constants', async () => {\n  const service = createMoc"
+  },
+  {
+    "source": "tests/services.spec.ts",
+    "line": 138,
+    "target": "apps/web/tests/integration/services/http-services.test.ts",
+    "title": "test('live adapter uses real bearer HTTP requests with no fallback to mock data', async () => {\n  const original = globalThis.fetch\n  const requests: "
+  },
+  {
+    "source": "tests/services.spec.ts",
+    "line": 157,
+    "target": null,
+    "title": "test('query keys isolate mock/live and user scopes even for the same resource', async () => {\n  const queryClient = new QueryClient()\n  try {\n    quer",
+    "reason": "Dependency-only QueryClient assertions removed; actual provider/hook scoping remains under integration and is being strengthened."
+  },
+  {
+    "source": "tests/services.spec.ts",
+    "line": 169,
+    "target": "apps/web/tests/integration/services/http-services.test.ts",
+    "title": "test('live action requests preserve payloads, review keys and bearer authentication', async () => {\n  const original = globalThis.fetch\n  const calls:"
+  },
+  {
+    "source": "tests/services.spec.ts",
+    "line": 205,
+    "target": "apps/web/tests/integration/services/http-services.test.ts",
+    "title": "test('live Library writes use targeted contracts and explicit publication consent', async () => {\n  const original = globalThis.fetch\n  const calls: {"
+  },
+  {
+    "source": "tests/services.spec.ts",
+    "line": 231,
+    "target": "apps/web/tests/integration/services/assistant-service.test.ts",
+    "title": "test('live Assistant action returns the native SSE response', async () => {\n  const original = globalThis.fetch\n  const stream = new Response('data: {"
+  },
+  {
+    "source": "tests/services.spec.ts",
+    "line": 248,
+    "target": "apps/web/tests/integration/services/http-services.test.ts",
+    "title": "test('Discovery is public and source pages preserve canonical owner routes', async () => {\n  const original = globalThis.fetch\n  const calls: { path: "
+  },
+  {
+    "source": "tests/services.spec.ts",
+    "line": 267,
+    "target": "apps/web/tests/integration/services/preview-services.test.ts",
+    "title": "test('preview Discovery, references and publication use the shared Library state', async () => {\n  const service = createMockServices({ latency: 0 })\n"
+  },
+  {
+    "source": "tests/library-services.spec.ts",
+    "line": 16,
+    "target": "apps/web/tests/integration/services/preview-services.test.ts",
+    "title": "test('references use the existing create endpoint and enforce publication boundaries', async () => {\n  const service = createMockServices({ latency: 0"
+  },
+  {
+    "source": "tests/library-services.spec.ts",
+    "line": 35,
+    "target": "apps/web/tests/unit/artwork.test.ts",
+    "title": "test('adaptive background canvases fill arbitrary ratios without cropping or x/y distortion', () => {\n  for (const [width, height] of [[400, 240], [12"
+  },
+  {
+    "source": "tests/library-services.spec.ts",
+    "line": 46,
+    "target": "apps/web/tests/unit/artwork.test.ts",
+    "title": "test('flashcard seeds select only the existing 16 backgrounds, independent of order or deck', () => {\n  const senses = database.dictionary.words.map(p"
+  },
+  {
+    "source": "tests/library-services.spec.ts",
+    "line": 61,
+    "target": "apps/web/tests/unit/marked-text.test.ts",
+    "title": "test('marked text follows backend inflections, repeated/discontinuous targets and Unicode', () => {\n  const codes = ['', 'p', 'pp', '3', 'ing', 'pl', "
+  },
+  {
+    "source": "tests/library-services.spec.ts",
+    "line": 82,
+    "target": "apps/web/tests/unit/marked-text.test.ts",
+    "title": "test('malformed markup remains literal, without partially trusted targets or HTML execution', () => {\n  const invalid = ['[word|unknown]', '[ ]', '[wo"
+  },
+  {
+    "source": "tests/library-services.spec.ts",
+    "line": 89,
+    "target": "apps/web/tests/unit/library-contracts.test.ts",
+    "title": "test('live lexical examples read native content and retain backend target markup', () => {\n  const content = 'They [abandoned|p] the car.'\n  const pag"
+  },
+  {
+    "source": "tests/library-services.spec.ts",
+    "line": 96,
+    "target": "apps/web/tests/integration/services/preview-services.test.ts",
+    "title": "test('Library mock is canonical, scoped, deduplicated and consistent with Home', async () => {\n  const service = createMockServices({ latency: 0, now "
+  },
+  {
+    "source": "tests/library-services.spec.ts",
+    "line": 115,
+    "target": "apps/web/tests/integration/services/preview-services.test.ts",
+    "title": "test('meaning pagination, search, filters and sort do not leak other scopes', async () => {\n  const service = createMockServices({ latency: 0, now })\n"
+  },
+  {
+    "source": "tests/library-services.spec.ts",
+    "line": 136,
+    "target": "apps/web/tests/integration/services/preview-services.test.ts",
+    "title": "test('references preserve placement but resolve readable sources; missing targets expose no contents', async () => {\n  const service = createMockServi"
+  },
+  {
+    "source": "tests/library-services.spec.ts",
+    "line": 165,
+    "target": "apps/web/tests/integration/services/http-services.test.ts",
+    "title": "test('live list adapter resolves reference types through readable endpoints, deduplicates targets and never guesses missing ones', async () => {\n  con"
+  },
+  {
+    "source": "tests/library-services.spec.ts",
+    "line": 188,
+    "target": "apps/web/tests/integration/services/preview-services.test.ts",
+    "title": "test('empty decks, cancellation and returned-object isolation preserve seed content', async () => {\n  const service = createMockServices({ latency: 0,"
+  },
+  {
+    "source": "tests/library-services.spec.ts",
+    "line": 201,
+    "target": "apps/web/tests/unit/library-contracts.test.ts",
+    "title": "test('Library contracts reject incomplete DTOs and links safely encode node identities', () => {\n  expect(() => parseNodeDetails({ id: 'node' })).toTh"
+  },
+  {
+    "source": "tests/home.spec.ts",
+    "line": 70,
+    "target": "apps/web/tests/unit/home-contracts.test.ts",
+    "title": "test('Home contracts reject missing counts, inconsistent totals and incomplete reporting windows', () => {\n  expect(parseSummary(summary)).toMatchObje"
+  },
+  {
+    "source": "tests/home.spec.ts",
+    "line": 82,
+    "target": "apps/web/tests/unit/home-calendar.test.ts",
+    "title": "test('Home calendar respects reporting timezone, leap months and monotonic activity levels', () => {\n  expect(reportingDay(new Date('2026-10-06T18:00:"
+  },
+  {
+    "source": "tests/home.spec.ts",
+    "line": 93,
+    "target": "apps/web/tests/integration/services/http-services.test.ts",
+    "title": "test('Home requests use bearer authentication and tokens can be cancelled while loading', async () => {\n  const original = globalThis.fetch\n  let init"
+  },
+  {
+    "source": "tests/home.spec.ts",
+    "line": 109,
+    "target": "apps/web/tests/integration/browser/home-dashboard.test.ts",
+    "title": "test('mock-mode Home reads the shared sample database without backend or Clerk requests', async ({ page }) => {\n  const requests: string[] = []\n  page"
+  },
+  {
+    "source": "tests/home.spec.ts",
+    "line": 128,
+    "target": "apps/web/tests/integration/browser/home-dashboard.test.ts",
+    "title": "test('five Home regions show real contract data, scoped Library tabs and accessible calendar details', async ({ page }) => {\n  await mockHome(page)\n  "
+  },
+  {
+    "source": "tests/home.spec.ts",
+    "line": 158,
+    "target": "apps/web/tests/integration/browser/home-dashboard.test.ts",
+    "title": "test('Home starts Due-only focus mode without preparing or submitting on the Home page', async ({ page }) => {\n  const posts: string[] = []\n  page.on("
+  },
+  {
+    "source": "tests/home.spec.ts",
+    "line": 168,
+    "target": "apps/web/tests/integration/browser/home-dashboard.test.ts",
+    "title": "test('empty Library, no Due and no activity have distinct honest states', async ({ page }) => {\n  await mockHome(page, { empty: true })\n  await openFi"
+  },
+  {
+    "source": "tests/home.spec.ts",
+    "line": 182,
+    "target": "apps/web/tests/integration/browser/home-dashboard.test.ts",
+    "title": "test('independent errors never masquerade as zero and recover without hiding other sections', async ({ page }) => {\n  await mockHome(page, { fail: '/a"
+  },
+  {
+    "source": "tests/home.spec.ts",
+    "line": 196,
+    "target": "apps/web/tests/integration/browser/home-dashboard.test.ts",
+    "title": "test('private Home data disappears synchronously on account change, including pending requests', async ({ page }) => {\n  await mockHome(page, { delay:"
+  },
+  {
+    "source": "tests/home.spec.ts",
+    "line": 206,
+    "target": "apps/web/tests/integration/browser/home-dashboard.test.ts",
+    "title": "test('native and Radix scrollbars share rectangular themed rails', async ({ page }) => {\n  await mockHome(page)\n  await openFixture(page, '?scroll')\n "
+  },
+  {
+    "source": "tests/home.spec.ts",
+    "line": 234,
+    "target": "apps/web/tests/integration/browser/home-dashboard.test.ts",
+    "title": "test('Home desktop/mobile theme matrix, keyboard contrast and long content remain in frame', async ({ page }) => {\n  await mockHome(page)\n  const erro"
+  },
+  {
+    "source": "tests/dictionary.spec.ts",
+    "line": 10,
+    "target": "apps/web/tests/integration/services/preview-services.test.ts",
+    "title": "test('mock search keeps surface origin priority for every supported match class', async () => {\n  const fixture = structuredClone(database)\n  const te"
+  },
+  {
+    "source": "tests/dictionary.spec.ts",
+    "line": 30,
+    "target": "apps/web/tests/unit/dictionary-contracts.test.ts",
+    "title": "test('search parser preserves mixed ranking and validates classified hits', () => {\n  const response = { items: [\n    { kind: 'REFERENCE', reference_i"
+  },
+  {
+    "source": "tests/dictionary.spec.ts",
+    "line": 46,
+    "target": "apps/web/tests/integration/browser/dictionary.test.ts",
+    "title": "test('Dictionary adds one meaning to an existing deck and creates a deck with a meaning', async ({ page }) => {\n  await page.goto('/app/dictionary')\n "
+  },
+  {
+    "source": "tests/dictionary.spec.ts",
+    "line": 67,
+    "target": "apps/web/tests/integration/browser/dictionary.test.ts",
+    "title": "test('Word picker keeps sense selection across searches and saves a batch', async ({ page }) => {\n  await page.goto('/app/personal/everyday/words')\n  "
+  },
+  {
+    "source": "tests/dictionary.spec.ts",
+    "line": 86,
+    "target": "apps/web/tests/integration/browser/dictionary.test.ts",
+    "title": "test('Reference entry prepares into a readable word', async ({ page }) => {\n  await page.goto('/app/dictionary')\n  await page.getByRole('searchbox', {"
+  },
+  {
+    "source": "tests/dictionary.spec.ts",
+    "line": 96,
+    "target": "apps/web/tests/integration/browser/dictionary.test.ts",
+    "title": "test('Destination search opens a nested folder with its full breadcrumb', async ({ page }) => {\n  await page.goto('/app/dictionary')\n  await page.getB"
+  },
+  {
+    "source": "tests/dictionary.spec.ts",
+    "line": 108,
+    "target": "apps/web/tests/integration/services/preview-services.test.ts",
+    "title": "test('membership deltas and preparation are consistent in the mock contract', async () => {\n  const services = createMockServices({ latency: 0 })\n  co"
+  },
+  {
+    "source": "tests/dictionary.spec.ts",
+    "line": 129,
+    "target": "apps/web/tests/integration/browser/dictionary.test.ts",
+    "title": "test('Dictionary selection stays on one page and reveals native sense detail', async ({ page }) => {\n  await page.goto('/app/dictionary')\n  const sear"
+  },
+  {
+    "source": "tests/dictionary.spec.ts",
+    "line": 148,
+    "target": "apps/web/tests/integration/services/preview-services.test.ts",
+    "title": "test('invented lexical fixture follows Word and Sense DTOs', () => {\n  const words = database.dictionary.words.map(parseDictionaryWord)\n  const pendin"
+  },
+  {
+    "source": "tests/dictionary.spec.ts",
+    "line": 163,
+    "target": "apps/web/tests/integration/services/http-services.test.ts",
+    "title": "test('live adapter sends a membership delta without reading or replacing a deck', async () => {\n  const original = globalThis.fetch\n  const requests: "
+  },
+  {
+    "source": "tests/dictionary.spec.ts",
+    "line": 176,
+    "target": "apps/web/tests/unit/pattern-tokens.test.ts",
+    "title": "test('grammar pattern tokenizer decomposes formulas into semantic slots and connectors', () => {\n  const t1 = parsePatternTokens('hard {sth}', 'hard')"
+  },
+  {
+    "source": "tests/focus.spec.ts",
+    "line": 10,
+    "target": "apps/web/tests/integration/services/preview-services.test.ts",
+    "title": "test('preparation supports every selected public type, one format and K up to three', async () => {\n  const services = createMockServices({ latency: 0"
+  },
+  {
+    "source": "tests/focus.spec.ts",
+    "line": 26,
+    "target": "apps/web/tests/unit/study-session.test.ts",
+    "title": "test('retry recovery preserves the initial diagnostics and duplicated artifact occurrences', async () => {\n  const services = createMockServices({ lat"
+  },
+  {
+    "source": "tests/focus.spec.ts",
+    "line": 47,
+    "target": "apps/web/tests/unit/study-session.test.ts",
+    "title": "test('a grading failure keeps its locked answer and time without using a practice attempt', async () => {\n  const services = createMockServices({ late"
+  },
+  {
+    "source": "tests/focus.spec.ts",
+    "line": 59,
+    "target": "apps/web/tests/unit/study-session.test.ts",
+    "title": "test('only two retries are allowed and partial completion submits completed initial evidence', async () => {\n  const services = createMockServices({ l"
+  },
+  {
+    "source": "tests/focus.spec.ts",
+    "line": 75,
+    "target": "apps/web/tests/integration/browser/study-questions.test.ts",
+    "title": "test('Pro preview renders single word and short answer questions', async ({ page }) => {\n  const services = createMockServices({ latency: 0 })\n  await",
+    "current_test": "HTTP study renders native single word and short answer question formats"
+  },
+  {
+    "source": "tests/focus.spec.ts",
+    "line": 94,
+    "target": "apps/web/tests/integration/browser/study-questions.test.ts",
+    "title": "test('round recap preserves the initial miss in the completed fullscreen quiz', async ({ page }) => {\n  const services = createMockServices({ latency:"
+  },
+  {
+    "source": "tests/focus.spec.ts",
+    "line": 120,
+    "target": "apps/web/tests/integration/browser/study-questions.test.ts",
+    "title": "test('quiz keeps the same question after reload and flashcards open without the sidebar', async ({ page }) => {\n  const errors: string[] = []\n  page.o"
+  },
+  {
+    "source": "tests/account-pages.spec.ts",
+    "line": 6,
+    "target": "apps/web/tests/integration/services/preview-services.test.ts",
+    "title": "test('public account contract omits private settings and supports bio before a handle', async () => {\n  const fixture = structuredClone(database)\n  Ob"
+  },
+  {
+    "source": "tests/account-pages.spec.ts",
+    "line": 18,
+    "target": "apps/web/tests/integration/browser/profile-settings.test.ts",
+    "title": "test('public profiles use /u and expose only published material', async ({ page }) => {\n  await page.goto('/u/sam')\n  await page.getByRole('button', {"
+  },
+  {
+    "source": "tests/account-pages.spec.ts",
+    "line": 32,
+    "target": "apps/web/tests/integration/browser/profile-settings.test.ts",
+    "title": "test('own profile routes to the public address and edits public fields', async ({ page }) => {\n  await page.goto('/app/profile')\n  await expect(page)."
+  },
+  {
+    "source": "tests/account-pages.spec.ts",
+    "line": 61,
+    "target": "apps/web/tests/integration/browser/profile-settings.test.ts",
+    "title": "test('settings show all three response formats and persist supported choices', async ({ page }) => {\n  await page.goto('/app/settings')\n  await expect"
+  },
+  {
+    "source": "tests/assistant.spec.ts",
+    "line": 15,
+    "target": "apps/web/tests/unit/assistant-contracts.test.ts",
+    "title": "test('new turns exclude history and client state; approvals carry no new messages', () => {\n  expect(turnInput(input, id, model, 'medium')).toEqual({ "
+  },
+  {
+    "source": "tests/assistant.spec.ts",
+    "line": 83,
+    "target": "apps/web/tests/integration/browser/assistant.test.ts",
+    "title": "test('Assistant auto approval persists through API and failed writes keep the saved setting', async ({ page }) => {\n  await mockApi(page)\n  const prof"
+  },
+  {
+    "source": "tests/assistant.spec.ts",
+    "line": 117,
+    "target": "apps/web/tests/integration/browser/assistant.test.ts",
+    "title": "test('showcase exercises reasoning, models, attachments, history and approval', async ({ page }) => {\n  const errors: string[] = []\n  page.on('pageerr"
+  },
+  {
+    "source": "tests/assistant.spec.ts",
+    "line": 180,
+    "target": "apps/web/tests/integration/browser/assistant.test.ts",
+    "title": "test('a missing remembered conversation opens a new chat and clears its stale id', async ({ page }) => {\n  await page.addInitScript(value => localStor"
+  },
+  {
+    "source": "tests/assistant.spec.ts",
+    "line": 198,
+    "target": "apps/web/tests/integration/browser/assistant.test.ts",
+    "title": "test('a temporary conversation failure preserves its remembered id', async ({ page }) => {\n  await page.addInitScript(value => localStorage.setItem('p"
+  },
+  {
+    "source": "tests/assistant.spec.ts",
+    "line": 208,
+    "target": "apps/web/tests/integration/browser/assistant.test.ts",
+    "title": "test('live panel sends a bounded new turn, streams, reopens history and restores focus', async ({ page }) => {\n  const errors: string[] = []\n  page.on"
+  },
+  {
+    "source": "tests/assistant.spec.ts",
+    "line": 253,
+    "target": "apps/web/tests/integration/browser/assistant.test.ts",
+    "title": "test('persisted approvals resume with matching interrupt and no transcript', async ({ page }) => {\n  const requests = await mockApi(page, { pending: t"
+  },
+  {
+    "source": "tests/assistant.spec.ts",
+    "line": 264,
+    "target": "apps/web/tests/integration/browser/assistant.test.ts",
+    "title": "for (const earlyReasoning of [true, false]) test(`one thought per turn survives incremental tool rounds and history reload (early reasoning: ${earlyRe"
+  },
+  {
+    "source": "tests/assistant.spec.ts",
+    "line": 382,
+    "target": "apps/web/tests/integration/browser/assistant.test.ts",
+    "title": "test('multi-step tools and reasoning use the available width without empty copy rows', async ({ page }, testInfo) => {\n  const history: RunAgentInput["
+  },
+  {
+    "source": "tests/assistant.spec.ts",
+    "line": 434,
+    "target": "apps/web/tests/integration/browser/assistant.test.ts",
+    "title": "test('reasoning and answers render dollar and TeX math while code remains literal', async ({ page }) => {\n  await page.setViewportSize({ width: 390, h"
+  },
+  {
+    "source": "tests/assistant.spec.ts",
+    "line": 480,
+    "target": "apps/web/tests/integration/browser/assistant.test.ts",
+    "title": "test('failed turns expose recovery without automatic replay', async ({ page }) => {\n  const requests = await mockApi(page, { error: true })\n  await fi"
+  },
+  {
+    "source": "tests/assistant.spec.ts",
+    "line": 490,
+    "target": "apps/web/tests/integration/browser/assistant.test.ts",
+    "title": "test('assistant layouts stay inside desktop/mobile light/dark viewports', async ({ page }) => {\n  mkdirSync('../../.impeccable/review/assistant', { re"
+  },
+  {
+    "source": "tests/daylight.spec.ts",
+    "line": 5,
+    "target": "apps/web/tests/unit/time-of-day.test.ts",
+    "title": "test('day periods and their next boundaries use local calendar time', () => {\n  for (const [hour, minute, period] of [[0, 0, 'night'], [4, 59, 'night'"
+  },
+  {
+    "source": "tests/daylight.spec.ts",
+    "line": 18,
+    "target": "apps/web/tests/integration/browser/artwork.test.ts",
+    "title": "test.describe('local-time artwork', () => {\n  test.use({ timezoneId: 'Asia/Ho_Chi_Minh' })\n\n  test('morning, afternoon and night have their own shape "
+  },
+  {
+    "source": "tests/daylight.spec.ts",
+    "line": 82,
+    "target": "apps/web/tests/integration/browser/artwork.test.ts",
+    "title": "test('navigation collapse persists through reload, routes and a second tab', async ({ page, context }) => {\n  await page.goto('/app')\n  await page.get"
+  },
+  {
+    "source": "tests/daylight.spec.ts",
+    "line": 104,
+    "target": "apps/web/tests/integration/browser/artwork.test.ts",
+    "title": "test('desktop collapse preference does not collapse the mobile drawer', async ({ page }) => {\n  await page.addInitScript(key => localStorage.setItem(k"
+  },
+  {
+    "source": "tests/daylight.spec.ts",
+    "line": 116,
+    "target": "apps/web/tests/integration/browser/artwork.test.ts",
+    "title": "test('storage failures do not break the clock or collapse control', async ({ page }) => {\n  await page.addInitScript(() => {\n    Object.defineProperty"
+  },
+  {
+    "source": "tests/showcase.spec.ts",
+    "line": 18,
+    "target": "apps/web/tests/integration/assets/design-system.test.ts",
+    "title": "test('palette literals exactly match DESIGN.md', () => {\n  const design = readFileSync(resolve('../../DESIGN.md'), 'utf8')\n  const palette = readFileS"
+  },
+  {
+    "source": "tests/showcase.spec.ts",
+    "line": 31,
+    "target": "apps/web/tests/integration/browser/showcase.test.ts",
+    "title": "test('catalog filters, code preview and theme persistence', async ({ page }) => {\n  const errors: string[] = []\n  page.on('pageerror', e => errors.pus"
+  },
+  {
+    "source": "tests/showcase.spec.ts",
+    "line": 52,
+    "target": "apps/web/tests/integration/browser/showcase.test.ts",
+    "title": "test('overlay focus, menus, combobox and keyboard command', async ({ page }) => {\n  const errors: string[] = []\n  page.on('pageerror', e => errors.pus"
+  },
+  {
+    "source": "tests/showcase.spec.ts",
+    "line": 75,
+    "target": "apps/web/tests/integration/browser/showcase.test.ts",
+    "title": "test('copy works and clipboard denial offers selectable usage', async ({ page, context }) => {\n  await context.grantPermissions(['clipboard-read', 'cl"
+  },
+  {
+    "source": "tests/showcase.spec.ts",
+    "line": 93,
+    "target": "apps/web/tests/integration/browser/showcase.test.ts",
+    "title": "test('mobile navigation, touch search and narrow foundations', async ({ page }) => {\n  await page.setViewportSize({ width: 390, height: 844 })\n  await"
+  },
+  {
+    "source": "tests/showcase.spec.ts",
+    "line": 113,
+    "target": "apps/web/tests/integration/browser/showcase.test.ts",
+    "title": "test('all authored artwork, composed interactions and no runtime errors', async ({ page }) => {\n  const errors: string[] = []\n  page.on('pageerror', e"
+  },
+  {
+    "source": "tests/showcase.spec.ts",
+    "line": 134,
+    "target": "apps/web/tests/integration/browser/showcase.test.ts",
+    "title": "test('desktop and mobile visual matrix in both themes', async ({ page }) => {\n  const errors: string[] = []\n  page.on('pageerror', e => errors.push(e."
+  },
+  {
+    "source": "tests/showcase.spec.ts",
+    "line": 170,
+    "target": "apps/web/tests/integration/assets/design-system.test.ts",
+    "title": "test('every installed shadcn family has a showcase reference', () => {\n  const installed = readdirSync('src/components/ui').filter(name => name.endsWi"
+  },
+  {
+    "source": "tests/showcase.spec.ts",
+    "line": 177,
+    "target": "apps/web/tests/integration/browser/showcase.test.ts",
+    "title": "test('assistant UI surfaces expose Bauhaus variants and attachment states', async ({ page }) => {\n  await page.goto('/showcase')\n  await page.getByRol"
+  },
+  {
+    "source": "tests/showcase.spec.ts",
+    "line": 187,
+    "target": "apps/web/tests/integration/browser/showcase.test.ts",
+    "title": "test('new controls, validation, reading direction and questionnaire', async ({ page }) => {\n  const errors: string[] = []\n  page.on('pageerror', error"
+  },
+  {
+    "source": "tests/showcase.spec.ts",
+    "line": 222,
+    "target": "apps/web/tests/integration/browser/showcase.test.ts",
+    "title": "test('hover preview, navigation and local message composition', async ({ page }) => {\n  const errors: string[] = []\n  page.on('pageerror', error => er"
+  },
+  {
+    "source": "tests/showcase.spec.ts",
+    "line": 246,
+    "target": "apps/web/tests/integration/browser/showcase.test.ts",
+    "title": "test('date-picker and sortable filterable paginated data-table recipes', async ({ page }) => {\n  const errors: string[] = []\n  page.on('pageerror', er"
+  },
+  {
+    "source": "tests/showcase.spec.ts",
+    "line": 269,
+    "target": "apps/web/tests/integration/browser/showcase.test.ts",
+    "title": "test('authored icons show distinct color and mono drawings and copy usage', async ({ page, context }) => {\n  const errors: string[] = []\n  page.on('pa"
+  },
+  {
+    "source": "tests/library.spec.ts",
+    "line": 5,
+    "target": "apps/web/tests/integration/browser/library-navigation.test.ts",
+    "title": "test('Canonical node routes default to Overview; Words supports direct loads, reloads and browser history', async ({ page }) => {\n  for (const node of"
+  },
+  {
+    "source": "tests/library.spec.ts",
+    "line": 27,
+    "target": "apps/web/tests/integration/browser/library-navigation.test.ts",
+    "title": "test('Legacy query links redirect to canonical paths without reviving the old tab names', async ({ page }) => {\n  for (const [query, path, tab] of [\n "
+  },
+  {
+    "source": "tests/library.spec.ts",
+    "line": 40,
+    "target": "apps/web/tests/integration/browser/library-navigation.test.ts",
+    "title": "test('Overview and Words tabs have no outer outline or ring but keep a keyboard focus cue', async ({ page }) => {\n  await page.goto('/app/personal/eve"
+  },
+  {
+    "source": "tests/library.spec.ts",
+    "line": 59,
+    "target": "apps/web/tests/integration/browser/library-actions.test.ts",
+    "title": "test('Words route supports filters, pagination and node actions without personal requests', async ({ page }) => {\n  const external: string[] = []\n  pa"
+  },
+  {
+    "source": "tests/library.spec.ts",
+    "line": 92,
+    "target": "apps/web/tests/integration/browser/library-navigation.test.ts",
+    "title": "test('Folder starts with overview, supports nested browsing, a source-free word table and browser Back', async ({ page }) => {\n  await page.goto('/app"
+  },
+  {
+    "source": "tests/library.spec.ts",
+    "line": 118,
+    "target": "apps/web/tests/integration/browser/library-navigation.test.ts",
+    "title": "test('Word detail is keyboard accessible, closes back to its trigger and does not merge different senses', async ({ page }) => {\n  await page.goto('/a"
+  },
+  {
+    "source": "tests/library.spec.ts",
+    "line": 135,
+    "target": "apps/web/tests/integration/browser/study-questions.test.ts",
+    "title": "test('Study actions route to fullscreen focus mode without preparing questions on Library', async ({ page }) => {\n  const studyRequests: string[] = []"
+  },
+  {
+    "source": "tests/library.spec.ts",
+    "line": 151,
+    "target": "apps/web/tests/integration/browser/flashcards.test.ts",
+    "title": "test('Deck preview reuses the two-face card, supports keyboard and crosses page boundaries without submitting learning', async ({ page }) => {\n  const"
+  },
+  {
+    "source": "tests/library.spec.ts",
+    "line": 213,
+    "target": "apps/web/tests/integration/browser/library-navigation.test.ts",
+    "title": "test('References retain deck/folder identities in Library and Home, with no generic reference icon or section suffix', async ({ page }) => {\n  await p"
+  },
+  {
+    "source": "tests/library.spec.ts",
+    "line": 241,
+    "target": "apps/web/tests/integration/browser/app-shell.test.ts",
+    "title": "test('Bottom menus have no outer focus frame, preserve a keyboard cue, and sign out has a Bauhaus icon', async ({ page }) => {\n  await page.goto('/app"
+  },
+  {
+    "source": "tests/library.spec.ts",
+    "line": 258,
+    "target": "apps/web/tests/integration/browser/library-navigation.test.ts",
+    "title": "test('References, empty decks and missing material keep distinct truthful states', async ({ page }) => {\n  await page.goto('/app/personal/travel')\n  a"
+  },
+  {
+    "source": "tests/library.spec.ts",
+    "line": 278,
+    "target": "apps/web/tests/integration/browser/library-navigation.test.ts",
+    "title": "test('Personal and Published have separate navigation and ownership breadcrumbs', async ({ page }) => {\n  await page.goto('/app')\n  await page.getByRo"
+  },
+  {
+    "source": "tests/library.spec.ts",
+    "line": 302,
+    "target": "apps/web/tests/integration/browser/library-navigation.test.ts",
+    "title": "test('Published word sources and author labels keep their owner route', async ({ page }) => {\n  await page.goto('/app/u/preview-alex/published/publish"
+  },
+  {
+    "source": "tests/library.spec.ts",
+    "line": 311,
+    "target": "apps/web/tests/integration/browser/library-navigation.test.ts",
+    "title": "test('Library desktop/mobile and theme matrix stays within frame with usable meaning rows', async ({ page }) => {\n  test.setTimeout(120_000)\n  const e"
+  },
+  {
+    "source": "tests/library.spec.ts",
+    "line": 388,
+    "target": "apps/web/tests/integration/browser/library-navigation.test.ts",
+    "title": "for (const source of [{ id: 'everyday', name: 'Everyday conversation', width: 1440 }, { id: 'business', name: 'Business English', width: 390 }]) test("
+  },
+  {
+    "source": "tests/library.spec.ts",
+    "line": 416,
+    "target": "apps/web/tests/integration/browser/library-actions.test.ts",
+    "title": "test('Create reference can save another user’s Published deck or folder, with publication consent', async ({ page }) => {\n  for (const source of [{ id"
+  },
+  {
+    "source": "tests/library.spec.ts",
+    "line": 451,
+    "target": "apps/web/tests/integration/browser/library-actions.test.ts",
+    "title": "test('Library creation, actions, and view preference work in mock mode', async ({ page }) => {\n  await page.goto('/app/personal/business')\n  const car"
+  },
+  {
+    "source": "tests/library-destination.spec.ts",
+    "line": 66,
+    "target": "apps/web/tests/integration/browser/library-destination.test.ts",
+    "title": "test('Personal and Published open with one click and each breadcrumb appears once', async ({ page }) => {\n  const { picker, messages } = await openPic"
+  },
+  {
+    "source": "tests/library-destination.spec.ts",
+    "line": 85,
+    "target": "apps/web/tests/integration/browser/library-destination.test.ts",
+    "title": "test('an owned deck reference adds the sense to its canonical deck ID', async ({ page }) => {\n  const { picker, saved } = await openPicker(page)\n  awa"
+  },
+  {
+    "source": "tests/library-destination.spec.ts",
+    "line": 95,
+    "target": "apps/web/tests/integration/browser/library-destination.test.ts",
+    "title": "test('a saved foreign deck is readable but cannot become an editing destination', async ({ page }) => {\n  const { picker, saved } = await openPicker(p"
+  },
+  {
+    "source": "tests/library-destination.spec.ts",
+    "line": 104,
+    "target": "apps/web/tests/integration/browser/library-destination.test.ts",
+    "title": "test('search navigation preserves the full path and returning to root clears the filter', async ({ page }) => {\n  const { picker, messages } = await o"
+  },
+  {
+    "source": "tests/background.spec.ts",
+    "line": 3,
+    "target": "apps/web/tests/integration/browser/artwork.test.ts",
+    "title": "test('all 16 backgrounds re-anchor to wide, square and tall widgets, without clipping or distorting shapes', async ({ page }) => {\n  await page.goto('"
+  },
+  {
+    "source": "tests/landing.spec.ts",
+    "line": 6,
+    "target": "apps/web/tests/integration/browser/landing.test.ts",
+    "title": "test('the landing example connects meanings, decks and practice without saving progress', async ({ page }) => {\n  const errors: string[] = []\n  page.o"
+  },
+  {
+    "source": "tests/landing.spec.ts",
+    "line": 39,
+    "target": "apps/web/tests/integration/browser/landing.test.ts",
+    "title": "test('landing actions lead to the existing signup, login and application routes', async ({ page }) => {\n  await page.goto('/')\n  await page.getByRole("
+  },
+  {
+    "source": "tests/landing.spec.ts",
+    "line": 52,
+    "target": "apps/web/tests/integration/browser/landing.test.ts",
+    "title": "test('the landing worksheet works at mobile, tablet and desktop widths in both themes', async ({ page }) => {\n  mkdirSync(screenshots, { recursive: tr"
+  },
+  {
+    "source": "e2e/account.spec.ts",
+    "line": 5,
+    "target": "apps/web/tests/e2e/account-profile.test.ts",
+    "title": "test('public profile saves handle and bio, renames lookup, and clears bio to null', async ({ page, profile }) => {\n  const handle = 'e' + randomUUID()"
+  },
+  {
+    "source": "e2e/account.spec.ts",
+    "line": 29,
+    "target": "apps/web/tests/e2e/account-profile.test.ts",
+    "title": "test('duplicate and invalid handles preserve saved profile and editable draft', async ({ page, browser, baseURL, profile }) => {\n  const context = awa"
+  },
+  {
+    "source": "e2e/account.spec.ts",
+    "line": 50,
+    "target": "apps/web/tests/e2e/account-settings.test.ts",
+    "title": "test('settings persist languages and timezone, reject invalid drafts, and survive another session', async ({ page, browser, baseURL, profile }) => {\n "
+  },
+  {
+    "source": "e2e/account.spec.ts",
+    "line": 76,
+    "target": "apps/web/tests/e2e/account-settings.test.ts",
+    "title": "test('Free and Pro learning options enforce backend entitlement and keep failed drafts', async ({ page, browser, baseURL, profile }) => {\n  expect(pro"
+  },
+  {
+    "source": "e2e/account.spec.ts",
+    "line": 102,
+    "target": "apps/web/tests/e2e/account-profile.test.ts",
+    "title": "test('delayed Clerk hydration cannot expose an editable profile that disappears during session loading', async ({ page, profile }) => {\n  let release!"
+  },
+  {
+    "source": "e2e/authentication.spec.ts",
+    "line": 25,
+    "target": "apps/web/tests/e2e/authentication.test.ts",
+    "title": "test('signed-in users leave auth pages, including after reload, and follow safe return routes', async ({ page, profile }) => {\n  expect(profile.id).to"
+  },
+  {
+    "source": "e2e/authentication.spec.ts",
+    "line": 38,
+    "target": "apps/web/tests/e2e/authentication.test.ts",
+    "title": "test('signup rejects incorrect verification, resends, provisions once and follows a safe return route', async ({ page }) => {\n  await signup(page, '/a"
+  },
+  {
+    "source": "e2e/authentication.spec.ts",
+    "line": 64,
+    "target": "apps/web/tests/e2e/authentication.test.ts",
+    "title": "for (const kind of ['wrong-password', 'nonexistent-user'] as const) test(`login ${kind} does not establish a backend session`, async ({ page }) => {\n "
+  },
+  {
+    "source": "e2e/authentication.spec.ts",
+    "line": 75,
+    "target": "apps/web/tests/e2e/authentication.test.ts",
+    "title": "test('password reset verifies its code and the replacement password signs in', async ({ page }) => {\n  const credentials = await signup(page)\n  await "
+  },
+  {
+    "source": "e2e/authentication.spec.ts",
+    "line": 106,
+    "target": "apps/web/tests/e2e/authentication.test.ts",
+    "title": "test('real token refresh, new-tab session and malformed bearer validation preserve identity', async ({ page, profile }) => {\n  const refreshed = await",
+    "current_test": "real token refresh and a new-tab session preserve identity",
+    "related": [
+      "apps/api/tests/unit/test_identity.py::test_bearer_http_auth_verifies_token_before_reading_cached_user"
+    ]
+  },
+  {
+    "source": "e2e/authentication.spec.ts",
+    "line": 122,
+    "target": "apps/web/tests/e2e/authentication.test.ts",
+    "title": "test('switching accounts removes private cached Library data and unsafe return URLs are rejected', async ({ page, nodes, profile }) => {\n  const deck "
+  },
+  {
+    "source": "e2e/authentication.spec.ts",
+    "line": 152,
+    "target": "apps/api/tests/unit/test_identity.py",
+    "title": "test('a real Clerk JWT expires and backend rejects it while the refreshed session continues', async ({ page, profile }) => {\n  test.setTimeout(100000)",
+    "current_test": "test_bearer_http_auth_verifies_token_before_reading_cached_user"
+  },
+  {
+    "source": "e2e/authentication.spec.ts",
+    "line": 166,
+    "target": "apps/web/tests/e2e/authentication.test.ts",
+    "title": "test('Google OAuth returns through the real callback when a dedicated Google test identity is configured', async ({ page }) => {\n  test.skip(!process."
+  },
+  {
+    "source": "e2e/authentication.spec.ts",
+    "line": 180,
+    "target": "apps/web/tests/e2e/authentication.test.ts",
+    "title": "test('enabled TOTP challenges validate authenticator codes before accepting the backend identity', async ({ page }) => {\n  const credentials = await s"
+  },
+  {
+    "source": "e2e/authentication.spec.ts",
+    "line": 215,
+    "target": "apps/web/tests/e2e/authentication.test.ts",
+    "title": "test('revoking a test-owned Clerk session removes private UI and exposes sign-in recovery', async ({ page }) => {\n  const credentials = await signup(p"
+  },
+  {
+    "source": "e2e/assistant.spec.ts",
+    "line": 19,
+    "target": "apps/web/tests/e2e/assistant-recovery.test.ts",
+    "title": "test('Assistant can send another message after a sense tool error', async ({ page, profile }) => {\n  expect(profile.id).toBeTruthy()\n  test.skip(proce"
+  },
+  {
+    "source": "e2e/assistant.spec.ts",
+    "line": 42,
+    "target": "apps/web/tests/e2e/assistant-recovery.test.ts",
+    "title": "test('Assistant recovers when its remembered conversation was deleted', async ({ page, profile }) => {\n  expect(profile.id).toBeTruthy()\n  const conve"
+  },
+  {
+    "source": "e2e/assistant.spec.ts",
+    "line": 59,
+    "target": "apps/web/tests/e2e/assistant-conversations.test.ts",
+    "title": "test('Assistant streams reasoning and long text before completion without a whole-turn deadline', async ({ page, profile }) => {\n  expect(profile.id)."
+  },
+  {
+    "source": "e2e/assistant.spec.ts",
+    "line": 100,
+    "target": "apps/web/tests/e2e/assistant-conversations.test.ts",
+    "title": "test('native SSE, model policy, checkpoint reload and usage settlement reach the Assistant UI', async ({ page, profile }) => {\n  const models = (await"
+  },
+  {
+    "source": "e2e/assistant.spec.ts",
+    "line": 125,
+    "target": "apps/web/tests/e2e/assistant-approvals.test.ts",
+    "title": "for (const decision of ['approve', 'reject'] as const) test(`pending native Library mutation survives reload and ${decision} changes only authorized d"
+  },
+  {
+    "source": "e2e/assistant.spec.ts",
+    "line": 148,
+    "target": "apps/web/tests/e2e/assistant-conversations.test.ts",
+    "title": "test('read tools return real Library data and another account cannot read, run or delete its conversation', async ({ page, nodes, browser, baseURL, pr",
+    "current_test": "Assistant renders native Library reads and hides another account’s private conversation and tool data",
+    "related": [
+      "apps/api/tests/integration/test_assistant.py::test_native_approval_and_free_rejection"
+    ]
+  },
+  {
+    "source": "e2e/assistant.spec.ts",
+    "line": 172,
+    "target": "apps/web/tests/e2e/assistant-conversations.test.ts",
+    "title": "test('conversation history pages without duplicates and deletion requires confirmation', async ({ page, profile }) => {\n  expect(profile.id).toBeTruth"
+  },
+  {
+    "source": "e2e/assistant.spec.ts",
+    "line": 195,
+    "target": "apps/web/tests/e2e/assistant-recovery.test.ts",
+    "title": "test('provider error in HTTP 200 is a failed stream; reopening preserves state and supports a new turn', async ({ page, profile }) => {\n  expect(profi"
+  },
+  {
+    "source": "e2e/assistant.spec.ts",
+    "line": 210,
+    "target": "apps/web/tests/e2e/assistant-recovery.test.ts",
+    "title": "test('concurrent turns reject busy conversations and cancelling releases the native lock', async ({ page, profile }) => {\n  expect(profile.id).toBeTru"
+  },
+  {
+    "source": "e2e/assistant.spec.ts",
+    "line": 227,
+    "target": "apps/web/tests/e2e/assistant-conversations.test.ts",
+    "title": "test('valid vision reaches the checkpoint; unsupported image and model inputs cannot create turns', async ({ page, profile }) => {\n  expect(profile.id",
+    "current_test": "valid vision reaches the checkpoint and invalid image uploads stay out of the composer",
+    "related": [
+      "apps/api/tests/integration/test_assistant.py::test_http_invalid_model_and_image_cannot_write_a_turn"
+    ]
+  },
+  {
+    "source": "e2e/assistant.spec.ts",
+    "line": 259,
+    "target": "apps/web/tests/e2e/assistant-recovery.test.ts",
+    "title": "test('an exhausted real usage period shows zero allowance and rejects the turn without automatic replay', async ({ page }) => {\n  await signIn(page, '"
+  },
+  {
+    "source": "e2e/assistant.spec.ts",
+    "line": 277,
+    "target": "apps/web/tests/e2e/assistant-recovery.test.ts",
+    "title": "proTest('native start rate limit rejects a burst and the Assistant UI never replays the rejected turn', async ({ page, profile }) => {\n  test.setTimeo"
+  },
+  {
+    "source": "e2e/dictionary.spec.ts",
+    "line": 6,
+    "target": "apps/web/tests/e2e/dictionary.test.ts",
+    "title": "test('guest search/detail uses native markup, has honest misses and keeps private context unavailable', async ({ page }) => {\n  await page.goto('/app/"
+  },
+  {
+    "source": "e2e/dictionary.spec.ts",
+    "line": 20,
+    "target": "apps/web/tests/e2e/dictionary.test.ts",
+    "title": "test('a delayed older native Dictionary query cannot replace the latest search', async ({ page }) => {\n  let release!: () => void, reached!: () => voi"
+  },
+  {
+    "source": "e2e/dictionary.spec.ts",
+    "line": 39,
+    "target": "apps/web/tests/e2e/dictionary.test.ts",
+    "title": "test('picker keeps selected meanings across searches, sends batched native reads and preserves concurrent membership', async ({ page, nodes }) => {\n  "
+  },
+  {
+    "source": "e2e/dictionary.spec.ts",
+    "line": 61,
+    "target": "apps/web/tests/e2e/dictionary.test.ts",
+    "title": "test('Dictionary creates a real deck in a nested destination with the selected sense', async ({ page, nodes }) => {\n  const folder = await nodes.creat"
+  },
+  {
+    "source": "e2e/dictionary.spec.ts",
+    "line": 84,
+    "target": "apps/web/tests/e2e/word-generation.test.ts",
+    "title": "for (const target of ['harbor', 'quay', 'glistening', 'glisten with something']) test(`native ${target} generation${target === 'quay' ? ' exposes prov"
+  },
+  {
+    "source": "e2e/dictionary.spec.ts",
+    "line": 118,
+    "target": "apps/web/tests/e2e/word-generation.test.ts",
+    "title": "test('generation retains valid examples and learning generates native artifacts on demand', async ({ page, profile, nodes }) => {\n  await page.goto('/"
+  },
+  {
+    "source": "e2e/focus-entry.spec.ts",
+    "line": 5,
+    "target": "apps/web/tests/e2e/study-entry.test.ts",
+    "title": "for (const [label, selection, width] of [['Learn new', 'NEW'], ['Practice', 'AUTO'], ['Learn new', 'NEW', 390]] as const) test(`${label} ${width ?? 14"
+  },
+  {
+    "source": "e2e/focus-entry.spec.ts",
+    "line": 30,
+    "target": "apps/web/tests/e2e/study-recovery.test.ts",
+    "title": "test('cold question bank exposes a provider rejection in a popup, retries generation and completes learning', async ({ page, profile, nodes }) => {\n  "
+  },
+  {
+    "source": "e2e/focus-entry.spec.ts",
+    "line": 52,
+    "target": "apps/web/tests/e2e/study-entry.test.ts",
+    "title": "test('cold generation works with saved defaults without a prefilled bank or learning writes', async ({ page, profile, nodes }) => {\n  const deck = awa"
+  },
+  {
+    "source": "e2e/focus-entry.spec.ts",
+    "line": 62,
+    "target": "apps/web/tests/e2e/study-recovery.test.ts",
+    "title": "test('empty and missing scopes show recoverable popups inside focus rather than a fullscreen error page', async ({ page, profile, nodes }) => {\n  cons"
+  },
+  {
+    "source": "e2e/focus-entry.spec.ts",
+    "line": 75,
+    "target": "apps/web/tests/e2e/study-recovery.test.ts",
+    "title": "test('leaving delayed preparation cannot create a local session or submit a review', async ({ page, profile, nodes }) => {\n  const deck = await nodes."
+  },
+  {
+    "source": "e2e/focus-entry.spec.ts",
+    "line": 100,
+    "target": "apps/web/tests/e2e/study-entry.test.ts",
+    "title": "test('Home study action navigates directly to focus without a second Start session action', async ({ page, profile, nodes }) => {\n  await nodes.create"
+  },
+  {
+    "source": "e2e/focus-entry.spec.ts",
+    "line": 110,
+    "target": "apps/web/tests/e2e/study-recovery.test.ts",
+    "title": "for (const corrupt of ['broken JSON', 'outdated shape']) test(`${corrupt} in local study storage is replaced by a real prepared session`, async ({ pag"
+  },
+  {
+    "source": "e2e/focus-entry.spec.ts",
+    "line": 121,
+    "target": "apps/web/tests/e2e/study-recovery.test.ts",
+    "title": "test('blocked study storage shows a popup and cannot silently lose a session', async ({ page, profile, nodes }) => {\n  const deck = await nodes.create"
+  },
+  {
+    "source": "e2e/focus-entry.spec.ts",
+    "line": 140,
+    "target": "apps/web/tests/e2e/study-recovery.test.ts",
+    "title": "test('pause resumes the same answered question; partial finish saves only attempted evidence once', async ({ page, profile, nodes }) => {\n  const deck"
+  },
+  {
+    "source": "e2e/library.spec.ts",
+    "line": 5,
+    "target": "apps/web/tests/e2e/library-browsing.test.ts",
+    "title": "test('folder and meaning pagination, search, sorting, state filters and breadcrumbs use real scopes', async ({ page, nodes }) => {\n  const folder = aw"
+  },
+  {
+    "source": "e2e/library.spec.ts",
+    "line": 40,
+    "target": "apps/web/tests/e2e/library-management.test.ts",
+    "title": "test('atomic sense deltas preserve concurrent additions; invalid batches and system/cycle writes change nothing', async ({ page, profile, nodes }) => "
+  },
+  {
+    "source": "e2e/library.spec.ts",
+    "line": 60,
+    "target": "apps/web/tests/e2e/library-management.test.ts",
+    "title": "test('delete cancellation preserves a subtree and confirmed deletion removes descendants and restores navigation', async ({ page, nodes }) => {\n  cons"
+  },
+  {
+    "source": "e2e/library.spec.ts",
+    "line": 76,
+    "target": "apps/web/tests/e2e/library-references.test.ts",
+    "title": "test('copy persists independent memberships; reference cycles terminate with deduplicated progress', async ({ page, profile, nodes }) => {\n  const fol"
+  },
+  {
+    "source": "e2e/library.spec.ts",
+    "line": 98,
+    "target": "apps/web/tests/e2e/published-library.test.ts",
+    "title": "test('Discovery filters and pages public records; guessed private IDs and mutation routes remain hidden', async ({ page, profile, nodes }) => {\n  cons"
+  },
+  {
+    "source": "e2e/library.spec.ts",
+    "line": 120,
+    "target": "apps/web/tests/e2e/flashcards.test.ts",
+    "title": "test('flashcards traverse native pagination, keep account-scoped position and never submit reviews', async ({ page, profile, nodes }) => {\n  const dec"
+  },
+  {
+    "source": "e2e/library.spec.ts",
+    "line": 145,
+    "target": "apps/api/tests/integration/test_library.py",
+    "title": "test('native folder and deck quotas reject atomically, including concurrent creates at the boundary', async ({ page, nodes }) => {\n  const folder = aw",
+    "current_test": "test_http_child_and_sense_quotas_reject_atomically"
+  },
+  {
+    "source": "e2e/library.spec.ts",
+    "line": 158,
+    "target": "apps/web/tests/e2e/library-references.test.ts",
+    "title": "test('all paginated source decks resolve canonically without duplicates', async ({ page, nodes }) => {\n  const root = await nodes.create({ type: 'FOLD"
+  },
+  {
+    "source": "e2e/library.spec.ts",
+    "line": 176,
+    "target": "apps/web/tests/e2e/library-browsing.test.ts",
+    "title": "test('Library latest search wins over delayed native reads and tab Back/Forward retains canonical routes', async ({ page, nodes }) => {\n  const deck ="
+  },
+  {
+    "source": "e2e/library.spec.ts",
+    "line": 204,
+    "target": "apps/web/tests/e2e/library-management.test.ts",
+    "title": "test('double submission and an accepted creation with lost response produce one native deck', async ({ page, profile, nodes }) => {\n  const name = 'un"
+  },
+  {
+    "source": "e2e/library.spec.ts",
+    "line": 233,
+    "target": "apps/api/tests/integration/test_library.py",
+    "title": "test('global owned-node quota serializes concurrent writes and deletion restores one slot', async ({ page, nodes }) => {\n  test.setTimeout(120000)\n  c",
+    "current_test": "test_http_owned_quota_races_copy_and_deletion_release_one_slot"
+  },
+  {
+    "source": "e2e/integration.spec.ts",
+    "line": 7,
+    "target": "apps/web/tests/e2e/published-library.test.ts",
+    "title": "test('guest reads public routes and cannot access a private account', async ({ page }) => {\n  await page.goto('/app/discovery')\n  await expect(page.ge",
+    "current_test": "guest reads public routes and cannot access a private account"
+  },
+  {
+    "source": "e2e/integration.spec.ts",
+    "line": 18,
+    "target": "apps/web/tests/e2e/authentication.test.ts",
+    "title": "test('custom Clerk login reaches the real account and survives reload', async ({ page, profile }) => {\n  expect(() => parseAccountProfile(profile)).no",
+    "current_test": "signed-in users leave auth pages, including after reload, and follow safe return routes"
+  },
+  {
+    "source": "e2e/integration.spec.ts",
+    "line": 31,
+    "target": "apps/web/tests/e2e/library-management.test.ts",
+    "title": "test('create and rename a deck through UI without losing its placement', async ({ page, profile, nodes }) => {\n  await page.goto('/app/personal?create"
+  },
+  {
+    "source": "e2e/integration.spec.ts",
+    "line": 63,
+    "target": "apps/web/tests/e2e/library-management.test.ts",
+    "title": "test('move and copy use real writes and preserve independent identities', async ({ page, profile, nodes }) => {\n  const folder = await nodes.create({ "
+  },
+  {
+    "source": "e2e/integration.spec.ts",
+    "line": 88,
+    "target": "apps/web/tests/e2e/published-library.test.ts",
+    "title": "test('publication grants guest reads and unpublication revokes them', async ({ page, nodes }) => {\n  const deck = await nodes.create({ type: 'DECK' })",
+    "current_test": "publication grants guest reads and unpublication revokes them"
+  },
+  {
+    "source": "e2e/integration.spec.ts",
+    "line": 112,
+    "target": "apps/web/tests/e2e/library-management.test.ts",
+    "title": "test('another Clerk account cannot read or mutate a private deck', async ({ page, browser, baseURL, nodes, profile }) => {\n  const deck = await nodes."
+  },
+  {
+    "source": "e2e/integration.spec.ts",
+    "line": 126,
+    "target": "apps/web/tests/e2e/flashcards.test.ts",
+    "title": "test('native meanings persist and browsing flashcards does not change learning progress', async ({ page, nodes }) => {\n  const deck = await nodes.crea",
+    "current_test": "native meanings persist and browsing flashcards does not change learning progress"
+  },
+  {
+    "source": "e2e/integration.spec.ts",
+    "line": 164,
+    "target": "apps/web/tests/e2e/library-management.test.ts",
+    "title": "for (const revoke of ['unpublish', 'delete'] as const) test(`saved public references and flashcards become unavailable after ${revoke}`, async ({ page"
+  },
+  {
+    "source": "e2e/product-journeys.spec.ts",
+    "line": 8,
+    "target": "apps/web/tests/e2e/learning-journey.test.ts",
+    "title": "test('guest landing actions and unknown routes remain usable without exposing private data', async ({ page }) => {\n  await page.goto('/')\n  await expe"
+  },
+  {
+    "source": "e2e/product-journeys.spec.ts",
+    "line": 18,
+    "target": "apps/web/tests/e2e/dictionary.test.ts",
+    "title": "test('Dictionary native aliases and inflections reveal POS tabs, lexical detail and related navigation', async ({ page }) => {\n  await page.goto('/app"
+  },
+  {
+    "source": "e2e/product-journeys.spec.ts",
+    "line": 33,
+    "target": "apps/web/tests/e2e/published-library.test.ts",
+    "title": "test('guests can read published decks and folders without exposing personal learning', async ({ page, profile, nodes, browser, baseURL }) => {\n  const"
+  },
+  {
+    "source": "e2e/product-journeys.spec.ts",
+    "line": 53,
+    "target": "apps/web/tests/e2e/published-library.test.ts",
+    "title": "test('public direct learning completes without saving foreign content into personal Library', async ({ page, profile, nodes, browser, baseURL }) => {\n"
+  },
+  {
+    "source": "e2e/product-journeys.spec.ts",
+    "line": 74,
+    "target": "apps/web/tests/e2e/library-references.test.ts",
+    "title": "test('Create reference UI persists a live link, follows source changes and keeps memberships deduplicated', async ({ page, profile, nodes }) => {\n  co"
+  },
+  {
+    "source": "e2e/product-journeys.spec.ts",
+    "line": 95,
+    "target": "apps/web/tests/e2e/library-management.test.ts",
+    "title": "test('failed deck edit retains saved metadata and a retry applies the draft atomically', async ({ page, nodes }) => {\n  const deck = await nodes.creat"
+  },
+  {
+    "source": "e2e/product-journeys.spec.ts",
+    "line": 114,
+    "target": "apps/web/tests/e2e/published-library.test.ts",
+    "title": "test('cancelled publication keeps a private subtree private and does not create retained references', async ({ page, profile, nodes }) => {\n  const fo"
+  },
+  {
+    "source": "e2e/product-journeys.spec.ts",
+    "line": 129,
+    "target": "apps/web/tests/e2e/assistant-approvals.test.ts",
+    "title": "test('Assistant auto-approval setting persists; a rejected write keeps the saved value', async ({ page, profile }) => {\n  try {\n    await page.goto('/"
+  },
+  {
+    "source": "e2e/reporting.spec.ts",
+    "line": 6,
+    "target": "apps/web/tests/e2e/home-reporting.test.ts",
+    "title": "test('Home reports deduplicated native counts, practice activity, timezone and schedule without reviews on navigation', async ({ page, profile, nodes "
+  },
+  {
+    "source": "e2e/reporting.spec.ts",
+    "line": 43,
+    "target": "apps/web/tests/e2e/home-reporting.test.ts",
+    "title": "test('Home API outage shows an error and retry restores backend counts without preview data', async ({ page, profile, nodes }) => {\n  const deck = awa"
+  },
+  {
+    "source": "e2e/reporting.spec.ts",
+    "line": 55,
+    "target": "apps/web/tests/e2e/learning-journey.test.ts",
+    "title": "test.describe('mobile', () => {\n  test.use({ viewport: { width: 390, height: 844 } })\n\ntest('mobile real login, deck creation, native meanings and lea"
+  },
+  {
+    "source": "e2e/study.spec.ts",
+    "line": 8,
+    "target": "apps/web/tests/e2e/study-questions.test.ts",
+    "title": "for (const [index, kind] of kinds.entries()) test(`native ${kind} renders, answers without grading and submits one review`, async ({ page, profile, no"
+  },
+  {
+    "source": "e2e/study.spec.ts",
+    "line": 31,
+    "target": "apps/web/tests/e2e/study-recovery.test.ts",
+    "title": "test('unknown answers retry, preserve initial diagnostics and save once per sense', async ({ page, profile, nodes }) => {\n  const deck = await nodes.c"
+  },
+  {
+    "source": "e2e/study.spec.ts",
+    "line": 49,
+    "target": "apps/api/tests/integration/test_learning_pipeline.py",
+    "title": "test('empty scopes stay honest; NEW and DUE obey scope and maximum preferences', async ({ page, nodes, profile }) => {\n  const empty = await nodes.cre",
+    "current_test": "test_http_prepare_empty_new_due_scope_and_saved_maximum"
+  },
+  {
+    "source": "e2e/study.spec.ts",
+    "line": 68,
+    "target": "apps/web/tests/e2e/study-entry.test.ts",
+    "title": "test('Review selects native overdue memory and Free entitlement rejects typed grading', async ({ page, profile, nodes }) => {\n  const deck = await nod"
+  },
+  {
+    "source": "e2e/study.spec.ts",
+    "line": 94,
+    "target": "apps/web/tests/e2e/study-recovery.test.ts",
+    "title": "test('each node maintains independent session; competing tabs cannot overwrite an answer', async ({ page, profile, nodes }) => {\n  const first = await"
+  },
+  {
+    "source": "e2e/study.spec.ts",
+    "line": 127,
+    "target": "apps/web/tests/e2e/study-recovery.test.ts",
+    "title": "test('accepted review with lost response reloads the frozen batch and replays without duplicate activity', async ({ page, profile, nodes }) => {\n  con"
+  },
+  {
+    "source": "e2e/study.spec.ts",
+    "line": 163,
+    "target": "apps/web/tests/e2e/study-questions.test.ts",
+    "title": "for (const [index, format, kind] of [[0, 'SINGLE_WORD', 'DEFINITION_TO_WORD'], [1, 'SHORT_ANSWER', 'WORD_TO_DEFINITION'], [2, 'SINGLE_WORD', 'CONTEXT_"
+  },
+  {
+    "source": "e2e/study.spec.ts",
+    "line": 189,
+    "target": "apps/web/tests/e2e/study-recovery.test.ts",
+    "title": "proTest('a stale question rejected by native grading retains the draft and cannot submit a review', async ({ page, profile, nodes }) => {\n  const deck"
+  },
+  {
+    "source": "e2e/study.spec.ts",
+    "line": 215,
+    "target": "apps/web/tests/e2e/study-recovery.test.ts",
+    "title": "proTest('a lost native grading response preserves the locked answer across reload and retry consumes one attempt', async ({ page, profile, nodes }) =>"
+  },
+  {
+    "source": "e2e/provider.spec.ts",
+    "line": 15,
+    "target": "apps/web/tests/e2e/llm-provider.test.ts",
+    "title": "test.describe('live external providers', () => {\n  test.skip(process.env.E2E_PROVIDER_PROFILE !== 'live', 'Run the separate live provider profile with"
+  }
+]

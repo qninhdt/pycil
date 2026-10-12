@@ -10,13 +10,16 @@ from lexi_ai.errors import (
     QuestionArtifactNotFoundError,
     UnsupportedQuestionFormatError,
 )
+from openai import APIError
 from sqlalchemy import select
+from typesafe_sdk import TypeSafeAPIError
 
 from pycil.account.auth import Actor, Viewer
 from pycil.account.models import User
 from pycil.account.plans import Feature
 from pycil.dependencies import Dictionary, Product, Session
 from pycil.http import Problem
+from pycil.logging import get_logger
 from pycil.pagination import strict_query
 from pycil.study.preparation import prepare
 from pycil.study.progress import activity, progress, schedule, summaries
@@ -33,6 +36,8 @@ from pycil.study.schemas import (
     Summary,
     SummaryBatch,
 )
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/v1/study", tags=["study"])
 
@@ -85,7 +90,12 @@ async def grade(data: Grade, user: Actor, config: Product, lexicon: Dictionary, 
         raise Problem(404, "question_artifact_not_found") from None
     except UnsupportedQuestionFormatError:
         raise Problem(422, "unsupported_question_format") from None
-    except LexiconError:
+    except LexiconError, APIError, TypeSafeAPIError:
+        logger.error(
+            "study_grading_failed",
+            user_id=str(user.id),
+            question_artifact_id=data.question_artifact_id,
+        )
         raise Problem(503, "grading_unavailable") from None
 
 

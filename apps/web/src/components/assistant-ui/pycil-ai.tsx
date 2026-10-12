@@ -474,6 +474,7 @@ function PycilAIPanel() {
       data-open={open}
       aria-label={t('openPycilAI')}
       title="PycilAI"
+      disabled={account.status === 'loading'}
       onClick={() => setOpen(true)}
     >
       <Icon name="spark" tone="color" className="size-6 shrink-0" />

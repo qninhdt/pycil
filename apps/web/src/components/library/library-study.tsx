@@ -67,6 +67,7 @@ function StudyAction({
       asChild={count > 0}
       disabled={count > 0 ? undefined : true}
       variant="outline"
+      aria-label={`${label}, ${count} ${unit}`}
       className="relative h-auto min-h-20 md:min-h-20 justify-start overflow-hidden py-3.5 pr-20 text-left whitespace-normal max-[1199px]:pr-[68px] max-[767px]:min-h-0 max-[767px]:py-2 max-[767px]:px-2.5 max-[767px]:pr-2.5 rounded-none"
     >
       {count > 0 ? <Link href={href}>{content}</Link> : content}

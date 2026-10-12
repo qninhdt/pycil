@@ -4,6 +4,10 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from langchain_core.callbacks import AsyncCallbackHandler
 
+from pycil.logging import get_logger
+
+logger = get_logger(__name__)
+
 
 class Meter(AsyncCallbackHandler):
     def __init__(self, rates):
@@ -19,6 +23,7 @@ class Meter(AsyncCallbackHandler):
             for key in ("input_tokens", "output_tokens")
         ):
             self.unmetered_calls += 1
+            logger.warning("assistant_metering_missing_usage", unmetered_calls=self.unmetered_calls)
             return
         details = reported.get("input_token_details") or {}
         incoming, outgoing = reported["input_tokens"], reported["output_tokens"]
@@ -34,6 +39,14 @@ class Meter(AsyncCallbackHandler):
                 self.unmetered_calls += 1
             else:
                 self.total += Decimal(written) * self.rates.cache_write_units_per_token
+        logger.info(
+            "assistant_llm_usage_recorded",
+            input_tokens=incoming,
+            output_tokens=outgoing,
+            cached_read_tokens=cached,
+            cache_write_tokens=written,
+            total_units=int(self.units),
+        )
 
     @property
     def units(self):

@@ -1,0 +1,101 @@
+import { expect,test } from '@playwright/test'
+import { accountPlatform,navigationPlatform } from './fixtures/api-fixtures'
+import { buildFixture,renderFixture } from './fixtures/render-fixture'
+
+test('Dictionary adds one meaning to an existing deck and creates a deck with a meaning', async ({ page }) => {
+  await page.goto('/app/dictionary')
+  await page.getByRole('searchbox', { name: 'Search word or expression' }).fill('run')
+  await page.getByRole('button', { name: /run.*Ready/i }).click()
+  await expect(page.getByRole('heading', { name: 'run', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Add to deck' }).first().click()
+  const destination = page.getByRole('dialog', { name: 'Choose a destination' })
+  await destination.getByRole('button', { name: 'Personal' }).dblclick()
+  await destination.getByRole('button', { name: /Everyday conversation.*Deck/ }).click()
+  await destination.getByRole('button', { name: 'Add to deck' }).click()
+  await expect(page.getByText(/In 1 deck/).first()).toBeVisible()
+
+  await page.getByRole('button', { name: 'Add to deck' }).nth(1).click()
+  await destination.getByRole('button', { name: 'Personal' }).dblclick()
+  await destination.getByRole('button', { name: /Create a deck in Personal/ }).click()
+  await destination.getByRole('textbox', { name: 'New deck name' }).fill('New verbs')
+  await destination.getByRole('button', { name: 'Create and add' }).click()
+  await expect(page.getByRole('link', { name: 'New verbs', exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'New verbs 1 sense' })).toBeVisible()
+})
+
+test('Word picker keeps sense selection across searches and saves a batch', async ({ page }) => {
+  await page.goto('/app/personal/everyday/words')
+  await page.getByRole('button', { name: 'Add words' }).click()
+  const picker = page.getByRole('dialog', { name: 'Add words to deck' })
+  await picker.getByRole('searchbox', { name: 'Search words' }).fill('run')
+  await expect(picker.getByRole('heading', { name: 'run' })).toBeVisible()
+  await picker.getByRole('checkbox').first().check()
+  await picker.getByRole('searchbox', { name: 'Search words' }).fill('bank')
+  await expect(picker.getByText('1 meaning selected')).toBeVisible()
+  await picker.getByRole('checkbox').first().check()
+  await picker.getByRole('button', { name: 'Add to deck' }).click()
+  await expect(picker).toHaveCount(0)
+  await page.getByRole('searchbox', { name: 'Search words' }).fill('run')
+  await expect(page.getByRole('table').getByRole('row', { name: /run/ })).toBeVisible()
+  await page.getByRole('button', { name: /View run: to move quickly on foot/ }).click()
+  await page.getByRole('button', { name: 'Remove from deck' }).click()
+  await expect(page.getByText('No matching words.', { exact: true })).toBeVisible()
+})
+
+test('Reference entry prepares into a readable word', async ({ page }) => {
+  await page.goto('/app/dictionary')
+  await page.getByRole('searchbox', { name: 'Search word or expression' }).fill('orbit')
+  await page.getByRole('button', { name: /orbit.*Needs preparation/i }).click()
+  await expect(page.getByRole('heading', { name: 'orbit', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Prepare entry' }).click()
+  await expect(page).toHaveURL(/\/app\/dictionary$/)
+  await expect(page.getByText('the curved path of an object around a planet or star')).toBeVisible()
+})
+
+test('Destination search opens a nested folder with its full breadcrumb', async ({ page }) => {
+  await page.goto('/app/dictionary')
+  await page.getByRole('searchbox', { name: 'Search word or expression' }).fill('run')
+  await page.getByRole('button', { name: /run.*Ready/i }).click()
+  await page.getByRole('button', { name: 'Add to deck' }).first().click()
+  const destination = page.getByRole('dialog', { name: 'Choose a destination' })
+  await destination.getByRole('textbox', { name: 'Search folders and decks' }).fill('Presentations')
+  await destination.getByRole('button', { name: /Presentations/ }).dblclick()
+  await expect(destination.getByRole('navigation', { name: 'Destination path' })).toContainText('Business English')
+  await expect(destination.getByRole('navigation', { name: 'Destination path' })).toContainText('Presentations')
+})
+
+test('Dictionary selection stays on one page and reveals native sense detail', async ({ page }) => {
+  await page.goto('/app/dictionary')
+  const search = page.getByRole('searchbox', { name: 'Search word or expression' })
+  await expect(search).toHaveAttribute('type', 'text')
+  await search.fill('bank')
+  await expect(page.getByRole('button', { name: 'Clear search' })).toHaveCount(1)
+  await page.evaluate(() => { Object.defineProperty(window, 'dictionaryNavigationProbe', { value: true }) })
+  await page.getByRole('button', { name: /bank.*Ready/i }).click()
+  await expect(page).toHaveURL(/\/app\/dictionary$/)
+  expect(await page.evaluate(() => 'dictionaryNavigationProbe' in window)).toBe(true)
+  await expect(page.getByText('5 senses')).toBeVisible()
+  await expect(page.getByText('CEFR A2').first()).toBeVisible()
+  await expect(page.getByText('open a bank account')).toBeVisible()
+  await page.getByRole('searchbox', { name: 'Search word or expression' }).fill('light')
+  await page.getByRole('button', { name: /light.*Ready/i }).click()
+  await expect(page.getByText('5 senses')).toBeVisible()
+  expect(await page.evaluate(() => 'dictionaryNavigationProbe' in window)).toBe(true)
+})
+
+test('HTTP Dictionary distinguishes an unavailable search from an honest empty result and retries', async ({ page }) => {
+  const bundle = await buildFixture('dictionary', { '@/components/application/providers': accountPlatform, 'next/navigation': navigationPlatform })
+  let unavailable = true
+  await page.route('**/api/v1/**', route => {
+    expect(new URL(route.request().url()).pathname).toBe('/api/v1/words:search')
+    return route.fulfill(unavailable ? { status: 503, json: { error: 'search_unavailable' } } : { json: { items: [] } })
+  })
+  await renderFixture(page, bundle, 'dictionary')
+  await expect(page.getByRole('button', { name: 'Retry', exact: true })).toBeVisible()
+  await expect(page.getByText('No matches', { exact: true })).toHaveCount(0)
+  unavailable = false
+  await page.getByRole('button', { name: 'Retry', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Retry', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('searchbox')).toHaveValue('bank')
+  await expect(page.getByText(/No matches|No entries/).first()).toBeVisible()
+})

@@ -7,6 +7,9 @@ from sqlalchemy import select
 
 from pycil.account.models import User
 from pycil.http import Problem
+from pycil.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 async def clerk_user(http, deployment, subject):
@@ -17,11 +20,14 @@ async def clerk_user(http, deployment, subject):
             headers={"Authorization": "Bearer " + deployment.clerk_secret_key.get_secret_value()},
             timeout=15,
         )
-    except httpx.HTTPError:
+    except httpx.HTTPError as exc:
+        logger.error("clerk_api_request_failed", error_type=type(exc).__name__, subject=subject)
         raise Problem(503, "identity_service_unavailable") from None
     if response.status_code == 404:
+        logger.warning("clerk_user_not_found", subject=subject)
         raise Problem(401, "invalid_credentials")
     if not response.is_success:
+        logger.error("clerk_api_request_failed", status_code=response.status_code, subject=subject)
         raise Problem(503, "identity_service_unavailable")
     try:
         data = response.json()
@@ -30,7 +36,8 @@ async def clerk_user(http, deployment, subject):
             for key in ("first_name", "last_name")
         ):
             raise ValueError("invalid identity profile")
-    except ValueError:
+    except ValueError as exc:
+        logger.error("clerk_api_request_failed", error_type=type(exc).__name__, subject=subject)
         raise Problem(503, "identity_service_unavailable") from None
     return data
 

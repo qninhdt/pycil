@@ -7,9 +7,7 @@ from uuid import uuid4
 import httpx
 import pytest
 from ag_ui.core import RunAgentInput
-from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
-from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
+from langchain_core.messages import HumanMessage, ToolMessage
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from pydantic import Field
 from sqlalchemy import func, select
@@ -27,42 +25,7 @@ from pycil.library.models import Node, NodeRole
 from pycil.library.nodes import create_node, delete_node
 from pycil.library.schemas import NodeCreate
 from pycil.main import create_app
-
-
-class Completion(BaseChatModel):
-    responses: list[AIMessage] = Field(default_factory=list)
-    calls: int = 0
-    delay: float = 0
-
-    @property
-    def _llm_type(self):
-        return "deterministic-external-completion"
-
-    def bind_tools(self, tools, **kwargs):
-        return self
-
-    def _generate(self, messages, stop=None, run_manager=None, **kwargs):
-        self.calls += 1
-        return ChatResult(generations=[ChatGeneration(message=self.responses.pop(0))])
-
-    async def _agenerate(self, messages, stop=None, run_manager=None, **kwargs):
-        if self.delay:
-            await asyncio.sleep(self.delay)
-        return self._generate(messages)
-
-    async def _astream(self, messages, stop=None, run_manager=None, **kwargs):
-        if self.delay:
-            await asyncio.sleep(self.delay)
-        response = self._generate(messages).generations[0].message
-        yield ChatGenerationChunk(message=AIMessageChunk(**response.model_dump(exclude={"type"})))
-
-
-def answer(content="Hello", **kwargs):
-    return AIMessage(
-        content=content,
-        usage_metadata={"input_tokens": 10, "output_tokens": 2, "total_tokens": 12},
-        **kwargs,
-    )
+from tests.support.inference import Completion, answer
 
 
 def request(identifier, *, resume=None):
@@ -441,6 +404,14 @@ async def test_native_approval_and_free_rejection(
             denied = await client.get(f"/v1/assistant/conversations/{conversation.id}")
             assert denied.status_code == 404
             assert denied.json() == {"error": "conversation_not_found"}
+            deleted = await client.delete(f"/v1/assistant/conversations/{conversation.id}")
+            assert deleted.status_code == 404
+            assert deleted.json() == {"error": "conversation_not_found"}
+            run = await client.post(
+                "/v1/assistant:run",
+                json=request(conversation.id).model_dump(mode="json", by_alias=True),
+            )
+            assert run.status_code == 404 and run.json() == {"error": "conversation_not_found"}
             app.dependency_overrides[actor] = authenticated
 
     async with runtime.sessions() as session, session.begin():
@@ -582,6 +553,10 @@ async def test_approval_reauthorizes_live_library_ownership(
     assert "edit_membership" not in surface
     detail = await surface["read_library"].ainvoke({"node_id": str(deck["id"])})
     assert detail["node"]["node_id"] == str(deck["id"])
+    outsider = User(id=uuid4(), clerk_subject="unrelated", settings={})
+    private_tools = {tool.name: tool for tool in tools(runtime, outsider, config)}
+    with pytest.raises(Problem, match="node_not_found"):
+        await private_tools["read_library"].ainvoke({"node_id": str(deck["id"])})
     provider = Completion(
         responses=[
             answer(
@@ -1065,3 +1040,37 @@ async def test_new_mutations_still_require_approval(
     assert len(actions) == 1 and actions[0][0]["name"] == name
     assert actions[0][0]["args"] == arguments
     assert provider.calls == 1
+
+
+async def test_http_invalid_model_and_image_cannot_write_a_turn(
+    runtime, deployment, config, user, conversation
+):
+    app = create_app()
+    app.state.product, app.state.deployment = config, deployment
+    for name, value in vars(runtime).items():
+        setattr(app.state, name, value)
+
+    async def authenticated():
+        return user
+
+    app.dependency_overrides[actor] = authenticated
+    missing = request(conversation.id).model_dump(mode="json", by_alias=True)
+    missing["forwardedProps"] = {"model_id": "missing-model", "effort": "none"}
+    image = request(conversation.id).model_dump(mode="json", by_alias=True)
+    image["messages"][0]["content"] = [
+        {
+            "type": "image",
+            "source": {"type": "data", "mimeType": "image/svg+xml", "value": "PHN2Zy8+"},
+        }
+    ]
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app), base_url="http://test"
+    ) as client:
+        for body in (missing, image):
+            denied = await client.post("/v1/assistant:run", json=body)
+            assert denied.status_code == 422
+        state = await client.get(f"/v1/assistant/conversations/{conversation.id}")
+        assert state.status_code == 200
+        assert state.json()["state"] == {"messages": [], "pending_approvals": []}
+    async with runtime.sessions() as session:
+        assert await session.scalar(select(func.count()).select_from(UsageEvent)) == 0

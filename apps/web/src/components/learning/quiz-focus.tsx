@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Check, ChevronDown, RotateCcw, X } from '@/components/artwork/artwork'
+import { Check, ChevronDown, RotateCcw, X } from '@/components/artwork/artwork'
 import { useAccount } from '@/components/application/providers'
 import { Background } from '@/components/artwork/artwork'
 import { MarkedText } from '@/components/content/marked-text'
@@ -457,7 +457,6 @@ export function QuizFocus({ initialSession }: { initialSession?: StudySession } 
   const queryClient = useQueryClient()
   const t = useTranslations('learning')
   const tCommon = useTranslations('common')
-  const tNav = useTranslations('nav')
   const tLib = useTranslations('library')
   const tHome = useTranslations('home')
   const profile = account.profile,
@@ -478,6 +477,7 @@ export function QuizFocus({ initialSession }: { initialSession?: StudySession } 
   const [names, setNames] = useState<Record<number, string>>({})
   const [exitDialogOpen, setExitDialogOpen] = useState(false)
   const [resumedToast, setResumedToast] = useState(false)
+  const preparation = useRef<AbortController | null>(null)
   const submitting = useRef(false)
   const lastSaved = useRef<string | null>(initialSession ? 'mock-saved' : null)
   const prepared = session?.prepared
@@ -491,9 +491,15 @@ export function QuizFocus({ initialSession }: { initialSession?: StudySession } 
     }
     if (!accountId || !nodeId) return
     pruneStaleSessions(accountId)
+    try {
+      lastSaved.current = localStorage.getItem(sessionKey(accountId, nodeId))
+    } catch {
+      setError(t('storageError'))
+      setHydrated(true)
+      return
+    }
     const existing = loadSession(accountId, nodeId)
     if (existing && existing.phase !== 'complete') {
-      lastSaved.current = localStorage.getItem(sessionKey(accountId, nodeId))
       setSession(existing)
       if (completedCount(existing) > 0) {
         setResumedToast(true)
@@ -501,13 +507,14 @@ export function QuizFocus({ initialSession }: { initialSession?: StudySession } 
     } else {
       if (existing?.phase === 'complete') {
         discardSession(accountId, nodeId)
+        lastSaved.current = null
       }
-      lastSaved.current = null
       setSession(null)
     }
     setBlocked(false)
+    setError('')
     setHydrated(true)
-  }, [accountId, nodeId, initialSession])
+  }, [accountId, nodeId, initialSession, t])
 
   useEffect(() => {
     if (resumedToast) {
@@ -552,22 +559,30 @@ export function QuizFocus({ initialSession }: { initialSession?: StudySession } 
     return () => controller.abort()
   }, [prepared, services.dictionary])
 
+  useEffect(() => () => preparation.current?.abort(), [accountId, nodeId, selection])
+
   async function start() {
-    if (!profile || starting || !nodeId) return
+    if (!profile || starting || preparation.current || !nodeId) return
+    const controller = new AbortController()
+    preparation.current = controller
     setStarting(true)
     setError('')
     setBlocked(false)
     try {
-      const prepared = await services.learning.prepare({ node_id: nodeId, selection }, new AbortController().signal)
+      const prepared = await services.learning.prepare({ node_id: nodeId, selection }, controller.signal)
+      if (controller.signal.aborted) return
       if (!prepared.bundles.length) {
         setError(t('noEligibleQuestions'))
         return
       }
       commit(createStudySession(profile.id, prepared))
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t('couldNotPrepareSession'))
+      if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : t('couldNotPrepareSession'))
     } finally {
-      setStarting(false)
+      if (preparation.current === controller) {
+        preparation.current = null
+        setStarting(false)
+      }
     }
   }
 
@@ -706,6 +721,7 @@ export function QuizFocus({ initialSession }: { initialSession?: StudySession } 
   }, [phase, next])
 
   const handleExitClick = () => {
+    preparation.current?.abort()
     if (!session || session.phase === 'complete' || Object.keys(session.attempts).length === 0) {
       if (session && session.phase !== 'complete' && accountId && nodeId) {
         discardSession(accountId, nodeId)
@@ -729,59 +745,11 @@ export function QuizFocus({ initialSession }: { initialSession?: StudySession } 
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [exitDialogOpen, session])
 
-  if (!initialSession && (account.status !== 'ready' || !profile)) {
-    return (
-      <main className="h-svh max-h-svh overflow-hidden flex flex-col items-center justify-center p-8 bg-background text-foreground">
-        <div className="max-w-[680px] flex flex-col items-start gap-5 [&_h1]:text-[clamp(32px,4vw,54px)] [&_h1]:leading-[1.1] [&_h1]:font-extrabold [&_h1]:tracking-tight [&_p]:max-w-[52ch] [&_p]:leading-relaxed [&_p]:text-muted-foreground">
-          <h1>{t('learnTitle')}</h1>
-          <p>{account.status === 'loading' ? tNav('loadingAccount') : t('signInToStudy')}</p>
-          <Button asChild>
-            <Link href="/login">{tCommon('signIn')}</Link>
-          </Button>
-        </div>
-      </main>
-    )
-  }
-
-  if (!initialSession && session && session.accountId !== accountId) {
-    return (
-      <main className="h-svh max-h-svh overflow-hidden flex flex-col items-center justify-center p-8 bg-background text-foreground">
-        <div className="max-w-[680px] flex flex-col items-start gap-5 [&_h1]:text-[clamp(32px,4vw,54px)] [&_h1]:leading-[1.1] [&_h1]:font-extrabold [&_h1]:tracking-tight [&_p]:max-w-[52ch] [&_p]:leading-relaxed [&_p]:text-muted-foreground">
-          <h1>{t('learnTitle')}</h1>
-          <p>{t('restoringSession')}</p>
-        </div>
-      </main>
-    )
-  }
-
-  if (!session) {
-    if (error) {
-      return (
-        <main className="h-svh max-h-svh overflow-hidden flex flex-col items-center justify-center p-8 bg-background text-foreground">
-          <div className="max-w-[560px] flex flex-col items-start gap-5">
-            <Link className="inline-flex items-center gap-2 text-[13px] underline underline-offset-4" href={backHref}>
-              <ArrowLeft aria-hidden="true" /> {tLib('backToLibrary')}
-            </Link>
-            <h1 className="text-[clamp(28px,3.5vw,44px)] leading-[1.1] font-extrabold tracking-tight">{t('learnTitle')}</h1>
-            <p className="text-art-red text-sm font-semibold" role="alert">{error}</p>
-            <div className="flex flex-wrap gap-2.5 pt-2">
-              <Button
-                onClick={() => {
-                  void start()
-                }}
-                disabled={starting}
-              >
-                {starting ? t('preparingQuestions') : (tCommon('retry') ?? 'Retry')}
-              </Button>
-              <Button variant="outline" asChild>
-                <Link href={backHref}>{tLib('backToLibrary')}</Link>
-              </Button>
-            </div>
-          </div>
-        </main>
-      )
-    }
-
+  if (!session || (!initialSession && (account.status !== 'ready' || !profile || session.accountId !== accountId || session.prepared.node_id !== nodeId))) {
+    const accountError = account.status === 'error' ? account.error || t('couldNotPrepareSession')
+      : account.status === 'signed-out' || account.status === 'task' ? t('signInToStudy') : ''
+    const preparationError = error || accountError
+    const needsSignIn = account.status === 'signed-out' || account.status === 'task'
     return (
       <main className="h-svh max-h-svh overflow-hidden flex flex-col bg-background text-foreground">
         <header className="flex-none h-[78px] grid grid-cols-[78px_minmax(120px,1fr)_minmax(190px,420px)_minmax(120px,1fr)] items-center border-b border-foreground max-[760px]:h-16 max-[760px]:grid-cols-[56px_minmax(0,1fr)_auto]">
@@ -816,6 +784,20 @@ export function QuizFocus({ initialSession }: { initialSession?: StudySession } 
           </article>
         </div>
 
+        <AlertDialog open={Boolean(preparationError)}>
+          <AlertDialogContent size="sm" onEscapeKeyDown={() => router.replace(backHref)}>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{t('couldNotPrepareSession')}</AlertDialogTitle>
+              <AlertDialogDescription>{preparationError}</AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="flex flex-wrap gap-2">
+              {needsSignIn ? <Button asChild><Link href={`/login?returnTo=${encodeURIComponent(`/focus/learn?${params}`)}`}>{tCommon('signIn')}</Link></Button>
+                : <Button disabled={starting} onClick={() => { if (accountError) account.retry(); else void start() }}>{tCommon('retry')}</Button>}
+              <Button variant="outline" onClick={() => router.replace(backHref)}>{tLib('backToLibrary')}</Button>
+            </div>
+          </AlertDialogContent>
+        </AlertDialog>
+
         <AlertDialog open={exitDialogOpen} onOpenChange={setExitDialogOpen}>
           <AlertDialogContent size="sm" className="max-w-[420px] border border-foreground p-6 rounded-none">
             <AlertDialogHeader className="space-y-2">
@@ -839,6 +821,7 @@ export function QuizFocus({ initialSession }: { initialSession?: StudySession } 
                 variant="outline"
                 className="justify-center rounded-none font-medium"
                 onClick={() => {
+                  preparation.current?.abort()
                   setExitDialogOpen(false)
                   router.push(backHref)
                 }}
@@ -1119,6 +1102,7 @@ export function QuizFocus({ initialSession }: { initialSession?: StudySession } 
                               lastSaved.current = null
                               setSession(null)
                               setBlocked(false)
+                              setError('')
                             }}
                           >
                             {t('startNewSession')}

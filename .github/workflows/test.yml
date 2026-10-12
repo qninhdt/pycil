@@ -1,6 +1,12 @@
 name: Tests
 
 on:
+  workflow_dispatch:
+    inputs:
+      live_provider:
+        description: Run the selected paid LLM E2E checks
+        type: boolean
+        default: false
   pull_request:
     branches: [main, dev]
   push:
@@ -10,6 +16,60 @@ permissions:
   contents: read
 
 jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    env:
+      NEXT_PUBLIC_DATA_MODE: mock
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ""
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: "24.21.0"
+      - run: npm install --global pnpm@12.9.1
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run typecheck
+      - run: pnpm run lint
+      - run: node node_modules/@playwright/test/cli.js install --with-deps chromium
+      - run: pnpm test:unit
+      - run: pnpm test:integration
+      - run: pnpm run build
+
+  frontend-e2e:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    env:
+      CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+      CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+      CLERK_ISSUER: ${{ secrets.CLERK_ISSUER }}
+      CLERK_JWKS_URL: ${{ secrets.CLERK_JWKS_URL }}
+      INFERENCE_API_KEY: ${{ secrets.INFERENCE_API_KEY }}
+      INFERENCE_BASE_URL: ${{ secrets.INFERENCE_BASE_URL }}
+      LEXI_DECISION_API_KEY: ${{ secrets.LEXI_DECISION_API_KEY }}
+      LEXI_DECISION_BASE_URL: ${{ secrets.LEXI_DECISION_BASE_URL }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: "24.21.0"
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          version: "0.12.22"
+      - run: uv python install 3.14.8
+      - run: npm install --global pnpm@12.9.1
+      - run: pnpm install --frozen-lockfile
+      - run: node node_modules/@playwright/test/cli.js install --with-deps chromium
+      - run: pnpm test:e2e
+        if: ${{ !inputs.live_provider }}
+      - run: pnpm test:e2e:live
+        if: ${{ inputs.live_provider }}
+
   backend:
     runs-on: ubuntu-latest
     services:

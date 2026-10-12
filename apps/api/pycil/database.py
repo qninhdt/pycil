@@ -7,6 +7,10 @@ from sqlalchemy import Enum, MetaData, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
+from pycil.logging import get_logger
+
+logger = get_logger(__name__)
+
 
 class Base(DeclarativeBase):
     metadata = MetaData(
@@ -70,59 +74,73 @@ async def verify_schema(engine):
 
     from pycil.migrate import migration_config
 
-    application_head = ScriptDirectory.from_config(
-        migration_config("postgresql+asyncpg://")
-    ).get_current_head()
-    async with engine.connect() as connection:
-        app = (
-            (await connection.execute(text("SELECT version_num FROM public.alembic_version")))
-            .scalars()
-            .all()
-        )
-        lexi = (
-            (await connection.execute(text("SELECT version_num FROM lexi.alembic_version")))
-            .scalars()
-            .all()
-        )
-        checkpoints = (
-            (
-                await connection.execute(
-                    text("SELECT v FROM checkpoints.checkpoint_migrations ORDER BY v")
-                )
+    try:
+        application_head = ScriptDirectory.from_config(
+            migration_config("postgresql+asyncpg://")
+        ).get_current_head()
+        async with engine.connect() as connection:
+            app = (
+                (await connection.execute(text("SELECT version_num FROM public.alembic_version")))
+                .scalars()
+                .all()
             )
-            .scalars()
-            .all()
-        )
-        if app != [application_head] or lexi != [inspect_head()]:
-            raise RuntimeError("schema_version_mismatch; run the explicit migration gate")
-        if checkpoints != list(range(len(AsyncPostgresSaver.MIGRATIONS))):
-            raise RuntimeError("checkpoint_version_mismatch; run the explicit migration gate")
-        # Version rows alone do not prove the owned/external tables still exist.
-        register_models()
-        required = {
-            f"{table.schema or 'public'}.{table.name}" for table in Base.metadata.tables.values()
-        }
-        required |= {
-            f"checkpoints.{name}"
-            for name in ("checkpoints", "checkpoint_blobs", "checkpoint_writes")
-        }
-        required |= {
-            f"lexi_reference.{name}"
-            for name in ("words", "entries", "senses", "examples", "word_alternatives", "datasets")
-        }
-        existing = set(
-            (
-                await connection.execute(
-                    text(
-                        "SELECT schemaname || '.' || tablename FROM pg_tables "
-                        "WHERE schemaname IN ('public', 'lexi', 'lexi_reference', 'checkpoints')"
+            lexi = (
+                (await connection.execute(text("SELECT version_num FROM lexi.alembic_version")))
+                .scalars()
+                .all()
+            )
+            checkpoints = (
+                (
+                    await connection.execute(
+                        text("SELECT v FROM checkpoints.checkpoint_migrations ORDER BY v")
                     )
                 )
-            ).scalars()
-        )
-        if not required <= existing:
-            raise RuntimeError("schema_tables_missing; run the explicit migration gate")
-        if not await connection.scalar(
-            text("SELECT checksum FROM lexi_reference.datasets WHERE name='reference'")
-        ):
-            raise RuntimeError("reference_dataset_missing; run the explicit migration gate")
+                .scalars()
+                .all()
+            )
+            if app != [application_head] or lexi != [inspect_head()]:
+                raise RuntimeError("schema_version_mismatch; run the explicit migration gate")
+            if checkpoints != list(range(len(AsyncPostgresSaver.MIGRATIONS))):
+                raise RuntimeError("checkpoint_version_mismatch; run the explicit migration gate")
+            # Version rows alone do not prove the owned/external tables still exist.
+            register_models()
+            required = {
+                f"{table.schema or 'public'}.{table.name}"
+                for table in Base.metadata.tables.values()
+            }
+            required |= {
+                f"checkpoints.{name}"
+                for name in ("checkpoints", "checkpoint_blobs", "checkpoint_writes")
+            }
+            required |= {
+                f"lexi_reference.{name}"
+                for name in (
+                    "words",
+                    "entries",
+                    "senses",
+                    "examples",
+                    "word_alternatives",
+                    "datasets",
+                )
+            }
+            existing = set(
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT schemaname || '.' || tablename FROM pg_tables "
+                            "WHERE schemaname IN "
+                            "('public', 'lexi', 'lexi_reference', 'checkpoints')"
+                        )
+                    )
+                ).scalars()
+            )
+            if not required <= existing:
+                raise RuntimeError("schema_tables_missing; run the explicit migration gate")
+            if not await connection.scalar(
+                text("SELECT checksum FROM lexi_reference.datasets WHERE name='reference'")
+            ):
+                raise RuntimeError("reference_dataset_missing; run the explicit migration gate")
+        logger.info("schema_verification_passed")
+    except Exception:
+        logger.error("schema_verification_failed")
+        raise

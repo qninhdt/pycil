@@ -1,4 +1,4 @@
-import type { Diagnostic, PreparedQuestion, PreparedSession, ReviewBatchResult, SubmittedResult } from './home-api'
+import { parsePreparation, type Diagnostic, type PreparedQuestion, type PreparedSession, type ReviewBatchResult, type SubmittedResult } from './home-api'
 
 export type Attempt = { answer: string | null; answered_at: string; diagnostics: Diagnostic; complete: boolean }
 export type StudySession = {
@@ -19,17 +19,23 @@ export function loadSession(accountId: string, nodeId: string): StudySession | n
     const raw = localStorage.getItem(sessionKey(accountId, nodeId))
     if (!raw) return null
     const value = JSON.parse(raw) as StudySession
-    return value.version === 2 && value.accountId === accountId && value.prepared?.node_id === nodeId && Array.isArray(value.prepared?.bundles) && Array.isArray(value.questions) ? value : null
+    if (value?.version !== 2 || value.accountId !== accountId || value.prepared?.node_id !== nodeId) return null
+    const prepared = parsePreparation(value.prepared)
+    if (!prepared.actual_question_count || !['question', 'feedback', 'recap', 'submitting', 'complete'].includes(value.phase) ||
+      typeof value.id !== 'string' || typeof value.seed !== 'string' || typeof value.draft !== 'string' ||
+      !Number.isInteger(value.round) || value.round < 1 || !Number.isInteger(value.position) || value.position < 0 ||
+      ![value.questions, value.unseen, value.retry].every(queue => Array.isArray(queue) && queue.every(index => Number.isInteger(index) && index >= 0 && index < prepared.actual_question_count)) ||
+      !value.questions.length || value.position >= value.questions.length || !value.attempts || typeof value.attempts !== 'object' ||
+      !Object.values(value.attempts).every(attempts => Array.isArray(attempts) && attempts.every(attempt => attempt && typeof attempt.complete === 'boolean' && attempt.diagnostics && typeof attempt.diagnostics === 'object'))) return null
+    return { ...value, prepared }
   } catch { return null }
 }
 
 export function saveSession(value: StudySession) {
-  try {
-    localStorage.setItem(
-      sessionKey(value.accountId, value.prepared.node_id),
-      JSON.stringify({ ...value, updated_at: new Date().toISOString() })
-    )
-  } catch {}
+  localStorage.setItem(
+    sessionKey(value.accountId, value.prepared.node_id),
+    JSON.stringify({ ...value, updated_at: new Date().toISOString() })
+  )
 }
 
 export function discardSession(accountId: string, nodeId: string) {
@@ -57,7 +63,7 @@ export function pruneStaleSessions(accountId: string, maxAgeDays = 7) {
     const prefix = `pycil:study:${accountId}:`
     const now = Date.now()
     const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000
-    for (let i = 0; i < localStorage.length; i++) {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
       const key = localStorage.key(i)
       if (key?.startsWith(prefix)) {
         try {

@@ -1,7 +1,6 @@
 """Owned conversation metadata and native thread cleanup."""
 
 import asyncio
-import logging
 from contextlib import asynccontextmanager
 
 from anyio import CancelScope, sleep
@@ -11,8 +10,9 @@ from sqlalchemy import delete, select
 
 from pycil.assistant.models import Conversation
 from pycil.http import Problem
+from pycil.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 LOCK_TTL_SECONDS = 30
 
 
@@ -51,6 +51,10 @@ async def guard(redis, conversation_id):
                     try:
                         await lock.reacquire()
                     except RedisError:
+                        logger.error(
+                            "conversation_lease_renewal_failed",
+                            conversation_id=str(conversation_id),
+                        )
                         lost = True
                         scope.cancel()
                         return
@@ -71,7 +75,10 @@ async def guard(redis, conversation_id):
                 await lock.release()
             except RedisError:
                 lost = True
-                logger.exception("Conversation lease release failed: %s", conversation_id)
+                logger.exception(
+                    "conversation_lease_release_failed",
+                    conversation_id=str(conversation_id),
+                )
     if lost:
         raise Problem(503, "conversation_lock_lost")
 
@@ -89,3 +96,8 @@ async def delete_conversation(resources, user, identifier):
                     Conversation.id == identifier, Conversation.user_id == user.id
                 )
             )
+        logger.info(
+            "conversation_deleted",
+            conversation_id=str(identifier),
+            user_id=str(user.id),
+        )

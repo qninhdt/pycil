@@ -1,0 +1,25 @@
+import { expect,test } from 'vitest'
+
+import { libraryHref,publishedHref } from '../../src/lib/library-model'
+
+import { parseMeaningPage,parseNodeDetails } from '../../src/lib/library-api'
+
+test('live lexical examples read native content and retain backend target markup', () => {
+  const content = 'They [abandoned|p] the car.'
+  const page = parseMeaningPage({ senses: [{ sense_id: 8, lemma: 'abandon', pos: 'VERB', definition: 'to leave permanently', cefr_level: 'B1',
+    learning: null, examples: [{ id: 91, content, theme_id: null }], sources: [], sources_has_more: false }], next_cursor: null })
+  expect(page.senses[0].examples).toEqual([{ text: content }])
+})
+
+test('Library contracts reject incomplete DTOs and links safely encode node identities', () => {
+  expect(() => parseNodeDetails({ id: 'node' })).toThrow()
+  expect(() => parseMeaningPage({ senses: [{ sense_id: -1 }], next_cursor: null })).toThrow()
+  expect(() => parseMeaningPage({ senses: [{ sense_id: 1, lemma: 'bank', pos: 'noun', definition: 'a bank', learning: { state: 'MASTERED' } }], next_cursor: null })).toThrow()
+  expect(libraryHref('a&tab=bad', 'words')).toBe('/app/personal/a%26tab%3Dbad/words')
+  expect(libraryHref('a/b?#', 'overview')).toBe('/app/personal/a%2Fb%3F%23')
+  expect(libraryHref('everyday')).toBe('/app/personal/everyday')
+  expect(libraryHref('everyday', 'overview')).toBe('/app/personal/everyday')
+  expect(libraryHref()).toBe('/app/personal')
+  expect(publishedHref('a/b', 'node ?', 'words')).toBe('/app/u/a%2Fb/published/node%20%3F/words')
+  expect(parseMeaningPage({ senses: [], next_cursor: null }).senses).toEqual([])
+})

@@ -96,21 +96,23 @@ user/minute. There is no whole-agent-turn deadline. `assistant.llm_timeout_secon
 controls SDK network timeouts, including read inactivity, for each model request. Conversations have no automatic expiration; owners delete them explicitly.
 
 The Assistant default is `openai/gpt-6-luna` with effort `medium`; its allowlist also
-includes `google/gemini-3.8-flash` with low/medium/high effort choices.
-Luna's supported effort choices are `low`, `medium`, and `high`. Lexi generation and the decision fallback use Luna with
-`medium` reasoning, a 16,384-token completion budget (including reasoning), and a
-120-second request timeout, after the live 8,192-token run exhausted its output limit.
+includes `openai/gpt-6.1-sol` and `google/gemini-3.8-flash`, each with low/medium/high
+effort choices. Lexi generation uses `openai/gpt-6.1-sol` with `medium` reasoning, a
+16,384-token completion budget (including reasoning), and a 120-second request timeout,
+after the live 8,192-token run exhausted its output limit. The separate decision model
+is `typesafe/jev-1.13`, with `openai/gpt-6-luna` as its fallback.
 `providers.lexi.max_completion_tokens` accepts up to 32,768 tokens when a reasoning
-model needs more room to complete its JSON output. Jev decisions use `typesafe/jev-1.13`. Public Assistant choices come
-from the allowlist, not arbitrary client model IDs; the decision-only model is
-not an Assistant choice.
+model needs more room to complete its JSON output. Public Assistant choices come from
+the allowlist, not arbitrary client model IDs; the decision-only model is not an
+Assistant choice.
 
-OpenRouter prices were fetched on 2026-10-08. Luna's base input/output/cache-read/
-cache-write prices are $0.10/$0.50/$0.01/$0.125 per million tokens. The policy
-preserves the existing integer unit scale: one million units equals $1 of configured
-token cost. Jev input costs $0.042 per million tokens with zero output charge;
-grading does not currently deduct Assistant allowance. See the
-[Luna catalog](https://openrouter.ai/openai/gpt-6-luna) and
+OpenRouter prices were checked on 2026-10-12. Luna's base input/output/cache-read/
+cache-write prices are $0.10/$0.50/$0.01/$0.125 per million tokens. GPT-6.1 Sol's
+base prices are $2/$10/$0.10/$2.50 per million tokens. The policy preserves the
+existing integer unit scale: one million units equals $1 of configured token cost.
+Jev input costs $0.042 per million tokens with zero output charge; grading does not
+currently deduct Assistant allowance. See the [Luna catalog](https://openrouter.ai/openai/gpt-6-luna),
+[GPT-6.1 Sol catalog](https://openrouter.ai/openai/gpt-6.1-sol), and
 [Jev catalog](https://openrouter.ai/typesafe/jev-1.13).
 
 Gemini 3.8 Flash's fetched input/output/cache-read/cache-write prices are
@@ -118,10 +120,10 @@ $0.75/$3.75/$0.075/$0.0416666666666667 per million tokens. Reasoning tokens use 
 output rate. See the [Gemini catalog](https://openrouter.ai/google/gemini-3.8-flash).
 These are the current OpenRouter catalog rates, not a guarantee of future prices.
 
-The configured rates are the base tier. Luna input at or above 272,000 tokens uses
-higher provider rates; the current meter does not implement context-tier pricing
-and its unit total is not an invoice reconciliation. Actual provider cost remains
-the provider's reported charge.
+The configured rates are the base tier. Luna and GPT-6.1 Sol input at or above 272,000
+tokens uses higher provider rates; the current meter does not implement context-tier
+pricing and its unit total is not an invoice reconciliation. Actual provider cost
+remains the provider's reported charge.
 
 Backend secrets use `INFERENCE_API_KEY` and `LEXI_DECISION_API_KEY` in the private
 environment. The same OpenRouter key can serve both. Chat uses

@@ -113,6 +113,7 @@ backup-manifest-*.json
 /tmp/cambridge-runtime.db*
 
 # Node.js
+/.pycil-e2e-web-*/
 node_modules/
 .pnpm-debug.log*
 storybook-static/

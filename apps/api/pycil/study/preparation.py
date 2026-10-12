@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 
 from lexi_ai import QUESTION_ARTIFACT_MAP
 from lexi_ai.errors import LexiconError, QuestionArtifactBankChangedError
+from openai import APIError
 from sqlalchemy import DateTime, Float, literal, select
 
 from pycil.account.models import User
@@ -13,9 +14,11 @@ from pycil.account.schemas import effective_learning
 from pycil.http import Problem
 from pycil.library.access import readable
 from pycil.library.senses import member_ids
+from pycil.logging import get_logger
 from pycil.study.models import UserSense
 from pycil.study.questions import build_question
 
+logger = get_logger(__name__)
 randomness = random.SystemRandom()
 
 
@@ -71,6 +74,13 @@ async def prepare(
         config.learning.validate_preferences(preferences)
     except ValueError as exc:
         raise Problem(422, "invalid_preparation") from exc
+    logger.info(
+        "study_preparation_started",
+        user_id=str(user.id),
+        node_id=str(node_id),
+        selection=selection,
+        max_sense_count=target,
+    )
     now = datetime.now(UTC)
     async with session.begin():
         await session.connection(execution_options={"isolation_level": "REPEATABLE READ"})
@@ -117,9 +127,21 @@ async def prepare(
             if demand
             else []
         )
-    except QuestionArtifactBankChangedError:
+    except QuestionArtifactBankChangedError as exc:
+        logger.warning(
+            "study_artifact_retrieval_failed",
+            user_id=str(user.id),
+            node_id=str(node_id),
+            error_type=type(exc).__name__,
+        )
         raise Problem(409, "learning_content_changed") from None
-    except LexiconError:
+    except (LexiconError, APIError) as exc:
+        logger.warning(
+            "study_artifact_retrieval_failed",
+            user_id=str(user.id),
+            node_id=str(node_id),
+            error_type=type(exc).__name__,
+        )
         raise Problem(503, "question_generation_unavailable") from None
     senses = {s.id: s for s in await lexicon.get_senses(list(plans))}
     facts = {s["sense_id"]: s for s in await lexicon.get_sense_previews(list(plans))}
@@ -146,6 +168,14 @@ async def prepare(
                 )
             )
         bundles.append(dict(sense=senses[row.sense_id], reason=row.reason, questions=questions))
+    logger.info(
+        "study_preparation_completed",
+        user_id=str(user.id),
+        node_id=str(node_id),
+        selection=selection,
+        sense_count=len(bundles),
+        question_count=len(bundles) * k,
+    )
     return dict(
         node_id=node_id,
         selection=selection,

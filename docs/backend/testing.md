@@ -5,8 +5,9 @@ and do not establish current migration or API behavior.
 
 The browser suite is a separate opt-in profile; ordinary API tests skip it.
 See [web execution instructions](../../apps/web/README.md#live-integration-and-e2e)
-and the [2026-10-10 coverage review](../../plans/261010-lexi-refresh/reports/verification.md)
-for its current inventory, missing journeys and execution evidence.
+and the [2026-10-12 coverage review](../../plans/261012-focus-e2e-hardening/reports/verification.md)
+for historical execution evidence. Current ownership and commands are in
+[frontend testing](../../apps/web/tests/README.md).
 
 ## Safety boundary
 

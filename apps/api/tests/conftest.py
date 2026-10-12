@@ -178,3 +178,6 @@ def no_inference(monkeypatch):
     # Native Lexi reads/storage remain real; reject only the inference boundary.
     monkeypatch.setattr(OpenAIStructuredLLM, "complete", forbidden)
     monkeypatch.setattr(DecisionModel, "decide", forbidden)
+
+
+pytest_plugins = ["tests.support.web_e2e_data"]

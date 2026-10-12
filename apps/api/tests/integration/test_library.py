@@ -763,3 +763,130 @@ async def test_targeted_routes_http_contract(resources, user, config, senses):
         assert moved.status_code == 200 and moved.json()["id"] == str(deck["id"])
         page = (await client.get(f"/v1/nodes/{deck['id']}/senses")).json()
         assert [item["sense_id"] for item in page["senses"]] == senses[1:]
+
+
+async def test_http_child_and_sense_quotas_reject_atomically(resources, user, config, senses):
+    limited = config.model_copy(
+        update={
+            "library": config.library.model_copy(
+                update={"max_children_per_folder": 2, "max_senses_per_deck": 2}
+            )
+        }
+    )
+    parent = await create(resources.sessions, user, limited, type="FOLDER", name="parent")
+    await create(
+        resources.sessions, user, limited, type="DECK", name="existing", parent_id=parent["id"]
+    )
+    deck = await create(
+        resources.sessions, user, limited, type="DECK", name="members", sense_ids=[senses[0]]
+    )
+    app = create_app()
+    for name, value in vars(resources).items():
+        setattr(app.state, name, value)
+    app.state.product = limited
+
+    async def authenticated():
+        return user
+
+    app.dependency_overrides[actor] = authenticated
+    app.dependency_overrides[optional_actor] = authenticated
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app), base_url="http://test"
+    ) as client:
+        writes = await asyncio.gather(
+            *(
+                client.post(
+                    "/v1/nodes",
+                    json={
+                        "type": "DECK",
+                        "name": f"candidate-{i}",
+                        "parent_id": str(parent["id"]),
+                        "sense_ids": [],
+                    },
+                )
+                for i in range(2)
+            )
+        )
+        assert sorted(response.status_code for response in writes) == [201, 422]
+        assert next(response for response in writes if response.status_code == 422).json() == {
+            "error": "quota_exceeded"
+        }
+        denied = await client.post(
+            f"/v1/nodes/{deck['id']}:modifySenses",
+            json={"add": [senses[0], senses[1], 2147483647], "remove": []},
+        )
+        assert denied.status_code == 422
+        assert denied.json() == {"error": "deck_sense_limit_exceeded"}
+        members = await client.get(f"/v1/nodes/{deck['id']}/senses")
+        assert [sense["sense_id"] for sense in members.json()["senses"]] == [senses[0]]
+        children = await client.get("/v1/nodes", params={"parent_id": str(parent["id"])})
+        assert len(children.json()["nodes"]) == 2
+
+
+async def test_http_owned_quota_races_copy_and_deletion_release_one_slot(resources, user, config):
+    limited = config.model_copy(
+        update={
+            "library": config.library.model_copy(
+                update={"max_owned_nodes": 5, "max_children_per_folder": 3}
+            )
+        }
+    )
+    parent = await create(resources.sessions, user, limited, type="FOLDER", name="parent")
+    deck = await create(
+        resources.sessions, user, limited, type="DECK", name="existing", parent_id=parent["id"]
+    )
+    app = create_app()
+    for name, value in vars(resources).items():
+        setattr(app.state, name, value)
+    app.state.product = limited
+
+    async def authenticated():
+        return user
+
+    app.dependency_overrides[actor] = authenticated
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app), base_url="http://test"
+    ) as client:
+        writes = await asyncio.gather(
+            *(
+                client.post(
+                    "/v1/nodes",
+                    json={
+                        "type": "DECK",
+                        "name": f"candidate-{i}",
+                        "parent_id": str(parent["id"]),
+                        "sense_ids": [],
+                    },
+                )
+                for i in range(2)
+            )
+        )
+        assert sorted(response.status_code for response in writes) == [201, 422]
+        assert next(response for response in writes if response.status_code == 422).json() == {
+            "error": "quota_exceeded"
+        }
+        copy = await client.post(
+            f"/v1/nodes/{deck['id']}:copy", json={"parent_id": str(parent["id"])}
+        )
+        assert copy.status_code == 422 and copy.json() == {"error": "quota_exceeded"}
+        assert (await client.delete(f"/v1/nodes/{deck['id']}")).status_code == 204
+        replacement = await client.post(
+            "/v1/nodes",
+            json={
+                "type": "DECK",
+                "name": "replacement",
+                "parent_id": str(parent["id"]),
+                "sense_ids": [],
+            },
+        )
+        assert replacement.status_code == 201 and replacement.json()["id"] != str(deck["id"])
+        full = await client.post(
+            "/v1/nodes",
+            json={
+                "type": "DECK",
+                "name": "still full",
+                "parent_id": str(parent["id"]),
+                "sense_ids": [],
+            },
+        )
+        assert full.status_code == 422 and full.json() == {"error": "quota_exceeded"}

@@ -1,15 +1,15 @@
 """Process-owned singleflight for Word generation."""
 
 import asyncio
-import logging
 from uuid import uuid7
 
 from lexi_ai.errors import InvalidHandleError, InvalidResourceError
 from lexi_ai.text import match_key, validate_lemma
 
 from pycil.http import Problem
+from pycil.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class Generations:
@@ -32,6 +32,12 @@ class Generations:
             raise Problem(503, "generation_unavailable")
         key = reference_id if reference_id is not None else "word:" + match_key(target)
         if flight := self.flights.get(key):
+            logger.info(
+                "word_generation_deduplicated",
+                task_id=str(flight[0]),
+                target=target,
+                key=key,
+            )
             return dict(self.results[flight[0]])
         identifier = uuid7()
         result = {
@@ -46,6 +52,12 @@ class Generations:
         self.results[identifier] = result
         task = asyncio.create_task(self._run(key, reference_id, target, result))
         self.flights[key] = identifier, task
+        logger.info(
+            "word_generation_started",
+            task_id=str(result["task_id"]),
+            target=target,
+            key=key,
+        )
         return dict(result)
 
     def status(self, identifier):
@@ -71,13 +83,35 @@ class Generations:
                 if word is None or not word.senses:
                     raise InvalidResourceError("generated Word has no Senses")
                 result.update(word_id=word.id, status="SUCCEEDED", stage="READY", error=None)
+                logger.info(
+                    "word_generation_completed",
+                    task_id=str(result["task_id"]),
+                    word_id=word.id,
+                    target=target,
+                    sense_count=len(word.senses),
+                )
         except asyncio.CancelledError:
+            logger.warning(
+                "word_generation_cancelled",
+                task_id=str(result["task_id"]),
+                target=target,
+            )
             result.update(status="FAILED", error="generation_interrupted")
             raise
         except TimeoutError:
+            logger.warning(
+                "word_generation_timed_out",
+                task_id=str(result["task_id"]),
+                target=target,
+            )
             result.update(status="FAILED", error="generation_timeout")
         except Exception:
-            logger.exception("Word generation failed: %s", result["task_id"])
+            logger.exception(
+                "word_generation_failed",
+                task_id=str(result["task_id"]),
+                target=target,
+                key=key,
+            )
             result.update(status="FAILED", error="generation_failed")
         finally:
             self.flights.pop(key, None)

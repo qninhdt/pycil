@@ -24,6 +24,9 @@ from pycil.dependencies import Product, Session
 from pycil.http import Problem
 from pycil.library.models import NodeRole
 from pycil.library.tree import roots
+from pycil.logging import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/v1/me", tags=["account"])
 public_router = APIRouter(prefix="/v1/users", tags=["profiles"])
@@ -118,6 +121,7 @@ async def edit_profile(data: ProfilePatch, actor: Actor, config: Product, sessio
             result = await profile(user, config, session)
     except IntegrityError as exc:
         if getattr(exc.orig, "sqlstate", None) == "23505":
+            logger.warning("account_handle_conflict", handle=data.handle)
             raise Problem(409, "handle_unavailable") from None
         raise
     await invalidate_actor(session, user)

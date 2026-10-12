@@ -5,9 +5,9 @@ from uuid import uuid4
 
 import httpx
 import pytest
-from lexi_ai import Lexicon, QuestionArtifactType, QuestionType
+from lexi_ai import QuestionArtifactType
 from lexi_ai.references.cambridge import encode_reference_id
-from sqlalchemy import select, text
+from sqlalchemy import text
 
 from pycil.account.auth import actor, optional_actor
 from pycil.account.models import User
@@ -21,132 +21,11 @@ from pycil.study.preparation import prepare
 from pycil.study.reviews import review
 from pycil.study.schemas import ReviewBatch
 from pycil.vocabulary.api import GenerationRequest
-from pycil.vocabulary.generation import Generations
-
-
-class LocalCompletion:
-    """Deterministic inference boundary; native generation and storage remain real."""
-
-    def __init__(self):
-        self.calls = 0
-
-    async def complete(self, instruction, data, schema):
-        self.calls += 1
-        c = json.loads(data.removeprefix("<artifact_context>").removesuffix("</artifact_context>"))
-        word, definition = c["word"], c["definition"]
-        model = schema.model_fields["artifacts"].annotation.__args__[0].__name__
-        output = []
-        for i in range(c.get("batch_size", 1)):
-            wrong = [f"other{self.calls}_{i}_{j}" for j in range(c["distractor_count"])]
-            if model == "WordDefinitionArtifact":
-                payload = dict(
-                    corrects=[
-                        f"Paraphrase {self.calls}_{j}: {definition}"
-                        for j in range(c["correct_count"])
-                    ],
-                    distractors=[dict(word=w, definition=f"another meaning {w}") for w in wrong],
-                )
-            elif model == "UsageArtifact":
-                payload = dict(
-                    corrects=[
-                        f"The [{word}] is useful here ({self.calls}_{j})."
-                        for j in range(c["correct_count"])
-                    ],
-                    distractors=[f"The [{word}] grows {w}." for w in wrong],
-                )
-            elif model == "ContextToWordArtifact":
-                payload = dict(
-                    context=f"Customer {self.calls}-{i} needed somewhere to deposit savings.",
-                    distractors=wrong,
-                )
-            elif model == "ContextWordMeaningArtifact":
-                payload = dict(
-                    context=f"They visited the _ ({self.calls}-{i}).",
-                    correct=dict(expression=word, meaning=definition),
-                    distractors=[dict(expression=w, meaning=f"meaning of {w}") for w in wrong],
-                )
-            elif model == "DialogueArtifact":
-                payload = dict(
-                    conversation=[
-                        {"Alex": f"Can I deposit savings here ({self.calls}_{i})?"},
-                        {"Jamie": f"Yes, this is a [{word}]."},
-                        {"Alex": "Can I open an account?"},
-                        {"Jamie": "Bring identification."},
-                    ],
-                    completion_points=[dict(turn_index=2, distractors=wrong)],
-                )
-            else:
-                payload = dict(
-                    source=f"They put money in an institution ({self.calls}_{i}).",
-                    correct=f"They deposited money at the [{word}].",
-                    distractors=[f"The [{word}] grows {w}." for w in wrong],
-                )
-            output.append(payload)
-        return dict(artifacts=output)
-
-
-async def fill(database, dictionary, config):
-    lexicon, _ = dictionary
-    manager = lexicon.test_generations
-    manager.config = config
-    results = await asyncio.gather(
-        *(manager.submit("bank", reference_id=encode_reference_id(1)) for _ in range(3))
-    )
-    assert len({r["task_id"] for r in results}) == 1
-    await asyncio.gather(*(task for _, task in list(manager.flights.values())))
-    async with lexicon.db.read() as connection:
-        from lexi_ai.schema import Sense
-
-        ids = (await connection.scalars(select(Sense.id))).all()
-    await lexicon.retrieve_question_artifacts(
-        [(sid, kind, 1) for sid in ids for kind in QuestionType],
-        generate=True,
-        generation_batch_size=8,
-    )
-    return results[0]["task_id"]
 
 
 async def save_settings(sessions, user):
     async with sessions() as session, session.begin():
         (await session.get(User, user.id)).settings = user.settings
-
-
-@pytest.fixture
-async def dictionary(database, reference, senses, config):
-    engine, _, url = database
-    import sqlite3
-
-    with sqlite3.connect(reference) as connection:
-        connection.execute("INSERT INTO words VALUES(1,'bank','bank','word','done')")
-        connection.execute(
-            "INSERT INTO entries(id,word_id,pos,definition,examples,entry_order) "
-            "VALUES(1,1,'noun','financial institution','[]',1)"
-        )
-        connection.execute(
-            "INSERT INTO senses(id,entry_id,definition,sense_order) "
-            "VALUES(1,1,'financial institution',1)"
-        )
-    async with engine.begin() as connection:
-        await connection.execute(
-            text("INSERT INTO lexi.word_references(word_id,source_id) VALUES(1,1)")
-        )
-        for table in ("words", "senses"):
-            await connection.execute(
-                text(
-                    f"SELECT setval(pg_get_serial_sequence('lexi.{table}','id'), "
-                    f"(SELECT max(id) FROM lexi.{table}))"
-                )
-            )
-    llm = LocalCompletion()
-    value = Lexicon(db_url=url, db_schema="lexi", llm=llm)
-    try:
-        await value.import_reference(reference)
-        await value.start()
-        value.test_generations = Generations(value, config)
-        yield value, llm
-    finally:
-        await value.test_generations.close()
-        await value.close()
 
 
 @pytest.mark.parametrize("target", ["harbor", "quay", "jetty"])
@@ -155,7 +34,7 @@ async def test_browser_provider_generates_with_current_native_inventory(
 ):
     import sqlite3
 
-    from tests.system.test_web_e2e import BrowserLexicalCompletion
+    from tests.support.inference import BrowserLexicalCompletion
 
     lexicon, _ = dictionary
     with sqlite3.connect(reference) as connection:
@@ -604,3 +483,150 @@ async def test_http_typed_grading_uses_saved_artifact_and_submit_consumes_diagno
             )
             assert invalid.status_code == 422, invalid.text
         assert (await client.post("/v1/study:submitReviews", json={})).status_code == 404
+
+
+@pytest.mark.parametrize("failure", ["bad_request", "connection", "timeout"])
+async def test_cold_preparation_provider_failure_is_retryable_without_learning_writes(
+    database, dictionary, user, config, monkeypatch, failure
+):
+    from openai import APIConnectionError, APITimeoutError, BadRequestError
+
+    request = httpx.Request("POST", "https://provider.invalid/completions")
+    errors = {
+        "bad_request": BadRequestError(
+            "provider rejected the request",
+            response=httpx.Response(400, request=request),
+            body=None,
+        ),
+        "connection": APIConnectionError(request=request),
+        "timeout": APITimeoutError(request=request),
+    }
+    user.settings = {
+        "learning": {
+            "question_types": ["DEFINITION_TO_WORD"],
+            "formats": ["SINGLE_CHOICE"],
+            "questions_per_sense": 1,
+            "max_sense_count": 1,
+        }
+    }
+    await save_settings(database[1], user)
+    async with database[1]() as session:
+        node = await create_node(
+            session, user.id, NodeCreate(type="DECK", name="Cold bank", sense_ids=[1]), config
+        )
+    native = dictionary[0].llm.complete
+
+    async def unavailable(*args, **kwargs):
+        raise errors[failure]
+
+    monkeypatch.setattr(dictionary[0].llm, "complete", unavailable)
+    app = create_app()
+    app.state.sessions, app.state.product, app.state.lexicon = database[1], config, dictionary[0]
+
+    async def authenticated():
+        return user
+
+    app.dependency_overrides[actor] = authenticated
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        body = {"node_id": str(node["id"]), "selection": "NEW"}
+        failed = await client.post("/v1/study:prepare", json=body)
+        assert failed.status_code == 503
+        assert failed.json() == {"error": "question_generation_unavailable"}
+        counts = await client.get("/v1/study/progress", params={"node_id": str(node["id"])})
+        assert counts.json()["studied"] == 0
+        monkeypatch.setattr(dictionary[0].llm, "complete", native)
+        ready = await client.post("/v1/study:prepare", json=body)
+        assert ready.status_code == 200, ready.text
+        assert ready.json()["actual_question_count"] == 1
+
+
+@pytest.mark.parametrize("provider", ["inference", "decision"])
+async def test_typed_grading_provider_transport_errors_preserve_retryable_contract(
+    database, dictionary, user, config, monkeypatch, provider
+):
+    from openai import APIConnectionError
+    from typesafe_sdk import TypeSafeAPIError
+
+    async with database[1]() as session, session.begin():
+        (await session.get(User, user.id)).plan = Plan.PRO
+    _, prepared = await deck_and_prepare(database, dictionary, user, config, fmt="SINGLE_WORD", k=1)
+    item = prepared["bundles"][0]["questions"][0]
+    error = (
+        APIConnectionError(request=httpx.Request("POST", "https://provider.invalid/completions"))
+        if provider == "inference"
+        else TypeSafeAPIError(503, None, {})
+    )
+
+    async def unavailable(*args, **kwargs):
+        raise error
+
+    decision = dictionary[0]._decision_model()
+    monkeypatch.setattr(decision, "decide", unavailable)
+    app = create_app()
+    app.state.sessions, app.state.product, app.state.lexicon = database[1], config, dictionary[0]
+
+    async def authenticated():
+        return user
+
+    app.dependency_overrides[actor] = authenticated
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        failed = await client.post(
+            "/v1/study:grade",
+            json={
+                "question_artifact_id": item.question.question_artifact_id,
+                "question_type": "DEFINITION_TO_WORD",
+                "format": "SINGLE_WORD",
+                "answer": "unrelated answer",
+            },
+        )
+        assert failed.status_code == 503
+        assert failed.json() == {"error": "grading_unavailable"}
+
+
+async def test_http_prepare_empty_new_due_scope_and_saved_maximum(
+    database, dictionary, user, config
+):
+    user.settings = {"learning": {"max_sense_count": 1, "questions_per_sense": 1}}
+    await save_settings(database[1], user)
+    async with database[1]() as session:
+        empty = await create_node(session, user.id, NodeCreate(type="DECK", name="empty"), config)
+        deck = await create_node(
+            session, user.id, NodeCreate(type="DECK", name="new", sense_ids=[1, 2]), config
+        )
+    app = create_app()
+    app.state.sessions, app.state.product, app.state.lexicon = database[1], config, dictionary[0]
+
+    async def authenticated():
+        return user
+
+    app.dependency_overrides[actor] = authenticated
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app), base_url="http://test"
+    ) as client:
+        nothing = await client.post(
+            "/v1/study:prepare", json={"node_id": str(empty["id"]), "selection": "AUTO"}
+        )
+        assert nothing.status_code == 200 and nothing.json()["bundles"] == []
+        prepared = await client.post(
+            "/v1/study:prepare", json={"node_id": str(deck["id"]), "selection": "NEW"}
+        )
+        assert prepared.status_code == 200
+        assert prepared.json()["actual_sense_count"] == 1
+        assert all(
+            bundle["reason"] == "NEW" and bundle["sense"]["id"] in [1, 2]
+            for bundle in prepared.json()["bundles"]
+        )
+        due = await client.post(
+            "/v1/study:prepare", json={"node_id": str(deck["id"]), "selection": "DUE"}
+        )
+        assert due.status_code == 200 and due.json()["bundles"] == []
+        missing = await client.post(
+            "/v1/study:prepare", json={"node_id": str(uuid4()), "selection": "AUTO"}
+        )
+        assert missing.status_code == 404 and missing.json() == {"error": "node_not_found"}
+        progress = await client.get("/v1/study/progress", params={"node_id": str(deck["id"])})
+        assert progress.json()["new"] == 2 and progress.json()["studied"] == 0

@@ -16,10 +16,13 @@ from pycil.account.models import User
 from pycil.account.schemas import preferences
 from pycil.database import transaction_lock
 from pycil.http import Problem
+from pycil.logging import get_logger
 from pycil.study.evidence import evidence, update_elo
 from pycil.study.fsrs import next_state
 from pycil.study.models import DailyActivity, ReviewReceipt, UserSense
 from pycil.study.schemas import BatchResult
+
+logger = get_logger(__name__)
 
 
 def request_hash(data):
@@ -40,7 +43,17 @@ async def review(session, user_id, data, event_key, config):
         previous = await session.get(ReviewReceipt, (user_id, event_key))
         if previous is not None:
             if previous.request_hash != digest:
+                logger.warning(
+                    "review_batch_conflict",
+                    user_id=str(user_id),
+                    event_key=str(event_key),
+                )
                 raise Problem(409, "review_batch_conflict")
+            logger.info(
+                "review_batch_replayed",
+                user_id=str(user_id),
+                event_key=str(event_key),
+            )
             return previous.result
         ids = {r.question_artifact_id for r in data.results}
         artifacts = {
@@ -121,15 +134,31 @@ async def review(session, user_id, data, event_key, config):
             review_time = max(item.answered_at for item, _, _, _ in group)
             applied = memory is None or review_time >= memory.last_exposure_at
             if applied:
+                old_elo = memory.elo if memory else policy.initial_elo
                 elo = update_elo(
-                    memory.elo if memory else policy.initial_elo,
+                    old_elo,
                     [(p, d) for _, _, p, d in group],
                     memory.last_exposure_at if memory else None,
                     review_time,
                     policy,
                 )
+                logger.info(
+                    "study_elo_updated",
+                    user_id=str(user_id),
+                    sense_id=sense_id,
+                    old_elo=old_elo,
+                    new_elo=elo,
+                )
                 stability, difficulty, due = next_state(
                     memory, [r for _, r, _, _ in group], review_time, config
+                )
+                logger.info(
+                    "study_fsrs_transitioned",
+                    user_id=str(user_id),
+                    sense_id=sense_id,
+                    new_stability=round(stability, 4),
+                    new_difficulty=round(difficulty, 4),
+                    due_at=due.isoformat(),
                 )
                 state = dict(
                     user_id=user_id,
@@ -206,4 +235,11 @@ async def review(session, user_id, data, event_key, config):
             )
         )
         await session.flush()
+        logger.info(
+            "review_batch_completed",
+            user_id=str(user_id),
+            event_key=str(event_key),
+            total_reviews=len(data.results),
+            applied_count=len(states),
+        )
         return result

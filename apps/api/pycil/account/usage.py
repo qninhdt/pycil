@@ -12,6 +12,9 @@ from pycil.account.plans import Feature, Plan
 from pycil.config import ProductConfig
 from pycil.database import transaction_lock
 from pycil.http import Problem
+from pycil.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 def period_bounds(anchor: datetime, moment: datetime) -> tuple[datetime, datetime]:
@@ -77,6 +80,11 @@ async def settle(
                 existing.units,
                 existing.unmetered_calls,
             ) != (feature, units, unmetered_calls):
+                logger.warning(
+                    "quota_settle_conflict",
+                    user_id=str(user_id),
+                    execution_key=str(execution_key),
+                )
                 raise Problem(409, "usage_event_conflict")
             return existing
         start, end = period_bounds(user.cycle_anchor, moment)
@@ -107,6 +115,13 @@ async def settle(
         )
         session.add(event)
         await session.flush()
+        logger.info(
+            "quota_units_settled",
+            user_id=str(user_id),
+            execution_key=str(execution_key),
+            feature=feature.value,
+            units=units,
+        )
         return event
 
 
@@ -133,6 +148,7 @@ async def change_plan(session, user_id: UUID, plan: Plan, config: ProductConfig,
             period.allowance_units = max(
                 period.allowance_units, config.plans[plan].monthly_allowance_units
             )
+        logger.info("account_plan_changed", user_id=str(user_id), plan=plan.value)
     await invalidate_actor(session, user)
 
 
@@ -144,8 +160,19 @@ async def admit(session, user_id: UUID, config: ProductConfig, feature: Feature,
         if user is None:
             raise Problem(404, "account_not_found")
         if feature not in config.plans[user.plan].features:
+            logger.warning(
+                "feature_access_denied",
+                user_id=str(user_id),
+                feature=feature.value,
+                plan=user.plan.value,
+            )
             raise Problem(403, "feature_not_available")
         budget = await allowance(session, user, config, moment)
         if budget["remaining_units"] <= 0:
+            logger.warning(
+                "quota_allowance_exhausted",
+                user_id=str(user_id),
+                feature=feature.value,
+            )
             raise Problem(403, "allowance_exhausted")
         return user.plan

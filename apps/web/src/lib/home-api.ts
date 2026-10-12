@@ -49,6 +49,8 @@ export class HomeApiError extends Error {
     super(status === 401 ? 'Your session has expired. Sign in again.'
       : code === 'scope_too_large' ? 'This Library is too large to calculate at once. Open a smaller folder or deck.'
       : code === 'reference_unavailable' ? 'This reference is no longer available.'
+      : code === 'question_generation_unavailable' ? 'Questions could not be generated right now. Retry to prepare your session.'
+      : code === 'grading_unavailable' ? 'Your answer could not be checked right now. Retry without changing your answer.'
       : code === 'node_not_found' ? 'This material could not be found.'
       : code === 'invalid_cursor' ? 'This page is no longer available. Return to the first page.'
       : code === 'handle_unavailable' ? 'This handle is already taken. Choose another handle.'
