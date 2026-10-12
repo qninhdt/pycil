@@ -1,39 +1,43 @@
 # Data model
 
 This page describes the working-tree schema. Application migration head is
-`0005_profile_handle_bio`; no production migration is implied.
+`20261012_profile`; no production migration is implied.
 
 ## Ownership boundaries
 
 | Schema / artifact | DDL owner | Purpose |
 | --- | --- | --- |
-| PostgreSQL `public` | Pycil Alembic migrations | Users, Library, learning, usage, conversation metadata, generation queue |
+| PostgreSQL `public` | Pycil Alembic migrations | Users, Library, learning, usage, conversation metadata |
 | PostgreSQL `lexi` | Vendored Lexi migrations | Shared words, senses, definitions, examples and question artifacts |
 | PostgreSQL `checkpoints` | Native LangGraph checkpoint setup | Conversation state, messages, interrupted approvals |
-| Cambridge SQLite file | External reference dataset | Selectable reference entries used by native Lexi |
+| PostgreSQL `lexi_reference` | Vendored Lexi migrations/import | Required project-owned reference entries, read by native Lexi |
 
 Pycil imports `lexi.senses` into its metadata to resolve cross-schema FKs. That is not
 permission for Pycil Alembic to manage Lexi tables. Migration filtering excludes externally
-owned tables. All three PostgreSQL version owners are verified at startup.
+owned tables. The three PostgreSQL version owners and the reference import marker
+are verified at startup.
+Lexi owns both `lexi` and `lexi_reference`; the SQLite artifacts are distribution inputs.
+`lexi.word_references` maps resolved Cambridge entry IDs to canonical Word IDs;
+`lexi.sense_references` records Cambridge sense IDs or WordNet synset keys as evidence.
+Several reference entries can map to one Word, while each entry maps to one Word.
 
 ## Application table inventory
 
 | Table | Identity | Responsibility |
 | --- | --- | --- |
-| `users` | UUID PK; unique Clerk subject / optional handle | Plan, sparse settings, cycle anchor, handle/bio/display identity |
+| `users` | UUID PK; unique Clerk subject / optional handle | Plan, sparse settings, cycle anchor, generated handle/editable bio/display name |
 | `nodes` | UUID PK; unique `(owner_id, id)` | Physical folder/deck/reference identity and placement |
 | `node_paths` | `(ancestor_id, descendant_id)` PK | Physical transitive closure with depth |
 | `deck_senses` | `(deck_id, sense_id)` PK | Unordered final deck membership |
-| `user_senses` | `(user_id, sense_id)` PK | Current shared personal FSRS state |
+| `user_senses` | `(user_id, sense_id)` PK | Shared personal Memory and Elo |
 | `review_log` | `(user_id, event_key)` PK | Immutable ordered batch hash/result and accepted day |
 | `user_daily_activity` | `(user_id, day)` PK | Durable applied/practice counts, independent of membership |
 | `usage_periods` | UUID PK; unique `(user_id, period_start)` | Anchored allowance and accumulated consumption |
 | `usage_events` | UUID PK; unique execution key | Idempotent assistant usage settlement |
 | `conversations` | UUID PK | Owner, title, creation/update timestamps |
-| `word_generations` | UUID PK; unique `(available_id, target)` | Shared generation job state and retry bookkeeping |
 
 Application UUID defaults use UUIDv7; roots introduced by the SQL data migration use
-database-generated UUIDs. Lexical senses/questions use integer identities. Timestamps
+database-generated UUIDs. Lexical senses and question artifacts use integer identities. Timestamps
 are timezone-aware; normal event calculations use UTC before reporting conversions.
 
 ## Nodes and closure
@@ -66,13 +70,13 @@ Membership has no per-user copy or position column. Each deck selects global sen
 Repeated senses in different decks are legal; one deck cannot have duplicate IDs.
 Sense FKs use RESTRICT so removing shared lexical content cannot silently erase learning.
 
-`user_senses` stores stability, difficulty, last review, due time, last rating, review
+`user_senses` stores stability, difficulty, last exposure, due time, Elo, review
 and lapse counts, and timestamps. Stability/difficulty must be positive; review count
 is positive and lapse count is nonnegative. References and organizational changes do
 not create or delete this state. No state row means New.
 
 `review_log` stores request SHA-256, acceptance timestamp, frozen local day and JSONB
-original batch result. Retention lasts until account deletion; no source/session data.
+original batch result with per-question diagnostic evidence and policy version. Retention lasts until account deletion; no source/session data.
 Daily counts commit atomically with accepted batches. Streaks derive from active days,
 not persistent counters. There is no backend learning-session table.
 
@@ -86,10 +90,8 @@ Conversation metadata is application-owned; native messages and approval interru
 live in `checkpoints`. Deleting a conversation explicitly cleans the native thread before
 deleting metadata. This is not an atomic cross-schema application transaction.
 
-Generation rows have no `user_id`: jobs are shared for a selected lexical handle/target.
-`word_id` is a nullable integer, not an application-declared FK. Status is QUEUED,
-RUNNING, SUCCEEDED, or FAILED. Stage, attempts, next-attempt time, and sanitized error
-support finite retries and crash recovery.
+Generation tasks and their status are process-local memory. No application generation
+table exists. Committed lexical content belongs to Lexi; task loss does not delete it.
 
 ## Important access indexes
 
@@ -103,8 +105,7 @@ support finite retries and crash recovery.
 | Membership PK plus sense index | Deck selection and lexical associations |
 | Memory `(user_id, due_at, sense_id)` | Due selection |
 | Activity PK `(user_id, day)` | Private daily grid / lifetime active days |
-| Conversations `(user_id, updated_at, id)` and `(updated_at, id)` | Owner pagination and retention |
-| Generation `(status, next_attempt_at, created_at, id)` | Eligible job claim ordering |
+| Conversations `(user_id, updated_at, id)` | Owner pagination |
 
 FTS vector uses explicit `simple` configuration: name A, nullable description B,
 stored generated transactionally. No copied lexical payloads, user node preferences,
@@ -112,7 +113,8 @@ tags/translation tables, mastery index or raw history index is introduced.
 
 ## Sources and verification
 
-- Models: [account](../../apps/api/pycil/account/models.py), [Library](../../apps/api/pycil/library/models.py), [study](../../apps/api/pycil/study/models.py), [assistant](../../apps/api/pycil/assistant/models.py), [vocabulary](../../apps/api/pycil/vocabulary/models.py)
-- [Baseline](../../apps/api/migrations/versions/0001_baseline.py), [placement migration](../../apps/api/migrations/versions/0002_nodes_spaces_paths.py)
-- [Fresh schema tests](../../apps/api/tests/integration/test_fresh_schema.py) and [populated upgrade tests](../../apps/api/tests/integration/test_nodes_migration.py)
+- Models: [account](../../apps/api/pycil/account/models.py), [Library](../../apps/api/pycil/library/models.py), [study](../../apps/api/pycil/study/models.py), [assistant](../../apps/api/pycil/assistant/models.py)
+- Process-local generation tasks: [generation](../../apps/api/pycil/vocabulary/generation.py)
+- [Current baseline](../../apps/api/migrations/versions/20261009_baseline.py)
+- [Fresh schema tests](../../apps/api/tests/integration/test_fresh_schema.py)
 - Upgrade/backup safety: [Migrations](operations/migrations.md)

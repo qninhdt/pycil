@@ -155,7 +155,7 @@ async def test_invalid_authorization_stays_401_even_on_optional_viewer_routes(ap
         ("POST", f"/v1/nodes/{uuid4()}:copy"),
         ("POST", "/v1/study:prepare"),
         ("POST", "/v1/study:grade"),
-        ("POST", "/v1/study:submitReviews"),
+        ("POST", "/v1/study:submitResults"),
         ("POST", "/v1/study:batchSummarize"),
         ("POST", "/v1/assistant:run"),
     ],
@@ -208,7 +208,7 @@ def test_openapi_has_typed_success_errors_optional_bearer_and_sse():
                 else:
                     for content in response["content"].values():
                         assert content["schema"]
-    assert count == 41
+    assert count == 39
     assert set(schema["paths"]["/v1/assistant:run"]["post"]["responses"]["200"]["content"]) == {
         "text/event-stream"
     }

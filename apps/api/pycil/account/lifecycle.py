@@ -23,6 +23,16 @@ async def clerk_user(http, deployment, subject):
         raise Problem(401, "invalid_credentials")
     if not response.is_success:
         raise Problem(503, "identity_service_unavailable")
+    try:
+        data = response.json()
+        if not isinstance(data, dict) or any(
+            data.get(key) is not None and not isinstance(data[key], str)
+            for key in ("first_name", "last_name")
+        ):
+            raise ValueError("invalid identity profile")
+    except ValueError:
+        raise Problem(503, "identity_service_unavailable") from None
+    return data
 
 
 def row_data(row):
@@ -48,4 +58,4 @@ async def require_user(session, user_id):
 
 async def invalidate_actor(session, user):
     if cache := session.info.get("cache"):
-        await cache.discard(f"actor:v2:{user.clerk_subject}")
+        await cache.discard(f"actor:v3:{user.clerk_subject}")

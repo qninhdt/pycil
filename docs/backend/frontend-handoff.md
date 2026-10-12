@@ -3,7 +3,7 @@
 The product frontend in `apps/web` consumes these contracts in live mode. Its
 Clerk browser session supplies bearer tokens; the Next rewrite forwards API requests.
 Mock UI tests and live full-stack browser tests are separate verification profiles.
-The checked-out API exposes 41 operations. Use `/openapi.json` for exact native
+The checked-out API exposes 39 operations. Use `/openapi.json` for exact native
 Lexi/AG-UI types, nullable fields and enums; this guide specifies usage and semantics.
 The backend contract is not deployed automatically.
 
@@ -21,14 +21,13 @@ on a live host; a real FE deployment must provision its own explicitly approved 
 
 ## Integration-host readiness
 
-- Matching API/client breaking contract and migration head `0005_profile_handle_bio`.
-- PostgreSQL, Redis, Lexi/checkpoint schemas ready; actual Cambridge artifact installed.
+- Matching API/client breaking contract and migration head `20261012_profile`.
+- PostgreSQL, Redis, Lexi/checkpoint schemas ready; reference imported into `lexi_reference`.
 - Clerk JWT from the configured issuer/audience; bearer tokens, not emails or user IDs.
 - Explicit allowed FE origin. CORS accepts Authorization, Content-Type,
   Idempotency-Key and X-Request-ID; responses expose request correlation ID.
-- Vocabulary/questions actually generated and suitable for saved preferences. A saved
-  sense or Due count does not imply a ready bank. Empty prepare is a valid outcome.
-- Generation requires the worker, WordNet and real configured inference providers.
+- Vocabulary available in Lexi. Preparation fills missing question artifact banks on demand; an empty scope can return an empty prepare.
+- Generation runs in the API process with real configured inference providers; WordNet is optional.
   Deterministic integration fixtures do not establish real provider readiness.
 - Pro typed grading requires current entitlement and configured decision/fallback
   services. Multiple-choice uses generated answer keys; never call grade for it.
@@ -51,14 +50,14 @@ No live provider calls, production migration or deployment were performed here.
 | Publish/unpublish | `POST /nodes/{id}:move`; see [Library](modules/library.md) | Canonical move; retained Personal reference optional |
 | Discovery | `/discovery/nodes`, optional q/type/owner/include | No categories/popularity/learners/recommendations |
 | Author public profile/tree | `/users/{id}` or `/users:lookup?handle=...`, public Published node ID | No private settings/progress/activity/root IDs |
-| Self profile edit | PATCH `/me/profile` handle/bio | No country/avatar/display-name write or identity sync |
-| Dictionary search | `/words:search?query=...&include_available=true` | Native hits; no invented global POS count/paging |
+| Self profile edit | PATCH `/me/profile` display_name/handle/bio | No country/avatar write or recurring identity sync |
+| Dictionary search | `/words:search?query=...&include_reference=true` | Native hits; no invented global POS count/paging |
 | Search/add-word groups | POST `/words:batchPreview` | <=30 words / <=500 senses, fail if incomplete |
 | Dictionary word | GET `/words/{id}` plus GET `/me/words/{id}` | Shared native content separate from private viewer state |
 | Membership/progress badges | POST `/me/senses:batchReadContext` | <=100 senses; inline source limit and explicit overflow |
-| Learn / Review / practice | POST prepare NEW / DUE / AUTO | <=100 questions; client-local session |
+| Learn / Review / practice | POST prepare NEW / DUE / AUTO | <=60 questions; client-local session |
 | Flashcards | Scoped senses with `include=examples` | Flip/shuffle/viewing adds no activity |
-| Completion | One atomic reviews batch + retained UUID/body | Recall rating is not inferred from Correct/Incorrect |
+| Completion | One atomic reviews batch + retained UUID/body | Initial diagnostics update shared Memory and Mastery |
 | Assistant | Existing models/conversation/state/native SSE | Explicit approval, no uncertain blind mutation retry |
 
 Remove/hide deferred Star/Pin, difficult/bookmark, tags, translation, Import, TTS,
@@ -94,7 +93,7 @@ Private containing Library deck overflow is `/me/senses/{sense_id}/decks`.
 IDs below illustrate shape; obtain actual IDs from returned lexical/node objects.
 
 ```json
-{"learning":{"max_sense_count":10,"questions_per_sense":3,"show_explanations":true}}
+{"learning":{"max_sense_count":10,"questions_per_sense":2}}
 ```
 
 PATCH `/me/settings` merges known fields; null is invalid. `/me.learning_options`
@@ -102,12 +101,15 @@ provides supported pairs, limits and current typed-grading entitlement. No secre
 provider configuration or country is present.
 
 ```json
-{"handle":"ninh","bio":"Learning English every day."}
+{"display_name":"Nguyễn Ninh","handle":"ninh","bio":"Learning English every day."}
 ```
 
 PATCH `/me/profile`: handle canonical ASCII lowercase, 3-30 characters starting with
 a letter; unique. Omission preserves fields; bio null clears, max 500 characters.
-Established handle cannot be cleared; rename replaces old handle lookup, UUID stays.
+Display name trims to 1–255 characters; null/empty is rejected. All three fields are
+editable, but changing the name does not regenerate the handle. Initial names come
+from Clerk; handles are generated from the name with a random suffix. Established
+handle cannot be cleared; rename replaces old handle lookup, UUID stays.
 
 ```json
 {"node_id":"00000000-0000-0000-0000-000000000001","selection":"NEW","max_sense_count":10}
@@ -115,33 +117,16 @@ Established handle cannot be cleared; rename replaces old handle lookup, UUID st
 
 POST `/study:prepare`: maximum is an upper bound. Default AUTO and saved maximum.
 NEW never fills with studied; DUE never fills with NEW. Response has actual counts,
-effective preferences, native sense/question artifacts, shuffled options and reasons.
+effective preferences, native Sense bundles, runtime questions, shuffled options and reasons.
 No session ID or progress write. Local draft carries index/answers/shuffle/resume.
 
-```json
-{"results":[{"sense_id":123,"rating":"GOOD"},{"sense_id":456,"rating":"AGAIN"}]}
-```
-
-POST `/study:submitReviews` with UUID `Idempotency-Key`. 1-100 distinct strict positive IDs.
-One final explicit recall rating per sense (AGAIN/HARD/GOOD/EASY). Freeze ordered body
-and key in durable client-local storage **before first request**. Unknown network
-outcome stays uncertain; retry exactly. New key means new accepted practice, not retry.
+Typed grading sends `question_artifact_id`, public `question_type`, `format` and nullable `answer` to `/study:grade`. SINGLE_CHOICE is graded locally. Grade responses carry matching references plus diagnostics.
 
 ```json
-{
-  "accepted_at":"2026-10-06T10:00:00Z",
-  "activity_day":"2026-10-06",
-  "results":[
-    {"sense_id":123,"rating":"GOOD","applied":true,"accepted_at":"2026-10-06T10:00:00Z","due_after":"2026-10-07T10:00:00Z"}
-  ]
-}
+{"results":[{"question_artifact_id":123,"question_type":"DEFINITION_TO_WORD","format":"SINGLE_CHOICE","diagnostics":{"correct":true},"answered_at":"2026-10-11T10:00:00Z"}]}
 ```
 
-Illustrative original-result response; actual due-after comes from native FSRS.
-New/due/AGAIN apply scheduling. Early positive practice has `applied=false` and leaves
-all state fields unchanged, but counts activity. Same-key replay returns this original
-result even after later learning/timezone changes. Source revocation does not block
-already known lexical result submission or reopen the source.
+POST `/study:submitResults` with UUID `Idempotency-Key`. Submit 1–60 initial diagnostics, including repeated artifact occurrences. Freeze ordered body/key before sending; replay exactly after uncertain transport failure. Response returns grouped Sense states (Elo, level, S/D, exposure, due) and immutable question evidence. See [Study](modules/study.md) for grading rubrics, local retries, scheduling and Elo.
 
 ```json
 {"node_ids":["00000000-0000-0000-0000-000000000001"]}
@@ -156,6 +141,11 @@ POST `/study:batchSummarize` returns a list of Summary objects, no raw lexical p
 POST `/words:batchPreview` returns complete native sense groups/examples for the requested
 bounded words. Select-all must use the full group, not a truncated search response.
 Dictionary private context is independent: no public artifact contains viewer state.
+The Dictionary destination picker opens folders with a single click and clears its
+search filter when navigating back. Readable deck/folder references appear in this
+picker; selection resolves the canonical target and verifies ownership before editing.
+Saved references to other users' decks do not grant editing rights. Mutation requests
+use the canonical deck ID, not the reference ID.
 
 ```json
 {"sense_ids":[123,456]}
@@ -165,7 +155,7 @@ POST `/me/senses:batchReadContext`: learning state/due/applied-review time and r
 decks/editability/count/more. Learned-but-untracked senses retain state with no sources.
 Lookup never creates progress or Library membership. Keep modal selections local across
 search/filter changes. The batch-delta API applies the final selection without
-replacing unrelated deck membership; see [Library](modules/library.md#targeted-writes-and-compatibility).
+replacing unrelated deck membership; see [Library](modules/library.md#targeted-writes).
 
 ## Error actions
 
@@ -198,7 +188,6 @@ provider boundary for ready/new/due/early/no-ready-bank cases. `test_progress.py
 checks empty dates/timezone/streak/schedule; migration tests preserve populated data.
 Use these disposable scenario setups, never application data or paid-provider fixtures.
 
-Before FE completion, explicitly choose recall-rating UI/aggregation; generated answer
-feedback does not define a GOOD/EASY rating. Continue/recent lookup may be same-device
+The client keeps the session locally, allows two retries and submits only initial diagnostics. Continue/recent lookup may be same-device
 local state; no server cross-device session or lookup telemetry exists. Obtain the FE
 target and host credentials/artifacts before live browser acceptance.

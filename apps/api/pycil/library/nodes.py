@@ -2,14 +2,13 @@ from datetime import UTC, datetime
 from uuid import uuid7
 
 from lexi_ai import Sense
-from sqlalchemy import delete, func, or_, select, tuple_
+from sqlalchemy import delete, func, insert, or_, select, tuple_
 
 from pycil.account.lifecycle import require_user, row_data
 from pycil.database import transaction_lock
 from pycil.http import Problem
-from pycil.library.access import published, readable, readable_path, reference_visible
+from pycil.library.access import published, readable, readable_path, reference_visible, visible
 from pycil.library.models import DeckSense, Node, NodePath, NodeRole, NodeSpace, NodeType
-from pycil.library.schemas import DeckSnapshot
 from pycil.library.scope import ScopeBudget
 from pycil.library.tree import add_paths, delete_subtree, move_paths, roots, subtree
 from pycil.pagination import decode, encode, includes, page_limit
@@ -222,64 +221,46 @@ async def move_locked(session, node, data, config):
     return retained_id
 
 
-async def save_node(session, owner_id, node_id, data, config):
-    async with session.begin():
-        await lock_owner(session, owner_id)
-        node = await owned(session, node_id, owner_id, config)
-        normal(node)
-        node.name, node.description = data.name, data.description
-        retained_id = await move_locked(session, node, data, config)
-        sense_ids = None
-        if node.type is NodeType.DECK:
-            if data.sense_ids is None:
-                raise Problem(422, "deck_membership_required")
-            sense_ids = await replace_membership(session, node, data.sense_ids, config)
-        elif data.sense_ids is not None:
-            raise Problem(422, "membership_is_deck_only")
-        node.updated_at = datetime.now(UTC)
-        await session.flush()
-        result = row_data(node) | {"retained_reference_id": retained_id}
-        if sense_ids is not None:
-            result["sense_ids"] = sense_ids
-    await invalidate_deck(session, node)
-    return result
-
-
 async def patch_node(session, owner_id, node_id, data, config):
+    return await update_node(session, owner_id, node_id, data, None, config)
+
+
+async def update_node(session, owner_id, node_id, metadata, membership, config):
+    """Apply metadata and membership together under the existing owner lock."""
     async with session.begin():
         await lock_owner(session, owner_id)
         node = await owned(session, node_id, owner_id, config)
         normal(node)
-        for field, value in data.model_dump(exclude_unset=True).items():
-            setattr(node, field, value)
+        if metadata is not None:
+            for field, value in metadata.model_dump(exclude_unset=True).items():
+                setattr(node, field, value)
+        changes = {}
+        if membership is not None:
+            if node.type is not NodeType.DECK:
+                raise Problem(422, "membership_is_deck_only")
+            present = set(
+                (
+                    await session.scalars(
+                        select(DeckSense.sense_id).where(DeckSense.deck_id == node.id)
+                    )
+                ).all()
+            )
+            final = (present - set(membership.remove)) | set(membership.add)
+            identifiers = await replace_membership(session, node, final, config)
+            changes = {
+                "sense_ids": identifiers,
+                "added_count": len(final - present),
+                "removed_count": len(present - final),
+            }
         node.updated_at = datetime.now(UTC)
         await session.flush()
-        result = row_data(node)
-    await invalidate_deck(session, node)
+        result = row_data(node) | changes
     return result
 
 
 async def patch_senses(session, owner_id, node_id, data, config):
-    async with session.begin():
-        await lock_owner(session, owner_id)
-        node = await owned(session, node_id, owner_id, config)
-        normal(node)
-        if node.type is not NodeType.DECK:
-            raise Problem(422, "membership_is_deck_only")
-        present = set(
-            (
-                await session.scalars(
-                    select(DeckSense.sense_id).where(DeckSense.deck_id == node.id)
-                )
-            ).all()
-        )
-        final = (present - set(data.remove)) | set(data.add)
-        identifiers = await replace_membership(session, node, final, config)
-        node.updated_at = datetime.now(UTC)
-        await session.flush()
-        result = row_data(node) | {"sense_ids": identifiers}
-    await invalidate_deck(session, node)
-    return result
+    result = await update_node(session, owner_id, node_id, None, data, config)
+    return {k: v for k, v in result.items() if k not in {"added_count", "removed_count"}}
 
 
 async def move_node(session, owner_id, node_id, data, config):
@@ -291,7 +272,6 @@ async def move_node(session, owner_id, node_id, data, config):
         node.updated_at = datetime.now(UTC)
         await session.flush()
         result = row_data(node) | {"retained_reference_id": retained_id}
-    await invalidate_deck(session, node)
     return result
 
 
@@ -319,13 +299,82 @@ async def copy_node(session, owner_id, node_id, data, config):
             > config.library.max_owned_nodes
         ):
             raise Problem(422, "quota_exceeded")
+        await validate_parent(session, source, data.parent_id, config, creating=True)
+        await validate_publication(session, source, parent, data, creating=True)
         identifiers = {node.id: uuid7() for node in originals}
-        copies = {}
-        root_senses = None
-        # Reference targets must exist before PostgreSQL checks their foreign keys.
-        for original in sorted(originals, key=lambda node: node.type is NodeType.REFERENCE):
+        by_id = {node.id: node for node in originals}
+        paths = list(
+            (
+                await session.execute(
+                    select(NodePath.ancestor_id, NodePath.descendant_id, NodePath.depth).where(
+                        NodePath.ancestor_id.in_(identifiers),
+                        NodePath.descendant_id.in_(identifiers),
+                    )
+                )
+            ).all()
+        )
+        ancestor_pairs = {(a, d) for a, d, _ in paths}
+        children = {}
+        for original in originals:
             normal(original)
-            node = Node(
+            children[original.parent_id] = children.get(original.parent_id, 0) + 1
+            if original.reference_id and (original.reference_id, original.id) in ancestor_pairs:
+                raise Problem(422, "node_cycle")
+        if any(
+            count > config.library.max_children_per_folder
+            for parent_id, count in children.items()
+            if parent_id in identifiers
+        ):
+            raise Problem(422, "quota_exceeded")
+        targets = {
+            n.reference_id
+            for n in originals
+            if n.reference_id and n.reference_id not in identifiers
+        }
+        if targets:
+            found = {
+                n.id: n
+                for n in (
+                    await session.scalars(
+                        select(Node).where(Node.id.in_(targets), visible(Node.__table__, owner_id))
+                    )
+                ).all()
+            }
+            if set(found) != targets:
+                raise Problem(404, "node_not_found")
+            if any(n.type is NodeType.REFERENCE for n in found.values()):
+                raise Problem(422, "invalid_reference_target")
+        if any(
+            by_id[n.reference_id].type is NodeType.REFERENCE
+            for n in originals
+            if n.reference_id in by_id
+        ):
+            raise Problem(422, "invalid_reference_target")
+        members = list(
+            (
+                await session.execute(
+                    select(DeckSense.deck_id, DeckSense.sense_id)
+                    .where(DeckSense.deck_id.in_(identifiers))
+                    .limit(config.library.max_owned_memberships + 1)
+                )
+            ).all()
+        )
+        sizes = {}
+        for deck_id, _ in members:
+            sizes[deck_id] = sizes.get(deck_id, 0) + 1
+        if any(count > config.library.max_senses_per_deck for count in sizes.values()):
+            raise Problem(422, "deck_sense_limit_exceeded")
+        if members:
+            count = await session.scalar(
+                select(func.count())
+                .select_from(DeckSense)
+                .join(Node)
+                .where(Node.owner_id == owner_id, Node.deleted_at.is_(None))
+            )
+            if count + len(members) > config.library.max_owned_memberships:
+                raise Problem(422, "quota_exceeded")
+        copies = {
+            original.id: Node(
                 id=identifiers[original.id],
                 owner_id=owner_id,
                 role=NodeRole.NORMAL,
@@ -338,33 +387,40 @@ async def copy_node(session, owner_id, node_id, data, config):
                 reference_id=identifiers.get(original.reference_id, original.reference_id),
                 space=parent.space,
             )
-            destination = await validate_parent(
-                session, node, node.parent_id, config, creating=True
+            for original in originals
+        }
+        # Publish targets before references; all other copy reads/writes are batched.
+        for reference in (False, True):
+            session.add_all(
+                n for n in copies.values() if (n.type is NodeType.REFERENCE) == reference
             )
-            node.space = destination.space
-            session.add(node)
             await session.flush()
-            await add_paths(session, node)
-            if node.type is NodeType.DECK:
-                senses = (
-                    await session.scalars(
-                        select(DeckSense.sense_id).where(DeckSense.deck_id == original.id)
-                    )
-                ).all()
-                senses = await replace_membership(session, node, senses, config)
-                if original.id == source.id:
-                    root_senses = senses
-            copies[original.id] = node
+        depths = {d: depth for a, d, depth in paths if a == source.id}
+        await session.execute(
+            insert(NodePath),
+            [
+                {"ancestor_id": identifiers[a], "descendant_id": identifiers[d], "depth": depth}
+                for a, d, depth in paths
+            ]
+            + [
+                {
+                    "ancestor_id": ancestor.id,
+                    "descendant_id": identifiers[d],
+                    "depth": len(ancestors) - index + depth,
+                }
+                for index, ancestor in enumerate(ancestors)
+                for d, depth in depths.items()
+            ],
+        )
+        if members:
+            await session.execute(
+                insert(DeckSense),
+                [{"deck_id": identifiers[d], "sense_id": sense} for d, sense in members],
+            )
         root = copies[source.id]
-        for node in copies.values():
-            if node.reference_id:
-                target = await readable(session, node.reference_id, owner_id, config)
-                if target.type is NodeType.REFERENCE:
-                    raise Problem(422, "invalid_reference_target")
-        await validate_publication(session, root, parent, data, creating=True)
         result = row_data(root)
-        if root_senses is not None:
-            result["sense_ids"] = root_senses
+        if root.type is NodeType.DECK:
+            result["sense_ids"] = sorted(sense for d, sense in members if d == source.id)
     return result
 
 
@@ -374,7 +430,6 @@ async def delete_node(session, owner_id, node_id, config):
         node = await owned(session, node_id, owner_id, config)
         normal(node)
         await delete_subtree(session, node)
-    await invalidate_deck(session, node)
 
 
 async def list_nodes(session, viewer_id, parent_id, cursor, config, *, limit=None, include=None):
@@ -437,7 +492,7 @@ async def list_nodes(session, viewer_id, parent_id, cursor, config, *, limit=Non
 
 
 async def replace_membership(session, node, sense_ids, config):
-    """Full-state editor diff inside the owner lock; never use a paginated read."""
+    """Apply the final membership set inside the owner lock."""
     present = set(
         (
             await session.scalars(select(DeckSense.sense_id).where(DeckSense.deck_id == node.id))
@@ -475,47 +530,6 @@ async def replace_membership(session, node, sense_ids, config):
         )
     await session.flush()
     return sorted(final)
-
-
-async def invalidate_deck(session, node):
-    if node.type is NodeType.DECK and (cache := session.info.get("cache")):
-        await cache.discard(f"node-editor:{node.id}")
-
-
-async def deck_snapshot(session, node):
-    """Owner-only editor payload; no cached snapshot is an access grant."""
-    cache = session.info.get("cache")
-    key = f"node-editor:{node.id}"
-    metadata = {
-        field: getattr(node, field) for field in DeckSnapshot.model_fields if field != "sense_ids"
-    }
-    if cache and (cached := await cache.get(key, DeckSnapshot)) is not None:
-        # Moves of an ancestor can update this node's derived space. Metadata always
-        # comes from the already-authorized live node, never the cached permission.
-        return cached.model_copy(update=metadata)
-    identifiers = list(
-        (
-            await session.scalars(
-                select(DeckSense.sense_id)
-                .where(
-                    DeckSense.deck_id == node.id,
-                )
-                .order_by(DeckSense.sense_id)
-            )
-        ).all()
-    )
-    snapshot = DeckSnapshot(**metadata, sense_ids=identifiers)
-    if cache:
-        await cache.put(key, snapshot, cache.policy.deck_ttl_seconds)
-    return snapshot
-
-
-async def editor_snapshot(session, node_id, owner_id, config):
-    node = await owned(session, node_id, owner_id, config)
-    normal(node)
-    if node.type is NodeType.DECK:
-        return (await deck_snapshot(session, node)).model_dump()
-    return row_data(node)
 
 
 async def node_details(session, node_id, viewer_id, config):

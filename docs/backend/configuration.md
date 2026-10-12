@@ -2,13 +2,13 @@
 
 ## Two configuration channels
 
-Product policy is strict YAML at `config/config.yaml`. Deployment addresses, credentials,
-and the reference-file location come from the environment. Do not make model/limit policy
+Product policy is strict YAML at `config/config.yaml`. Deployment addresses and credentials
+come from the environment. Do not make model/limit policy
 an undocumented environment override or put credentials in YAML.
 
 `CONFIG_PATH` selects a policy file; otherwise resolution is relative to the installed
 source location, not the current shell directory. The image sets it to
-`/app/config/config.yaml` and bakes the policy into the same image used by API and worker.
+`/app/config/config.yaml` and bakes the policy into the API image.
 Changing environment variables does not replace that baked policy. Restart processes
 after configuration changes; there is no hot-reload configuration service.
 
@@ -27,7 +27,6 @@ reject non-finite values. Startup errors avoid echoing raw credentials.
 | `CLERK_AUDIENCE` | Optional; enables audience verification when set |
 | `CLERK_SECRET_KEY` | Required; missing-user verification against Clerk |
 | `ALLOWED_ORIGINS` | Optional comma-separated exact HTTP(S) origins; empty means no configured cross-origin callers |
-| `LEXI_CAMBRIDGE_DB_PATH` | Required existing native reference file, not a directory or an arbitrary empty SQLite file |
 | `INFERENCE_API_KEY`, `INFERENCE_BASE_URL` | Required model service credentials/address |
 | `LEXI_DECISION_API_KEY`, `LEXI_DECISION_BASE_URL` | Required native decision service credentials/address |
 | `CONFIG_PATH` | Optional policy file override |
@@ -44,6 +43,7 @@ configuration does not load `.env` by itself. See [getting started](getting-star
 ### Accounts and plans
 
 - Default locale `en`, timezone `UTC`, translation language `vi`.
+- Account `assistant.auto_approve` defaults to `false`; users change it in the Assistant panel.
 - Locales and translation languages currently allow `en` and `vi`; timezone validation
   checks the system timezone catalog.
 - FREE: 1,000,000 monthly units, ASSISTANT.
@@ -54,25 +54,9 @@ catalog prices described below; unit totals do not reconcile provider invoices.
 
 ### Learning
 
-| Setting | Current default / limit |
-| --- | --- |
-| `questions_per_sense` | 3; allowed 1–7 |
-| `max_sense_count` | 10; maximum*K <= `max_questions_per_prepare=100` |
-| `formats` | SINGLE_CHOICE |
-| `show_explanations` | true |
-| Candidate count batch | 100 |
-| Graded answer characters | 8,000 |
-| Review batch / summary IDs | 100 / 50 |
-| Activity / schedule window | 366 / 30 inclusive dates |
-| Desired FSRS retention / maximum interval | 0.9 / 365 days |
+`config/config.yaml` owns the pair/level matrix, defaults and limits. N defaults to 10 (1–20); K defaults to 2 (1–3); at most 60 questions/results. Free effectively uses SINGLE_CHOICE. Pro uses selected supported pairs. Answer text is limited to 8,000 characters. Activity/schedule windows remain 366/30 days and summary batches 50 IDs.
 
-Preparation accepts NEW/DUE/AUTO, default AUTO, and an optional maximum override.
-It rejects impossible combinations instead of silently clipping questions.
-
-`pair_levels` defines legal type/format combinations and presentation levels. `format_mix`
-caps single-word and short-answer choices by the previous rating; New and Again currently
-use no typed-answer upgrades when multiple-choice is available. Plan gates further restrict
-effective formats. See [Study](modules/study.md) for selection details.
+Mastery starts at Elo 600, K=32, scale 400, with a 24-hour evidence horizon. Four configured thresholds map Elo to five levels; fixed opponent ratings are configured per level. Memory uses native FSRS 6 default weights, retention .9, maximum interval 365 days, and S=1/D=5 for new all-null evidence. See [Study](modules/study.md) for selection and update behavior.
 
 ### Library
 
@@ -100,40 +84,24 @@ the static schema ceilings; batches fail rather than silently return partial wor
 
 ### Generation
 
-Generation targets 8 questions per supported question type. The enrichment prompt
-requests exactly 5 examples per sense (the configured count); validation accepts any
-nonempty list of usable examples. Question output may contain fewer or more items. Each question still requires 3 distractors.
-Known generated enum and target-markup labels accept either case. Invalid individual
-examples/questions are discarded, canonical duplicates are removed, and empty usable
-output is retried within the native LLM budget. Existing nonempty banks are reused
-without topping them up to a quota. Inventory, enrichment and question-pool generation
-are the three sequential phases; every sense enrichment request runs concurrently,
-then every missing sense/type pool runs concurrently. Pending fan-out tasks are
-cancelled and joined before returning on error or deadline. Provider rate limits
-still apply. Worker polling is every second, each attempt
-has a 600-second deadline, at most 3 attempts, and a 5-second retry delay.
-Lexi requests use structured outputs so native output schemas, including enum values,
-are sent as the provider response format and validated by the SDK.
-Question schemas require usable output without an exact batch-length constraint.
-Native question content and target checks run per item during parsing; invalid answers
-are never appended to the question bank. After bounded inference retries, missing
-question types produce `SUCCEEDED` with stage `PARTIAL` and sanitized error
-`question_pools_incomplete`; the word remains readable. Study still needs enough
-eligible questions for the user's chosen preferences.
+Word generation remains inventory plus concurrent enrichment batches of up to eight Senses, requesting three usable examples per Sense. It finishes READY independently of question banks. The API supports up to 128 concurrent Word jobs and provider operations; its existing job deadline and cancellation behavior remain.
+
+Study preparation retrieves/generates artifact banks on demand. `question_artifact_batch_size` defaults to 8, `correct_count` to 1, and `distractor_count` to 3. Contextual shortages generate at least eight artifacts. Singleton WORD_DEFINITION/WORD_TO_USAGE banks contain one row; explicit native generation extends their option arrays. Target markup and per-item validation remain native. Questions are built without inference in Pycil.
 
 ### Assistant
 
 Current limits: 180-second SDK request timeout, 32 tool calls, 8,000 message characters, 100
 context messages, 4 images of at most 10,000,000 bytes each, and 20 admitted starts per
 user/minute. There is no whole-agent-turn deadline. `assistant.llm_timeout_seconds`
-controls SDK network timeouts, including read inactivity, for each model request. Conversation retention is 30 days; worker cleanup runs at a 3,600-second
-interval in batches of 100.
+controls SDK network timeouts, including read inactivity, for each model request. Conversations have no automatic expiration; owners delete them explicitly.
 
 The Assistant default is `openai/gpt-6-luna` with effort `medium`; its allowlist also
 includes `google/gemini-3.8-flash` with low/medium/high effort choices.
 Luna's supported effort choices are `low`, `medium`, and `high`. Lexi generation and the decision fallback use Luna with
 `medium` reasoning, a 16,384-token completion budget (including reasoning), and a
-120-second request timeout, after the live 8,192-token run exhausted its output limit. Jev decisions use `typesafe/jev-1.13`. Public Assistant choices come
+120-second request timeout, after the live 8,192-token run exhausted its output limit.
+`providers.lexi.max_completion_tokens` accepts up to 32,768 tokens when a reasoning
+model needs more room to complete its JSON output. Jev decisions use `typesafe/jev-1.13`. Public Assistant choices come
 from the allowlist, not arbitrary client model IDs; the decision-only model is
 not an Assistant choice.
 
@@ -164,7 +132,7 @@ These keys never belong in the frontend environment.
 
 ### Cache and HTTP
 
-Actor and deck-editor TTLs are 60 seconds. The optional cache allows at most 1,000
+Actor TTL is 60 seconds. The optional cache allows at most 1,000
 entries and 65,536 bytes per value. Oversized values are discarded, not split into
 unbounded fragments. HTTP body limit is 15,000,000 bytes, also configured in Caddy;
 update both when deliberately changing this boundary.

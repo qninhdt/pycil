@@ -1,5 +1,6 @@
 # Implementation status
 
+Archived record. Current-only baselines and targeted Library mutations supersede the migration/editor contracts below; see [current setup](operations/migrations.md) and [OpenAPI](openapi.json).
 Date: 2026-10-06. Backend completion based on `e79a53c`.
 The reduced backend contract is implemented; this is **not a deployment announcement**
 or production capacity certification. The [execution plan](implementation-plan.md)
@@ -76,7 +77,7 @@ references and source overflow are connected in the frontend.
 
 The earlier counts above describe the 2026-10-06 backend verification only. Current
 contract/unit checks and live browser execution have separate evidence in the
-[frontend E2E plan](../../tmp/frontend-backend-e2e-plan.md). Real store/browser/provider
+frontend E2E plan (archived, removed). Real store/browser/provider
 execution must not be inferred from those historical counts.
 
 ## Custom-action naming update — 2026-10-08
@@ -93,4 +94,4 @@ Backend Ruff lint/format, frontend production build and Caddy validation passed.
 Focused frontend adapters and three Assistant browser fixtures passed. These
 browser fixtures intercept API responses; they do not establish live Clerk or
 provider success. Live full-stack execution remains recorded separately in the
-[frontend E2E plan](../../tmp/frontend-backend-e2e-plan.md).
+frontend E2E plan (archived, removed).

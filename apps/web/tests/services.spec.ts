@@ -11,6 +11,46 @@ import { createAssistantService, AssistantError } from '../src/lib/assistant-api
 const now = () => new Date('2026-10-07T02:00:00Z')
 const signal = () => new AbortController().signal
 
+test('profile edits persist all public fields and reject duplicate handles atomically', async () => {
+  const services = createMockServices({ latency: 0 })
+  const updated = await services.account.updateProfile({ display_name: ' Nguyễn Ninh ', handle: ' NINH ', bio: ' Hello ' }, signal())
+  expect(updated).toMatchObject({ display_name: 'Nguyễn Ninh', handle: 'ninh', bio: 'Hello' })
+  await expect(services.account.updateProfile({ display_name: 'Should not persist', handle: 'sam' }, signal())).rejects.toMatchObject({ status: 409, code: 'handle_unavailable' })
+  expect(await services.account.profile(signal())).toMatchObject({ display_name: 'Nguyễn Ninh', handle: 'ninh', bio: 'Hello' })
+  for (const name of [' ', 'a'.repeat(256)]) await expect(services.account.updateProfile({ display_name: name }, signal())).rejects.toMatchObject({ status: 422 })
+  expect(await services.account.updateProfile({ bio: null }, signal())).toMatchObject({ display_name: 'Nguyễn Ninh', handle: 'ninh', bio: null })
+})
+
+test('assistant settings are independent of learning settings and start disabled', async () => {
+  const services = createMockServices({ latency: 0 })
+  const before = await services.account.profile(signal())
+  expect(before.settings.assistant.auto_approve).toBe(false)
+  const changed = await services.account.updateSettings({ assistant: { auto_approve: true } }, signal())
+  expect(changed.settings.assistant.auto_approve).toBe(true)
+  expect(changed.settings.learning).toEqual(before.settings.learning)
+  const refreshed = await services.account.updateSettings({ locale: 'vi' }, signal())
+  expect(refreshed.settings.assistant.auto_approve).toBe(true)
+})
+
+test('Free quiz selection preserves saved Pro formats and prepares the effective pair', async () => {
+  const seed = structuredClone(database)
+  seed.account.plan = 'FREE'
+  seed.account.learning_options.advanced_grading = false
+  seed.account.settings.learning.question_types = ['DEFINITION_TO_WORD']
+  seed.account.settings.learning.formats = ['SINGLE_WORD']
+  const services = createMockServices({ database: seed, latency: 0 })
+  const profile = await services.account.updateSettings({ learning: { question_types: ['MEANING_IN_CONTEXT'] } }, signal())
+  expect(profile.settings.learning.formats).toEqual(['SINGLE_WORD'])
+  expect(profile.effective_learning?.formats).toEqual(['SINGLE_CHOICE'])
+  const prepared = await services.learning.prepare({ node_id: 'everyday', selection: 'NEW', max_sense_count: 1 }, signal())
+  expect(prepared.bundles).toHaveLength(1)
+  expect(prepared.bundles[0].questions.every(item => item.question.question_type === 'MEANING_IN_CONTEXT' && item.format === 'SINGLE_CHOICE')).toBe(true)
+  seed.account.plan = 'PRO'
+  seed.account.learning_options.advanced_grading = true
+  const pro = createMockServices({ database: seed, latency: 0 })
+  await expect(pro.account.updateSettings({ learning: { question_types: ['MEANING_IN_CONTEXT'] } }, signal())).rejects.toMatchObject({ status: 422 })
+})
+
 test('conversation deletion sends authenticated DELETE, handles 204 and preserves backend errors', async () => {
   const original = globalThis.fetch
   let denied = false
@@ -136,8 +176,8 @@ test('live action requests preserve payloads, review keys and bearer authenticat
   try {
     const service = createHttpServices(async () => 'session')
     const prepare = { node_id: 'deck', selection: 'NEW' as const, max_sense_count: 3 }
-    const grade = { question_id: 1, format: 'SHORT_ANSWER' as const, answer: 'a bank' }
-    const results = [{ sense_id: 1, rating: 'GOOD' as const }]
+    const grade = { question_artifact_id: 1, question_type: 'WORD_TO_DEFINITION' as const, format: 'SHORT_ANSWER' as const, answer: 'a bank' }
+    const results = [{ question_artifact_id: 1, question_type: 'WORD_TO_DEFINITION' as const, format: 'SINGLE_CHOICE' as const, diagnostics: { correct: true }, answered_at: new Date().toISOString() }]
     await expect(service.learning.prepare(prepare, signal())).rejects.toMatchObject({ status: 503 })
     await expect(service.learning.grade(grade, signal())).rejects.toMatchObject({ status: 503 })
     await expect(service.learning.review({ results, key: 'stable-review-key' }, signal())).rejects.toMatchObject({ status: 503 })
@@ -148,7 +188,7 @@ test('live action requests preserve payloads, review keys and bearer authenticat
     expect(calls.slice(0, 3).map(({ path, method, body }) => ({ path, method, body }))).toEqual([
       { path: '/api/v1/study:prepare', method: 'POST', body: prepare },
       { path: '/api/v1/study:grade', method: 'POST', body: grade },
-      { path: '/api/v1/study:submitReviews', method: 'POST', body: { results } },
+      { path: '/api/v1/study:submitResults', method: 'POST', body: { results } },
     ])
     expect(calls[2].headers.get('Idempotency-Key')).toBe('stable-review-key')
     expect(new URL(calls[3].path, 'https://test.invalid').pathname).toBe('/api/v1/words:search')

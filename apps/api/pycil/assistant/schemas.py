@@ -1,15 +1,154 @@
-"""UI projections of native messages and persisted approval state."""
+"""Bounded task inputs, independent of HTTP response shapes."""
 
-from datetime import datetime
-from typing import Any, Literal
+from datetime import date, datetime
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from ag_ui.core import Message
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field, StringConstraints, model_validator
+
+from pycil.library.schemas import SenseDelta, Strict
+
+PositiveID = Annotated[int, Field(strict=True, gt=0)]
+Query = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+Queries = Annotated[list[Query], Field(min_length=1, max_length=10)]
+VocabularyInclude = Literal["examples", "lexical_details", "learning", "sources"]
 
 
-class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+class CurrentView(Strict):
+    path: str = Field(min_length=1, max_length=512, pattern=r"^/")
+    node_id: UUID | None = None
+    word_id: PositiveID | None = None
+
+    @model_validator(mode="after")
+    def one_target(self):
+        if self.node_id is not None and self.word_id is not None:
+            raise ValueError("Supply a node or a Word, not both")
+        return self
+
+
+class WordSearch(Strict):
+    queries: Queries
+    limit: Annotated[int, Field(strict=True, ge=1, le=10)] = 3
+    include: list[VocabularyInclude] = Field(default_factory=list)
+
+
+class VocabularyRead(Strict):
+    word_ids: list[PositiveID] = Field(default_factory=list, max_length=30)
+    sense_ids: list[PositiveID] = Field(default_factory=list, max_length=100)
+    include: list[VocabularyInclude] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def nonempty(self):
+        if not self.word_ids and not self.sense_ids:
+            raise ValueError("Supply Word or sense IDs")
+        return self
+
+
+class NodeSearch(Strict):
+    queries: Queries
+    scope: Literal["LIBRARY", "PUBLISHED"] = "LIBRARY"
+    node_id: UUID | None = None
+    type: Literal["DECK", "FOLDER", "REFERENCE"] | None = None
+    limit: Annotated[int, Field(strict=True, ge=1, le=10)] = 3
+
+    @model_validator(mode="after")
+    def scope_shape(self):
+        if self.scope == "PUBLISHED" and self.node_id is not None:
+            raise ValueError("Use LIBRARY for a specific readable node")
+        return self
+
+
+class LibraryRead(Strict):
+    node_id: UUID | None = None
+    view: Literal["CONTENT", "STRUCTURE"] = "CONTENT"
+    query: Query | None = None
+    state: Literal["ALL", "NEW", "DUE", "NOT_YET_DUE"] = "ALL"
+    sort: Literal["SENSE_ID_ASC", "LEMMA_ASC", "LAST_REVIEWED_DESC", "MASTERY_ASC"] = "SENSE_ID_ASC"
+    limit: Annotated[int, Field(strict=True, ge=1, le=100)] = 20
+    cursor: str | None = Field(default=None, max_length=2048)
+
+    @model_validator(mode="after")
+    def structure_filters(self):
+        if self.view == "STRUCTURE" and (
+            self.query is not None or self.state != "ALL" or self.sort != "SENSE_ID_ASC"
+        ):
+            raise ValueError("Content filters require CONTENT view")
+        return self
+
+
+class NodeUpdate(Strict):
+    node_id: UUID
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=8000)
+    clear_description: bool = False
+    add_sense_ids: list[PositiveID] = Field(default_factory=list, max_length=1000)
+    remove_sense_ids: list[PositiveID] = Field(default_factory=list, max_length=1000)
+
+    @model_validator(mode="after")
+    def update_shape(self):
+        if self.name is not None and not self.name.strip():
+            raise ValueError("name must not be blank")
+        if self.clear_description and self.description is not None:
+            raise ValueError("Supply description or clear_description, not both")
+        if (
+            self.name is None
+            and self.description is None
+            and not self.clear_description
+            and not (self.add_sense_ids or self.remove_sense_ids)
+        ):
+            raise ValueError("Supply metadata or a membership change")
+        SenseDelta(add=self.add_sense_ids, remove=self.remove_sense_ids)
+        return self
+
+
+class NodeBatch(Strict):
+    node_ids: list[UUID] = Field(min_length=1, max_length=20)
+
+    @model_validator(mode="after")
+    def unique(self):
+        if len(set(self.node_ids)) != len(self.node_ids):
+            raise ValueError("Duplicate node IDs")
+        return self
+
+
+class NodeCopy(NodeBatch):
+    parent_id: UUID
+    confirm_publication: bool = False
+
+
+class NodeMove(NodeCopy):
+    retain_personal_reference: bool = False
+
+
+class WordGeneration(Strict):
+    words: list[
+        Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=512)]
+    ] = Field(min_length=1, max_length=10)
+
+
+class GenerationRead(Strict):
+    task_ids: list[UUID] = Field(min_length=1, max_length=10)
+
+
+class DateWindow(Strict):
+    start_date: date
+    end_date: date
+
+
+class LearningOverview(Strict):
+    node_ids: list[UUID] = Field(default_factory=list, max_length=20)
+    include: list[Literal["activity", "schedule"]] = Field(default_factory=list)
+    activity_window: DateWindow | None = None
+    schedule_window: DateWindow | None = None
+
+    @model_validator(mode="after")
+    def requested_windows(self):
+        if self.activity_window is not None and "activity" not in self.include:
+            raise ValueError("Activity window requires activity")
+        if self.schedule_window is not None and "schedule" not in self.include:
+            raise ValueError("Schedule window requires schedule")
+        return self
 
 
 class CreateConversation(Strict):

@@ -10,7 +10,7 @@ from lexi_ai import QuestionType, ResponseFormat
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from pycil.account.plans import Feature, Plan
-from pycil.config import LearningLimits, LearningPreferences, ProductConfig
+from pycil.config import AssistantPreferences, LearningLimits, LearningPreferences, ProductConfig
 from pycil.http import Problem
 
 
@@ -23,7 +23,6 @@ class LearningPatch(Strict):
     formats: list[str] | None = None
     questions_per_sense: Annotated[int, Field(strict=True, gt=0)] | None = None
     max_sense_count: Annotated[int, Field(strict=True, gt=0)] | None = None
-    show_explanations: Annotated[bool, Field(strict=True)] | None = None
 
     @model_validator(mode="after")
     def no_explicit_null(self):
@@ -32,11 +31,22 @@ class LearningPatch(Strict):
         return self
 
 
+class AssistantPatch(Strict):
+    auto_approve: Annotated[bool, Field(strict=True)] | None = None
+
+    @model_validator(mode="after")
+    def no_explicit_null(self):
+        if "auto_approve" in self.model_fields_set and self.auto_approve is None:
+            raise ValueError("assistant preferences cannot be null")
+        return self
+
+
 class PreferencesPatch(Strict):
     locale: str | None = None
     timezone: str | None = None
     translation_language: str | None = None
     learning: LearningPatch | None = None
+    assistant: AssistantPatch | None = None
 
     @model_validator(mode="after")
     def no_explicit_null(self):
@@ -50,12 +60,13 @@ class Preferences(Strict):
     timezone: str
     translation_language: str
     learning: LearningPreferences
+    assistant: AssistantPreferences
 
 
 class LearningPair(Strict):
     question_type: QuestionType
     format: ResponseFormat
-    level: Annotated[int, Field(ge=1, le=4)]
+    level: Annotated[int, Field(ge=1, le=5)]
 
 
 class LearningOptions(Strict):
@@ -90,8 +101,16 @@ class PublicProfile(Strict):
 
 
 class ProfilePatch(Strict):
+    display_name: str | None = None
     handle: str | None = None
     bio: str | None = None
+
+    @field_validator("display_name")
+    @classmethod
+    def valid_display_name(cls, value):
+        if value is None or not 1 <= len(value.strip()) <= 255:
+            raise ValueError("display name must contain 1–255 characters")
+        return value.strip()
 
     @field_validator("handle")
     @classmethod
@@ -126,7 +145,8 @@ class Allowance(Strict):
 def preferences(saved: dict, config: ProductConfig) -> Preferences:
     defaults = config.account.defaults.model_dump()
     learning = config.learning.defaults.model_dump() | saved.get("learning", {})
-    values = defaults | saved | {"learning": learning}
+    assistant = defaults["assistant"] | saved.get("assistant", {})
+    values = defaults | saved | {"learning": learning, "assistant": assistant}
     result = Preferences.model_validate(values)
     if result.locale not in config.account.locales:
         raise ValueError("unsupported locale")
@@ -136,7 +156,7 @@ def preferences(saved: dict, config: ProductConfig) -> Preferences:
         ZoneInfo(result.timezone)
     except ZoneInfoNotFoundError as exc:
         raise ValueError("invalid IANA timezone") from exc
-    config.learning.validate_preferences(result.learning)
+    config.learning.validate_limits(result.learning)
     return result
 
 
@@ -144,7 +164,7 @@ def effective_learning(saved: dict, plan: Plan, config: ProductConfig) -> Learni
     selected = preferences(saved, config).learning
     formats = selected.formats
     if Feature.ADVANCED_GRADING not in config.plans[plan].features:
-        formats = [fmt for fmt in formats if fmt is ResponseFormat.SINGLE_CHOICE]
+        formats = [ResponseFormat.SINGLE_CHOICE]
     try:
         effective = LearningPreferences.model_validate(selected.model_dump() | {"formats": formats})
         config.learning.validate_preferences(effective)
@@ -158,14 +178,17 @@ def merge_preferences(
 ) -> dict:
     changes = patch.model_dump(exclude_unset=True)
     nested = changes.pop("learning", None)
+    assistant = changes.pop("assistant", None)
     merged = saved | changes
+    if assistant is not None:
+        merged["assistant"] = saved.get("assistant", {}) | assistant
     if nested is not None:
         if "formats" in nested and Feature.ADVANCED_GRADING not in config.plans[plan].features:
             if any(fmt != ResponseFormat.SINGLE_CHOICE for fmt in nested["formats"]):
                 raise Problem(403, "advanced_grading_not_available")
         merged["learning"] = saved.get("learning", {}) | nested
     try:
-        preferences(merged, config)
-    except ValueError as exc:
+        effective_learning(merged, plan, config)
+    except (ValueError, Problem) as exc:
         raise Problem(422, "invalid_preferences") from exc
     return merged

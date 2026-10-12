@@ -2,12 +2,20 @@ from datetime import date, datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from lexi_ai import ResponseFormat
-from lexi_ai.models import DefinitionGrade, Option, Question, Sense, SingleWordGrade, UsageGrade
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from lexi_ai import (
+    DefinitionAccuracy,
+    DefinitionCoverage,
+    MeaningPreservation,
+    QuestionType,
+    ResponseFormat,
+    TargetPlacement,
+    UsageForm,
+    UsageMeaning,
+)
+from lexi_ai.models import Sense
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StrictBool, model_validator
 
 from pycil.config import LearningPreferences
-from pycil.study.models import Rating
 
 
 class Strict(BaseModel):
@@ -20,34 +28,139 @@ PositiveID = Annotated[int, Field(strict=True, gt=0)]
 class Prepare(Strict):
     node_id: UUID
     selection: Literal["NEW", "DUE", "AUTO"] = "AUTO"
-    max_sense_count: Annotated[int, Field(strict=True, gt=0, le=100)] | None = None
+    max_sense_count: Annotated[int, Field(strict=True, ge=1, le=20)] | None = None
+    questions_per_sense: Annotated[int, Field(strict=True, ge=1, le=3)] | None = None
 
 
-class Grade(Strict):
-    question_id: PositiveID
+class QuizDiagnostic(Strict):
+    correct: StrictBool
+
+
+class SingleWordDiagnostic(Strict):
+    task_fit: StrictBool
+    spelling_error: StrictBool
+    sense_id: PositiveID | None
+
+
+class DefinitionDiagnostic(Strict):
+    sense_id: PositiveID | None
+    accuracy: DefinitionAccuracy | None
+    coverage: DefinitionCoverage | None
+
+    @model_validator(mode="after")
+    def consistent(self):
+        if (self.sense_id is None) != (self.accuracy is None and self.coverage is None):
+            raise ValueError("Definition diagnostics require a matched Sense")
+        if self.sense_id is not None and (self.accuracy is None or self.coverage is None):
+            raise ValueError("Matched definition needs accuracy and coverage")
+        return self
+
+
+class UsageDiagnostic(Strict):
+    used: StrictBool
+    meaning: UsageMeaning | None
+    form: UsageForm | None
+    construction: StrictBool | None
+    collocation: StrictBool | None
+    appropriacy: StrictBool | None
+
+    @model_validator(mode="after")
+    def consistent(self):
+        fields = (self.meaning, self.form, self.construction, self.collocation, self.appropriacy)
+        if (
+            self.used
+            and any(v is None for v in fields)
+            or not self.used
+            and any(v is not None for v in fields)
+        ):
+            raise ValueError("Usage diagnostics disagree with target presence")
+        return self
+
+
+class RewriteDiagnostic(UsageDiagnostic):
+    meaning_preservation: MeaningPreservation | None
+
+    @model_validator(mode="after")
+    def preservation(self):
+        if self.used == (self.meaning_preservation is None):
+            raise ValueError("Rewrite diagnostics disagree with target presence")
+        return self
+
+
+Diagnostics = (
+    QuizDiagnostic
+    | SingleWordDiagnostic
+    | DefinitionDiagnostic
+    | RewriteDiagnostic
+    | UsageDiagnostic
+)
+
+
+class QuestionReference(Strict):
+    question_artifact_id: PositiveID
+    question_type: QuestionType
     format: ResponseFormat
-    answer: str = Field(min_length=1)
 
 
-class Review(Strict):
-    sense_id: PositiveID
-    rating: Rating
+class Grade(QuestionReference):
+    answer: str | None = Field(min_length=1)
+
+
+class GradeResult(QuestionReference):
+    diagnostics: Diagnostics
+
+    @model_validator(mode="before")
+    @classmethod
+    def diagnostic_shape(cls, value):
+        if isinstance(value, dict) and {"diagnostics", "format", "question_type"} <= value.keys():
+            fmt, kind = ResponseFormat(value["format"]), QuestionType(value["question_type"])
+            schema = (
+                QuizDiagnostic
+                if fmt == ResponseFormat.SINGLE_CHOICE
+                else SingleWordDiagnostic
+                if fmt == ResponseFormat.SINGLE_WORD
+                else DefinitionDiagnostic
+                if kind == QuestionType.WORD_TO_DEFINITION
+                else RewriteDiagnostic
+                if kind == QuestionType.SENTENCE_REWRITE
+                else UsageDiagnostic
+            )
+            value = value | {"diagnostics": schema.model_validate(value["diagnostics"])}
+        return value
+
+
+class Review(GradeResult):
+    answered_at: AwareDatetime
 
 
 class ReviewBatch(Strict):
-    results: list[Review] = Field(min_length=1, max_length=100)
+    results: list[Review] = Field(min_length=1, max_length=60)
 
-    @model_validator(mode="after")
-    def unique(self):
-        if len({r.sense_id for r in self.results}) != len(self.results):
-            raise ValueError("duplicate sense IDs")
-        return self
+
+class Option(Strict):
+    id: str
+    content: str
+
+
+class DialogueTurn(Strict):
+    speaker: str
+    text: str | None
+
+
+class Question(Strict):
+    question_artifact_id: PositiveID
+    sense_id: PositiveID
+    question_type: QuestionType
+    content: str | list[DialogueTurn]
+    correct: Option
+    distractors: list[Option]
+    target_placement: TargetPlacement | None = None
 
 
 class PreparedQuestion(Strict):
     question: Question
     format: ResponseFormat
-    level: int = Field(ge=1, le=4)
+    level: int = Field(ge=1, le=5)
     options: list[Option]
 
 
@@ -67,21 +180,30 @@ class Preparation(Strict):
     bundles: list[PreparedBundle]
 
 
-GradeResult = SingleWordGrade | DefinitionGrade | UsageGrade
-
-
 class ReviewResult(Strict):
     sense_id: int
-    rating: Rating
     applied: bool
-    accepted_at: datetime
+    elo: float
+    level: int
+    stability: float
+    difficulty: float
+    last_exposure_at: datetime
     due_after: datetime
+
+
+class TrackedEvidence(Review):
+    evaluated_sense_id: int
+    recall: float | None
+    performance: float | None
+    opponent_elo: float
+    policy_version: int
 
 
 class BatchResult(Strict):
     accepted_at: datetime
     activity_day: date
     results: list[ReviewResult]
+    evidence: list[TrackedEvidence]
 
 
 class Summary(Strict):

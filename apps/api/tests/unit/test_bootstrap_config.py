@@ -22,7 +22,6 @@ def forbidden(*args, **kwargs):
     raise AssertionError('Import must not connect to services')
 socket.socket.connect = forbidden
 import pycil.main
-import pycil.worker
 import pycil.migrate
 assert pycil.main.create_app().title == 'Pycil'
 """,
@@ -55,7 +54,7 @@ def test_caddy_uses_current_stream_path_and_product_body_limit(config):
         lambda d: d["models"][0].update(id=""),
         lambda d: d["models"][0].update(efforts=["none", "none"]),
         lambda d: d["models"][0].update(input_units_per_token="NaN"),
-        lambda d: d["generation"]["worker"].update(max_attempts=0),
+        lambda d: d["generation"].update(timeout_seconds=0),
         lambda d: d["learning"]["fsrs"].update(desired_retention=float("inf")),
     ],
 )
@@ -90,18 +89,6 @@ def test_missing_environment_lists_only_variable_names(monkeypatch):
     with pytest.raises(ValueError, match="Missing deployment variables") as caught:
         Deployment.from_environment()
     assert "password-sentinel" not in str(caught.value)
-
-
-def test_worker_missing_configuration_fails_without_exposing_environment():
-    result = subprocess.run(
-        [sys.executable, "-m", "pycil.worker"],
-        capture_output=True,
-        text=True,
-        env={"PATH": os.environ["PATH"], "DB_URL": "password-sentinel"},
-    )
-    assert result.returncode == 1
-    assert "Worker failed" in result.stderr
-    assert "password-sentinel" not in result.stdout + result.stderr
 
 
 def test_migration_cli_failure_does_not_dump_target_credentials():

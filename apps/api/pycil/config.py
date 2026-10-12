@@ -26,10 +26,15 @@ class PlanPolicy(Policy):
     features: list[Feature]
 
 
+class AssistantPreferences(Policy):
+    auto_approve: Annotated[bool, Field(strict=True)]
+
+
 class AccountDefaults(Policy):
     locale: str
     timezone: str
     translation_language: str
+    assistant: AssistantPreferences
 
 
 class AccountPolicy(Policy):
@@ -58,51 +63,61 @@ class LearningPreferences(Policy):
     formats: list[ResponseFormat]
     questions_per_sense: PositiveInt
     max_sense_count: PositiveInt
-    show_explanations: Annotated[bool, Field(strict=True)]
 
     @model_validator(mode="after")
     def validate_selection(self):
         for values in (self.question_types, self.formats):
             if not values or len(set(values)) != len(values):
                 raise ValueError("type/format selections must be nonempty and unique")
-        feasible = any(
-            any((kind, fmt) in ALLOWED_PAIRS for fmt in self.formats)
-            for kind in self.question_types
-        )
-        if not feasible:
-            raise ValueError("infeasible question selection")
         return self
 
 
 class LearningLimits(Policy):
     min_questions_per_sense: PositiveInt
-    max_questions_per_sense: Annotated[int, Field(strict=True, ge=1, le=7)]
-    max_questions_per_prepare: Annotated[int, Field(strict=True, ge=1, le=100)]
-    candidate_read_batch_size: PositiveInt
+    max_questions_per_sense: Annotated[int, Field(strict=True, ge=1, le=3)]
+    max_questions_per_prepare: Annotated[int, Field(strict=True, ge=1, le=60)]
+    max_sense_count: Annotated[int, Field(strict=True, ge=1, le=20)]
     max_answer_chars: PositiveInt
-    max_review_batch: Annotated[int, Field(strict=True, ge=1, le=100)] = 100
+    max_review_batch: Annotated[int, Field(strict=True, ge=1, le=60)] = 100
     max_summary_nodes: Annotated[int, Field(strict=True, ge=1, le=50)] = 50
     max_activity_days: Annotated[int, Field(strict=True, ge=1, le=366)] = 366
     max_schedule_days: Annotated[int, Field(strict=True, ge=1, le=30)] = 30
 
 
-class FormatMix(Policy):
-    max_single_word: NonnegativeInt
-    max_short_answer: NonnegativeInt
+class MasteryPolicy(Policy):
+    initial_elo: float
+    k_elo: Annotated[float, Field(gt=0)]
+    horizon_hours: Annotated[float, Field(gt=0)]
+    level_thresholds: list[float] = Field(min_length=4, max_length=4)
+    opponent_elo: list[float] = Field(min_length=5, max_length=5)
+    policy_version: PositiveInt
+
+    @model_validator(mode="after")
+    def ordered_levels(self):
+        if self.level_thresholds != sorted(set(self.level_thresholds)):
+            raise ValueError("Mastery thresholds must increase")
+        if self.opponent_elo != sorted(set(self.opponent_elo)):
+            raise ValueError("Opponent Elo must increase")
+        return self
+
+    def level(self, elo):
+        return 1 + sum(elo >= threshold for threshold in self.level_thresholds)
 
 
 class FSRSPolicy(Policy):
     desired_retention: Annotated[float, Field(gt=0, lt=1)]
     max_interval_days: PositiveInt
+    initial_stability: Annotated[float, Field(gt=0)]
+    initial_difficulty: Annotated[float, Field(ge=1, le=10)]
 
 
 class LearningPolicy(Policy):
     defaults: LearningPreferences
     limits: LearningLimits
     pair_levels: dict[
-        QuestionType, dict[ResponseFormat, Annotated[int, Field(strict=True, ge=1, le=4)]]
+        QuestionType, dict[ResponseFormat, Annotated[int, Field(strict=True, ge=1, le=5)]]
     ]
-    format_mix: dict[str, FormatMix]
+    mastery: MasteryPolicy
     fsrs: FSRSPolicy
 
     @model_validator(mode="after")
@@ -110,17 +125,20 @@ class LearningPolicy(Policy):
         pairs = {(kind, fmt) for kind, formats in self.pair_levels.items() for fmt in formats}
         if not pairs or not pairs <= ALLOWED_PAIRS:
             raise ValueError("unknown or unsupported type/format policy")
-        if set(self.format_mix) != {"NEW", "AGAIN", "HARD", "GOOD", "EASY"}:
-            raise ValueError("format mix must cover new and every native rating")
         self.validate_preferences(self.defaults)
         return self
 
-    def validate_preferences(self, preferences: LearningPreferences):
+    def validate_limits(self, preferences: LearningPreferences):
+        if preferences.max_sense_count > self.limits.max_sense_count:
+            raise ValueError("maximum Sense count exceeded")
         k = preferences.questions_per_sense
         if not self.limits.min_questions_per_sense <= k <= self.limits.max_questions_per_sense:
             raise ValueError("questions_per_sense outside configured bounds")
         if preferences.max_sense_count * k > self.limits.max_questions_per_prepare:
             raise ValueError("maximum prepared questions exceeded")
+
+    def validate_preferences(self, preferences: LearningPreferences):
+        self.validate_limits(preferences)
         feasible = any(
             any(fmt in self.pair_levels.get(kind, {}) for fmt in preferences.formats)
             for kind in preferences.question_types
@@ -129,18 +147,12 @@ class LearningPolicy(Policy):
             raise ValueError("no product-enabled question type/format pair")
 
 
-class WorkerPolicy(Policy):
-    poll_interval_seconds: Annotated[float, Field(gt=0)]
-    attempt_timeout_seconds: PositiveInt
-    max_attempts: PositiveInt
-    retry_delay_seconds: Annotated[float, Field(ge=0)]
-
-
 class GenerationPolicy(Policy):
-    questions_per_type: Annotated[int, Field(strict=True, ge=1, le=20)]
+    question_artifact_batch_size: Annotated[int, Field(strict=True, ge=1, le=20)]
+    correct_count: Annotated[int, Field(strict=True, ge=1, le=20)]
     distractor_count: Annotated[int, Field(strict=True, ge=3, le=20)]
     examples_per_sense: PositiveInt
-    worker: WorkerPolicy
+    timeout_seconds: PositiveInt
 
 
 class AssistantPolicy(Policy):
@@ -153,9 +165,6 @@ class AssistantPolicy(Policy):
     max_images: PositiveInt
     max_image_bytes: PositiveInt
     starts_per_minute: PositiveInt
-    retention_days: PositiveInt
-    purge_interval_seconds: PositiveInt
-    purge_batch_size: PositiveInt
 
 
 class ModelPolicy(Policy):
@@ -185,7 +194,7 @@ class ModelPolicy(Policy):
 class LexiPolicy(Policy):
     model: str
     timeout_seconds: Annotated[int, Field(strict=True, ge=1, le=120)]
-    max_completion_tokens: Annotated[int, Field(strict=True, ge=1, le=16384)]
+    max_completion_tokens: Annotated[int, Field(strict=True, ge=1, le=32768)]
     max_retries: NonnegativeInt
     structured_outputs: Annotated[bool, Field(strict=True)]
     reasoning_effort: str | None
@@ -215,7 +224,6 @@ class LibraryPolicy(Policy):
 
 class CachePolicy(Policy):
     actor_ttl_seconds: PositiveInt
-    deck_ttl_seconds: PositiveInt
     max_entries: PositiveInt
     max_value_bytes: PositiveInt
 
@@ -278,7 +286,6 @@ class Deployment(Policy):
     clerk_audience: str | None
     clerk_secret_key: SecretStr
     allowed_origins: list[str]
-    cambridge_path: Path
     inference_api_key: SecretStr
     inference_base_url: str
     decision_api_key: SecretStr
@@ -337,7 +344,6 @@ class Deployment(Policy):
             "clerk_jwks_url": "CLERK_JWKS_URL",
             "clerk_issuer": "CLERK_ISSUER",
             "clerk_secret_key": "CLERK_SECRET_KEY",
-            "cambridge_path": "LEXI_CAMBRIDGE_DB_PATH",
             "inference_api_key": "INFERENCE_API_KEY",
             "inference_base_url": "INFERENCE_BASE_URL",
             "decision_api_key": "LEXI_DECISION_API_KEY",

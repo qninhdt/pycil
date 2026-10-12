@@ -28,12 +28,12 @@ Final local checks and phase-to-test mapping: [verification record](verification
 
 ## Current inventory
 
-- One Python application under `apps/api`, with API and worker entry points.
+- One Python application under `apps/api`, with an API entry point and finite migration gate.
 - Five business modules: account, library, vocabulary, study, and assistant.
 - 41 business API operations; `/health` and `/ready` are operational routes.
-- PostgreSQL schemas `public`, `lexi`, and `checkpoints`, with separate DDL ownership.
+- PostgreSQL schemas `public`, `lexi`, `lexi_reference`, and `checkpoints`, with three DDL owners.
 - Redis for optional cached values and required coordination.
-- A local vendored Lexi wheel, an external read-only Cambridge SQLite artifact, and
+- A local vendored Lexi wheel, imported project-owned reference data, and
   configured inference/decision services.
 - Node FTS/Discovery, atomic reviews, durable activity and jointly bounded summaries.
 - Product frontend under `apps/web` with live services and a separate full-stack E2E

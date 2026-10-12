@@ -1,23 +1,29 @@
-"""Small wrapper over the installed native binding, not another scheduling algorithm."""
+"""Native FSRS-6 Memory updates; null recall only refreshes the exposure clock."""
 
 from datetime import timedelta
 
 from fsrs_rs_python import DEFAULT_PARAMETERS, FSRS, MemoryState
 
-from pycil.study.models import Rating
 
-
-def next_state(memory, rating, now, config):
-    elapsed = max(0, int((now - memory.last_review_at).total_seconds() // 86400)) if memory else 0
-    current = MemoryState(memory.stability, memory.difficulty) if memory else None
-    states = FSRS(DEFAULT_PARAMETERS).next_states(
-        current, config.learning.fsrs.desired_retention, elapsed
-    )
-    branch = {
-        Rating.AGAIN: states.again,
-        Rating.HARD: states.hard,
-        Rating.GOOD: states.good,
-        Rating.EASY: states.easy,
-    }[rating]
-    interval = min(branch.interval, config.learning.fsrs.max_interval_days)
-    return branch.memory.stability, branch.memory.difficulty, now + timedelta(days=interval)
+def next_state(memory, recalls, now, config):
+    policy = config.learning.fsrs
+    fsrs = FSRS(DEFAULT_PARAMETERS)
+    observed = [r for r in recalls if r is not None]
+    if observed:
+        elapsed = (
+            max(0, int((now - memory.last_exposure_at).total_seconds() // 86400)) if memory else 0
+        )
+        current = MemoryState(memory.stability, memory.difficulty) if memory else None
+        states = fsrs.next_states(current, policy.desired_retention, elapsed)
+        branch = states.again if 0 in observed else states.good
+        stability, difficulty, interval = (
+            branch.memory.stability,
+            branch.memory.difficulty,
+            branch.interval,
+        )
+    else:
+        stability = memory.stability if memory else policy.initial_stability
+        difficulty = memory.difficulty if memory else policy.initial_difficulty
+        # This pure interval calculation changes no Memory and records no Good observation.
+        interval = fsrs.next_interval(stability, policy.desired_retention, 3)
+    return stability, difficulty, now + timedelta(days=min(interval, policy.max_interval_days))

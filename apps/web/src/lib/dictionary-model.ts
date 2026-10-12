@@ -1,15 +1,17 @@
 import { HomeApiError } from './home-api'
 import type { LearningState, Meaning } from './library-model'
 
-export type WordHit = { word_id: number; lemma: string; entry_type: string; match_kind: string; matched_surface: string }
-export type AvailableHit = { available_id: string; display: string; entry_type: string }
-export type WordSearch = { words: WordHit[]; available: AvailableHit[] }
+export enum MatchKind { EXACT = 'EXACT', PREFIX = 'PREFIX', SUBSTRING = 'SUBSTRING', FUZZY = 'FUZZY' }
+export type WordHit = { kind: 'WORD'; word_id: number; lemma: string; entry_type: string; match_kind: MatchKind; matched_surface: string }
+export type ReferenceHit = { kind: 'REFERENCE'; reference_id: string; display: string; entry_type: string; match_kind: MatchKind; matched_surface: string }
+export type SearchHit = WordHit | ReferenceHit
+export type WordSearch = { items: SearchHit[] }
 export type DictionaryText = { id: number; content: string; theme_id: number | null }
 export type DictionaryRelation = { rel_type: string; to_word_id: number; to_word_lemma: string; resolution_state: string; to_sense_id: number | null }
 export type DictionarySense = {
   id: number; word_id: number; pos: string; tier: string; definition: DictionaryText | null; examples: DictionaryText[]
   forms: { surface: string; inf: string }[]; patterns: string[]; collocations: string[]; relations: DictionaryRelation[]
-  cefr_level: string | null; register: string | null; usage_note: string | null; ipa_uk: string | null; ipa_us: string | null
+  cefr_level: string | null; register: string | null; ipa_uk: string | null; ipa_us: string | null
 }
 export type DictionaryWord = {
   id: number; lemma: string; type: string; generation_state: string; senses: DictionarySense[]; aliases: string[]
@@ -18,7 +20,7 @@ export type DictionaryWord = {
 export type WordPreview = { word_id: number; lemma: string; entry_type: string; senses: DictionarySense[] }
 export type SenseContext = { sense_id: number; learning: { state: LearningState; due_at: string | null; last_reviewed_at: string | null }; decks: Meaning['sources']; deck_count: number; decks_has_more: boolean }
 export type WordContext = { as_of: string; senses: SenseContext[]; total: number; studied: number; new: number; due: number; not_due: number }
-export type WordGeneration = { generation_id: string; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED'; word_id: number | null; stage: string | null; error: string | null; status_url: string }
+export type WordGeneration = { task_id: string; status: 'RUNNING' | 'SUCCEEDED' | 'FAILED'; word_id: number | null; stage: string | null; error: string | null; status_url: string }
 
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new HomeApiError(502, 'invalid_response')
@@ -43,15 +45,21 @@ export function parseDictionarySense(value: unknown): DictionarySense {
     relations: array(sense.relations ?? []).map(value => { const relation = object(value); return { rel_type: string(relation.rel_type),
       to_word_id: id(relation.to_word_id), to_word_lemma: string(relation.to_word_lemma), resolution_state: string(relation.resolution_state),
       to_sense_id: relation.to_sense_id == null ? null : id(relation.to_sense_id) } }),
-    cefr_level: optional(sense.cefr_level), register: optional(sense.register), usage_note: optional(sense.usage_note),
+    cefr_level: optional(sense.cefr_level), register: optional(sense.register),
     ipa_uk: optional(sense.ipa_uk), ipa_us: optional(sense.ipa_us) }
 }
 
 export function parseWordSearch(value: unknown): WordSearch {
   const result = object(value)
   return {
-    words: array(result.words).map(value => { const hit = object(value); return { word_id: id(hit.word_id), lemma: string(hit.lemma), entry_type: string(hit.entry_type), match_kind: string(hit.match_kind), matched_surface: string(hit.matched_surface) } }),
-    available: array(result.available).map(value => { const hit = object(value); return { available_id: string(hit.available_id), display: string(hit.display), entry_type: string(hit.entry_type) } }),
+    items: array(result.items).map(value => {
+      const hit = object(value), match_kind = string(hit.match_kind) as MatchKind
+      if (!Object.values(MatchKind).includes(match_kind)) throw new HomeApiError(502, 'invalid_response')
+      const common = { entry_type: string(hit.entry_type), match_kind, matched_surface: string(hit.matched_surface) }
+      if (hit.kind === 'WORD') return { ...common, kind: 'WORD', word_id: id(hit.word_id), lemma: string(hit.lemma) }
+      if (hit.kind === 'REFERENCE') return { ...common, kind: 'REFERENCE', reference_id: string(hit.reference_id), display: string(hit.display) }
+      throw new HomeApiError(502, 'invalid_response')
+    }),
   }
 }
 
@@ -89,6 +97,6 @@ export function parseWordContext(value: unknown): WordContext {
 
 export function parseWordGeneration(value: unknown): WordGeneration {
   const job = object(value), status = string(job.status)
-  if (!['QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED'].includes(status)) throw new HomeApiError(502, 'invalid_response')
-  return { generation_id: string(job.generation_id), status: status as WordGeneration['status'], word_id: job.word_id == null ? null : id(job.word_id), stage: optional(job.stage), error: optional(job.error), status_url: string(job.status_url) }
+  if (!['RUNNING', 'SUCCEEDED', 'FAILED'].includes(status)) throw new HomeApiError(502, 'invalid_response')
+  return { task_id: string(job.task_id), status: status as WordGeneration['status'], word_id: job.word_id == null ? null : id(job.word_id), stage: optional(job.stage), error: optional(job.error), status_url: string(job.status_url) }
 }

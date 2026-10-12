@@ -1,9 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useMutation, useQuery, type UseQueryResult } from '@tanstack/react-query'
+import { useQuery, type UseQueryResult } from '@tanstack/react-query'
 import { useServices } from '@/lib/services/provider'
-import type { PrepareInput } from '@/lib/services/contracts'
 import type { AccountProfile } from '@/lib/api'
 import { reportingDay, shiftDay } from '@/lib/home-calendar'
 
@@ -41,9 +40,4 @@ export function useHomeOverview(profile: AccountProfile) {
 export function useLibraryPreview(parentId: string) {
   const { services, scope } = useServices()
   return resource(useQuery({ queryKey: [services.mode, scope, 'library-preview', parentId], queryFn: ({ signal }) => services.library.list(parentId, signal) }))
-}
-
-export function usePrepareSession() {
-  const { services, scope } = useServices()
-  return useMutation({ mutationKey: [services.mode, scope, 'prepare'], mutationFn: (input: PrepareInput) => services.learning.prepare(input, AbortSignal.timeout(12000)) })
 }

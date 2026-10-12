@@ -82,9 +82,17 @@ export const Icon = forwardRef<SVGSVGElement, IconProps>(function Icon({ name, v
   const learning = variant === 'learning'
   const resolvedTone = tone ?? (compact ? 'mono' : 'color')
   const mono = resolvedTone === 'mono'
-  const glyph = learning ? learningIcons[name as LearningIconName]
+  const rawGlyph = learning ? learningIcons[name as LearningIconName]
     : compact ? compactIcons[name as CompactIconName]
       : icons[name as IconName]
+  const glyph = typeof rawGlyph === 'function' ? rawGlyph
+    : typeof compactIcons[name as CompactIconName] === 'function' ? compactIcons[name as CompactIconName]
+    : typeof icons[name as IconName] === 'function' ? icons[name as IconName]
+    : typeof learningIcons[name as LearningIconName] === 'function' ? learningIcons[name as LearningIconName]
+    : null
+
+  if (!glyph) return null
+
   return <svg {...props} ref={ref} viewBox={compact ? '0 0 24 24' : '0 0 48 48'}
     width={size ?? (compact ? 24 : 48)} height={size ?? (compact ? 24 : 48)}
     fill="none" stroke="currentColor" strokeWidth={compact ? 1.8 : 2.8}
@@ -111,6 +119,7 @@ export const LayoutGrid = controlIcon('grid'), List = controlIcon('list'), Eye =
 export const Lock = controlIcon('lock'), LockKeyhole = Lock, Globe = controlIcon('globe'), CalendarDays = controlIcon('calendar')
 export const Copy = controlIcon('copy'), Pencil = controlIcon('pencil'), Trash2 = controlIcon('trash'), MoveRight = controlIcon('move')
 export const FolderOpen = controlIcon('folder'), FileText = controlIcon('document'), Share2 = controlIcon('share')
+export const Book = controlIcon('dictionary'), Dictionary = Book
 export const Send = controlIcon('send'), Download = controlIcon('download'), Volume2 = controlIcon('volume')
 export const RotateCcw = controlIcon('refresh'), Loader2Icon = controlIcon('loader'), LoaderCircle = Loader2Icon
 export const AlertCircle = controlIcon('alert'), CircleCheckIcon = controlIcon('circle-check'), InfoIcon = controlIcon('info')

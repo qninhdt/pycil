@@ -1,3 +1,4 @@
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Query, Request
@@ -22,22 +23,20 @@ from pycil.vocabulary.context import (
     word_context,
     word_previews,
 )
-from pycil.vocabulary.generation import projection, submit
-from pycil.vocabulary.models import GenerationStatus, WordGeneration
 
 router = APIRouter(prefix="/v1", tags=["vocabulary"])
 
 
 class GenerationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    available_id: str = Field(min_length=1, max_length=255)
+    reference_id: str = Field(min_length=1, max_length=255)
     target: str = Field(min_length=1, max_length=512)
 
 
 class GenerationResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    generation_id: UUID
-    status: GenerationStatus
+    task_id: UUID
+    status: Literal["RUNNING", "SUCCEEDED", "FAILED"]
     word_id: int | None
     stage: str | None
     error: str | None
@@ -45,9 +44,9 @@ class GenerationResult(BaseModel):
 
 
 @router.get("/words:search", response_model=SearchResult, openapi_extra={"security": [{}]})
-async def search(query: str, viewer: Viewer, lexicon: Dictionary, include_available: bool = False):
+async def search(query: str, viewer: Viewer, lexicon: Dictionary, include_reference: bool = False):
     try:
-        return await lexicon.search(query, include_available=include_available)
+        return await lexicon.search(query, include_reference=include_reference)
     except InvalidResourceError:
         raise Problem(422, "invalid_lexical_query") from None
 
@@ -96,16 +95,11 @@ async def containing_decks(
     return await sources_page(session, root, sense_id, user.id, config, cursor, limit)
 
 
-@router.post("/word-generations", status_code=202, response_model=GenerationResult)
-async def generate(
-    data: GenerationRequest, user: Actor, request: Request, config: Product, lexicon: Dictionary
-):
-    return await submit(request.app.state.sessions, lexicon, data, config)
+@router.post("/words:generate", status_code=202, response_model=GenerationResult)
+async def generate(data: GenerationRequest, user: Actor, request: Request):
+    return await request.app.state.generations.submit(data.target, reference_id=data.reference_id)
 
 
-@router.get("/word-generations/{generation_id}", response_model=GenerationResult)
-async def status(generation_id: UUID, user: Actor, session: Session):
-    row = await session.get(WordGeneration, generation_id)
-    if row is None:
-        raise Problem(404, "generation_not_found")
-    return projection(row)
+@router.get("/word-tasks/{task_id}", response_model=GenerationResult)
+async def status(task_id: UUID, user: Actor, request: Request):
+    return request.app.state.generations.status(task_id)

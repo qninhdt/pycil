@@ -29,7 +29,7 @@ dependencies = [
 prerelease = "disallow"
 
 [tool.uv.sources]
-lexi-ai = { path = "../../vendor/lexi-ai/lexi_ai-0.1.0+pycil.20261002-py3-none-any.whl" }
+lexi-ai = { path = "../../vendor/lexi-ai/lexi_ai-0.1.0+pycil.20261011-py3-none-any.whl" }
 
 [dependency-groups]
 dev = ["pytest>=9.1.1", "pytest-asyncio>=1.4.0", "ruff>=0.16.10"]
@@ -58,10 +58,6 @@ target-version = "py314"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
-
-[tool.ruff.lint.per-file-ignores]
-# Applied historical DDL is immutable, including its original import order.
-"migrations/versions/0001_baseline.py" = ["I001"]
 
 [tool.ruff.lint.flake8-bugbear]
 extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path"]

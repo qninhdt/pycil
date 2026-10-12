@@ -13,43 +13,137 @@
       "locale": "en",
       "timezone": "Asia/Ho_Chi_Minh",
       "translation_language": "vi",
+      "assistant": { "auto_approve": false },
       "learning": {
-        "question_types": ["DEFINITION_TO_WORD", "CONTEXT_TO_WORD", "CLOZE_TO_WORD", "WORD_TO_DEFINITION", "WORD_TO_USAGE", "DIALOGUE_COMPLETION", "MEANING_IN_CONTEXT"],
-        "formats": ["SINGLE_CHOICE", "SINGLE_WORD", "SHORT_ANSWER"],
-        "questions_per_sense": 3,
-        "max_sense_count": 10,
-        "show_explanations": true
+        "question_types": [
+          "DEFINITION_TO_WORD",
+          "CONTEXT_TO_WORD",
+          "CLOZE_TO_WORD",
+          "WORD_TO_DEFINITION",
+          "WORD_TO_USAGE",
+          "DIALOGUE_COMPLETION",
+          "MEANING_IN_CONTEXT",
+          "SENTENCE_REWRITE"
+        ],
+        "formats": [
+          "SINGLE_CHOICE",
+          "SINGLE_WORD",
+          "SHORT_ANSWER"
+        ],
+        "questions_per_sense": 2,
+        "max_sense_count": 10
       }
     },
     "effective_learning": {
-      "question_types": ["DEFINITION_TO_WORD", "CONTEXT_TO_WORD", "CLOZE_TO_WORD", "WORD_TO_DEFINITION", "WORD_TO_USAGE", "DIALOGUE_COMPLETION", "MEANING_IN_CONTEXT"],
-      "formats": ["SINGLE_CHOICE", "SINGLE_WORD", "SHORT_ANSWER"],
-      "questions_per_sense": 3,
-      "max_sense_count": 10,
-      "show_explanations": true
+      "question_types": [
+        "DEFINITION_TO_WORD",
+        "CONTEXT_TO_WORD",
+        "CLOZE_TO_WORD",
+        "WORD_TO_DEFINITION",
+        "WORD_TO_USAGE",
+        "DIALOGUE_COMPLETION",
+        "MEANING_IN_CONTEXT",
+        "SENTENCE_REWRITE"
+      ],
+      "formats": [
+        "SINGLE_CHOICE",
+        "SINGLE_WORD",
+        "SHORT_ANSWER"
+      ],
+      "questions_per_sense": 2,
+      "max_sense_count": 10
     },
     "learning_restriction": null,
     "learning_options": {
       "pairs": [
-        { "question_type": "DEFINITION_TO_WORD", "format": "SINGLE_CHOICE", "level": 1 },
-        { "question_type": "DEFINITION_TO_WORD", "format": "SINGLE_WORD", "level": 3 },
-        { "question_type": "CONTEXT_TO_WORD", "format": "SINGLE_CHOICE", "level": 2 },
-        { "question_type": "CONTEXT_TO_WORD", "format": "SINGLE_WORD", "level": 3 },
-        { "question_type": "CLOZE_TO_WORD", "format": "SINGLE_CHOICE", "level": 2 },
-        { "question_type": "CLOZE_TO_WORD", "format": "SINGLE_WORD", "level": 3 },
-        { "question_type": "WORD_TO_DEFINITION", "format": "SINGLE_CHOICE", "level": 1 },
-        { "question_type": "WORD_TO_DEFINITION", "format": "SHORT_ANSWER", "level": 4 },
-        { "question_type": "WORD_TO_USAGE", "format": "SINGLE_CHOICE", "level": 2 },
-        { "question_type": "WORD_TO_USAGE", "format": "SHORT_ANSWER", "level": 4 },
-        { "question_type": "DIALOGUE_COMPLETION", "format": "SINGLE_CHOICE", "level": 2 },
-        { "question_type": "MEANING_IN_CONTEXT", "format": "SINGLE_CHOICE", "level": 2 }
+        {
+          "question_type": "DEFINITION_TO_WORD",
+          "format": "SINGLE_CHOICE",
+          "level": 1
+        },
+        {
+          "question_type": "DEFINITION_TO_WORD",
+          "format": "SINGLE_WORD",
+          "level": 3
+        },
+        {
+          "question_type": "CONTEXT_TO_WORD",
+          "format": "SINGLE_CHOICE",
+          "level": 2
+        },
+        {
+          "question_type": "CONTEXT_TO_WORD",
+          "format": "SINGLE_WORD",
+          "level": 3
+        },
+        {
+          "question_type": "CLOZE_TO_WORD",
+          "format": "SINGLE_CHOICE",
+          "level": 2
+        },
+        {
+          "question_type": "CLOZE_TO_WORD",
+          "format": "SINGLE_WORD",
+          "level": 3
+        },
+        {
+          "question_type": "WORD_TO_DEFINITION",
+          "format": "SINGLE_CHOICE",
+          "level": 1
+        },
+        {
+          "question_type": "WORD_TO_DEFINITION",
+          "format": "SHORT_ANSWER",
+          "level": 4
+        },
+        {
+          "question_type": "WORD_TO_USAGE",
+          "format": "SINGLE_CHOICE",
+          "level": 2
+        },
+        {
+          "question_type": "WORD_TO_USAGE",
+          "format": "SHORT_ANSWER",
+          "level": 4
+        },
+        {
+          "question_type": "DIALOGUE_COMPLETION",
+          "format": "SINGLE_CHOICE",
+          "level": 2
+        },
+        {
+          "question_type": "MEANING_IN_CONTEXT",
+          "format": "SINGLE_CHOICE",
+          "level": 2
+        },
+        {
+          "question_type": "SENTENCE_REWRITE",
+          "format": "SINGLE_CHOICE",
+          "level": 2
+        },
+        {
+          "question_type": "SENTENCE_REWRITE",
+          "format": "SHORT_ANSWER",
+          "level": 5
+        }
       ],
-      "limits": { "min_questions_per_sense": 1, "max_questions_per_sense": 7, "max_questions_per_prepare": 100 },
+      "limits": {
+        "min_questions_per_sense": 1,
+        "max_questions_per_sense": 4,
+        "max_questions_per_prepare": 60
+      },
       "advanced_grading": true
     }
   },
   "public_users": [
-    { "id": "preview-sam", "display_name": "Sam", "handle": "sam", "bio": "Useful language for journeys and small discoveries.", "joined_at": "2024-08-12T08:00:00Z", "published_node_id": "preview-sam-published" }
+    {
+      "id": "preview-sam",
+      "display_name": "Sam",
+      "handle": "sam",
+      "bio": "Useful language for journeys and small discoveries.",
+      "joined_at": "2024-08-12T08:00:00Z",
+      "published_node_id": "preview-sam-published"
+    }
   ],
   "summary": {
     "total": 48,
@@ -551,12 +645,12 @@
             "examples": [
               {
                 "id": 4901,
-                "content": "She <t inf=\"past\">ran</t> to catch the bus.",
+                "content": "She [ran|p] to catch the bus.",
                 "theme_id": null
               },
               {
                 "id": 4902,
-                "content": "He <t inf=\"past\">ran</t> across the field.",
+                "content": "He [ran|p] across the field.",
                 "theme_id": null
               }
             ],
@@ -587,7 +681,6 @@
             "relations": [],
             "cefr_level": "A1",
             "register": null,
-            "usage_note": null,
             "ipa_uk": "/rʌn/",
             "ipa_us": "/rʌn/"
           },
@@ -604,12 +697,12 @@
             "examples": [
               {
                 "id": 5001,
-                "content": "The engine <t inf=\"present_3sg\">runs</t> smoothly.",
+                "content": "The engine [runs|3] smoothly.",
                 "theme_id": null
               },
               {
                 "id": 5002,
-                "content": "Does this software <t inf=\"base\">run</t> on your phone?",
+                "content": "Does this software [run] on your phone?",
                 "theme_id": null
               }
             ],
@@ -640,7 +733,6 @@
             "relations": [],
             "cefr_level": "A1",
             "register": null,
-            "usage_note": null,
             "ipa_uk": "/rʌn/",
             "ipa_us": "/rʌn/"
           },
@@ -657,12 +749,12 @@
             "examples": [
               {
                 "id": 5101,
-                "content": "We went for a short <t inf=\"base\">run</t>.",
+                "content": "We went for a short [run].",
                 "theme_id": null
               },
               {
                 "id": 5102,
-                "content": "Her morning <t inf=\"base\">run</t> takes twenty minutes.",
+                "content": "Her morning [run] takes twenty minutes.",
                 "theme_id": null
               }
             ],
@@ -677,7 +769,6 @@
             "relations": [],
             "cefr_level": "A1",
             "register": null,
-            "usage_note": null,
             "ipa_uk": "/rʌn/",
             "ipa_us": "/rʌn/"
           },
@@ -694,7 +785,7 @@
             "examples": [
               {
                 "id": 5301,
-                "content": "She <t inf=\"present_3sg\">runs</t> a small café.",
+                "content": "She [runs|3] a small café.",
                 "theme_id": null
               },
               {
@@ -735,7 +826,6 @@
             "relations": [],
             "cefr_level": "B1",
             "register": null,
-            "usage_note": null,
             "ipa_uk": "/rʌn/",
             "ipa_us": "/rʌn/"
           },
@@ -752,7 +842,7 @@
             "examples": [
               {
                 "id": 5401,
-                "content": "The train <t inf=\"present_3sg\">runs</t> every half hour.",
+                "content": "The train [runs|3] every half hour.",
                 "theme_id": null
               },
               {
@@ -788,7 +878,6 @@
             "relations": [],
             "cefr_level": "B1",
             "register": null,
-            "usage_note": null,
             "ipa_uk": "/rʌn/",
             "ipa_us": "/rʌn/"
           },
@@ -805,7 +894,7 @@
             "examples": [
               {
                 "id": 5501,
-                "content": "Can you <t inf=\"base\">run</t> the test again?",
+                "content": "Can you [run] the test again?",
                 "theme_id": null
               },
               {
@@ -844,7 +933,6 @@
             "relations": [],
             "cefr_level": "B2",
             "register": null,
-            "usage_note": null,
             "ipa_uk": "/rʌn/",
             "ipa_us": "/rʌn/"
           },
@@ -861,7 +949,7 @@
             "examples": [
               {
                 "id": 5601,
-                "content": "Water <t inf=\"present_3sg\">runs</t> down the hill.",
+                "content": "Water [runs|3] down the hill.",
                 "theme_id": null
               },
               {
@@ -897,7 +985,6 @@
             "relations": [],
             "cefr_level": "B1",
             "register": null,
-            "usage_note": null,
             "ipa_uk": "/rʌn/",
             "ipa_us": "/rʌn/"
           },
@@ -914,7 +1001,7 @@
             "examples": [
               {
                 "id": 5701,
-                "content": "The exhibition <t inf=\"present_3sg\">runs</t> until Sunday.",
+                "content": "The exhibition [runs|3] until Sunday.",
                 "theme_id": null
               },
               {
@@ -950,7 +1037,6 @@
             "relations": [],
             "cefr_level": "B2",
             "register": null,
-            "usage_note": null,
             "ipa_uk": "/rʌn/",
             "ipa_us": "/rʌn/"
           },
@@ -967,7 +1053,7 @@
             "examples": [
               {
                 "id": 5801,
-                "content": "The team had a <t inf=\"base\">run</t> of five victories.",
+                "content": "The team had a [run] of five victories.",
                 "theme_id": null
               },
               {
@@ -987,7 +1073,6 @@
             "relations": [],
             "cefr_level": "B2",
             "register": null,
-            "usage_note": null,
             "ipa_uk": "/rʌn/",
             "ipa_us": "/rʌn/"
           },
@@ -1004,7 +1089,7 @@
             "examples": [
               {
                 "id": 5901,
-                "content": "The driver finished the morning <t inf=\"base\">run</t> early.",
+                "content": "The driver finished the morning [run] early.",
                 "theme_id": null
               },
               {
@@ -1024,7 +1109,6 @@
             "relations": [],
             "cefr_level": "B2",
             "register": null,
-            "usage_note": null,
             "ipa_uk": "/rʌn/",
             "ipa_us": "/rʌn/"
           }
@@ -1051,7 +1135,7 @@
             "examples": [
               {
                 "id": 6301,
-                "content": "She <t inf=\"past\">set</t> the glass on the table.",
+                "content": "She [set|p] the glass on the table.",
                 "theme_id": null
               },
               {
@@ -1087,7 +1171,6 @@
             "relations": [],
             "cefr_level": "A2",
             "register": null,
-            "usage_note": null,
             "ipa_uk": "/set/",
             "ipa_us": "/set/"
           },
@@ -1104,7 +1187,7 @@
             "examples": [
               {
                 "id": 6401,
-                "content": "We <t inf=\"past\">set</t> a clear deadline.",
+                "content": "We [set|p] a clear deadline.",
                 "theme_id": null
               },
               {
@@ -1143,7 +1226,6 @@
             "relations": [],
             "cefr_level": "B1",
             "register": null,
-            "usage_note": null,
             "ipa_uk": "/set/",
             "ipa_us": "/set/"
           },
@@ -1160,7 +1242,7 @@
             "examples": [
               {
                 "id": 6501,
-                "content": "Please <t inf=\"base\">set</t> the alarm for six.",
+                "content": "Please [set] the alarm for six.",
                 "theme_id": null
               },
               {
@@ -1196,7 +1278,6 @@
             "relations": [],
             "cefr_level": "A2",
             "register": null,
-            "usage_note": null,
             "ipa_uk": "/set/",
             "ipa_us": "/set/"
           },
@@ -1213,7 +1294,7 @@
             "examples": [
               {
                 "id": 6601,
-                "content": "Leave the paint to <t inf=\"base\">set</t> overnight.",
+                "content": "Leave the paint to [set] overnight.",
                 "theme_id": null
               },
               {
@@ -1249,7 +1330,6 @@
             "relations": [],
             "cefr_level": "B2",
             "register": null,
-            "usage_note": null,
             "ipa_uk": "/set/",
             "ipa_us": "/set/"
           },
@@ -1266,7 +1346,7 @@
             "examples": [
               {
                 "id": 6701,
-                "content": "She bought a <t inf=\"base\">set</t> of six cups.",
+                "content": "She bought a [set] of six cups.",
                 "theme_id": null
               },
               {
@@ -1288,7 +1368,6 @@
             "relations": [],
             "cefr_level": "A2",
             "register": null,
-            "usage_note": null,
             "ipa_uk": "/set/",
             "ipa_us": "/set/"
           },
@@ -1305,7 +1384,7 @@
             "examples": [
               {
                 "id": 6801,
-                "content": "He won the first <t inf=\"base\">set</t>.",
+                "content": "He won the first [set].",
                 "theme_id": null
               },
               {
@@ -1325,7 +1404,6 @@
             "relations": [],
             "cefr_level": "B1",
             "register": null,
-            "usage_note": null,
             "ipa_uk": "/set/",
             "ipa_us": "/set/"
           }
@@ -1352,7 +1430,7 @@
             "examples": [
               {
                 "id": 6901,
-                "content": "The morning <t inf=\"base\">light</t> filled the room.",
+                "content": "The morning [light] filled the room.",
                 "theme_id": null
               },
               {
@@ -1367,7 +1445,6 @@
             "relations": [],
             "cefr_level": "A1",
             "register": null,
-            "usage_note": null,
             "ipa_uk": "/laɪt/",
             "ipa_us": "/laɪt/"
           },
@@ -1384,7 +1461,7 @@
             "examples": [
               {
                 "id": 7001,
-                "content": "Please turn off the <t inf=\"base\">light</t>.",
+                "content": "Please turn off the [light].",
                 "theme_id": null
               },
               {
@@ -1404,7 +1481,6 @@
             "relations": [],
             "cefr_level": "A1",
             "register": null,
-            "usage_note": null,
             "ipa_uk": "/laɪt/",
             "ipa_us": "/laɪt/"
           },
@@ -1421,7 +1497,7 @@
             "examples": [
               {
                 "id": 7101,
-                "content": "This bag is surprisingly <t inf=\"base\">light</t>.",
+                "content": "This bag is surprisingly [light].",
                 "theme_id": null
               },
               {
@@ -1453,7 +1529,6 @@
             ],
             "cefr_level": "A2",
             "register": null,
-            "usage_note": null,
             "ipa_uk": "/laɪt/",
             "ipa_us": "/laɪt/"
           },
@@ -1470,7 +1545,7 @@
             "examples": [
               {
                 "id": 7201,
-                "content": "She chose a <t inf=\"base\">light</t> blue shirt.",
+                "content": "She chose a [light] blue shirt.",
                 "theme_id": null
               },
               {
@@ -1494,7 +1569,6 @@
             "relations": [],
             "cefr_level": "A2",
             "register": null,
-            "usage_note": null,
             "ipa_uk": "/laɪt/",
             "ipa_us": "/laɪt/"
           },
@@ -1511,7 +1585,7 @@
             "examples": [
               {
                 "id": 7301,
-                "content": "He <t inf=\"past\">lit</t> a candle.",
+                "content": "He [lit|p] a candle.",
                 "theme_id": null
               },
               {
@@ -1539,7 +1613,6 @@
             "relations": [],
             "cefr_level": "B1",
             "register": null,
-            "usage_note": null,
             "ipa_uk": "/laɪt/",
             "ipa_us": "/laɪt/"
           }
@@ -1572,7 +1645,7 @@
             "examples": [
               {
                 "id": 7401,
-                "content": "What <t inf=\"base\">color</t> is the door?",
+                "content": "What [color] is the door?",
                 "theme_id": null
               },
               {
@@ -1592,7 +1665,6 @@
             "relations": [],
             "cefr_level": "A1",
             "register": null,
-            "usage_note": "Colour is the British English spelling.",
             "ipa_uk": "/ˈkʌlə/",
             "ipa_us": "/ˈkʌlər/"
           },
@@ -1609,7 +1681,7 @@
             "examples": [
               {
                 "id": 7501,
-                "content": "The children <t inf=\"past\">colored</t> the picture.",
+                "content": "The children [colored|p] the picture.",
                 "theme_id": null
               },
               {
@@ -1633,7 +1705,6 @@
             "relations": [],
             "cefr_level": "A2",
             "register": null,
-            "usage_note": "Colour is the British English spelling.",
             "ipa_uk": "/ˈkʌlə/",
             "ipa_us": "/ˈkʌlər/"
           }
@@ -1662,7 +1733,7 @@
             "examples": [
               {
                 "id": 7601,
-                "content": "This suitcase is too <t inf=\"base\">heavy</t> to lift.",
+                "content": "This suitcase is too [heavy] to lift.",
                 "theme_id": null
               },
               {
@@ -1694,7 +1765,6 @@
             ],
             "cefr_level": "A2",
             "register": null,
-            "usage_note": null,
             "ipa_uk": "/ˈhevi/",
             "ipa_us": "/ˈhevi/"
           }
@@ -1727,7 +1797,7 @@
             "examples": [
               {
                 "id": 101,
-                "content": "We added the budget to the <t inf=\"base\">agenda</t>.",
+                "content": "We added the budget to the [agenda].",
                 "theme_id": null
               }
             ],
@@ -1737,7 +1807,6 @@
             "relations": [],
             "cefr_level": "B1",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -1764,7 +1833,7 @@
             "examples": [
               {
                 "id": 201,
-                "content": "We <t inf=\"past\">allocated</t> more time to the discussion.",
+                "content": "We [allocated|p] more time to the discussion.",
                 "theme_id": null
               }
             ],
@@ -1774,7 +1843,6 @@
             "relations": [],
             "cefr_level": "B2",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -1801,7 +1869,7 @@
             "examples": [
               {
                 "id": 301,
-                "content": "We need a different <t inf=\"base\">approach</t> to this project.",
+                "content": "We need a different [approach] to this project.",
                 "theme_id": null
               }
             ],
@@ -1811,7 +1879,6 @@
             "relations": [],
             "cefr_level": "B1",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           },
@@ -1828,7 +1895,7 @@
             "examples": [
               {
                 "id": 7701,
-                "content": "The train <t inf=\"past\">approached</t> the station.",
+                "content": "The train [approached|p] the station.",
                 "theme_id": null
               },
               {
@@ -1843,7 +1910,6 @@
             "relations": [],
             "cefr_level": "B1",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -1870,7 +1936,7 @@
             "examples": [
               {
                 "id": 401,
-                "content": "The two teams <t inf=\"past\">collaborated</t> on the proposal.",
+                "content": "The two teams [collaborated|p] on the proposal.",
                 "theme_id": null
               }
             ],
@@ -1880,7 +1946,6 @@
             "relations": [],
             "cefr_level": "B2",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -1907,7 +1972,7 @@
             "examples": [
               {
                 "id": 501,
-                "content": "Time is our main <t inf=\"base\">constraint</t>.",
+                "content": "Time is our main [constraint].",
                 "theme_id": null
               }
             ],
@@ -1917,7 +1982,6 @@
             "relations": [],
             "cefr_level": "C1",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -1944,7 +2008,7 @@
             "examples": [
               {
                 "id": 601,
-                "content": "She <t inf=\"past\">delegated</t> the research to her colleague.",
+                "content": "She [delegated|p] the research to her colleague.",
                 "theme_id": null
               }
             ],
@@ -1954,7 +2018,6 @@
             "relations": [],
             "cefr_level": "B2",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -1981,7 +2044,7 @@
             "examples": [
               {
                 "id": 701,
-                "content": "Your <t inf=\"base\">feedback</t> helped us improve the design.",
+                "content": "Your [feedback] helped us improve the design.",
                 "theme_id": null
               }
             ],
@@ -1991,7 +2054,6 @@
             "relations": [],
             "cefr_level": "B1",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -2018,7 +2080,7 @@
             "examples": [
               {
                 "id": 801,
-                "content": "They <t inf=\"past\">negotiated</t> a new delivery date.",
+                "content": "They [negotiated|p] a new delivery date.",
                 "theme_id": null
               }
             ],
@@ -2028,7 +2090,6 @@
             "relations": [],
             "cefr_level": "B2",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -2055,7 +2116,7 @@
             "examples": [
               {
                 "id": 901,
-                "content": "Our <t inf=\"base\">objective</t> is to make the process simpler.",
+                "content": "Our [objective] is to make the process simpler.",
                 "theme_id": null
               }
             ],
@@ -2065,7 +2126,6 @@
             "relations": [],
             "cefr_level": "B2",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -2092,7 +2152,7 @@
             "examples": [
               {
                 "id": 1001,
-                "content": "We will discuss your <t inf=\"base\">proposal</t> on Monday.",
+                "content": "We will discuss your [proposal] on Monday.",
                 "theme_id": null
               }
             ],
@@ -2102,7 +2162,6 @@
             "relations": [],
             "cefr_level": "B2",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -2129,7 +2188,7 @@
             "examples": [
               {
                 "id": 1101,
-                "content": "The <t inf=\"base\">deadline</t> for the report is Friday.",
+                "content": "The [deadline] for the report is Friday.",
                 "theme_id": null
               }
             ],
@@ -2139,7 +2198,6 @@
             "relations": [],
             "cefr_level": "B1",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -2166,7 +2224,7 @@
             "examples": [
               {
                 "id": 1201,
-                "content": "The group reached a <t inf=\"base\">consensus</t> after the discussion.",
+                "content": "The group reached a [consensus] after the discussion.",
                 "theme_id": null
               }
             ],
@@ -2176,7 +2234,6 @@
             "relations": [],
             "cefr_level": "C1",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -2203,7 +2260,7 @@
             "examples": [
               {
                 "id": 1301,
-                "content": "Please <t inf=\"base\">acknowledge</t> receipt of this message.",
+                "content": "Please [acknowledge] receipt of this message.",
                 "theme_id": null
               }
             ],
@@ -2213,7 +2270,6 @@
             "relations": [],
             "cefr_level": "B2",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -2240,7 +2296,7 @@
             "examples": [
               {
                 "id": 1401,
-                "content": "Could you <t inf=\"base\">clarify</t> the final requirement?",
+                "content": "Could you [clarify] the final requirement?",
                 "theme_id": null
               }
             ],
@@ -2250,7 +2306,6 @@
             "relations": [],
             "cefr_level": "B2",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -2277,7 +2332,7 @@
             "examples": [
               {
                 "id": 1501,
-                "content": "I am writing to <t inf=\"base\">confirm</t> our appointment.",
+                "content": "I am writing to [confirm] our appointment.",
                 "theme_id": null
               }
             ],
@@ -2287,7 +2342,6 @@
             "relations": [],
             "cefr_level": "B1",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -2314,7 +2368,7 @@
             "examples": [
               {
                 "id": 1601,
-                "content": "Keep a copy of all <t inf=\"base\">correspondence</t>.",
+                "content": "Keep a copy of all [correspondence].",
                 "theme_id": null
               }
             ],
@@ -2324,7 +2378,6 @@
             "relations": [],
             "cefr_level": "C1",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -2351,7 +2404,7 @@
             "examples": [
               {
                 "id": 1701,
-                "content": "Thank you for your <t inf=\"base\">enquiry</t> about the course.",
+                "content": "Thank you for your [enquiry] about the course.",
                 "theme_id": null
               }
             ],
@@ -2361,7 +2414,6 @@
             "relations": [],
             "cefr_level": "B2",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -2388,7 +2440,7 @@
             "examples": [
               {
                 "id": 1801,
-                "content": "Could you <t inf=\"base\">forward</t> the details to me?",
+                "content": "Could you [forward] the details to me?",
                 "theme_id": null
               }
             ],
@@ -2398,7 +2450,6 @@
             "relations": [],
             "cefr_level": "B1",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           },
@@ -2415,7 +2466,7 @@
             "examples": [
               {
                 "id": 8101,
-                "content": "He stepped <t inf=\"base\">forward</t>.",
+                "content": "He stepped [forward].",
                 "theme_id": null
               },
               {
@@ -2430,7 +2481,6 @@
             "relations": [],
             "cefr_level": "A2",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -2457,7 +2507,7 @@
             "examples": [
               {
                 "id": 1901,
-                "content": "I have a question <t inf=\"base\">regarding</t> the schedule.",
+                "content": "I have a question [regarding] the schedule.",
                 "theme_id": null
               }
             ],
@@ -2467,7 +2517,6 @@
             "relations": [],
             "cefr_level": "B1",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -2494,7 +2543,7 @@
             "examples": [
               {
                 "id": 2001,
-                "content": "Check the <t inf=\"base\">recipient</t> before sending the email.",
+                "content": "Check the [recipient] before sending the email.",
                 "theme_id": null
               }
             ],
@@ -2504,7 +2553,6 @@
             "relations": [],
             "cefr_level": "B2",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -2531,7 +2579,7 @@
             "examples": [
               {
                 "id": 2101,
-                "content": "We received a <t inf=\"base\">request</t> for more information.",
+                "content": "We received a [request] for more information.",
                 "theme_id": null
               }
             ],
@@ -2541,7 +2589,6 @@
             "relations": [],
             "cefr_level": "B1",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           },
@@ -2558,7 +2605,7 @@
             "examples": [
               {
                 "id": 7801,
-                "content": "They <t inf=\"past\">requested</t> more information.",
+                "content": "They [requested|p] more information.",
                 "theme_id": null
               },
               {
@@ -2573,7 +2620,6 @@
             "relations": [],
             "cefr_level": "B1",
             "register": "FORMAL",
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -2606,7 +2652,7 @@
             "examples": [
               {
                 "id": 2201,
-                "content": "We will <t inf=\"base\">respond</t> to your message tomorrow.",
+                "content": "We will [respond] to your message tomorrow.",
                 "theme_id": null
               }
             ],
@@ -2616,7 +2662,6 @@
             "relations": [],
             "cefr_level": "B1",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -2643,7 +2688,7 @@
             "examples": [
               {
                 "id": 2301,
-                "content": "I have <t inf=\"past_participle\">attached</t> the updated document.",
+                "content": "I have [attached|pp] the updated document.",
                 "theme_id": null
               }
             ],
@@ -2653,7 +2698,6 @@
             "relations": [],
             "cefr_level": "B1",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -2680,7 +2724,7 @@
             "examples": [
               {
                 "id": 2401,
-                "content": "I will <t inf=\"base\">follow up</t> with the team next week.",
+                "content": "I will [follow up] with the team next week.",
                 "theme_id": null
               }
             ],
@@ -2690,7 +2734,6 @@
             "relations": [],
             "cefr_level": "B2",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -2717,7 +2760,7 @@
             "examples": [
               {
                 "id": 2501,
-                "content": "Let me <t inf=\"base\">demonstrate</t> the new feature.",
+                "content": "Let me [demonstrate] the new feature.",
                 "theme_id": null
               }
             ],
@@ -2727,7 +2770,6 @@
             "relations": [],
             "cefr_level": "B2",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -2754,7 +2796,7 @@
             "examples": [
               {
                 "id": 2601,
-                "content": "She <t inf=\"past\">emphasized</t> the need for clear communication.",
+                "content": "She [emphasized|p] the need for clear communication.",
                 "theme_id": null
               }
             ],
@@ -2764,7 +2806,6 @@
             "relations": [],
             "cefr_level": "B2",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -2791,7 +2832,7 @@
             "examples": [
               {
                 "id": 2701,
-                "content": "This example <t inf=\"present_3sg\">illustrates</t> the problem.",
+                "content": "This example [illustrates|3] the problem.",
                 "theme_id": null
               }
             ],
@@ -2801,7 +2842,6 @@
             "relations": [],
             "cefr_level": "B2",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -2828,7 +2868,7 @@
             "examples": [
               {
                 "id": 2801,
-                "content": "I will <t inf=\"base\">outline</t> the plan before we begin.",
+                "content": "I will [outline] the plan before we begin.",
                 "theme_id": null
               }
             ],
@@ -2838,7 +2878,6 @@
             "relations": [],
             "cefr_level": "B2",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           },
@@ -2855,7 +2894,7 @@
             "examples": [
               {
                 "id": 8001,
-                "content": "The report begins with an <t inf=\"base\">outline</t>.",
+                "content": "The report begins with an [outline].",
                 "theme_id": null
               },
               {
@@ -2870,7 +2909,6 @@
             "relations": [],
             "cefr_level": "B2",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -2897,7 +2935,7 @@
             "examples": [
               {
                 "id": 2901,
-                "content": "Could you <t inf=\"base\">summarize</t> the main findings?",
+                "content": "Could you [summarize] the main findings?",
                 "theme_id": null
               }
             ],
@@ -2907,7 +2945,6 @@
             "relations": [],
             "cefr_level": "B2",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -2934,7 +2971,7 @@
             "examples": [
               {
                 "id": 3001,
-                "content": "We will <t inf=\"base\">implement</t> the changes next month.",
+                "content": "We will [implement] the changes next month.",
                 "theme_id": null
               }
             ],
@@ -2944,7 +2981,6 @@
             "relations": [],
             "cefr_level": "B2",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -2971,7 +3007,7 @@
             "examples": [
               {
                 "id": 3101,
-                "content": "We <t inf=\"past\">evaluated</t> several possible solutions.",
+                "content": "We [evaluated|p] several possible solutions.",
                 "theme_id": null
               }
             ],
@@ -2981,7 +3017,6 @@
             "relations": [],
             "cefr_level": "B2",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -3008,7 +3043,7 @@
             "examples": [
               {
                 "id": 3201,
-                "content": "She <t inf=\"present_3sg\">coordinates</t> the work of three teams.",
+                "content": "She [coordinates|3] the work of three teams.",
                 "theme_id": null
               }
             ],
@@ -3018,7 +3053,6 @@
             "relations": [],
             "cefr_level": "B2",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -3045,7 +3079,7 @@
             "examples": [
               {
                 "id": 3301,
-                "content": "We <t inf=\"past\">resolved</t> the issue before the meeting.",
+                "content": "We [resolved|p] the issue before the meeting.",
                 "theme_id": null
               }
             ],
@@ -3055,7 +3089,6 @@
             "relations": [],
             "cefr_level": "B2",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -3082,7 +3115,7 @@
             "examples": [
               {
                 "id": 3401,
-                "content": "We need to <t inf=\"base\">prioritize</t> the urgent requests.",
+                "content": "We need to [prioritize] the urgent requests.",
                 "theme_id": null
               }
             ],
@@ -3092,7 +3125,6 @@
             "relations": [],
             "cefr_level": "B2",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -3119,7 +3151,7 @@
             "examples": [
               {
                 "id": 3501,
-                "content": "We <t inf=\"base\">maintain</t> a shared list of decisions.",
+                "content": "We [maintain] a shared list of decisions.",
                 "theme_id": null
               }
             ],
@@ -3129,7 +3161,6 @@
             "relations": [],
             "cefr_level": "B1",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -3156,7 +3187,7 @@
             "examples": [
               {
                 "id": 3601,
-                "content": "Everyone <t inf=\"past\">contributed</t> an idea.",
+                "content": "Everyone [contributed|p] an idea.",
                 "theme_id": null
               }
             ],
@@ -3166,7 +3197,6 @@
             "relations": [],
             "cefr_level": "B2",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -3193,7 +3223,7 @@
             "examples": [
               {
                 "id": 3701,
-                "content": "Take some time to <t inf=\"base\">consider</t> the options.",
+                "content": "Take some time to [consider] the options.",
                 "theme_id": null
               }
             ],
@@ -3203,7 +3233,6 @@
             "relations": [],
             "cefr_level": "B1",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -3230,7 +3259,7 @@
             "examples": [
               {
                 "id": 3801,
-                "content": "I <t inf=\"base\">appreciate</t> your help.",
+                "content": "I [appreciate] your help.",
                 "theme_id": null
               }
             ],
@@ -3240,7 +3269,6 @@
             "relations": [],
             "cefr_level": "B1",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -3267,7 +3295,7 @@
             "examples": [
               {
                 "id": 3901,
-                "content": "What would you <t inf=\"base\">suggest</t> for lunch?",
+                "content": "What would you [suggest] for lunch?",
                 "theme_id": null
               }
             ],
@@ -3277,7 +3305,6 @@
             "relations": [],
             "cefr_level": "B1",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -3310,7 +3337,7 @@
             "examples": [
               {
                 "id": 4001,
-                "content": "We <t inf=\"past\">arranged</t> to meet after work.",
+                "content": "We [arranged|p] to meet after work.",
                 "theme_id": null
               }
             ],
@@ -3320,7 +3347,6 @@
             "relations": [],
             "cefr_level": "B1",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -3347,7 +3373,7 @@
             "examples": [
               {
                 "id": 4101,
-                "content": "Did you <t inf=\"base\">notice</t> the change?",
+                "content": "Did you [notice] the change?",
                 "theme_id": null
               }
             ],
@@ -3357,7 +3383,6 @@
             "relations": [],
             "cefr_level": "A2",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           },
@@ -3374,7 +3399,7 @@
             "examples": [
               {
                 "id": 7901,
-                "content": "A <t inf=\"base\">notice</t> was posted on the door.",
+                "content": "A [notice] was posted on the door.",
                 "theme_id": null
               },
               {
@@ -3389,7 +3414,6 @@
             "relations": [],
             "cefr_level": "B1",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -3416,7 +3440,7 @@
             "examples": [
               {
                 "id": 4201,
-                "content": "I <t inf=\"base\">prefer</t> to walk when the weather is good.",
+                "content": "I [prefer] to walk when the weather is good.",
                 "theme_id": null
               }
             ],
@@ -3426,7 +3450,6 @@
             "relations": [],
             "cefr_level": "A2",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -3453,7 +3476,7 @@
             "examples": [
               {
                 "id": 4301,
-                "content": "Can you <t inf=\"base\">recommend</t> a good book?",
+                "content": "Can you [recommend] a good book?",
                 "theme_id": null
               }
             ],
@@ -3463,7 +3486,6 @@
             "relations": [],
             "cefr_level": "B1",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -3496,7 +3518,7 @@
             "examples": [
               {
                 "id": 4401,
-                "content": "I <t inf=\"past\">realized</t> I had left my keys at home.",
+                "content": "I [realized|p] I had left my keys at home.",
                 "theme_id": null
               }
             ],
@@ -3506,7 +3528,6 @@
             "relations": [],
             "cefr_level": "B1",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -3533,7 +3554,7 @@
             "examples": [
               {
                 "id": 4501,
-                "content": "I <t inf=\"base\">wonder</t> how long the journey will take.",
+                "content": "I [wonder] how long the journey will take.",
                 "theme_id": null
               }
             ],
@@ -3543,7 +3564,6 @@
             "relations": [],
             "cefr_level": "B1",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -3570,7 +3590,7 @@
             "examples": [
               {
                 "id": 4601,
-                "content": "We <t inf=\"base\">expect</t> the train to arrive soon.",
+                "content": "We [expect] the train to arrive soon.",
                 "theme_id": null
               }
             ],
@@ -3580,7 +3600,6 @@
             "relations": [],
             "cefr_level": "B1",
             "register": null,
-            "usage_note": null,
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -3607,12 +3626,12 @@
             "examples": [
               {
                 "id": 4701,
-                "content": "She deposited the money at the <t inf=\"base\">bank</t>.",
+                "content": "She deposited the money at the [bank].",
                 "theme_id": null
               },
               {
                 "id": 4702,
-                "content": "The <t inf=\"base\">bank</t> approved their loan.",
+                "content": "The [bank] approved their loan.",
                 "theme_id": null
               }
             ],
@@ -3630,7 +3649,6 @@
             "relations": [],
             "cefr_level": "A2",
             "register": null,
-            "usage_note": null,
             "ipa_uk": "/bæŋk/",
             "ipa_us": "/bæŋk/"
           },
@@ -3647,12 +3665,12 @@
             "examples": [
               {
                 "id": 4801,
-                "content": "They sat on the river <t inf=\"base\">bank</t>.",
+                "content": "They sat on the river [bank].",
                 "theme_id": null
               },
               {
                 "id": 4802,
-                "content": "Wildflowers grew along the <t inf=\"base\">bank</t>.",
+                "content": "Wildflowers grew along the [bank].",
                 "theme_id": null
               }
             ],
@@ -3667,7 +3685,6 @@
             "relations": [],
             "cefr_level": "A2",
             "register": null,
-            "usage_note": "Often used as river bank.",
             "ipa_uk": "/bæŋk/",
             "ipa_us": "/bæŋk/"
           },
@@ -3684,7 +3701,7 @@
             "examples": [
               {
                 "id": 6001,
-                "content": "I <t inf=\"past\">banked</t> the cheque.",
+                "content": "I [banked|p] the cheque.",
                 "theme_id": null
               },
               {
@@ -3708,7 +3725,6 @@
             "relations": [],
             "cefr_level": "B2",
             "register": null,
-            "usage_note": null,
             "ipa_uk": "/bæŋk/",
             "ipa_us": "/bæŋk/"
           },
@@ -3725,7 +3741,7 @@
             "examples": [
               {
                 "id": 6101,
-                "content": "The hospital maintains a blood <t inf=\"base\">bank</t>.",
+                "content": "The hospital maintains a blood [bank].",
                 "theme_id": null
               },
               {
@@ -3745,7 +3761,6 @@
             "relations": [],
             "cefr_level": "B2",
             "register": null,
-            "usage_note": null,
             "ipa_uk": "/bæŋk/",
             "ipa_us": "/bæŋk/"
           },
@@ -3762,7 +3777,7 @@
             "examples": [
               {
                 "id": 6201,
-                "content": "We are <t inf=\"ing\">banking</t> on good weather.",
+                "content": "We are [banking|ing] on good weather.",
                 "theme_id": null
               },
               {
@@ -3788,7 +3803,6 @@
             "relations": [],
             "cefr_level": "C1",
             "register": null,
-            "usage_note": "Usually appears with on.",
             "ipa_uk": "/bæŋk/",
             "ipa_us": "/bæŋk/"
           }
@@ -3797,9 +3811,9 @@
         "related": []
       }
     ],
-    "available": [
+    "references": [
       {
-        "available_id": "preview-orbit",
+        "reference_id": "preview-orbit",
         "display": "orbit",
         "entry_type": "WORD"
       }
@@ -3824,12 +3838,12 @@
             "examples": [
               {
                 "id": 5201,
-                "content": "The satellite entered <t inf=\"base\">orbit</t>.",
+                "content": "The satellite entered [orbit].",
                 "theme_id": null
               },
               {
                 "id": 5202,
-                "content": "The moon stays in <t inf=\"base\">orbit</t> around Earth.",
+                "content": "The moon stays in [orbit] around Earth.",
                 "theme_id": null
               }
             ],
@@ -3844,7 +3858,6 @@
             "relations": [],
             "cefr_level": "B2",
             "register": null,
-            "usage_note": null,
             "ipa_uk": "/ˈɔːbɪt/",
             "ipa_us": "/ˈɔːrbɪt/"
           },
@@ -3861,7 +3874,7 @@
             "examples": [
               {
                 "id": 8201,
-                "content": "The satellite <t inf=\"present_3sg\">orbits</t> Earth.",
+                "content": "The satellite [orbits|3] Earth.",
                 "theme_id": null
               },
               {
@@ -3885,7 +3898,6 @@
             "relations": [],
             "cefr_level": "B2",
             "register": null,
-            "usage_note": null,
             "ipa_uk": "/ˈɔːbɪt/",
             "ipa_us": "/ˈɔːrbɪt/"
           },
@@ -3902,7 +3914,7 @@
             "examples": [
               {
                 "id": 8301,
-                "content": "The company fell into the group’s <t inf=\"base\">orbit</t>.",
+                "content": "The company fell into the group’s [orbit].",
                 "theme_id": null
               },
               {
@@ -3917,7 +3929,6 @@
             "relations": [],
             "cefr_level": "C1",
             "register": "FORMAL",
-            "usage_note": null,
             "ipa_uk": "/ˈɔːbɪt/",
             "ipa_us": "/ˈɔːrbɪt/"
           }

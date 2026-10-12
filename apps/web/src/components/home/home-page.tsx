@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { ArrowRight } from '@/components/artwork/artwork'
+import { useTranslations } from 'next-intl'
 import { Motif } from '@/components/artwork/artwork'
 import { useAccount } from '@/components/application/providers'
 import { Button } from '@/components/ui/button'
@@ -16,8 +16,13 @@ import { HomeFailure, HomeLoading } from './home-state'
 
 function HomeHeader({ name }: { name?: string | null }) {
   const period = useTimeOfDay()
+  const tHome = useTranslations('home')
+  const greeting = (value: 'morning' | 'afternoon' | 'night') => {
+    const text = value === 'night' ? tHome('goodEvening') : value === 'afternoon' ? tHome('goodAfternoon') : tHome('goodMorning')
+    return `${text}${name ? `, ${name}` : ''}`
+  }
   return <header className="grid grid-cols-[minmax(0,1.3fr)_1fr_1fr_1fr] max-[767px]:grid-cols-1 items-stretch min-h-[124px] max-[767px]:min-h-0 max-[767px]:py-4 border-b border-border [&_h1]:leading-[1.12] [&_h1]:break-words [&_h1]:text-balance" data-time-of-day={period}>
-    <div className="col-span-3 max-[767px]:col-span-1 min-w-0 flex flex-col justify-center py-4 pr-6 max-[767px]:p-0"><h1 className="text-[clamp(2.25rem,2.6vw,3rem)] font-extrabold leading-[1.12] tracking-[-.03em] max-[700px]:text-[34px]">{(['morning', 'afternoon', 'night'] as const).map(value => <span key={value} className="hidden" data-period={value}>Good {value === 'night' ? 'evening' : value}{name ? `, ${name}` : ''}<span className="text-art-red" aria-hidden="true">.</span></span>)}</h1></div>
+    <div className="col-span-3 max-[767px]:col-span-1 min-w-0 flex flex-col justify-center py-4 pr-6 max-[767px]:p-0"><h1 className="text-[clamp(1.75rem,2.4vw,3rem)] font-extrabold leading-[1.15] tracking-[-.03em] max-[767px]:text-2xl max-[767px]:leading-tight">{(['morning', 'afternoon', 'night'] as const).map(value => <span key={value} className="hidden" data-period={value}>{greeting(value)}<span className="text-art-red" aria-hidden="true">.</span></span>)}</h1></div>
     <div className="header-motif-art col-span-1 max-[767px]:hidden" aria-hidden="true"><Motif name="balance" /></div>
   </header>
 }
@@ -34,12 +39,14 @@ export function HomeDashboard({ profile }: { profile: AccountProfile }) {
 
 export function HomePage() {
   const account = useAccount()
+  const tHome = useTranslations('home')
+  const tNav = useTranslations('nav')
   if (account.status === 'ready' && account.profile) return <HomeDashboard key={account.profile.id} profile={account.profile} />
   return <div className="w-full [&_h1]:font-extrabold [&_h1]:tracking-tight [&_h2]:font-extrabold [&_h2]:tracking-tight [&_h3]:font-extrabold [&_h3]:tracking-tight"><HomeHeader />
-    {account.status === 'loading' ? <HomeLoading label="your account" /> : account.status === 'error' ? <HomeFailure label="your account" error={new Error(account.error || 'Please retry.')} retry={account.retry} />
-      : <Empty className="min-h-[480px] border-y border-foreground [&_[data-slot=empty-icon]]:w-40 [&_[data-slot=empty-icon]]:h-[120px] [&_[data-slot=empty-title]]:text-[28px] [&_[data-slot=empty-title]]:font-extrabold [&_[data-slot=empty-title]]:leading-tight [&_[data-slot=empty-title]]:tracking-tight max-md:px-0"><EmptyHeader><EmptyMedia><Motif name="modular" /></EmptyMedia><EmptyTitle>Your next chapter starts here.</EmptyTitle><EmptyDescription>{account.status === 'task' ? 'Finish setting up your account to see your personal learning.' : 'Sign in to see what is due, pick up your Library, and make a little room for learning.'}</EmptyDescription></EmptyHeader><EmptyContent>
-        <Button asChild variant="red" size="lg"><Link href="/login?returnTo=%2Fapp">{account.status === 'task' ? 'Continue account setup' : 'Sign in to your Home'}<ArrowRight data-icon="inline-end" aria-hidden="true" /></Link></Button>
-        <Button asChild variant="link"><Link href="/app/discovery">Explore published material<ArrowRight data-icon="inline-end" aria-hidden="true" /></Link></Button>
+    {account.status === 'loading' ? <HomeLoading label={tNav('yourAccount')} /> : account.status === 'error' ? <HomeFailure label={tNav('yourAccount')} error={new Error(account.error || 'Please retry.')} retry={account.retry} />
+      : <Empty className="min-h-[480px] border-y border-foreground [&_[data-slot=empty-icon]]:w-40 [&_[data-slot=empty-icon]]:h-[120px] [&_[data-slot=empty-title]]:text-[28px] [&_[data-slot=empty-title]]:font-extrabold [&_[data-slot=empty-title]]:leading-tight [&_[data-slot=empty-title]]:tracking-tight max-md:px-0"><EmptyHeader><EmptyMedia><Motif name="modular" /></EmptyMedia><EmptyTitle>{tHome('welcomeTitle')}</EmptyTitle><EmptyDescription>{account.status === 'task' ? tHome('welcomeDescTask') : tHome('welcomeDescGuest')}</EmptyDescription></EmptyHeader><EmptyContent>
+        <Button asChild variant="red" size="lg"><Link href="/login?returnTo=%2Fapp">{account.status === 'task' ? tHome('continueSetup') : tHome('signInHome')}</Link></Button>
+        <Button asChild variant="link"><Link href="/app/discovery">{tHome('explorePublished')}</Link></Button>
       </EmptyContent></Empty>}
   </div>
 }

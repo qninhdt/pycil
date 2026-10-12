@@ -49,6 +49,7 @@ import { Kbd } from '@/components/ui/kbd'
 import { Background, Motif, Icon, iconNames, motifNames, backgroundNames } from '@/components/artwork/artwork'
 import { extendedComponentDemos } from './extended-demos'
 import { recipeDemos } from './recipe-demos'
+import { dialogueDemos } from './dialogue-demos'
 
 function ButtonsDemo() {
   const [count, setCount] = useState(0)
@@ -161,6 +162,7 @@ function AuthDemo() {
 }
 export const compositionDemos = [
   ...recipeDemos,
+  ...dialogueDemos,
   { title: 'Resource cards', components: 'Card · Icon · Motif · Badge', code: '<Card className="relative overflow-hidden [&_.bauhaus-motif]:w-[100px] [&_.bauhaus-motif]:h-[75px] [&_.bauhaus-motif]:absolute [&_.bauhaus-motif]:right-0 [&_.bauhaus-motif]:bottom-0 [&_.bauhaus-motif]:pointer-events-none [&_[data-slot=card-footer]]:relative">\n  <CardHeader><Icon name="collection" /><CardTitle>New perspectives</CardTitle></CardHeader>\n  <CardContent>Content</CardContent><CardFooter>Actions</CardFooter>\n  <Motif name="orbit" />\n</Card>', render: ResourceDemo, wide: true },
   { title: 'Metric band', components: 'Shared layout · Typography', code: '<div className="grid grid-cols-3 border border-border">\n  <div className="p-5 border-r border-border last:border-r-0 [&_strong]:text-[38px] [&_strong]:font-extrabold [&_strong]:tracking-[-.04em] [&_strong]:block [&_strong]:tabular-nums [&_small]:text-xs [&_small]:text-muted-foreground max-md:p-3 max-md:[&_strong]:text-3xl"><strong>24</strong><small>Icons</small></div>\n</div>', render: MetricDemo },
   { title: 'Artwork carousel', components: 'Carousel · Motif', code: '<Carousel><CarouselContent><CarouselItem><Motif name="orbit" /></CarouselItem></CarouselContent><CarouselPrevious /><CarouselNext /></Carousel>', render: CarouselDemo },

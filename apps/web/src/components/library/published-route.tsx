@@ -19,6 +19,6 @@ export function PublishedRoute({ identifier, nodeId, tab }: { identifier: string
   if (!owner) return <LibraryPage routeSpace="PUBLISHED" nodeId={nodeId} tab={tab} />
   if (query.isPending) return <HomeLoading label="Published library" />
   if (query.isError) return <HomeFailure label="Published library" error={query.error} retry={() => { void query.refetch() }} />
-  if (query.data.id === account.profile?.id) return <LibraryPage routeSpace="PUBLISHED" nodeId={nodeId ?? account.profile.published_node_id} tab={tab} />
-  return <PublicProfilePage identifier={owner} nodeId={nodeId} publishedBase={publishedHref(query.data.id)} />
+  if (nodeId) return <LibraryPage routeSpace="PUBLISHED" nodeId={nodeId} tab={tab} />
+  return <PublicProfilePage identifier={owner} publishedBase={publishedHref(query.data.id)} />
 }

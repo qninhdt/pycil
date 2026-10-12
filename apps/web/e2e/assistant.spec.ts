@@ -16,6 +16,46 @@ async function send(page: Page, message: string) {
   await page.getByRole('button', { name: 'Send message', exact: true }).click()
 }
 
+test('Assistant can send another message after a sense tool error', async ({ page, profile }) => {
+  expect(profile.id).toBeTruthy()
+  test.skip(process.env.E2E_PROVIDER_PROFILE === 'live', 'Controlled inference forces an invalid sense ID.')
+  await open(page)
+  const created = page.waitForResponse(r => r.url().endsWith('/assistant/conversations') && r.request().method() === 'POST')
+  const first = page.waitForResponse(r => r.url().endsWith('/assistant:run'))
+  await send(page, 'E2E missing sense')
+  const conversation: Conversation = await (await created).json()
+  try {
+    const response = await first
+    const stream = await response.text()
+    expect(stream).toContain('RUN_FINISHED')
+    expect(stream).not.toContain('RUN_ERROR')
+    await expect(page.locator('.ai-markdown').last()).toContainText('E2E recovered from a missing sense.')
+    const next = page.waitForResponse(r => r.url().endsWith('/assistant:run'))
+    await send(page, 'E2E continue after error')
+    expect(await (await next).text()).not.toContain('RUN_ERROR')
+    await expect(page.locator('.ai-markdown').last()).toContainText('E2E response saved through the native checkpoint.')
+    await page.reload(); await open(page)
+    await expect(page.locator('.ai-markdown').last()).toContainText('E2E response saved through the native checkpoint.')
+  } finally { expect((await api(page, `assistant/conversations/${conversation.id}`, 'DELETE')).status).toBe(204) }
+})
+
+test('Assistant recovers when its remembered conversation was deleted', async ({ page, profile }) => {
+  expect(profile.id).toBeTruthy()
+  const conversation = (await api<Conversation>(page, 'assistant/conversations', 'POST', { title: 'Deleted conversation' })).body
+  expect((await api(page, `assistant/conversations/${conversation.id}`, 'DELETE')).status).toBe(204)
+  await page.evaluate(id => {
+    const sessionId = (window as unknown as { Clerk: { session: { id: string } } }).Clerk.session.id
+    localStorage.setItem(`pycil:assistant:${sessionId}`, id)
+  }, conversation.id)
+  await page.reload()
+  await open(page)
+  expect(await page.evaluate(() => {
+    const sessionId = (window as unknown as { Clerk: { session: { id: string } } }).Clerk.session.id
+    return localStorage.getItem(`pycil:assistant:${sessionId}`)
+  })).toBeNull()
+  await expect(page.getByRole('complementary', { name: 'PycilAI', exact: true }).getByRole('alert')).toHaveCount(0)
+})
+
 test('Assistant streams reasoning and long text before completion without a whole-turn deadline', async ({ page, profile }) => {
   expect(profile.id).toBeTruthy()
   test.skip(process.env.E2E_PROVIDER_PROFILE === 'live', 'Controlled provider pauses verify transport deadlines.')

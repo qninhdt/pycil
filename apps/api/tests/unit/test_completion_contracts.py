@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, date, datetime, timedelta
 from uuid import uuid4
 
@@ -7,49 +8,10 @@ from pydantic import ValidationError
 from pycil.account.schemas import PreferencesPatch, ProfilePatch
 from pycil.http import Problem
 from pycil.pagination import decode, encode
-from pycil.study.progress import streaks, window
+from pycil.study.progress import window
 from pycil.study.reviews import request_hash
 from pycil.study.schemas import Prepare, ReviewBatch, SummaryBatch
 from pycil.vocabulary.context import SenseIDs, WordIDs
-
-
-@pytest.mark.parametrize(
-    "inf,surface", [("past_participle", "harbored"), ("present_3sg", "harbors")]
-)
-def test_native_dialogue_distinguishes_inflection_markup_from_visible_blanks(inf, surface):
-    from lexi_ai import QuestionType
-    from lexi_ai.errors import InvalidOutputError
-    from lexi_ai.questions.schemas import QuestionBatch, validate_batch
-    from lexi_ai.vocab import TargetPlacement
-
-    batch = QuestionBatch.model_validate(
-        {
-            "questions": [
-                {
-                    "content": [
-                        {"speaker": "Mia", "text": f'He <t inf="{inf}">{surface}</t> a secret.'},
-                        {"speaker": "Noah", "text": None},
-                    ],
-                    "correct": {
-                        "content": "He kept it hidden.",
-                        "explanation": "The intended meaning.",
-                    },
-                    "distractors": [
-                        {"content": answer, "explanation": "A different meaning."}
-                        for answer in ("He shared it.", "He forgot it.", "He invented it.")
-                    ],
-                }
-            ]
-        }
-    )
-    validate_batch(
-        batch, QuestionType.DIALOGUE_COMPLETION, 1, 3, target_placement=TargetPlacement.DIALOGUE
-    )
-    batch.questions[0].content[0].text += " _"
-    with pytest.raises(InvalidOutputError, match="null rather than a blank"):
-        validate_batch(
-            batch, QuestionType.DIALOGUE_COMPLETION, 1, 3, target_placement=TargetPlacement.DIALOGUE
-        )
 
 
 @pytest.mark.parametrize(
@@ -72,18 +34,22 @@ def test_strict_batch(body):
 
 
 def test_batch_hash_is_canonical_and_ordered():
-    a = ReviewBatch.model_validate(
-        {"results": [{"sense_id": 1, "rating": "GOOD"}, {"sense_id": 2, "rating": "AGAIN"}]}
-    )
-    b = ReviewBatch.model_validate(
-        {"results": [{"rating": "GOOD", "sense_id": 1}, {"rating": "AGAIN", "sense_id": 2}]}
-    )
+    def result(identifier, correct):
+        return dict(
+            question_artifact_id=identifier,
+            question_type="WORD_TO_DEFINITION",
+            format="SINGLE_CHOICE",
+            diagnostics=dict(correct=correct),
+            answered_at="2026-10-11T00:00:00Z",
+        )
+
+    a = ReviewBatch(results=[result(1, True), result(2, False)])
+    b = ReviewBatch(results=[dict(reversed(list(item.model_dump().items()))) for item in a.results])
     assert request_hash(a) == request_hash(b)
     assert request_hash(a) != request_hash(ReviewBatch(results=list(reversed(a.results))))
-    assert (
-        len(ReviewBatch(results=[{"sense_id": i, "rating": "GOOD"} for i in range(1, 101)]).results)
-        == 100
-    )
+    assert len(ReviewBatch(results=[result(1, True)] * 60).results) == 60
+    with pytest.raises(ValidationError):
+        ReviewBatch(results=[result(1, True)] * 61)
 
 
 @pytest.mark.parametrize(
@@ -114,7 +80,7 @@ def test_strict_completion_requests(model, body):
 
 
 def test_profile_normalization_and_omission():
-    assert ProfilePatch(handle="  NiNh_123 ", bio=" Hello ").model_dump() == {
+    assert ProfilePatch(handle="  NiNh_123 ", bio=" Hello ").model_dump(exclude_unset=True) == {
         "handle": "ninh_123",
         "bio": "Hello",
     }
@@ -145,11 +111,8 @@ def test_cursor_binding_and_types():
         decode(encode(binding, [True]), binding, ["uuid"])
 
 
-def test_streak_and_window_boundaries():
+def test_window_boundaries():
     today = date(2026, 10, 6)
-    assert streaks([], today) == (0, 0)
-    assert streaks([today - timedelta(days=i) for i in (1, 2, 3, 5)], today) == (3, 3)
-    assert streaks([today - timedelta(days=2)], today) == (0, 1)
     assert window(date(2024, 1, 1), date(2024, 12, 31), today, 366) == (
         date(2024, 1, 1),
         date(2024, 12, 31),
@@ -164,19 +127,21 @@ def test_streak_and_window_boundaries():
             window(start, end, today, 366, future=future)
 
 
-@pytest.mark.parametrize("label", ["BASE", "base", "Base", "PaSt_PaRtIcIpLe"])
-def test_native_markup_normalizes_labels_without_changing_learner_text(label):
+@pytest.mark.parametrize(
+    "label,inf", [("", "BASE"), ("p", "PAST"), ("PP", "PAST_PARTICIPLE"), ("3", "PRESENT_3SG")]
+)
+def test_native_markup_normalizes_labels_without_changing_learner_text(label, inf):
     from lexi_ai.text import canonical_markup, parse_marked_example
 
-    content = f'🌍 <T inf="{label}">Harbor</T>.'
-    assert canonical_markup(content) == f'🌍 <t inf="{label.lower()}">Harbor</t>.'
+    content = f"🌍 [Harbor{'|' + label if label else ''}]."
+    assert canonical_markup(content) == f"🌍 [Harbor{'|' + label.lower() if label else ''}]."
     text, spans = parse_marked_example(content)
     assert text == "🌍 Harbor."
     assert spans[0].surface == "Harbor"
-    assert spans[0].inf.value == label.upper()
+    assert spans[0].inf.value == inf
 
 
-@pytest.mark.parametrize("examples", [[], ["No target."], ['<t inf="UNKNOWN">word</t>']])
+@pytest.mark.parametrize("examples", [[], ["No target."], ["[word|unknown]"]])
 def test_native_enrichment_retries_when_no_examples_are_usable(examples):
     from lexi_ai.words.schemas import SenseEnrichment
 
@@ -188,8 +153,7 @@ def test_native_enrichment_retries_when_no_examples_are_usable(examples):
                 "forms": [],
                 "patterns": [],
                 "collocations": [],
-                "relations": [],
-                "sources": ["c1"],
+                "relations": {},
                 "cefr_level": "b1",
                 "register": None,
             }
@@ -197,19 +161,21 @@ def test_native_enrichment_retries_when_no_examples_are_usable(examples):
 
 
 @pytest.mark.parametrize("count", [1, 3, 5, 6])
-def test_native_examples_request_five_but_accept_any_nonempty_usable_output(count):
+def test_native_examples_request_three_but_accept_any_nonempty_usable_output(count):
     from lexi_ai.inference.prompting import render_prompt
     from lexi_ai.words.schemas import SenseEnrichment
 
-    instruction, _ = render_prompt(
+    instruction, data = render_prompt(
         "words/prompts/enrich_sense.jinja",
-        target="harbor",
-        word={},
-        sense={},
-        references=[],
-        examples_per_sense=5,
+        word={"lemma": "harbor", "type": "WORD", "aliases": []},
+        senses=[{"sense_id": 1, "definition": "a sheltered place", "pos": "NOUN"}],
+        examples_per_sense=3,
     )
-    assert "Write exactly 5 natural example sentences illustrating this meaning." in instruction
+    assert "Write exactly `examples_per_sense` natural sentences" in instruction
+    context = json.loads(
+        data.removeprefix("<sense_request>").removesuffix("</sense_request>").strip()
+    )
+    assert context["examples_per_sense"] == 3
     assert "return fewer or more" not in instruction
     schema = SenseEnrichment.model_json_schema()["properties"]["examples"]
     assert schema["minItems"] == 1
@@ -217,12 +183,11 @@ def test_native_examples_request_five_but_accept_any_nonempty_usable_output(coun
     output = SenseEnrichment.model_validate(
         {
             "tier": "core",
-            "examples": [f'Ships enter the <t inf="BASE">harbor</t> ({i}).' for i in range(count)],
+            "examples": [f"Ships enter the [harbor] ({i})." for i in range(count)],
             "forms": [],
             "patterns": [],
             "collocations": [],
-            "relations": [],
-            "sources": ["c1"],
+            "relations": {},
             "cefr_level": "b1",
             "register": None,
         }

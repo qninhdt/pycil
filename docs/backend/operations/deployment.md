@@ -2,7 +2,7 @@
 
 ## Scope and approval boundary
 
-The deployment unit is a tested immutable API image used for both API and worker.
+The deployment unit is a tested immutable API image used for the API and migration gate.
 The repository includes a Compose manifest, Caddy ingress, and an operator-only
 `scripts/deploy.sh`. There is no automatic production deployment in the test workflow.
 Reading or editing these docs does not authorize deploying or migrating a real installation.
@@ -14,15 +14,20 @@ compatibility before planning a cutover.
 ## Image and runtime dependencies
 
 The [Dockerfile](../../../apps/api/Dockerfile) pins Python 3.14.8 and uv 0.12.22, verifies
-the vendored Lexi wheel checksum, installs locked non-dev dependencies, bakes product
-policy, installs/verifies WordNet, and runs as UID 10001. API starts with Uvicorn on 8000;
-worker and migration use the same code image with different commands.
+the vendored Lexi wheel and content snapshot checksums, installs locked non-dev dependencies, bakes product
+policy, and runs as UID 10001. WordNet is optional. API starts with Uvicorn on 8000;
+the finite migration gate uses the same image with a different command. Run one API process.
 
-Runtime additionally requires PostgreSQL, Redis, a mounted read-only Cambridge reference
-file, Clerk configuration, and inference/decision endpoints. A successful image build
-does not validate deployment credentials, a populated upgrade, or paid provider billing.
-The single-file reference mount requires a standalone SQLite snapshot without WAL/SHM
-dependencies; see [reference preparation](../getting-started.md#2-supply-a-private-environment).
+Runtime requires PostgreSQL with imported reference data, Redis, Clerk configuration,
+and inference/decision endpoints. Initial setup downloads the pinned reference release,
+verifies its checksum, and imports it into `lexi_reference`; API have no SQLite
+mount. An existing import needs no network access. For offline migration, provide a
+standalone local artifact with `python -m pycil.migrate --reference /path/reference.sqlite`.
+The image includes `vendor/lexi-ai/content.sqlite`; the same migration gate imports
+this generated vocabulary automatically before the API starts. Deploy needs no
+separate Lexi service, sibling checkout, or manual content-import command.
+A successful image build does not validate deployment credentials, a populated upgrade,
+or paid provider billing.
 
 Build from the repository root:
 
@@ -42,7 +47,6 @@ authorization and artifact promotion are separate from running the deployment sc
 | `redis` | Redis 8.10.2 with AOF and authentication |
 | `migrate` | One-shot explicit migration; waits for PostgreSQL |
 | `api` | Waits for both stores healthy and migration success |
-| `worker` | Same dependencies; single generation owner |
 | `caddy` | Public HTTPS ingress; waits for API health |
 
 Use `python scripts/compose.py --env-file <private-file> ...`. It validates canonical
@@ -87,8 +91,8 @@ Operator environment variables:
 
 After these have been supplied deliberately, the operator invokes `bash scripts/deploy.sh`.
 The script validates approval, digest shape, file existence and checksum, validates
-Compose quietly, pulls API/worker/migration images, stops both writers, runs the explicit
-migration, starts API/worker with wait, and executes a bootstrap-only worker check.
+Compose quietly, pulls API/migration images, stops the API writer, removes orphan services while
+ensuring stores are ready, runs the explicit migration, and starts the API with wait.
 
 **The script checks a checksum, not backup restorable completeness.** Independent restore
 verification is a prerequisite, not something the script implements. It does not build
@@ -100,11 +104,8 @@ an old image compatible with a new schema.
 - `/health` returns process liveness without querying all dependencies.
 - `/ready` probes current PostgreSQL and Redis. Native schema is verified at startup;
   readiness does not rerun migrations, check provider inference, or measure dictionary capacity.
-- `python -m pycil.worker --check` initializes and verifies resources without generation
-  or user-unit consumption. It does not acquire the normal exclusive processing role.
-- `--once` can execute a queued request; it is not a read-only health check.
-- Observe queue statuses and sanitized errors without manually changing attempts/status
-  to bypass ownership, retry caps, or readiness verification.
+- Generation task status is in memory; a restart interrupts it. Committed content survives.
+- Search builds at startup and receives per-word updates from the same API process.
 - Correlate HTTP failures with X-Request-ID. Keep secrets/content out of diagnostic bundles.
 
 SSE at `/v1/assistant:run` must not be compressed or fully buffered by an added proxy.
@@ -144,4 +145,4 @@ large performance testing needs separate resource approval and agreed thresholds
 
 - [Operator script](../../../scripts/deploy.sh), [Compose wrapper](../../../scripts/compose.py), [manifest](../../../docker-compose.yml)
 - [Ingress](../../../Caddyfile), [test workflow](../../../.github/workflows/test.yml)
-- [Runtime resource lifecycle](../../../apps/api/pycil/dependencies.py), [worker ownership](../../../apps/api/pycil/worker.py)
+- [Runtime resource lifecycle](../../../apps/api/pycil/dependencies.py), [generation tasks](../../../apps/api/pycil/vocabulary/generation.py)

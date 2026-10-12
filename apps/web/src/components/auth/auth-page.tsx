@@ -5,14 +5,17 @@ import { authConfigured } from '@/components/application/providers'
 import { AuthForm } from './auth-form'
 import { ConnectedAuthForm } from './clerk-form'
 import type { AuthMode } from '@/lib/auth-flow'
+import { useTranslations } from 'next-intl'
 
 export function AuthPage({ mode }: { mode: AuthMode }) {
   const signup = mode === 'signup'
+  const t = useTranslations('auth')
+
   return <div className={`relative h-svh max-h-svh w-full overflow-hidden bg-background text-foreground grid grid-cols-1 md:grid-cols-[minmax(0,1.38fr)_minmax(420px,1fr)] max-xl:md:grid-cols-[minmax(0,1fr)_minmax(400px,1fr)]${signup ? ' signup' : ''}`}>
-    <a className="skip-link" href="#auth-form">Skip to form</a>
+    <a className="skip-link" href="#auth-form">{t('skipToForm')}</a>
 
     {/* Artwork section: On mobile it acts as the full-screen background; slogans are hidden */}
-    <section className="max-md:absolute max-md:inset-0 max-md:z-0 md:relative md:flex md:flex-col md:h-full md:border-r md:border-foreground md:overflow-hidden select-none pointer-events-none md:pointer-events-auto" aria-label="Pycil introduction">
+    <section className="max-md:absolute max-md:inset-0 max-md:z-0 md:relative md:flex md:flex-col md:h-full md:border-r md:border-foreground md:overflow-hidden select-none pointer-events-none md:pointer-events-auto" aria-label={t('pycilIntroAria')}>
       <svg className="absolute inset-0 size-full pointer-events-none" viewBox="0 0 720 900" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
         <circle cx={signup ? '610' : '470'} cy={signup ? '120' : '190'} r={signup ? '200' : '143'} fill="var(--art-red)" />
         <rect x="0" y="690" width="204" height="210" fill="var(--art-blue)" />
@@ -23,8 +26,8 @@ export function AuthPage({ mode }: { mode: AuthMode }) {
         {signup ? <><span>start </span><span>your </span><span>journey<b>.</b></span></> : <><span>build </span><span>your </span><span>language<b>.</b></span></>}
       </div>
       <p className="hidden md:block relative text-lg lg:text-xl font-bold leading-tight tracking-tight text-foreground mt-auto mr-0 mb-10 ml-10 lg:ml-16 max-xl:bg-background/90 max-xl:self-start shrink-0">
-        A little practice.<br />
-        <span className="text-muted-foreground font-semibold">A new perspective.</span>
+        {t('sloganLine1')}<br />
+        <span className="text-muted-foreground font-semibold">{t('sloganLine2')}</span>
       </p>
     </section>
 

@@ -16,27 +16,24 @@ from pycil.library.nodes import (
     copy_node,
     create_node,
     delete_node,
-    editor_snapshot,
     list_nodes,
     move_node,
     node_details,
     patch_node,
     patch_senses,
-    save_node,
 )
 from pycil.library.schemas import (
     NodeCreate,
     NodeDestination,
     NodeMove,
     NodePatch,
-    NodeSave,
     SenseDelta,
 )
 from pycil.library.scope import ScopeBudget, scope_ids
 from pycil.library.senses import sense_page
 from pycil.library.tree import provision_library, roots
 from pycil.main import create_app
-from pycil.study.models import Rating, UserSense
+from pycil.study.models import UserSense
 
 
 @pytest.fixture
@@ -50,12 +47,9 @@ async def create(sessions, user, config, **values):
         return await create_node(session, user.id, NodeCreate(**values), config)
 
 
-async def save(sessions, user, node, config, **changes):
-    values = {k: node[k] for k in ("name", "description", "parent_id")}
-    if "sense_ids" in node:
-        values["sense_ids"] = node["sense_ids"]
+async def move_to(sessions, user, node, config, **changes):
     async with sessions() as session:
-        return await save_node(session, user.id, node["id"], NodeSave(**(values | changes)), config)
+        return await move_node(session, user.id, node["id"], NodeMove(**changes), config)
 
 
 async def system_roots(sessions, user):
@@ -101,18 +95,8 @@ async def test_system_roles_and_whole_library_tracking(database, user, config, s
             async with sessions() as session:
                 await delete_node(session, user.id, root.id, config)
         with pytest.raises(Problem, match="system_node_protected"):
-            await save(
-                sessions,
-                user,
-                {
-                    "id": root.id,
-                    "name": root.name,
-                    "description": None,
-                    "parent_id": root.parent_id,
-                },
-                config,
-                name="changed",
-            )
+            async with sessions() as session:
+                await patch_node(session, user.id, root.id, NodePatch(name="changed"), config)
     with pytest.raises(Problem, match="invalid_parent"):
         await create(
             sessions,
@@ -152,8 +136,8 @@ async def test_publication_move_reference_revocation_and_breadcrumbs(
         sessions, user, config, type="DECK", name="deck", parent_id=folder["id"], sense_ids=senses
     )
     with pytest.raises(Problem, match="publication_confirmation_required"):
-        await save(sessions, user, folder, config, parent_id=system[NodeRole.PUBLISHED_ROOT].id)
-    folder = await save(
+        await move_to(sessions, user, folder, config, parent_id=system[NodeRole.PUBLISHED_ROOT].id)
+    folder = await move_to(
         sessions,
         user,
         folder,
@@ -185,7 +169,7 @@ async def test_publication_move_reference_revocation_and_breadcrumbs(
         assert [n["id"] for n in children["nodes"]] == [deck["id"]]
         linked_children = await list_nodes(session, other.id, reference["id"], None, config)
         assert [n["id"] for n in linked_children["nodes"]] == [deck["id"]]
-    await save(sessions, user, folder, config, parent_id=system[NodeRole.PERSONAL_ROOT].id)
+    await move_to(sessions, user, folder, config, parent_id=system[NodeRole.PERSONAL_ROOT].id)
     assert await ids(sessions, None, other.id, config) == set()
     async with sessions() as session:
         unavailable = await node_details(session, reference["id"], other.id, config)
@@ -210,7 +194,7 @@ async def test_published_references_never_publish_private_targets(database, user
         reference_id=deck["id"],
     )
     with pytest.raises(Problem, match="private_reference_cannot_be_published"):
-        await save(
+        await move_to(
             sessions,
             user,
             folder,
@@ -230,8 +214,8 @@ async def test_published_references_never_publish_private_targets(database, user
             confirm_publication=True,
         )
     # Same-subtree targets become published in the same canonical move.
-    deck = await save(sessions, user, deck, config, parent_id=folder["id"])
-    folder = await save(
+    deck = await move_to(sessions, user, deck, config, parent_id=folder["id"])
+    folder = await move_to(
         sessions,
         user,
         folder,
@@ -240,7 +224,7 @@ async def test_published_references_never_publish_private_targets(database, user
         confirm_publication=True,
     )
     assert await ids(sessions, folder["id"], None, config) == set(senses)
-    await save(sessions, user, deck, config, parent_id=system[NodeRole.PERSONAL_ROOT].id)
+    await move_to(sessions, user, deck, config, parent_id=system[NodeRole.PERSONAL_ROOT].id)
     assert await ids(sessions, folder["id"], user.id, config) == set()
     # The publisher's private privilege cannot revive the Published alias.
     async with sessions() as session, session.begin():
@@ -260,7 +244,7 @@ async def test_physical_closure_cycles_depth_and_delete(database, user, config, 
         sessions, user, config, type="DECK", name="deck", parent_id=b["id"], sense_ids=senses
     )
     with pytest.raises(Problem, match="node_cycle"):
-        await save(sessions, user, a, config, parent_id=b["id"])
+        await move_to(sessions, user, a, config, parent_id=b["id"])
     with pytest.raises(Problem, match="node_cycle"):
         await create(
             sessions,
@@ -276,7 +260,7 @@ async def test_physical_closure_cycles_depth_and_delete(database, user, config, 
     )
     with pytest.raises(Problem, match="node_depth_exceeded"):
         await create(sessions, user, limited, type="FOLDER", name="too deep", parent_id=b["id"])
-    b = await save(sessions, user, b, config, parent_id=system[NodeRole.PERSONAL_ROOT].id)
+    b = await move_to(sessions, user, b, config, parent_id=system[NodeRole.PERSONAL_ROOT].id)
     async with sessions() as session:
         assert (
             await session.scalar(
@@ -288,7 +272,7 @@ async def test_physical_closure_cycles_depth_and_delete(database, user, config, 
             == 3
         )
         assert await session.get(NodePath, (a["id"], deck["id"])) is None
-    await save(sessions, user, a, config, parent_id=b["id"])
+    await move_to(sessions, user, a, config, parent_id=b["id"])
     await delete_node_in(sessions, user, b, config)
     async with sessions() as session:
         with pytest.raises(Problem, match="node_not_found"):
@@ -352,7 +336,7 @@ async def test_concurrent_opposing_moves_and_child_quota(database, user, config)
 
     async def move(source, target):
         try:
-            await save(sessions, user, source, config, parent_id=target["id"])
+            await move_to(sessions, user, source, config, parent_id=target["id"])
             return "ok"
         except Problem as exc:
             return exc.code
@@ -375,15 +359,16 @@ async def test_concurrent_opposing_moves_and_child_quota(database, user, config)
     assert sorted(await asyncio.gather(child(), child())) == ["ok", "quota_exceeded"]
 
 
-async def test_editor_http_contract_paginated_senses_and_safe_profiles(
+async def test_node_http_contract_paginated_senses_and_safe_profiles(
     resources, user, config, senses
 ):
     sessions, lexicon = resources.sessions, resources.lexicon
     deck = await create(sessions, user, config, type="DECK", name="deck", sense_ids=senses)
     with pytest.raises(Problem, match="sense_not_found"):
-        await save(sessions, user, deck, config, name="must roll back", sense_ids=[99999])
+        async with sessions() as session:
+            await patch_senses(session, user.id, deck["id"], SenseDelta(add=[99999]), config)
     async with sessions() as session:
-        editor = await editor_snapshot(session, deck["id"], user.id, config)
+        editor = await patch_senses(session, user.id, deck["id"], SenseDelta(), config)
         assert editor["name"] == "deck" and editor["sense_ids"] == senses
     now = datetime.now(UTC)
     async with sessions() as session, session.begin():
@@ -393,9 +378,9 @@ async def test_editor_http_contract_paginated_senses_and_safe_profiles(
                 sense_id=1,
                 stability=5,
                 difficulty=5,
-                last_review_at=now,
+                last_exposure_at=now,
                 due_at=now - timedelta(seconds=1),
-                last_rating=Rating.GOOD,
+                elo=600,
                 review_count=1,
                 lapse_count=0,
             )
@@ -429,9 +414,8 @@ async def test_editor_http_contract_paginated_senses_and_safe_profiles(
     ) as client:
         detail = (await client.get(f"/v1/nodes/{deck['id']}")).json()
         assert "senses" not in detail and "sense_count" not in detail
-        assert (await client.get(f"/v1/nodes/{deck['id']}/editor")).json()["sense_ids"] == senses
         assert (
-            await client.put(
+            await client.patch(
                 f"/v1/nodes/{deck['id']}",
                 json={"name": "deck", "visibility": "PRIVATE", "sense_ids": senses},
             )
@@ -441,8 +425,8 @@ async def test_editor_http_contract_paginated_senses_and_safe_profiles(
         public = (await client.get(f"/v1/users/{user.id}")).json()
         assert public == {
             "id": str(user.id),
-            "display_name": None,
-            "handle": None,
+            "display_name": user.display_name,
+            "handle": user.handle,
             "bio": None,
             "joined_at": profile["joined_at"],
             "published_node_id": profile["published_node_id"],
@@ -494,7 +478,7 @@ async def test_subtree_move_checks_embedded_reference_targets(database, user, co
         reference_id=target["id"],
     )
     with pytest.raises(Problem, match="node_cycle"):
-        await save(sessions, user, source, config, parent_id=target["id"])
+        await move_to(sessions, user, source, config, parent_id=target["id"])
 
 
 async def test_owned_node_and_membership_quota_races(database, user, config, senses):
@@ -520,14 +504,16 @@ async def test_owned_node_and_membership_quota_races(database, user, config, sen
 
     async def membership(node):
         try:
-            await save(sessions, user, node, limited, sense_ids=senses)
+            async with sessions() as session:
+                await patch_senses(session, user.id, node["id"], SenseDelta(add=senses), limited)
             return "ok"
         except Problem as exc:
             return exc.code
 
     assert sorted(await asyncio.gather(membership(a), membership(b))) == ["ok", "quota_exceeded"]
     # A reduction is legal even if a migrated account already exceeds a quota.
-    await save(sessions, user, a, limited, sense_ids=[])
+    async with sessions() as session:
+        await patch_senses(session, user.id, a["id"], SenseDelta(remove=[1]), limited)
 
 
 async def test_corrupted_space_never_grants_access_or_skips_publication_consent(
@@ -544,10 +530,10 @@ async def test_corrupted_space_never_grants_access_or_skips_publication_consent(
         with pytest.raises(Problem, match="node_not_found"):
             await readable(session, private["id"], None, config)
     with pytest.raises(Problem, match="invalid_tree_space"):
-        await save(sessions, user, private, config, parent_id=system[NodeRole.PUBLISHED_ROOT].id)
+        await move_to(sessions, user, private, config, parent_id=system[NodeRole.PUBLISHED_ROOT].id)
 
 
-async def test_editor_retains_all_memberships_beyond_browse_page(database, user, config, senses):
+async def test_membership_delta_retains_members_beyond_browse_page(database, user, config, senses):
     engine, sessions, _ = database
     async with engine.begin() as connection:
         await connection.execute(
@@ -561,10 +547,16 @@ async def test_editor_retains_all_memberships_beyond_browse_page(database, user,
     )
     async with sessions() as session:
         assert (
-            len((await editor_snapshot(session, deck["id"], user.id, config))["sense_ids"]) == 1000
+            len(
+                (await patch_senses(session, user.id, deck["id"], SenseDelta(), config))[
+                    "sense_ids"
+                ]
+            )
+            == 1000
         )
     with pytest.raises(Problem, match="deck_sense_limit_exceeded"):
-        await save(sessions, user, deck, config, sense_ids=list(range(1, 1002)))
+        async with sessions() as session:
+            await patch_senses(session, user.id, deck["id"], SenseDelta(add=[1001]), config)
     async with sessions() as session:
         assert (await session.get(Node, deck["id"])).name == "full"
 
@@ -580,7 +572,7 @@ async def test_targeted_metadata_and_concurrent_membership_preserve_state(
     async with sessions() as session:
         await patch_node(session, user.id, deck["id"], NodePatch(description="changed"), config)
     async with sessions() as session:
-        snapshot = await editor_snapshot(session, deck["id"], user.id, config)
+        snapshot = await patch_senses(session, user.id, deck["id"], SenseDelta(), config)
         assert snapshot["parent_id"] == folder["id"]
         assert snapshot["name"] == "deck" and snapshot["sense_ids"] == senses
     async with sessions() as session:
@@ -592,14 +584,18 @@ async def test_targeted_metadata_and_concurrent_membership_preserve_state(
 
     await asyncio.gather(*(add(sense_id) for sense_id in senses))
     async with sessions() as session:
-        assert (await editor_snapshot(session, deck["id"], user.id, config))["sense_ids"] == senses
+        assert (await patch_senses(session, user.id, deck["id"], SenseDelta(), config))[
+            "sense_ids"
+        ] == senses
     with pytest.raises(Problem, match="sense_not_found"):
         async with sessions() as session:
             await patch_senses(
                 session, user.id, deck["id"], SenseDelta(add=[999999], remove=senses), config
             )
     async with sessions() as session:
-        assert (await editor_snapshot(session, deck["id"], user.id, config))["sense_ids"] == senses
+        assert (await patch_senses(session, user.id, deck["id"], SenseDelta(), config))[
+            "sense_ids"
+        ] == senses
     with pytest.raises(Problem, match="membership_is_deck_only"):
         async with sessions() as session:
             await patch_senses(session, user.id, folder["id"], SenseDelta(add=senses), config)
@@ -639,7 +635,9 @@ async def test_targeted_move_publication_preserves_membership_and_reference(
     assert moved["id"] == deck["id"] and moved["retained_reference_id"]
     assert await ids(sessions, deck["id"], None, config) == set(senses)
     async with sessions() as session:
-        assert (await editor_snapshot(session, deck["id"], user.id, config))["sense_ids"] == senses
+        assert (await patch_senses(session, user.id, deck["id"], SenseDelta(), config))[
+            "sense_ids"
+        ] == senses
         reference = await node_details(session, moved["retained_reference_id"], user.id, config)
         assert reference["reference_id"] == deck["id"]
     async with sessions() as session:
@@ -763,6 +761,5 @@ async def test_targeted_routes_http_contract(resources, user, config, senses):
             },
         )
         assert moved.status_code == 200 and moved.json()["id"] == str(deck["id"])
-        assert (await client.get(f"/v1/nodes/{deck['id']}/editor")).json()["sense_ids"] == senses[
-            1:
-        ]
+        page = (await client.get(f"/v1/nodes/{deck['id']}/senses")).json()
+        assert [item["sense_id"] for item in page["senses"]] == senses[1:]

@@ -5,7 +5,8 @@
 - Python 3.14. The repository's CI/image pin is 3.14.8.
 - uv; CI/image currently pin 0.12.22. Use the committed lockfile.
 - PostgreSQL 18 and Redis. Repository Compose/CI pin exact store images.
-- A valid native Cambridge SQLite reference dataset, kept outside source control.
+- Network access to the pinned Lexi GitHub reference release during initial setup,
+  or an explicit local reference.sqlite for offline setup.
 - Clerk configuration plus inference/decision service addresses and credentials for a
   complete runtime. Tests substitute provider boundaries; normal runtime does not.
 - Docker for the repository's container workflow, or independently managed local stores.
@@ -38,39 +39,13 @@ See [vendor documentation](../../vendor/lexi-ai/README.md).
 Use `.env.example` as a field checklist, but create your own private file and do not
 overwrite an existing `.env`. Fill the values listed in [configuration](configuration.md).
 Choose an explicit development database; never use production as a quickstart target.
-Use an absolute path for `LEXI_CAMBRIDGE_DB_PATH`.
+The migration gate downloads the pinned reference.sqlite into the standard user cache,
+checks its SHA-256, and imports it into PostgreSQL schema `lexi_reference`. No reference
+path environment variable or API file mount is required. Repeated setup uses the
+installed dataset without a download. Offline setup accepts `--reference /path/reference.sqlite`
+on the same migration command. Local artifacts must be standalone snapshots without pending WAL.
 
-Compose mounts only the reference file, read-only. A source SQLite database in WAL
-mode can fail startup with `attempt to write a readonly database` because its WAL/SHM
-sidecars are unavailable in that mount. Prepare a consistent standalone snapshot
-with SQLite's backup API instead of copying only the `.db` file or changing the
-source database's journal mode. From the repository root, with a new output path:
-
-```sh
-mkdir -p tmp
-python - /absolute/path/to/source/cambridge.db "$PWD/tmp/cambridge-runtime.db" <<'PY'
-from contextlib import closing
-from pathlib import Path
-import sqlite3, sys
-
-source, target = map(Path, sys.argv[1:])
-if target.exists():
-    raise SystemExit("Choose a new snapshot path; do not overwrite a mounted reference")
-with closing(sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)) as src:
-    with closing(sqlite3.connect(target)) as dst:
-        src.backup(dst)
-        assert dst.execute("PRAGMA journal_mode=DELETE").fetchone()[0] == "delete"
-        assert dst.execute("PRAGMA quick_check").fetchone()[0] == "ok"
-target.chmod(0o644)
-PY
-```
-
-Set `LEXI_CAMBRIDGE_DB_PATH` in the backend environment file to the snapshot's
-absolute path. The snapshot is ignored by Git and is not updated when the source
-dataset changes. To refresh it, create and verify a new snapshot, update that path,
-then recreate API and worker containers so both mount the same version.
-
-Direct API/worker commands do not automatically read repository `.env`. Export values
+Direct API commands do not automatically read repository `.env`. Export values
 in the process environment, or use uv's explicit `--env-file`. Existing exported values
 take precedence over values in that file, so check the target environment before a migration.
 Do not print or paste the complete resolved environment to diagnose a connection.
@@ -84,33 +59,27 @@ run the explicit migration gate from `apps/api`:
 uv run --locked --env-file /absolute/path/to/development.env python -m pycil.migrate
 ```
 
-The gate upgrades Lexi -> application Alembic -> native checkpoints and verifies all
-three. The fresh baseline requires an empty application `public` schema. For existing
-data, read [migrations](operations/migrations.md) first; placement changes require
-quiesced writers, a verified backup, and cannot be undone by merely downgrading an image.
+The gate upgrades Lexi -> application Alembic -> imports reference and bundled content -> native checkpoints
+and verifies all schema owners plus the reference marker. The fresh baseline requires
+an empty application `public` schema. Historical revisions are unsupported; existing data requires a separately reviewed
+transfer. Read [migrations](operations/migrations.md) before selecting a target.
 
-## 4. Run API and worker
+The generated vocabulary snapshot is bundled at `vendor/lexi-ai/content.sqlite`,
+including in the API image. Setup imports it automatically through Lexi, preserving
+Word/Sense IDs without inference. Repeated setup skips an unchanged installed snapshot.
+`--content /path/content.sqlite` selects another compatible standalone snapshot.
 
-In separate terminals, both from `apps/api`:
+## 4. Run the API
+
+From `apps/api`:
 
 ```sh
 uv run --locked --env-file /absolute/path/to/development.env uvicorn pycil.main:app --reload
 ```
 
-```sh
-uv run --locked --env-file /absolute/path/to/development.env python -m pycil.worker
-```
-
-The worker can invoke paid providers for queued generation. If you only need bootstrap
-verification without processing jobs, use:
-
-```sh
-uv run --locked --env-file /absolute/path/to/development.env python -m pycil.worker --check
-```
-
-`--check` initializes/verifies resources but performs no generation or user-unit debit.
-`--once` is different: it can process a queued generation request and incur provider usage.
-Do not run a second normal worker; a session advisory lock enforces one owner.
+Use one API process. It builds search at startup and runs requested word/question
+jobs in memory with singleflight. Generation can invoke paid providers; restart
+interrupts active tasks while committed content remains.
 
 ## Container alternative
 
@@ -118,17 +87,16 @@ From the repository root, using an explicitly chosen private environment file:
 
 ```sh
 python scripts/compose.py --env-file /absolute/path/to/development.env config -q
-python scripts/compose.py --env-file /absolute/path/to/development.env up --build
+python scripts/compose.py --env-file /absolute/path/to/development.env up --build --remove-orphans
 ```
 
-This starts stores, the one-shot migration service, API, worker, and Caddy. Unlike
-the direct-process path, Compose includes the migration dependency. It can upgrade
-an existing selected database and start paid generation work; do not treat it as a
+This starts stores, the one-shot migration service, API and Caddy. Unlike
+the direct-process path, Compose includes the migration dependency. It initializes the selected current schemas and enables requested paid generation work; do not treat it as a
 read-only inspection command. Review the target before running it.
 
 Use the wrapper, not raw `docker compose`: internal DB/Redis variables are derived.
 The API defaults to loopback port 8000. Caddy handles the chosen domain; its localhost
-certificate uses a local CA. The reference artifact is mounted read-only. See
+certificate uses a local CA. Reference data is read from PostgreSQL after setup. See
 [deployment](operations/deployment.md) for store, port, and operator constraints.
 
 ## 5. Verify basic behavior
@@ -153,11 +121,11 @@ issuer does not become valid because its email matches a known user.
 
 | Symptom | Check |
 | --- | --- |
-| Runtime initialization failure | Required variables, reference artifact, store connectivity and all schema versions |
+| Runtime initialization failure | Required variables, imported reference, store connectivity and all schema versions |
 | Schema version mismatch | Explicit migration gate for the exact target, not startup repair |
 | Missing application tables despite version rows | Schema integrity; investigate drift before rerunning anything |
 | Invalid credentials | Issuer, JWKS, expiry, subject, optional audience, and Clerk identity existence |
-| Empty study preparation | Saved memberships, eligible question banks, preferences; preparation does not generate missing banks |
+| Empty study preparation | Saved deck memberships and effective preferences; preparation generates missing question artifacts on demand |
 | Worker already running | Existing lock-owning process; do not bypass the lock |
 | Library quota/scope error | Choose a smaller scope or reduce content; do not truncate counts |
 

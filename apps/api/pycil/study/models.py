@@ -1,19 +1,11 @@
 from datetime import UTC, date, datetime
-from enum import StrEnum
 from uuid import UUID
 
 from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from pycil.database import Base, enum_column
-
-
-class Rating(StrEnum):
-    AGAIN = "AGAIN"
-    HARD = "HARD"
-    GOOD = "GOOD"
-    EASY = "EASY"
+from pycil.database import Base
 
 
 class UserSense(Base):
@@ -32,9 +24,9 @@ class UserSense(Base):
     )
     stability: Mapped[float] = mapped_column()
     difficulty: Mapped[float] = mapped_column()
-    last_review_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_exposure_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    last_rating: Mapped[Rating] = mapped_column(enum_column(Rating))
+    elo: Mapped[float] = mapped_column()
     review_count: Mapped[int] = mapped_column()
     lapse_count: Mapped[int] = mapped_column()
     created_at: Mapped[datetime] = mapped_column(

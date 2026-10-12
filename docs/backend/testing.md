@@ -1,9 +1,12 @@
 # Testing and verification
 
-The final backend completion suite passed **239 tests**, with one opt-in benchmark
-skipped. Small and medium selections each passed separately. See the
-[verification record](verification.md) and archived [performance evidence](operations/performance.md)
-for exact commands, coverage, measurements and external gates.
+Run the current suites below. Dated verification records describe earlier revisions
+and do not establish current migration or API behavior.
+
+The browser suite is a separate opt-in profile; ordinary API tests skip it.
+See [web execution instructions](../../apps/web/README.md#live-integration-and-e2e)
+and the [2026-10-10 coverage review](../../plans/261010-lexi-refresh/reports/verification.md)
+for its current inventory, missing journeys and execution evidence.
 
 ## Safety boundary
 
@@ -29,7 +32,7 @@ the reported project with this test manifest, never with a broad Docker prune.
 The runner does not load `.env`, use runtime `DB_URL`/`REDIS_URL`, or honor inherited
 test endpoints. It disables uv dotenv loading and clears Compose overrides. It uses
 repository product policy and forwards explicit pytest arguments, not inherited
-`PYTEST_ADDOPTS`. It does not start API, worker, Caddy, or paid generation jobs.
+`PYTEST_ADDOPTS`. It does not start API, Caddy, or paid generation jobs.
 Docker may download the pinned store images the first time; subsequent runs reuse images.
 
 Direct uv commands below run from `apps/api` unless stated otherwise. Native Lexi
@@ -41,7 +44,7 @@ replacing the entire dictionary with synthetic DTOs.
 | Layer | Main coverage | Requirements |
 | --- | --- | --- |
 | `tests/unit` | Strict policy/preferences, identity, FSRS wrapper, configuration, pure boundaries | Locked environment; no disposable DB fixture for ordinary unit-only run |
-| `tests/integration` | Actual schema/migrations, memberships, concurrency, native questions, approvals, usage | Dedicated PostgreSQL; Redis where requested; native SQLite fixtures |
+| `tests/integration` | Actual schema/migrations, memberships, concurrency, native questions, approvals, usage | Dedicated PostgreSQL; Redis where requested; SQLite reference artifacts imported into PostgreSQL |
 | `tests/system` | HTTP errors/auth/body/CORS, preferences contract, resource/process restart | Depends on selected tests; full run needs disposable stores |
 
 The names are repository test directories, not separate invented test runners. HTTP
@@ -56,9 +59,8 @@ name and never falls back to runtime `DB_URL`. Use a dedicated test server even 
 the name guard exists: it is not proof that a host is safe.
 
 The test role must be allowed to create/drop databases. Each fixture creates a
-`pycil_test_<UUID>` database, runs the requested migration revision (normally full gate),
-disposes connections, and drops only that exact database. Selected populated-upgrade
-tests intentionally start at `0001_baseline` before applying the current head.
+`pycil_test_<UUID>` database, runs the full current setup gate, disposes connections, and drops only that exact
+database. Historical upgrade fixtures and tests have been removed.
 
 On interrupted tests, inspect leftover test resources by exact identity before cleanup.
 Do not drop a broadly matched set of databases or delete application volumes.
@@ -70,7 +72,8 @@ must use `redis://`, host `127.0.0.1`, and database **15**. It
 must point at a dedicated test Redis instance, not production's logical DB 15. Exact
 fixture keys and isolated application cache namespaces are used; no shared flush is needed.
 
-Cambridge fixtures create native SQLite tables in test temporary directories. Lexical
+Reference fixtures create native SQLite tables in test temporary directories and import
+them into PostgreSQL through the migration gate. Lexical
 fixtures insert real rows into `lexi`, with real sense FKs and question storage. They
 are not production evidence artifacts and should not be reused as a production reference dataset.
 
@@ -135,13 +138,11 @@ automatically managed full `make test-api` workflow.
 
 | File | Behaviors to preserve |
 | --- | --- |
-| `test_library.py` | Roles/paths, public-private boundaries, retained references, cycle termination, depth, full editors, quota races |
-| `test_nodes_migration.py` | Populated publication conversion, foreign reference repair, memory preservation, corrupt-upgrade rollback |
+| `test_library.py` | Roles/paths, public-private boundaries, retained references, cycle termination, depth, membership deltas, quota races |
 | `test_fresh_schema.py` | Repeatable migration gate, schema comparison, real lexical FKs, idempotent usage |
 | `test_learning_pipeline.py` | Ready native questions, read-only preparation, exact applied/practice rule, replay/concurrent reviews, HTTP contracts |
 | `test_progress.py` | Unique scope and current reporting semantics |
 | `test_completion.py` | Atomic batches, source/context/search revocation, opaque paging, profile races, 5/50-card query parity |
-| `test_learning_migration.py` | Populated scalar receipt/settings upgrade, original-result replay, invalid-setting rollback |
 | `test_completion_contracts.py` | Strict request bounds, hashes/cursors, handle normalization, streak/window boundaries |
 | `tests/performance/test_read_matrix.py` | Opt-in isolated EXPLAIN and smoke-load artifacts; skipped unless tier selected |
 | `test_assistant.py` | Approved/rejected tools, live reauthorization, persisted interrupt recovery, cancellation and leases |

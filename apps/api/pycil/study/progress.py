@@ -3,7 +3,7 @@
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import Integer, Uuid, and_, func, select
+from sqlalchemy import Integer, Uuid, and_, func, select, text
 
 from pycil.account.models import User
 from pycil.account.schemas import preferences
@@ -11,6 +11,21 @@ from pycil.http import Problem
 from pycil.library.models import DeckSense, NodeType
 from pycil.library.scope import ScopeBudget, bounded, resolve_scopes
 from pycil.study.models import DailyActivity, UserSense
+
+
+def scope_mapping(scopes, budget, config):
+    groups, group_ids, mapping = {}, {}, []
+    for scope in scopes:
+        key = frozenset(scope.decks)
+        if key not in groups:
+            group = len(groups)
+            groups[key] = group
+            mapping.extend((group, deck) for deck in key)
+        group_ids[scope.root.id] = groups[key]
+    logical_work = sum(sum(budget.membership_counts.get(deck, 0) for deck in key) for key in groups)
+    if logical_work > config.projections.max_summary_memberships:
+        raise Problem(422, "scope_too_large")
+    return group_ids, mapping
 
 
 async def summaries(session, viewer_id, config, node_ids, *, budget=None):
@@ -24,24 +39,10 @@ async def summaries(session, viewer_id, config, node_ids, *, budget=None):
     async with bounded(session, config, budget):
         scopes = await resolve_scopes(session, node_ids, viewer_id, config, budget=budget)
         now = datetime.now(UTC)
-        groups, group_ids, mapping = {}, {}, []
-        for scope in scopes.values():
-            key = frozenset(scope.decks)
-            if key not in groups:
-                group = len(groups)
-                groups[key] = group
-                mapping.extend((group, deck) for deck in key)
-            group_ids[scope.root.id] = groups[key]
-        logical_work = sum(
-            sum(budget.membership_counts.get(deck, 0) for deck in key) for key in groups
-        )
-        if logical_work > config.projections.max_summary_memberships:
-            raise Problem(422, "scope_too_large")
+        group_ids, mapping = scope_mapping(scopes.values(), budget, config)
         aggregated = {}
         if mapping:
             # Arrays avoid PostgreSQL's parameter count limit for a large bounded deck mapping.
-            from sqlalchemy import text
-
             mapped = (
                 text(
                     "SELECT unnest(CAST(:groups AS integer[])) AS grp, "
@@ -63,7 +64,7 @@ async def summaries(session, viewer_id, config, node_ids, *, budget=None):
                     func.count().label("total"),
                     func.count(UserSense.sense_id).label("studied"),
                     func.count().filter(UserSense.due_at <= now).label("due"),
-                    func.max(UserSense.last_review_at).label("last_studied_at"),
+                    func.max(UserSense.last_exposure_at).label("last_studied_at"),
                 )
                 .outerjoin(
                     UserSense,
@@ -126,22 +127,6 @@ def window(start, end, today, maximum, *, future=False):
     return start, end
 
 
-def streaks(days, today):
-    active = sorted(set(days))
-    longest = run = 0
-    previous = None
-    for day in active:
-        run = run + 1 if previous is not None and day == previous + timedelta(days=1) else 1
-        longest = max(longest, run)
-        previous = day
-    current, cursor = 0, today if today in active else today - timedelta(days=1)
-    dates = set(active)
-    while cursor in dates:
-        current += 1
-        cursor -= timedelta(days=1)
-    return current, longest
-
-
 async def reporting(session, user_id, config):
     saved = await session.scalar(select(User.settings).where(User.id == user_id))
     if saved is None:
@@ -158,7 +143,7 @@ async def activity(session, user_id, config, start_date=None, end_date=None):
         (
             await session.scalars(
                 select(DailyActivity)
-                .where(DailyActivity.user_id == user_id)
+                .where(DailyActivity.user_id == user_id, DailyActivity.day.between(start, end))
                 .order_by(DailyActivity.day)
             )
         ).all()
@@ -175,9 +160,42 @@ async def activity(session, user_id, config, start_date=None, end_date=None):
                 "practice_events": row.practice_events if row else 0,
             }
         )
-    current, longest = streaks(
-        [r.day for r in rows if r.applied_events + r.practice_events > 0], today
+    # Lifetime streaks stay in SQL; only the bounded date window reaches the application.
+    active = (
+        select(
+            DailyActivity.day,
+            (
+                DailyActivity.day - func.row_number().over(order_by=DailyActivity.day).cast(Integer)
+            ).label("island"),
+        )
+        .where(
+            DailyActivity.user_id == user_id,
+            DailyActivity.applied_events + DailyActivity.practice_events > 0,
+        )
+        .cte("active_days")
     )
+    runs = (
+        select(
+            func.count().label("length"),
+            func.count().filter(active.c.day <= today).label("current_length"),
+            func.max(active.c.day).filter(active.c.day <= today).label("last_day"),
+        )
+        .group_by(active.c.island)
+        .cte("activity_runs")
+    )
+    current, longest = (
+        await session.execute(
+            select(
+                func.coalesce(
+                    func.max(runs.c.current_length).filter(
+                        runs.c.last_day >= today - timedelta(days=1)
+                    ),
+                    0,
+                ),
+                func.coalesce(func.max(runs.c.length), 0),
+            )
+        )
+    ).one()
     return {
         "as_of": now,
         "timezone": timezone,
@@ -192,39 +210,70 @@ async def activity(session, user_id, config, start_date=None, end_date=None):
 
 
 async def schedule(session, user_id, config, node_id=None, start_date=None, end_date=None):
+    return (await schedules(session, user_id, config, [node_id], start_date, end_date))[0]
+
+
+async def schedules(
+    session, user_id, config, node_ids, start_date=None, end_date=None, *, budget=None
+):
+    if (
+        not node_ids
+        or len(node_ids) > config.learning.limits.max_summary_nodes
+        or len(set(node_ids)) != len(node_ids)
+    ):
+        raise Problem(422, "invalid_summary_batch")
     timezone, now, today = await reporting(session, user_id, config)
     start, end = window(
         start_date, end_date, today, config.learning.limits.max_schedule_days, future=True
     )
-    budget = ScopeBudget(user_id)
+    budget = budget or ScopeBudget(user_id)
     async with bounded(session, config, budget):
-        scope = next(
-            iter(
-                (await resolve_scopes(session, [node_id], user_id, config, budget=budget)).values()
-            )
-        )
+        resolved = await resolve_scopes(session, node_ids, user_id, config, budget=budget)
+        scopes = list(resolved.values()) if node_ids == [None] else [resolved[i] for i in node_ids]
+        group_ids, mapping = scope_mapping(scopes, budget, config)
         day = func.date(func.timezone(timezone, UserSense.due_at))
+        mapped = (
+            text(
+                "SELECT unnest(CAST(:groups AS integer[])) AS grp, "
+                "unnest(CAST(:decks AS uuid[])) AS deck_id"
+            )
+            .bindparams(groups=[g for g, _ in mapping], decks=[d for _, d in mapping])
+            .columns(grp=Integer, deck_id=Uuid)
+            .cte("schedule_decks")
+        )
+        unique = (
+            select(mapped.c.grp, DeckSense.sense_id)
+            .join(DeckSense, DeckSense.deck_id == mapped.c.deck_id)
+            .distinct()
+            .cte("schedule_senses")
+        )
         rows = (
             await session.execute(
-                select(day, func.count())
+                select(unique.c.grp, day, func.count())
+                .join(UserSense, UserSense.sense_id == unique.c.sense_id)
                 .where(
                     UserSense.user_id == user_id,
-                    UserSense.sense_id.in_(scope.senses()),
                     UserSense.due_at > now,
                     day.between(start, end),
                 )
-                .group_by(day)
+                .group_by(unique.c.grp, day)
             )
         ).all()
-        counts = dict(rows)
-    return {
-        "node_id": scope.root.id,
-        "as_of": now,
-        "timezone": timezone,
-        "start_date": start,
-        "end_date": end,
-        "days": [
-            {"day": start + timedelta(days=i), "count": counts.get(start + timedelta(days=i), 0)}
-            for i in range((end - start).days + 1)
-        ],
-    }
+        counts = {(group, date): count for group, date, count in rows}
+    return [
+        {
+            "node_id": scope.root.id,
+            "as_of": now,
+            "timezone": timezone,
+            "start_date": start,
+            "end_date": end,
+            "days": [
+                {
+                    "day": start + timedelta(days=i),
+                    "count": counts.get((group_ids[scope.root.id], start + timedelta(days=i)), 0),
+                }
+                for i in range((end - start).days + 1)
+            ],
+        }
+        for scope in scopes
+    ]

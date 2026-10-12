@@ -13,7 +13,7 @@ export type AccountProfile = {
     limits: { min_questions_per_sense: number; max_questions_per_sense: number; max_questions_per_prepare: number }
     advanced_grading: boolean
   }
-  settings: { locale: string; timezone: string; translation_language: string; learning: LearningSettings }
+  settings: { locale: string; timezone: string; translation_language: string; learning: LearningSettings; assistant: AssistantSettings }
   effective_learning: LearningSettings | null
   learning_restriction: string | null
 }
@@ -21,9 +21,10 @@ export type AccountProfile = {
 export type AnswerFormat = 'SINGLE_CHOICE' | 'SINGLE_WORD' | 'SHORT_ANSWER'
 export type LearningSettings = {
   question_types: string[]; formats: AnswerFormat[]; questions_per_sense: number
-  max_sense_count: number; show_explanations: boolean
+  max_sense_count: number
 }
-export type SettingsPatch = { locale?: string; timezone?: string; translation_language?: string; learning?: Partial<LearningSettings> }
+export type AssistantSettings = { auto_approve: boolean }
+export type SettingsPatch = { locale?: string; timezone?: string; translation_language?: string; learning?: Partial<LearningSettings>; assistant?: Partial<AssistantSettings> }
 export type PublicProfile = Pick<AccountProfile, 'id' | 'display_name' | 'handle' | 'bio' | 'joined_at' | 'published_node_id'>
 export type UsageAllowance = { period_start: string; period_end: string; allowance_units: number; used_units: number; remaining_units: number }
 
@@ -60,7 +61,7 @@ export function parsePublicProfile(value: unknown): PublicProfile {
 export function parseAccountProfile(value: unknown): AccountProfile {
   const item = value as AccountProfile | null
   if (!item || typeof item.id !== 'string' || !['free', 'pro', 'FREE', 'PRO'].includes(item.plan) ||
-    !item.settings || !item.settings.learning || !item.learning_options || !Array.isArray(item.learning_options.pairs)) throw new ApiError(502, 'invalid_profile')
+    !item.settings || !item.settings.learning || typeof item.settings.assistant?.auto_approve !== 'boolean' || !item.learning_options || !Array.isArray(item.learning_options.pairs)) throw new ApiError(502, 'invalid_profile')
   return item
 }
 

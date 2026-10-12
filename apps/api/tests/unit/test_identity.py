@@ -80,7 +80,8 @@ async def test_bearer_http_auth_verifies_token_before_reading_cached_user(signed
     user = ActorContext(
         id=uuid4(),
         clerk_subject="user_secure",
-        display_name=None,
+        display_name="Learner",
+        handle="learner",
         plan="FREE",
         settings={},
         cycle_anchor=now,
@@ -113,4 +114,4 @@ async def test_bearer_http_auth_verifies_token_before_reading_cached_user(signed
             response = await client.get("/test-session", headers=headers)
             assert response.status_code == 401
             assert response.headers["www-authenticate"] == "Bearer"
-    cache.get.assert_awaited_once_with("actor:v2:user_secure", ActorContext)
+    cache.get.assert_awaited_once_with("actor:v3:user_secure", ActorContext)

@@ -1,31 +1,47 @@
 import asyncio
+import sqlite3
 from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
 from alembic import command
+from alembic.script import ScriptDirectory
+from lexi_ai.migrations import inspect_head
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 
 from pycil.account.models import UsageEvent, UsagePeriod
 from pycil.account.plans import Feature, Plan
 from pycil.account.usage import allowance, change_plan, settle
-from pycil.migrate import migrate, migration_config
-from pycil.study.models import Rating, UserSense
+from pycil.migrate import CONTENT_PATH, migrate, migration_config
+from pycil.study.models import UserSense
 
 
-async def test_fresh_ordered_migrations_repeat_without_drift(database):
+async def test_fresh_ordered_migrations_repeat_without_drift(database, content):
     engine, _, url = database
-    await asyncio.to_thread(migrate, url)
+    await asyncio.to_thread(migrate, url, content_path=content)
     await asyncio.to_thread(command.check, migration_config(url))
+    revisions = list(ScriptDirectory.from_config(migration_config(url)).walk_revisions())
+    assert [(r.revision, r.down_revision) for r in revisions] == [
+        ("20261012_profile", "20261011_learning"),
+        ("20261011_learning", "20261009_baseline"),
+        ("20261009_baseline", None),
+    ]
     async with engine.connect() as connection:
         assert (
             await connection.scalar(text("SELECT version_num FROM public.alembic_version"))
-            == "0005_profile_handle_bio"
+            == "20261012_profile"
         )
         assert (
             await connection.scalar(text("SELECT version_num FROM lexi.alembic_version"))
-            == "20261003_base"
+            == inspect_head()
+        )
+        assert not await connection.scalar(
+            text(
+                "SELECT EXISTS (SELECT 1 FROM information_schema.columns "
+                "WHERE table_schema='lexi' AND table_name='senses' "
+                "AND column_name='usage_note')"
+            )
         )
         names = (
             (
@@ -47,9 +63,31 @@ async def test_fresh_ordered_migrations_repeat_without_drift(database):
             "user_senses",
             "user_daily_activity",
             "review_log",
-            "word_generations",
             "conversations",
         }
+
+
+async def test_setup_imports_bundled_content_and_repeats_without_overwriting(
+    database, no_inference
+):
+    engine, _, url = database
+    with sqlite3.connect(CONTENT_PATH.as_uri() + "?mode=ro", uri=True) as source:
+        expected_words = source.execute("SELECT count(*) FROM words").fetchone()[0]
+        expected_senses = source.execute("SELECT count(*) FROM senses").fetchone()[0]
+    await asyncio.to_thread(migrate, url)
+    async with engine.begin() as connection:
+        assert await connection.scalar(text("SELECT count(*) FROM lexi.words")) == expected_words
+        assert await connection.scalar(text("SELECT count(*) FROM lexi.senses")) == expected_senses
+        await connection.execute(text("UPDATE lexi.words SET lemma='local edit' WHERE id=1"))
+    await asyncio.to_thread(migrate, url)
+    async with engine.connect() as connection:
+        assert await connection.scalar(text("SELECT count(*) FROM lexi.words")) == expected_words
+        assert (
+            await connection.scalar(text("SELECT lemma FROM lexi.words WHERE id=1")) == "local edit"
+        )
+        assert set(
+            (await connection.execute(text("SELECT name FROM lexi_reference.datasets"))).scalars()
+        ) == {"reference", "content.lexi.words", "content.lexi.artifacts"}
 
 
 async def test_user_settings_database_check(database, user):
@@ -58,6 +96,41 @@ async def test_user_settings_database_check(database, user):
         async with engine.begin() as connection:
             await connection.execute(
                 text("UPDATE users SET settings='[]'::jsonb WHERE id=:id"), {"id": user.id}
+            )
+
+
+async def test_profile_migration_normalizes_legacy_names_and_enforces_shape(database, user):
+    engine, _, url = database
+    await asyncio.to_thread(command.downgrade, migration_config(url), "20261011_learning")
+    async with engine.begin() as connection:
+        await connection.execute(
+            text("UPDATE users SET display_name='  Legacy name  ' WHERE id=:id"), {"id": user.id}
+        )
+        await connection.execute(
+            text(
+                "INSERT INTO users(id,clerk_subject,display_name,plan,cycle_anchor,created_at) "
+                "VALUES(:id,'legacy-blank','   ','FREE',now(),now())"
+            ),
+            {"id": uuid4()},
+        )
+    await asyncio.to_thread(command.upgrade, migration_config(url), "head")
+    async with engine.connect() as connection:
+        assert (
+            await connection.scalar(
+                text("SELECT display_name FROM users WHERE id=:id"), {"id": user.id}
+            )
+            == "Legacy name"
+        )
+        assert (
+            await connection.scalar(
+                text("SELECT display_name FROM users WHERE clerk_subject='legacy-blank'")
+            )
+            is None
+        )
+    with pytest.raises(IntegrityError):
+        async with engine.begin() as connection:
+            await connection.execute(
+                text("UPDATE users SET display_name='' WHERE id=:id"), {"id": user.id}
             )
 
 
@@ -72,9 +145,9 @@ async def test_actual_lexi_sense_fk_rejects_synthetic_identity(database, user):
                     sense_id=10_000_000,
                     stability=1.0,
                     difficulty=5.0,
-                    last_review_at=now,
+                    last_exposure_at=now,
                     due_at=now,
-                    last_rating=Rating.GOOD,
+                    elo=600,
                     review_count=1,
                     lapse_count=0,
                 )

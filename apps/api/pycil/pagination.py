@@ -3,6 +3,7 @@
 import base64
 import binascii
 import json
+import math
 from datetime import datetime
 from uuid import UUID
 
@@ -61,6 +62,9 @@ def decode(token, binding, types, *, timed=False):
                     raise ValueError()
             elif kind == "rank":
                 if type(value) not in {int, float} or not 0 <= value < float("inf"):
+                    raise ValueError()
+            elif kind == "number":
+                if type(value) not in {int, float} or not math.isfinite(value):
                     raise ValueError()
             parsed.append(value)
         cutoff = datetime.fromisoformat(data["as_of"]) if timed else None

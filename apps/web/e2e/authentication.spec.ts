@@ -22,6 +22,19 @@ async function signup(page: import('@playwright/test').Page, destination = '/app
   return { email, password }
 }
 
+test('signed-in users leave auth pages, including after reload, and follow safe return routes', async ({ page, profile }) => {
+  expect(profile.id).toBeTruthy()
+  for (const path of ['/signup?returnTo=/app/settings', '/login?returnTo=/app/settings', '/forgot-password?returnTo=/app/settings']) {
+    await page.goto(path)
+    await expect(page).toHaveURL(/\/app\/settings$/)
+    await expect(page.getByLabel('Password', { exact: true })).toHaveCount(0)
+    await page.reload()
+    await expect(page).toHaveURL(/\/app\/settings$/)
+  }
+  await page.goto('/signup?returnTo=https://example.com')
+  await expect(page).toHaveURL(/\/app$/)
+})
+
 test('signup rejects incorrect verification, resends, provisions once and follows a safe return route', async ({ page }) => {
   await signup(page, '/app/settings')
   await page.getByLabel('Verification code', { exact: true }).fill('111111')

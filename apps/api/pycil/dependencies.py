@@ -15,16 +15,15 @@ from pycil.cache import RedisCache
 from pycil.config import Deployment, ProductConfig
 from pycil.database import connect, verify_schema
 from pycil.http import Problem
+from pycil.vocabulary.generation import Generations
 
 
 @asynccontextmanager
 async def process_resources(config: ProductConfig, deployment: Deployment):
-    """One set of owned, explicitly closed native resources per API/worker process."""
+    """One set of owned, explicitly closed native resources per API process."""
     stack = AsyncExitStack()
     try:
         try:
-            if not deployment.cambridge_path.is_file():
-                raise ValueError("reference dataset missing")
             url = deployment.db_url.get_secret_value()
             engine, sessions = connect(url)
             stack.push_async_callback(engine.dispose)
@@ -48,7 +47,6 @@ async def process_resources(config: ProductConfig, deployment: Deployment):
             lexicon = Lexicon(
                 db_url=url,
                 db_schema="lexi",
-                cambridge_path=str(deployment.cambridge_path),
                 llm_config=LLMConfig(
                     model=policy.model,
                     api_key=deployment.inference_api_key.get_secret_value(),
@@ -70,6 +68,8 @@ async def process_resources(config: ProductConfig, deployment: Deployment):
             )
             stack.push_async_callback(lexicon.close)
             await lexicon.start()
+            generations = Generations(lexicon, config)
+            stack.push_async_callback(generations.close)
         except Exception:
             raise RuntimeError(
                 "Runtime initialization failed; verify deployment, reference dataset, "
@@ -82,6 +82,7 @@ async def process_resources(config: ProductConfig, deployment: Deployment):
             cache=cache,
             http=http,
             lexicon=lexicon,
+            generations=generations,
             checkpoint_pool=pool,
         )
     finally:

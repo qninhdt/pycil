@@ -1,5 +1,6 @@
 # Completion verification record
 
+Archived record. Current-only baselines and targeted Library mutations supersede the migration/editor contracts below; see [current setup](operations/migrations.md) and [OpenAPI](openapi.json).
 Date: 2026-10-06. Backend based on `e79a53c`; no deployment or production migration
 performed. This covers the reduced **backend** delivery, not live FE/provider
 acceptance or production capacity certification.
@@ -36,7 +37,7 @@ Historical 0001/0002 revisions, deleted legacy docs and unrelated user work are 
 | Phase | Executable / handoff evidence |
 | --- | --- |
 | 0 Contract | [Strict DTO/hash/cursor tests](../../apps/api/tests/unit/test_completion_contracts.py), [HTTP/OpenAPI](../../apps/api/tests/system/test_http_boundary.py) |
-| 1 Migration | [Learning upgrade](../../apps/api/tests/integration/test_learning_migration.py), [placement](../../apps/api/tests/integration/test_nodes_migration.py), [fresh drift](../../apps/api/tests/integration/test_fresh_schema.py) |
+| 1 Migration | Learning upgrade (historical, removed), placement (historical, removed), [fresh drift](../../apps/api/tests/integration/test_fresh_schema.py) |
 | 2 Batch/activity | [Completion cases](../../apps/api/tests/integration/test_completion.py): failure/replay/locks/DST/midnight/revocation/cascades; [native rating/equality/practice](../../apps/api/tests/integration/test_learning_pipeline.py) |
 | 3 Prepare | [Native generation/storage/selection/short-circuit/readiness/entitlement/grading](../../apps/api/tests/integration/test_learning_pipeline.py) |
 | 4 Reporting | [Partitions, grids, streaks, timezone/membership/schedule](../../apps/api/tests/integration/test_progress.py); joint counts/logical bounds/shared deadlines in completion cases |

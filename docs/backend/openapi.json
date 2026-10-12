@@ -1607,178 +1607,6 @@
           }
         }
       },
-      "put": {
-        "tags": [
-          "nodes"
-        ],
-        "summary": "Save",
-        "operationId": "save_v1_nodes__node_id__put",
-        "security": [
-          {
-            "ClerkBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "node_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Node Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/NodeSave"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "oneOf": [
-                    {
-                      "$ref": "#/components/schemas/SavedDeck"
-                    },
-                    {
-                      "$ref": "#/components/schemas/SavedContainer"
-                    }
-                  ],
-                  "discriminator": {
-                    "propertyName": "type",
-                    "mapping": {
-                      "DECK": "#/components/schemas/SavedDeck",
-                      "FOLDER": "#/components/schemas/SavedContainer",
-                      "REFERENCE": "#/components/schemas/SavedContainer"
-                    }
-                  },
-                  "title": "Response Save V1 Nodes  Node Id  Put"
-                }
-              }
-            }
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Bad Request"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Not Found"
-          },
-          "405": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Method Not Allowed"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflict"
-          },
-          "413": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Content Too Large"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Unprocessable Content"
-          },
-          "429": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Too Many Requests"
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Internal Server Error"
-          },
-          "503": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Service Unavailable"
-          }
-        }
-      },
       "patch": {
         "tags": [
           "nodes"
@@ -1961,162 +1789,6 @@
         "responses": {
           "204": {
             "description": "Successful Response"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Bad Request"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Not Found"
-          },
-          "405": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Method Not Allowed"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflict"
-          },
-          "413": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Content Too Large"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Unprocessable Content"
-          },
-          "429": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Too Many Requests"
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Internal Server Error"
-          },
-          "503": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Service Unavailable"
-          }
-        }
-      }
-    },
-    "/v1/nodes/{node_id}/editor": {
-      "get": {
-        "tags": [
-          "nodes"
-        ],
-        "summary": "Editor",
-        "operationId": "editor_v1_nodes__node_id__editor_get",
-        "security": [
-          {
-            "ClerkBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "node_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Node Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "anyOf": [
-                    {
-                      "$ref": "#/components/schemas/DeckSnapshot"
-                    },
-                    {
-                      "$ref": "#/components/schemas/NodeView"
-                    }
-                  ],
-                  "title": "Response Editor V1 Nodes  Node Id  Editor Get"
-                }
-              }
-            }
           },
           "400": {
             "content": {
@@ -3427,13 +3099,13 @@
             }
           },
           {
-            "name": "include_available",
+            "name": "include_reference",
             "in": "query",
             "required": false,
             "schema": {
               "type": "boolean",
               "default": false,
-              "title": "Include Available"
+              "title": "Include Reference"
             }
           }
         ],
@@ -4335,13 +4007,13 @@
         }
       }
     },
-    "/v1/word-generations": {
+    "/v1/words:generate": {
       "post": {
         "tags": [
           "vocabulary"
         ],
         "summary": "Generate",
-        "operationId": "generate_v1_word_generations_post",
+        "operationId": "generate_v1_words_generate_post",
         "requestBody": {
           "content": {
             "application/json": {
@@ -4481,13 +4153,13 @@
         ]
       }
     },
-    "/v1/word-generations/{generation_id}": {
+    "/v1/word-tasks/{task_id}": {
       "get": {
         "tags": [
           "vocabulary"
         ],
         "summary": "Status",
-        "operationId": "status_v1_word_generations__generation_id__get",
+        "operationId": "status_v1_word_tasks__task_id__get",
         "security": [
           {
             "ClerkBearer": []
@@ -4495,13 +4167,13 @@
         ],
         "parameters": [
           {
-            "name": "generation_id",
+            "name": "task_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
               "format": "uuid",
-              "title": "Generation Id"
+              "title": "Task Id"
             }
           }
         ],
@@ -4798,18 +4470,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "anyOf": [
-                    {
-                      "$ref": "#/components/schemas/SingleWordGrade"
-                    },
-                    {
-                      "$ref": "#/components/schemas/DefinitionGrade"
-                    },
-                    {
-                      "$ref": "#/components/schemas/UsageGrade"
-                    }
-                  ],
-                  "title": "Response Grade V1 Study Grade Post"
+                  "$ref": "#/components/schemas/GradeResult"
                 }
               }
             }
@@ -4932,13 +4593,13 @@
         ]
       }
     },
-    "/v1/study:submitReviews": {
+    "/v1/study:submitResults": {
       "post": {
         "tags": [
           "study"
         ],
-        "summary": "Rating",
-        "operationId": "rating_v1_study_submitReviews_post",
+        "summary": "Submit Results",
+        "operationId": "submit_results_v1_study_submitResults_post",
         "security": [
           {
             "ClerkBearer": []
@@ -7006,6 +6667,38 @@
         ],
         "title": "AssistantModel"
       },
+      "AssistantPatch": {
+        "properties": {
+          "auto_approve": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auto Approve"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "AssistantPatch"
+      },
+      "AssistantPreferences": {
+        "properties": {
+          "auto_approve": {
+            "type": "boolean",
+            "title": "Auto Approve"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "auto_approve"
+        ],
+        "title": "AssistantPreferences"
+      },
       "AudioPart": {
         "properties": {
           "type": {
@@ -7065,28 +6758,6 @@
         "title": "AudioPart",
         "description": "An audio part."
       },
-      "AvailableHit": {
-        "properties": {
-          "available_id": {
-            "type": "string",
-            "title": "Available Id"
-          },
-          "display": {
-            "type": "string",
-            "title": "Display"
-          },
-          "entry_type": {
-            "$ref": "#/components/schemas/EntryType"
-          }
-        },
-        "type": "object",
-        "required": [
-          "available_id",
-          "display",
-          "entry_type"
-        ],
-        "title": "AvailableHit"
-      },
       "BatchResult": {
         "properties": {
           "accepted_at": {
@@ -7105,6 +6776,13 @@
             },
             "type": "array",
             "title": "Results"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/TrackedEvidence"
+            },
+            "type": "array",
+            "title": "Evidence"
           }
         },
         "additionalProperties": false,
@@ -7112,7 +6790,8 @@
         "required": [
           "accepted_at",
           "activity_day",
-          "results"
+          "results",
+          "evidence"
         ],
         "title": "BatchResult"
       },
@@ -7443,91 +7122,6 @@
         "title": "DataSource",
         "description": "Bytes carried inline."
       },
-      "DeckSnapshot": {
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid",
-            "title": "Id"
-          },
-          "owner_id": {
-            "type": "string",
-            "format": "uuid",
-            "title": "Owner Id"
-          },
-          "type": {
-            "type": "string",
-            "const": "DECK",
-            "title": "Type"
-          },
-          "name": {
-            "type": "string",
-            "title": "Name"
-          },
-          "description": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Description"
-          },
-          "parent_id": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "uuid"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Parent Id"
-          },
-          "role": {
-            "$ref": "#/components/schemas/NodeRole"
-          },
-          "space": {
-            "$ref": "#/components/schemas/NodeSpace"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Created At"
-          },
-          "updated_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Updated At"
-          },
-          "sense_ids": {
-            "items": {
-              "type": "integer"
-            },
-            "type": "array",
-            "title": "Sense Ids"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "id",
-          "owner_id",
-          "type",
-          "name",
-          "description",
-          "parent_id",
-          "role",
-          "space",
-          "created_at",
-          "updated_at",
-          "sense_ids"
-        ],
-        "title": "DeckSnapshot"
-      },
       "Definition": {
         "properties": {
           "id": {
@@ -7575,12 +7169,13 @@
         ],
         "title": "DefinitionCoverage"
       },
-      "DefinitionGrade": {
+      "DefinitionDiagnostic": {
         "properties": {
           "sense_id": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "integer",
+                "exclusiveMinimum": 0.0
               },
               {
                 "type": "null"
@@ -7609,13 +7204,14 @@
             ]
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "sense_id",
           "accuracy",
           "coverage"
         ],
-        "title": "DefinitionGrade"
+        "title": "DefinitionDiagnostic"
       },
       "DeveloperMessage": {
         "properties": {
@@ -7687,6 +7283,32 @@
         ],
         "title": "DeveloperMessage",
         "description": "Instructions from the application developer."
+      },
+      "DialogueTurn": {
+        "properties": {
+          "speaker": {
+            "type": "string",
+            "title": "Speaker"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "speaker",
+          "text"
+        ],
+        "title": "DialogueTurn"
       },
       "DocumentPart": {
         "properties": {
@@ -7883,11 +7505,11 @@
       },
       "GenerationRequest": {
         "properties": {
-          "available_id": {
+          "reference_id": {
             "type": "string",
             "maxLength": 255,
             "minLength": 1,
-            "title": "Available Id"
+            "title": "Reference Id"
           },
           "target": {
             "type": "string",
@@ -7899,20 +7521,26 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "available_id",
+          "reference_id",
           "target"
         ],
         "title": "GenerationRequest"
       },
       "GenerationResult": {
         "properties": {
-          "generation_id": {
+          "task_id": {
             "type": "string",
             "format": "uuid",
-            "title": "Generation Id"
+            "title": "Task Id"
           },
           "status": {
-            "$ref": "#/components/schemas/GenerationStatus"
+            "type": "string",
+            "enum": [
+              "RUNNING",
+              "SUCCEEDED",
+              "FAILED"
+            ],
+            "title": "Status"
           },
           "word_id": {
             "anyOf": [
@@ -7955,7 +7583,7 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "generation_id",
+          "task_id",
           "status",
           "word_id",
           "stage",
@@ -7973,40 +7601,85 @@
         ],
         "title": "GenerationState"
       },
-      "GenerationStatus": {
-        "type": "string",
-        "enum": [
-          "QUEUED",
-          "RUNNING",
-          "SUCCEEDED",
-          "FAILED"
-        ],
-        "title": "GenerationStatus"
-      },
       "Grade": {
         "properties": {
-          "question_id": {
+          "question_artifact_id": {
             "type": "integer",
             "exclusiveMinimum": 0.0,
-            "title": "Question Id"
+            "title": "Question Artifact Id"
+          },
+          "question_type": {
+            "$ref": "#/components/schemas/QuestionType"
           },
           "format": {
             "$ref": "#/components/schemas/ResponseFormat"
           },
           "answer": {
-            "type": "string",
-            "minLength": 1,
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Answer"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "question_id",
+          "question_artifact_id",
+          "question_type",
           "format",
           "answer"
         ],
         "title": "Grade"
+      },
+      "GradeResult": {
+        "properties": {
+          "question_artifact_id": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Question Artifact Id"
+          },
+          "question_type": {
+            "$ref": "#/components/schemas/QuestionType"
+          },
+          "format": {
+            "$ref": "#/components/schemas/ResponseFormat"
+          },
+          "diagnostics": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QuizDiagnostic"
+              },
+              {
+                "$ref": "#/components/schemas/SingleWordDiagnostic"
+              },
+              {
+                "$ref": "#/components/schemas/DefinitionDiagnostic"
+              },
+              {
+                "$ref": "#/components/schemas/RewriteDiagnostic"
+              },
+              {
+                "$ref": "#/components/schemas/UsageDiagnostic"
+              }
+            ],
+            "title": "Diagnostics"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "question_artifact_id",
+          "question_type",
+          "format",
+          "diagnostics"
+        ],
+        "title": "GradeResult"
       },
       "ImagePart": {
         "properties": {
@@ -8090,20 +7763,21 @@
           },
           "max_questions_per_sense": {
             "type": "integer",
-            "maximum": 7.0,
+            "maximum": 3.0,
             "minimum": 1.0,
             "title": "Max Questions Per Sense"
           },
           "max_questions_per_prepare": {
             "type": "integer",
-            "maximum": 100.0,
+            "maximum": 60.0,
             "minimum": 1.0,
             "title": "Max Questions Per Prepare"
           },
-          "candidate_read_batch_size": {
+          "max_sense_count": {
             "type": "integer",
-            "exclusiveMinimum": 0.0,
-            "title": "Candidate Read Batch Size"
+            "maximum": 20.0,
+            "minimum": 1.0,
+            "title": "Max Sense Count"
           },
           "max_answer_chars": {
             "type": "integer",
@@ -8112,7 +7786,7 @@
           },
           "max_review_batch": {
             "type": "integer",
-            "maximum": 100.0,
+            "maximum": 60.0,
             "minimum": 1.0,
             "title": "Max Review Batch",
             "default": 100
@@ -8145,7 +7819,7 @@
           "min_questions_per_sense",
           "max_questions_per_sense",
           "max_questions_per_prepare",
-          "candidate_read_batch_size",
+          "max_sense_count",
           "max_answer_chars"
         ],
         "title": "LearningLimits"
@@ -8186,7 +7860,7 @@
           },
           "level": {
             "type": "integer",
-            "maximum": 4.0,
+            "maximum": 5.0,
             "minimum": 1.0,
             "title": "Level"
           }
@@ -8253,17 +7927,6 @@
               }
             ],
             "title": "Max Sense Count"
-          },
-          "show_explanations": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Show Explanations"
           }
         },
         "additionalProperties": false,
@@ -8295,10 +7958,6 @@
             "type": "integer",
             "exclusiveMinimum": 0.0,
             "title": "Max Sense Count"
-          },
-          "show_explanations": {
-            "type": "boolean",
-            "title": "Show Explanations"
           }
         },
         "additionalProperties": false,
@@ -8307,8 +7966,7 @@
           "question_types",
           "formats",
           "questions_per_sense",
-          "max_sense_count",
-          "show_explanations"
+          "max_sense_count"
         ],
         "title": "LearningPreferences"
       },
@@ -8335,15 +7993,29 @@
             ],
             "title": "Due At"
           },
-          "last_rating": {
+          "elo": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Rating"
+                "type": "number"
               },
               {
                 "type": "null"
               }
-            ]
+            ],
+            "title": "Elo"
+          },
+          "level": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 5.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Level"
           },
           "last_reviewed_at": {
             "anyOf": [
@@ -8363,7 +8035,8 @@
         "required": [
           "state",
           "due_at",
-          "last_rating",
+          "elo",
+          "level",
           "last_reviewed_at"
         ],
         "title": "LearningPreview"
@@ -8371,18 +8044,39 @@
       "MatchKind": {
         "type": "string",
         "enum": [
-          "LEMMA",
-          "ALIAS",
-          "FORM",
-          "PATTERN",
+          "EXACT",
           "PREFIX",
           "SUBSTRING",
           "FUZZY"
         ],
         "title": "MatchKind"
       },
+      "MeaningPreservation": {
+        "type": "string",
+        "enum": [
+          "PRESERVED",
+          "PARTIAL",
+          "CHANGED"
+        ],
+        "title": "MeaningPreservation"
+      },
       "NodeCreate": {
         "properties": {
+          "type": {
+            "$ref": "#/components/schemas/NodeType"
+          },
+          "reference_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference Id"
+          },
           "name": {
             "type": "string",
             "maxLength": 255,
@@ -8432,28 +8126,13 @@
               }
             ],
             "title": "Sense Ids"
-          },
-          "type": {
-            "$ref": "#/components/schemas/NodeType"
-          },
-          "reference_id": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "uuid"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reference Id"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "name",
-          "type"
+          "type",
+          "name"
         ],
         "title": "NodeCreate"
       },
@@ -8702,71 +8381,6 @@
           "PUBLISHED_ROOT"
         ],
         "title": "NodeRole"
-      },
-      "NodeSave": {
-        "properties": {
-          "name": {
-            "type": "string",
-            "maxLength": 255,
-            "minLength": 1,
-            "title": "Name"
-          },
-          "description": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 8000
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Description"
-          },
-          "parent_id": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "uuid"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Parent Id"
-          },
-          "confirm_publication": {
-            "type": "boolean",
-            "title": "Confirm Publication",
-            "default": false
-          },
-          "sense_ids": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "integer",
-                  "exclusiveMinimum": 0.0
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Sense Ids"
-          },
-          "retain_personal_reference": {
-            "type": "boolean",
-            "title": "Retain Personal Reference",
-            "default": false
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "name"
-        ],
-        "title": "NodeSave"
       },
       "NodeSpace": {
         "type": "string",
@@ -9029,17 +8643,13 @@
           "content": {
             "type": "string",
             "title": "Content"
-          },
-          "explanation": {
-            "type": "string",
-            "title": "Explanation"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "id",
-          "content",
-          "explanation"
+          "content"
         ],
         "title": "Option"
       },
@@ -9115,6 +8725,9 @@
           },
           "learning": {
             "$ref": "#/components/schemas/LearningPreferences"
+          },
+          "assistant": {
+            "$ref": "#/components/schemas/AssistantPreferences"
           }
         },
         "additionalProperties": false,
@@ -9123,7 +8736,8 @@
           "locale",
           "timezone",
           "translation_language",
-          "learning"
+          "learning",
+          "assistant"
         ],
         "title": "Preferences"
       },
@@ -9166,6 +8780,16 @@
             "anyOf": [
               {
                 "$ref": "#/components/schemas/LearningPatch"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "assistant": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssistantPatch"
               },
               {
                 "type": "null"
@@ -9250,14 +8874,27 @@
             "anyOf": [
               {
                 "type": "integer",
-                "maximum": 100.0,
-                "exclusiveMinimum": 0.0
+                "maximum": 20.0,
+                "minimum": 1.0
               },
               {
                 "type": "null"
               }
             ],
             "title": "Max Sense Count"
+          },
+          "questions_per_sense": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 3.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Questions Per Sense"
           }
         },
         "additionalProperties": false,
@@ -9308,7 +8945,7 @@
           },
           "level": {
             "type": "integer",
-            "maximum": 4.0,
+            "maximum": 5.0,
             "minimum": 1.0,
             "title": "Level"
           },
@@ -9442,6 +9079,17 @@
       },
       "ProfilePatch": {
         "properties": {
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
           "handle": {
             "anyOf": [
               {
@@ -9534,24 +9182,15 @@
       },
       "Question": {
         "properties": {
-          "id": {
+          "question_artifact_id": {
             "type": "integer",
-            "title": "Id"
+            "exclusiveMinimum": 0.0,
+            "title": "Question Artifact Id"
           },
           "sense_id": {
             "type": "integer",
+            "exclusiveMinimum": 0.0,
             "title": "Sense Id"
-          },
-          "theme_id": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Theme Id"
           },
           "question_type": {
             "$ref": "#/components/schemas/QuestionType"
@@ -9563,17 +9202,7 @@
               },
               {
                 "items": {
-                  "additionalProperties": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "type": "object"
+                  "$ref": "#/components/schemas/DialogueTurn"
                 },
                 "type": "array"
               }
@@ -9590,13 +9219,6 @@
             "type": "array",
             "title": "Distractors"
           },
-          "correct_alternatives": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Correct Alternatives"
-          },
           "target_placement": {
             "anyOf": [
               {
@@ -9608,18 +9230,17 @@
             ]
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
-          "id",
+          "question_artifact_id",
           "sense_id",
-          "theme_id",
           "question_type",
           "content",
           "correct",
           "distractors"
         ],
-        "title": "Question",
-        "description": "Full artifact; consumers choose self-learning or exam answer-key visibility."
+        "title": "Question"
       },
       "QuestionType": {
         "type": "string",
@@ -9630,19 +9251,24 @@
           "WORD_TO_DEFINITION",
           "WORD_TO_USAGE",
           "DIALOGUE_COMPLETION",
-          "MEANING_IN_CONTEXT"
+          "MEANING_IN_CONTEXT",
+          "SENTENCE_REWRITE"
         ],
         "title": "QuestionType"
       },
-      "Rating": {
-        "type": "string",
-        "enum": [
-          "AGAIN",
-          "HARD",
-          "GOOD",
-          "EASY"
+      "QuizDiagnostic": {
+        "properties": {
+          "correct": {
+            "type": "boolean",
+            "title": "Correct"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "correct"
         ],
-        "title": "Rating"
+        "title": "QuizDiagnostic"
       },
       "ReasoningMessage": {
         "properties": {
@@ -9703,6 +9329,43 @@
         ],
         "title": "ReasoningMessage",
         "description": "A span of the agent's reasoning, materialised as a message. Stands alone\nrather than composing BaseMessage, because it carries no name."
+      },
+      "ReferenceHit": {
+        "properties": {
+          "reference_id": {
+            "type": "string",
+            "title": "Reference Id"
+          },
+          "display": {
+            "type": "string",
+            "title": "Display"
+          },
+          "entry_type": {
+            "$ref": "#/components/schemas/EntryType"
+          },
+          "match_kind": {
+            "$ref": "#/components/schemas/MatchKind"
+          },
+          "matched_surface": {
+            "type": "string",
+            "title": "Matched Surface"
+          },
+          "kind": {
+            "type": "string",
+            "const": "REFERENCE",
+            "title": "Kind",
+            "default": "REFERENCE"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reference_id",
+          "display",
+          "entry_type",
+          "match_kind",
+          "matched_surface"
+        ],
+        "title": "ReferenceHit"
       },
       "Register": {
         "type": "string",
@@ -9782,20 +9445,51 @@
       },
       "Review": {
         "properties": {
-          "sense_id": {
+          "question_artifact_id": {
             "type": "integer",
             "exclusiveMinimum": 0.0,
-            "title": "Sense Id"
+            "title": "Question Artifact Id"
           },
-          "rating": {
-            "$ref": "#/components/schemas/Rating"
+          "question_type": {
+            "$ref": "#/components/schemas/QuestionType"
+          },
+          "format": {
+            "$ref": "#/components/schemas/ResponseFormat"
+          },
+          "diagnostics": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QuizDiagnostic"
+              },
+              {
+                "$ref": "#/components/schemas/SingleWordDiagnostic"
+              },
+              {
+                "$ref": "#/components/schemas/DefinitionDiagnostic"
+              },
+              {
+                "$ref": "#/components/schemas/RewriteDiagnostic"
+              },
+              {
+                "$ref": "#/components/schemas/UsageDiagnostic"
+              }
+            ],
+            "title": "Diagnostics"
+          },
+          "answered_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Answered At"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "sense_id",
-          "rating"
+          "question_artifact_id",
+          "question_type",
+          "format",
+          "diagnostics",
+          "answered_at"
         ],
         "title": "Review"
       },
@@ -9806,7 +9500,7 @@
               "$ref": "#/components/schemas/Review"
             },
             "type": "array",
-            "maxItems": 100,
+            "maxItems": 60,
             "minItems": 1,
             "title": "Results"
           }
@@ -9824,17 +9518,30 @@
             "type": "integer",
             "title": "Sense Id"
           },
-          "rating": {
-            "$ref": "#/components/schemas/Rating"
-          },
           "applied": {
             "type": "boolean",
             "title": "Applied"
           },
-          "accepted_at": {
+          "elo": {
+            "type": "number",
+            "title": "Elo"
+          },
+          "level": {
+            "type": "integer",
+            "title": "Level"
+          },
+          "stability": {
+            "type": "number",
+            "title": "Stability"
+          },
+          "difficulty": {
+            "type": "number",
+            "title": "Difficulty"
+          },
+          "last_exposure_at": {
             "type": "string",
             "format": "date-time",
-            "title": "Accepted At"
+            "title": "Last Exposure At"
           },
           "due_after": {
             "type": "string",
@@ -9846,12 +9553,98 @@
         "type": "object",
         "required": [
           "sense_id",
-          "rating",
           "applied",
-          "accepted_at",
+          "elo",
+          "level",
+          "stability",
+          "difficulty",
+          "last_exposure_at",
           "due_after"
         ],
         "title": "ReviewResult"
+      },
+      "RewriteDiagnostic": {
+        "properties": {
+          "used": {
+            "type": "boolean",
+            "title": "Used"
+          },
+          "meaning": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UsageMeaning"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "form": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UsageForm"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "construction": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Construction"
+          },
+          "collocation": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Collocation"
+          },
+          "appropriacy": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Appropriacy"
+          },
+          "meaning_preservation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MeaningPreservation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "used",
+          "meaning",
+          "form",
+          "construction",
+          "collocation",
+          "appropriacy",
+          "meaning_preservation"
+        ],
+        "title": "RewriteDiagnostic"
       },
       "RunAgentInput": {
         "properties": {
@@ -10326,19 +10119,26 @@
       },
       "SearchResult": {
         "properties": {
-          "words": {
+          "items": {
             "items": {
-              "$ref": "#/components/schemas/WordHit"
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/WordHit"
+                },
+                {
+                  "$ref": "#/components/schemas/ReferenceHit"
+                }
+              ],
+              "discriminator": {
+                "propertyName": "kind",
+                "mapping": {
+                  "REFERENCE": "#/components/schemas/ReferenceHit",
+                  "WORD": "#/components/schemas/WordHit"
+                }
+              }
             },
             "type": "array",
-            "title": "Words"
-          },
-          "available": {
-            "items": {
-              "$ref": "#/components/schemas/AvailableHit"
-            },
-            "type": "array",
-            "title": "Available"
+            "title": "Items"
           }
         },
         "type": "object",
@@ -10424,17 +10224,6 @@
                 "type": "null"
               }
             ]
-          },
-          "usage_note": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Usage Note"
           },
           "ipa_uk": {
             "anyOf": [
@@ -10795,7 +10584,7 @@
         ],
         "title": "SenseRelationType"
       },
-      "SingleWordGrade": {
+      "SingleWordDiagnostic": {
         "properties": {
           "task_fit": {
             "type": "boolean",
@@ -10808,7 +10597,8 @@
           "sense_id": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "integer",
+                "exclusiveMinimum": 0.0
               },
               {
                 "type": "null"
@@ -10817,13 +10607,14 @@
             "title": "Sense Id"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "task_fit",
           "spelling_error",
           "sense_id"
         ],
-        "title": "SingleWordGrade"
+        "title": "SingleWordDiagnostic"
       },
       "SourceDeck": {
         "properties": {
@@ -11359,6 +11150,95 @@
         "title": "ToolMessage",
         "description": "What a tool returned, as a message in the conversation. Stands alone\nrather than composing BaseMessage, because it carries no name."
       },
+      "TrackedEvidence": {
+        "properties": {
+          "question_artifact_id": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Question Artifact Id"
+          },
+          "question_type": {
+            "$ref": "#/components/schemas/QuestionType"
+          },
+          "format": {
+            "$ref": "#/components/schemas/ResponseFormat"
+          },
+          "diagnostics": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QuizDiagnostic"
+              },
+              {
+                "$ref": "#/components/schemas/SingleWordDiagnostic"
+              },
+              {
+                "$ref": "#/components/schemas/DefinitionDiagnostic"
+              },
+              {
+                "$ref": "#/components/schemas/RewriteDiagnostic"
+              },
+              {
+                "$ref": "#/components/schemas/UsageDiagnostic"
+              }
+            ],
+            "title": "Diagnostics"
+          },
+          "answered_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Answered At"
+          },
+          "evaluated_sense_id": {
+            "type": "integer",
+            "title": "Evaluated Sense Id"
+          },
+          "recall": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recall"
+          },
+          "performance": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Performance"
+          },
+          "opponent_elo": {
+            "type": "number",
+            "title": "Opponent Elo"
+          },
+          "policy_version": {
+            "type": "integer",
+            "title": "Policy Version"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "question_artifact_id",
+          "question_type",
+          "format",
+          "diagnostics",
+          "answered_at",
+          "evaluated_sense_id",
+          "recall",
+          "performance",
+          "opponent_elo",
+          "policy_version"
+        ],
+        "title": "TrackedEvidence"
+      },
       "UrlSource": {
         "properties": {
           "type": {
@@ -11391,34 +11271,7 @@
         "title": "UrlSource",
         "description": "Bytes referenced by URL, fetched by whoever needs them."
       },
-      "UsageAppropriacy": {
-        "type": "string",
-        "enum": [
-          "APPROPRIATE",
-          "MARKED",
-          "INAPPROPRIATE"
-        ],
-        "title": "UsageAppropriacy"
-      },
-      "UsageCollocation": {
-        "type": "string",
-        "enum": [
-          "NATURAL",
-          "ACCEPTABLE",
-          "UNNATURAL"
-        ],
-        "title": "UsageCollocation"
-      },
-      "UsageForm": {
-        "type": "string",
-        "enum": [
-          "CORRECT",
-          "SPELLING_ERROR",
-          "FORM_ERROR"
-        ],
-        "title": "UsageForm"
-      },
-      "UsageGrade": {
+      "UsageDiagnostic": {
         "properties": {
           "used": {
             "type": "boolean",
@@ -11458,24 +11311,27 @@
           "collocation": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/UsageCollocation"
+                "type": "boolean"
               },
               {
                 "type": "null"
               }
-            ]
+            ],
+            "title": "Collocation"
           },
           "appropriacy": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/UsageAppropriacy"
+                "type": "boolean"
               },
               {
                 "type": "null"
               }
-            ]
+            ],
+            "title": "Appropriacy"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "used",
@@ -11485,7 +11341,16 @@
           "collocation",
           "appropriacy"
         ],
-        "title": "UsageGrade"
+        "title": "UsageDiagnostic"
+      },
+      "UsageForm": {
+        "type": "string",
+        "enum": [
+          "CORRECT",
+          "SPELLING_ERROR",
+          "FORM_ERROR"
+        ],
+        "title": "UsageForm"
       },
       "UsageMeaning": {
         "type": "string",
@@ -11728,6 +11593,12 @@
           "matched_surface": {
             "type": "string",
             "title": "Matched Surface"
+          },
+          "kind": {
+            "type": "string",
+            "const": "WORD",
+            "title": "Kind",
+            "default": "WORD"
           }
         },
         "type": "object",

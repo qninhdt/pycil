@@ -1,5 +1,5 @@
-import database from './mock/database.json' with { type: 'json' }
-import type { AccountProfile } from '../api'
+import database from './mock/database'
+import type { AccountProfile, LearningSettings } from '../api'
 import { HomeApiError, parseActivity, parseLibrary, parseSchedule, parseSummary } from '../home-api'
 import { eventCount, reportingDay, shiftDay } from '../home-calendar'
 import type { DateWindow, FrontendServices } from './contracts'
@@ -49,28 +49,37 @@ export function createMockServices(options: MockOptions = {}): FrontendServices 
         return { id: user.id, display_name: user.display_name, handle: user.handle, bio: user.bio, joined_at: user.joined_at, published_node_id: user.published_node_id }
       }, signal),
       updateProfile: (patch, signal) => respond(() => {
+        const changed = { ...profile }
+        if (patch.display_name !== undefined) {
+          const name = patch.display_name.trim()
+          if (!name || name.length > 255) throw new HomeApiError(422, 'invalid_display_name')
+          changed.display_name = name
+        }
         if (patch.handle !== undefined) {
           const handle = patch.handle.trim().toLowerCase()
           if (!/^[a-z][a-z0-9_]{2,29}$/.test(handle)) throw new HomeApiError(422, 'invalid_handle')
           if (db.public_users.some(user => user.handle === handle)) throw new HomeApiError(409, 'handle_unavailable')
-          profile.handle = handle
+          changed.handle = handle
         }
         if (patch.bio !== undefined) {
           if (patch.bio !== null && patch.bio.trim().length > 500) throw new HomeApiError(422, 'invalid_bio')
-          profile.bio = patch.bio?.trim() ?? null
+          changed.bio = patch.bio?.trim() ?? null
         }
+        Object.assign(profile, changed)
         return profile
       }, signal),
       updateSettings: (patch, signal) => respond(() => {
         const learning = { ...profile.settings.learning, ...patch.learning }
         const options = profile.learning_options
+        const effective: LearningSettings = { ...learning, formats: options.advanced_grading ? learning.formats : ['SINGLE_CHOICE'] }
         if (patch.learning?.formats?.some(format => format !== 'SINGLE_CHOICE' && !options.advanced_grading)) throw new HomeApiError(403, 'advanced_grading_not_available')
         if (learning.question_types.length === 0 || learning.formats.length === 0) throw new HomeApiError(422, 'invalid_preferences')
-        if (!learning.question_types.some(type => learning.formats.some(format => options.pairs.some(pair => pair.question_type === type && pair.format === format))) ||
+        if (!effective.question_types.some(type => effective.formats.some(format => options.pairs.some(pair => pair.question_type === type && pair.format === format))) ||
           learning.questions_per_sense < options.limits.min_questions_per_sense || learning.questions_per_sense > options.limits.max_questions_per_sense ||
           learning.questions_per_sense * learning.max_sense_count > options.limits.max_questions_per_prepare) throw new HomeApiError(422, 'invalid_preferences')
-        profile.settings = { ...profile.settings, ...patch, learning }
-        profile.effective_learning = learning
+        const assistant = { ...profile.settings.assistant, ...patch.assistant }
+        profile.settings = { ...profile.settings, ...patch, learning, assistant }
+        profile.effective_learning = effective
         profile.learning_restriction = null
         return profile
       }, signal) },
@@ -101,7 +110,7 @@ export function createMockServices(options: MockOptions = {}): FrontendServices 
     library: {
       discovery: (options, signal) => respond(() => library.discovery(options), signal),
       sources: (id, senseId, cursor, signal) => respond(() => library.sources(id, senseId, cursor), signal),
-      createReference: (parentId, targetId, name, signal) => respond(() => library.createReference(parentId, targetId, name), signal),
+      createReference: (parentId, targetId, name, signal, confirmPublication) => respond(() => library.createReference(parentId, targetId, name, confirmPublication), signal),
       list: (parentId, signal) => respond(() => parseLibrary(library.contents(parentId, { limit: 4 })), signal),
       publicContents: (parentId, cursor, signal) => respond(() => {
         if (library.details(parentId).space !== 'PUBLISHED') throw new HomeApiError(404, 'node_not_found')

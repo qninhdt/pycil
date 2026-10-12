@@ -30,6 +30,7 @@ async def search_nodes(
     cursor=None,
     limit=None,
     include=None,
+    budget=None,
 ):
     limit = page_limit(limit, config)
     enrichment = includes(include, {"summary"})
@@ -48,7 +49,7 @@ async def search_nodes(
         "owner": str(owner_id),
     }
     seek, _ = decode(cursor, binding, ["rank", "uuid"] if q else ["time", "uuid"])
-    budget = ScopeBudget(viewer_id)
+    budget = budget or ScopeBudget(viewer_id)
     async with bounded(session, config, budget):
         rank = (
             func.ts_rank_cd(Node.search_vector, func.websearch_to_tsquery("simple", q))

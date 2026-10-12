@@ -31,3 +31,6 @@ e2e-results
 *.njsproj
 *.sln
 *.sw?
+
+*storybook.log
+storybook-static

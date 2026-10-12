@@ -50,7 +50,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # One image for API, generation worker and explicit migration gate.
+      # One image for API and explicit migration gate.
       - name: Build & push api
         id: build-api
         uses: docker/build-push-action@v7.4.0
@@ -71,4 +71,4 @@ jobs:
           echo "Deploy exact digests on the host:"
           echo "API_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-api@${API_DIGEST}"
           echo "Deployment requires separate operator approval and a verified full database backup."
-          echo "Apply the explicit migration gate before replacing both API and worker."
+          echo "Apply the explicit migration gate before replacing the API."

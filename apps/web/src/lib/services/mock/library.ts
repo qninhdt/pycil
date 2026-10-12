@@ -70,7 +70,7 @@ export function createMockLibrary(db: MockDatabase, now: () => Date) {
       space: foreign || id === account.published_node_id || parents.some(parent => parent.id === account.published_node_id || db.public_users.some(user => user.published_node_id === parent.id)) ? 'PUBLISHED' : id === account.library_node_id ? 'LIBRARY' : 'PERSONAL',
       role: id === account.library_node_id ? 'LIBRARY_ROOT' : id === account.personal_node_id ? 'PERSONAL_ROOT' : id === account.published_node_id ? 'PUBLISHED_ROOT' : 'NORMAL',
       created_at: db.library.created_at, updated_at: node.updated_at ?? db.library.updated_at,
-      breadcrumbs: parents.map(parent => ({ id: parent.id, name: parent.name })), summary: available ? summary(id) : null,
+      breadcrumbs: [...parents, node].map(parent => ({ id: parent.id, name: parent.name })), summary: available ? summary(id) : null,
       reference_available: node.type === 'REFERENCE' ? available : null,
       target: target ? { id: target.id, name: target.name, type: target.type as 'DECK' | 'FOLDER', owner_id: details(target.id).owner_id, space: details(target.id).space as 'PERSONAL' | 'PUBLISHED' } : null }
   }
@@ -144,10 +144,14 @@ export function createMockLibrary(db: MockDatabase, now: () => Date) {
     const result = page(decks, { cursor, limit: 20 }, `sources:${id}:${senseId}`)
     return { decks: result.items, next_cursor: result.next_cursor }
   }
-  function createReference(parentId: string, targetId: string, name: string) {
+  function createReference(parentId: string, targetId: string, name: string, confirmPublication = false) {
     const parent = get(parentId), target = get(targetId)
     if (parent.type !== 'FOLDER' || parentId === account.library_node_id || details(parentId).owner_id !== account.id || target.type === 'REFERENCE') throw new HomeApiError(422, 'invalid_reference_target')
     if (parentId === targetId || ancestors(parentId).some(node => node.id === targetId)) throw new HomeApiError(422, 'node_cycle')
+    if (details(parentId).space === 'PUBLISHED') {
+      if (!confirmPublication) throw new HomeApiError(409, 'publication_confirmation_required')
+      if (details(targetId).space !== 'PUBLISHED') throw new HomeApiError(422, 'private_reference_cannot_be_published')
+    }
     if (!name.trim() || name.length > 255) throw new HomeApiError(422, 'invalid_node')
     const id = `preview-reference-${Date.now()}-${nodes.length}`
     const node = { id, parent_id: parentId, name: name.trim(), type: 'REFERENCE', description: null }
@@ -213,7 +217,7 @@ export function createMockLibrary(db: MockDatabase, now: () => Date) {
     for (const node of [...nodes]) if (removed.has(node.id)) { byId.delete(node.id); delete memberships[node.id]; delete references[node.id] }
     for (const list of [nodes, storedNodes]) for (let index = list.length - 1; index >= 0; index--) if (removed.has(list[index].id)) list.splice(index, 1)
   }
-  function setLearning(senseId: number, _rating: string) {
+  function setLearning(senseId: number) {
     fresh.delete(senseId); due.delete(senseId)
     db.library.new_sense_ids = db.library.new_sense_ids.filter(id => id !== senseId)
     db.library.due_sense_ids = db.library.due_sense_ids.filter(id => id !== senseId)

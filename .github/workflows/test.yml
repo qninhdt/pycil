@@ -49,7 +49,7 @@ jobs:
       - run: uv run --locked ruff format --check pycil tests migrations ../../scripts/test_api.py ../../scripts/export_openapi.py
         working-directory: apps/api
       # Each test creates/drops only its own database; providers are deterministic.
-      # Cambridge fixtures are newly written native SQLite records, not evidence.
+      # Reference fixtures are newly written native SQLite records, not evidence.
       - run: uv run --locked pytest tests -q --tb=short
         working-directory: apps/api
 
@@ -69,7 +69,6 @@ jobs:
           INFERENCE_BASE_URL: https://inference.invalid/v1
           LEXI_DECISION_API_KEY: test-only
           LEXI_DECISION_BASE_URL: https://decision.invalid
-          LEXI_CAMBRIDGE_DB_PATH: /tmp/reference.db
         run: python scripts/compose.py --env-file /dev/null config -q
       - name: Validate Caddy routes
         run: >-

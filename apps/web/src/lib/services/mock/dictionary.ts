@@ -1,6 +1,6 @@
 import type { LibraryDetails } from '../../library-model'
 import type { MockDatabase } from '../mock'
-import { parseDictionaryWord, type DictionaryWord, type WordContext, type WordGeneration, type WordSearch } from '../../dictionary-model'
+import { MatchKind, parseDictionaryWord, type DictionaryWord, type WordContext, type WordGeneration, type WordHit, type WordSearch } from '../../dictionary-model'
 import { HomeApiError } from '../../home-api'
 
 export function createMockDictionary(db: MockDatabase, now: () => Date, details: (id: string) => LibraryDetails) {
@@ -10,20 +10,35 @@ export function createMockDictionary(db: MockDatabase, now: () => Date, details:
   const jobs = new Map<string, { result: WordGeneration; polls: number; word: DictionaryWord }>()
 
   function search(query: string): WordSearch {
-    const key = query.trim().toLowerCase()
+    const normalize = (surface: string) => surface.normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase()
+    const key = normalize(query)
     if (!key || key.length > 512) throw new HomeApiError(422, 'invalid_lexical_query')
-    const hits = [...words.values()].flatMap(word => {
-      const surfaces = [{ text: word.lemma, kind: 'LEMMA' }, ...word.aliases.map(text => ({ text, kind: 'ALIAS' })),
-        ...word.senses.flatMap(sense => sense.forms.map(form => ({ text: form.surface, kind: 'FORM' })))]
-      const match = surfaces.find(surface => surface.text.toLowerCase() === key)
-        ?? surfaces.find(surface => surface.text.toLowerCase().startsWith(key))
-        ?? surfaces.find(surface => surface.text.toLowerCase().includes(key))
-      return match ? [{ word_id: word.id, lemma: word.lemma, entry_type: word.type,
-        match_kind: match.text.toLowerCase() === key ? match.kind : match.text.toLowerCase().startsWith(key) ? 'PREFIX' : 'SUBSTRING',
-        matched_surface: match.text }] : []
-    }).sort((a, b) => Number(b.matched_surface.toLowerCase() === key) - Number(a.matched_surface.toLowerCase() === key) || a.lemma.localeCompare(b.lemma))
-    return { words: hits.slice(0, 30), available: db.dictionary.available.filter(hit =>
-      hit.display.toLowerCase().includes(key) && !words.has(pending.get(hit.display)?.id ?? -1)) }
+    const hits = [...words.values()].flatMap<{ hit: WordHit; surfaceRank: number }>(word => {
+      const surfaces = [
+        { content: word.lemma, rank: 0 },
+        ...word.aliases.map(content => ({ content, rank: 1 })),
+        ...word.senses.flatMap(sense => sense.forms.map(form => ({ content: form.surface, rank: 2 }))),
+      ]
+      const match = surfaces.find(surface => normalize(surface.content) === key)
+        ?? surfaces.find(surface => normalize(surface.content).startsWith(key))
+        ?? surfaces.find(surface => normalize(surface.content).includes(key))
+      return match ? [{ surfaceRank: match.rank, hit: { kind: 'WORD', word_id: word.id, lemma: word.lemma, entry_type: word.type,
+        match_kind: normalize(match.content) === key ? MatchKind.EXACT : normalize(match.content).startsWith(key) ? MatchKind.PREFIX : MatchKind.SUBSTRING,
+        matched_surface: match.content } }] : []
+    })
+    const references = db.dictionary.references.filter(hit =>
+      normalize(hit.display).includes(key) && !words.has(pending.get(hit.display)?.id ?? -1)).map(hit => ({ surfaceRank: 0, hit: {
+        ...hit, kind: 'REFERENCE' as const, matched_surface: hit.display,
+        match_kind: normalize(hit.display) === key ? MatchKind.EXACT : normalize(hit.display).startsWith(key) ? MatchKind.PREFIX : MatchKind.SUBSTRING,
+      } }))
+    const ranks = Object.values(MatchKind)
+    return { items: [...hits, ...references].sort(({ hit: a, surfaceRank: ar }, { hit: b, surfaceRank: br }) =>
+      ranks.indexOf(a.match_kind) - ranks.indexOf(b.match_kind)
+      || Number(a.kind === 'REFERENCE') - Number(b.kind === 'REFERENCE')
+      || ar - br
+      || normalize(a.kind === 'WORD' ? a.lemma : a.display).localeCompare(normalize(b.kind === 'WORD' ? b.lemma : b.display))
+      || (a.kind === 'WORD' && b.kind === 'WORD' ? a.word_id - b.word_id : a.kind === 'REFERENCE' && b.kind === 'REFERENCE' ? a.reference_id.localeCompare(b.reference_id) : 0))
+      .slice(0, 30).map(item => item.hit) }
   }
   function word(id: number) {
     const value = words.get(id)
@@ -54,15 +69,15 @@ export function createMockDictionary(db: MockDatabase, now: () => Date, details:
     return { as_of: now().toISOString(), senses, total: senses.length, studied: senses.length - newCount,
       new: newCount, due: dueCount, not_due: senses.length - newCount - dueCount }
   }
-  function prepare(availableId: string, target: string): WordGeneration {
-    const hit = db.dictionary.available.find(hit => hit.available_id === availableId && hit.display === target)
+  function prepare(referenceId: string, target: string): WordGeneration {
+    const hit = db.dictionary.references.find(hit => hit.reference_id === referenceId && hit.display === target)
     const candidate = hit && pending.get(hit.display)
     if (!candidate) throw new HomeApiError(422, 'invalid_generation_selection')
     const existing = [...jobs.values()].find(job => job.word.id === candidate.id)
     if (existing) return existing.result
     const generationId = crypto.randomUUID()
-    const result: WordGeneration = { generation_id: generationId, status: 'QUEUED', word_id: null,
-      stage: null, error: null, status_url: `/api/v1/word-generations/${generationId}` }
+    const result: WordGeneration = { task_id: generationId, status: 'RUNNING', word_id: null,
+      stage: null, error: null, status_url: `/api/v1/word-tasks/${generationId}` }
     jobs.set(generationId, { result, polls: 0, word: candidate })
     return result
   }

@@ -16,14 +16,15 @@ async def member_ids(session, node, viewer_id, config):
     return await scope_ids(session, node.id, viewer_id, config)
 
 
-def learning_preview(memory, now, viewer_id):
+def learning_preview(memory, now, viewer_id, config):
     if viewer_id is None:
         return None
     return {
         "state": "NEW" if memory is None else "DUE" if memory.due_at <= now else "NOT_YET_DUE",
         "due_at": memory.due_at if memory else None,
-        "last_rating": memory.last_rating if memory else None,
-        "last_reviewed_at": memory.last_review_at if memory else None,
+        "elo": memory.elo if memory else None,
+        "level": config.learning.mastery.level(memory.elo) if memory else None,
+        "last_reviewed_at": memory.last_exposure_at if memory else None,
     }
 
 
@@ -112,12 +113,13 @@ async def sense_page(
     limit=None,
     include=None,
 ):
-    if (state != "ALL" or sort == "LAST_REVIEWED_DESC") and viewer_id is None:
+    if (state != "ALL" or sort in {"LAST_REVIEWED_DESC", "MASTERY_ASC"}) and viewer_id is None:
         raise Problem(401, "authentication_required")
     if state not in {"ALL", "NEW", "DUE", "NOT_YET_DUE"} or sort not in {
         "SENSE_ID_ASC",
         "LEMMA_ASC",
         "LAST_REVIEWED_DESC",
+        "MASTERY_ASC",
     }:
         raise Problem(422, "invalid_sense_filter")
     if q is not None and len(q) > config.projections.max_query_chars:
@@ -137,6 +139,7 @@ async def sense_page(
         "SENSE_ID_ASC": ["id"],
         "LEMMA_ASC": ["text", "id"],
         "LAST_REVIEWED_DESC": ["nullable_time", "id"],
+        "MASTERY_ASC": ["number", "id"],
     }[sort]
     seek, cutoff = decode(cursor, binding, kinds, timed=True)
     now = cutoff or datetime.now(UTC)
@@ -151,8 +154,9 @@ async def sense_page(
         )
         membership = scope.senses().subquery()
         lemma = func.lower(Word.lemma)
+        elo = func.coalesce(UserSense.elo, config.learning.mastery.initial_elo)
         query = (
-            select(Sense.id, lemma.label("lemma_key"), UserSense.last_review_at)
+            select(Sense.id, lemma.label("lemma_key"), UserSense.last_exposure_at, elo.label("elo"))
             .join(membership, membership.c.sense_id == Sense.id)
             .join(Word, Word.id == Sense.word_id)
             .outerjoin(
@@ -178,17 +182,21 @@ async def sense_page(
             ordering = [lemma, Sense.id]
             if seek:
                 query = query.where(tuple_(lemma, Sense.id) > tuple_(*seek))
+        elif sort == "MASTERY_ASC":
+            ordering = [elo, Sense.id]
+            if seek:
+                query = query.where(tuple_(elo, Sense.id) > tuple_(*seek))
         else:
-            ordering = [UserSense.last_review_at.desc().nulls_last(), Sense.id]
+            ordering = [UserSense.last_exposure_at.desc().nulls_last(), Sense.id]
             if seek:
                 at, identifier = seek
                 condition = (
-                    and_(UserSense.last_review_at.is_(None), Sense.id > identifier)
+                    and_(UserSense.last_exposure_at.is_(None), Sense.id > identifier)
                     if at is None
                     else or_(
-                        UserSense.last_review_at < at,
-                        UserSense.last_review_at.is_(None),
-                        and_(UserSense.last_review_at == at, Sense.id > identifier),
+                        UserSense.last_exposure_at < at,
+                        UserSense.last_exposure_at.is_(None),
+                        and_(UserSense.last_exposure_at == at, Sense.id > identifier),
                     )
                 )
                 query = query.where(condition)
@@ -223,7 +231,7 @@ async def sense_page(
         if identifier not in facts or "examples" in enrichment and identifier not in native:
             raise Problem(409, "learning_content_changed")
         item = facts[identifier] | {
-            "learning": learning_preview(memories.get(identifier), now, viewer_id)
+            "learning": learning_preview(memories.get(identifier), now, viewer_id, config)
         }
         if "examples" in enrichment:
             item["examples"] = native[identifier].examples[: config.projections.inline_examples]
@@ -241,7 +249,9 @@ async def sense_page(
         if sort == "SENSE_ID_ASC" and last
         else [last.lemma_key, last.id]
         if sort == "LEMMA_ASC" and last
-        else [last.last_review_at, last.id]
+        else [last.elo, last.id]
+        if sort == "MASTERY_ASC" and last
+        else [last.last_exposure_at, last.id]
         if last
         else []
     )

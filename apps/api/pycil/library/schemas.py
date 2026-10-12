@@ -7,7 +7,6 @@ from lexi_ai.models import Example
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from pycil.library.models import NodeRole, NodeSpace, NodeType
-from pycil.study.models import Rating
 from pycil.study.schemas import Summary
 
 
@@ -15,7 +14,9 @@ class Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class EditableNode(Strict):
+class NodeCreate(Strict):
+    type: NodeType
+    reference_id: UUID | None = None
     name: str = Field(min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=8000)
     parent_id: UUID | None = None
@@ -28,24 +29,11 @@ class EditableNode(Strict):
             raise ValueError("blank node name")
         if self.sense_ids is not None and len(set(self.sense_ids)) != len(self.sense_ids):
             raise ValueError("Sense IDs must be unique")
-        return self
-
-
-class NodeCreate(EditableNode):
-    type: NodeType
-    reference_id: UUID | None = None
-
-    @model_validator(mode="after")
-    def shape(self):
         if (self.type is NodeType.REFERENCE) != (self.reference_id is not None):
             raise ValueError("reference shape invalid")
         if self.type is not NodeType.DECK and self.sense_ids is not None:
             raise ValueError("membership is deck-only")
         return self
-
-
-class NodeSave(EditableNode):
-    retain_personal_reference: bool = False
 
 
 class NodePatch(Strict):
@@ -87,24 +75,11 @@ class NodeMove(NodeDestination):
     retain_personal_reference: bool = False
 
 
-class DeckSnapshot(Strict):
-    id: UUID
-    owner_id: UUID
-    type: Literal["DECK"]
-    name: str
-    description: str | None
-    parent_id: UUID | None
-    role: NodeRole
-    space: NodeSpace
-    created_at: datetime
-    updated_at: datetime
-    sense_ids: list[int]
-
-
 class LearningPreview(Strict):
     state: Literal["NEW", "DUE", "NOT_YET_DUE"]
     due_at: datetime | None
-    last_rating: Rating | None
+    elo: float | None
+    level: Annotated[int, Field(ge=1, le=5)] | None
     last_reviewed_at: datetime | None
 
 

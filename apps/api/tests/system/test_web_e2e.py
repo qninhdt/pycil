@@ -32,9 +32,7 @@ from pycil.dependencies import process_resources
 from pycil.library.tree import provision_library
 from pycil.main import create_app
 from pycil.study.fsrs import next_state
-from pycil.study.models import Rating, UserSense
-from pycil.vocabulary.generation import claim, execute
-from pycil.worker import ownership
+from pycil.study.models import UserSense
 from tests.integration.test_assistant import Completion, answer
 from tests.integration.test_learning_pipeline import LocalCompletion, fill
 
@@ -49,71 +47,105 @@ class BrowserLexicalCompletion(LocalCompletion):
     failed_once = False
 
     async def complete(self, instruction, data, schema):
-        if schema.__name__ not in {"InventoryOutput", "SenseEnrichment"}:
-            context = json.loads(
-                data.removeprefix("<question_context>").removesuffix("</question_context>").strip()
-            )
-            if context["word"] == "jetty":
-                from lexi_ai.errors import InvalidOutputError
-
-                if context["question_type"] == "DIALOGUE_COMPLETION":
-                    raise InvalidOutputError("No usable dialogue in the external test response")
-                output = await super().complete(instruction, data, schema)
-                good = output["questions"][0]
-                return {"questions": [good, {"content": None}, good]}
+        if schema.__name__ not in {"InventoryOutput", "EnrichmentBatch"}:
             return await super().complete(instruction, data, schema)
         context = json.loads(re.sub(r"</?\w+>", "", data).strip())
-        target = context["target"]
+        target = (
+            context["target"] if schema.__name__ == "InventoryOutput" else context["word"]["lemma"]
+        )
         if schema.__name__ == "InventoryOutput":
             if target == "quay" and not self.failed_once:
                 self.failed_once = True
                 raise ValueError("deterministic provider failure")
             return {
-                "lemma": target,
-                "type": "WORD",
+                "lemma": (
+                    "glisten with {sth}"
+                    if target == "glisten with something"
+                    else "glisten"
+                    if target in {"glistening", "glistened"}
+                    else target
+                ),
+                "type": "PHRASAL_VERB" if target == "glisten with something" else "WORD",
                 "aliases": [],
-                "related": [],
-                "senses": [{"definition": context["references"][0]["definition"], "pos": "NOUN"}],
+                "related": {},
+                "senses": [
+                    {
+                        "definition": next(iter(context["references"].values()))[0]["definition"],
+                        "pos": next(iter(context["references"])),
+                        "references": ["a1"],
+                    }
+                ],
             }
         if target == "jetty":
             examples = [
-                'Ships dock at the <T inf="BASE">jetty</T>.',
-                'SHIPS DOCK AT THE <t inf="base">JETTY</t>.',
-                '<t inf="BASE">jetty',
+                "Ships dock at the [jetty].",
+                "SHIPS DOCK AT THE [JETTY].",
+                "[jetty",
             ]
         else:
             examples = [
-                f'The ship entered the <t inf="base">{target}</t> today ({n}).'
+                f"The ship entered the [{target}] today ({n})."
                 for n in range(context["examples_per_sense"])
             ]
         return {
-            "tier": "core",
-            "examples": examples,
-            "forms": [{"surface": target, "inf": "BASE"}],
-            "patterns": [],
-            "collocations": [],
-            "relations": [],
-            "sources": ["c1"],
-            "cefr_level": "B1",
-            "register": None,
+            "senses": [
+                {
+                    "sense_id": sense["sense_id"],
+                    "tier": "core",
+                    "examples": examples,
+                    "forms": [target],
+                    "patterns": [],
+                    "collocations": [],
+                    "relations": {},
+                    "cefr_level": "B1",
+                    "register": None,
+                }
+                for sense in context["senses"]
+            ]
         }
 
 
 class BrowserCompletion(Completion):
     """Only the inference boundary is deterministic; native agents/tools stay real."""
 
+    @staticmethod
+    def last_message(messages):
+        return next(
+            m
+            for m in reversed(messages)
+            if not (
+                m.type == "human"
+                and isinstance(m.content, str)
+                and m.content.startswith("<context>")
+            )
+        )
+
     def _generate(self, messages, stop=None, run_manager=None, **kwargs):
-        last = messages[-1]
+        last = self.last_message(messages)
         content = last.content if isinstance(last.content, str) else "E2E vision"
         if "E2E fail" in content:
             raise RuntimeError("deterministic provider failure")
-        if not isinstance(last, ToolMessage) and content.startswith("E2E create deck "):
+        if not isinstance(last, ToolMessage) and content == "E2E missing sense":
+            result = answer(
+                "",
+                tool_calls=[
+                    {
+                        "name": "read_vocabulary",
+                        "args": {"sense_ids": [999999]},
+                        "id": "call_" + uuid4().hex,
+                    }
+                ],
+            )
+        elif isinstance(last, ToolMessage) and last.name == "read_vocabulary":
+            assert last.status == "error" and last.content == "sense_not_found"
+            result = answer("E2E recovered from a missing sense.")
+        elif not isinstance(last, ToolMessage) and content.startswith("E2E create deck "):
             result = answer(
                 "",
                 tool_calls=[
                     {
                         "name": "create_node",
-                        "args": {"data": {"type": "DECK", "name": content[16:]}},
+                        "args": {"type": "DECK", "name": content[16:]},
                         "id": "call_" + uuid4().hex,
                     }
                 ],
@@ -123,20 +155,20 @@ class BrowserCompletion(Completion):
                 "",
                 tool_calls=[
                     {
-                        "name": "get_node",
+                        "name": "read_library",
                         "args": {"node_id": content[14:]},
                         "id": "call_" + uuid4().hex,
                     }
                 ],
             )
-        elif isinstance(last, ToolMessage) and last.name == "get_node":
+        elif isinstance(last, ToolMessage) and last.name == "read_library":
             result = answer("E2E tool result: " + str(last.content))
         else:
             result = answer("E2E response saved through the native checkpoint.")
         return self._result(result)
 
     async def _astream(self, messages, stop=None, run_manager=None, **kwargs):
-        if messages[-1].content == "E2E streaming across timeouts":
+        if self.last_message(messages).content == "E2E streaming across timeouts":
             from langchain_core.messages import AIMessageChunk
             from langchain_core.outputs import ChatGenerationChunk
 
@@ -175,7 +207,7 @@ class BrowserCompletion(Completion):
                 )
             )
             return
-        if messages[-1].content == "E2E slow":
+        if self.last_message(messages).content == "E2E slow":
             await asyncio.sleep(3)
         async for chunk in super()._astream(messages, stop, run_manager, **kwargs):
             yield chunk
@@ -205,7 +237,9 @@ class DiagnosticProvider:
         pass
 
 
-async def test_full_stack(database, dictionary, deployment, config, monkeypatch, tmp_path):
+async def test_full_stack(
+    database, dictionary, deployment, config, monkeypatch, tmp_path, reference
+):
     config = config.model_copy(
         update={
             "library": config.library.model_copy(
@@ -237,10 +271,14 @@ async def test_full_stack(database, dictionary, deployment, config, monkeypatch,
                 "LEXI_DECISION_API_KEY/BASE_URL in the runner environment."
             )
     secret = os.environ.get("CLERK_SECRET_KEY") or keys.get("CLERK_SECRET_KEY", "")
-    public = os.environ.get("CLERK_PUBLISHABLE_KEY") or keys.get("CLERK_PUBLISHABLE_KEY", "")
+    frontend = dotenv_values(ROOT / "apps/web/.env.local")
+    public = (
+        os.environ.get("CLERK_PUBLISHABLE_KEY")
+        or keys.get("CLERK_PUBLISHABLE_KEY")
+        or frontend.get("NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "")
+    )
     if not secret.startswith("sk_test_") or not public.startswith("pk_test_"):
         pytest.fail("Use a Clerk development instance.")
-    frontend = dotenv_values(ROOT / "apps/web/.env.local")
     assert frontend.get("NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY") == public, (
         "FE and runner must use the same Clerk instance."
     )
@@ -273,7 +311,6 @@ async def test_full_stack(database, dictionary, deployment, config, monkeypatch,
     child = None
     server = None
     serving = None
-    processing = None
     async with (
         httpx.AsyncClient(
             base_url="https://api.clerk.com/v1/",
@@ -325,7 +362,7 @@ async def test_full_stack(database, dictionary, deployment, config, monkeypatch,
                             moment=datetime.now(UTC),
                         )
             engine, _, _ = database
-            with sqlite3.connect(deployment.cambridge_path) as connection:
+            with sqlite3.connect(reference) as connection:
                 for identifier, lemma, definition in [
                     (2, "harbor", "a sheltered place for ships"),
                     (3, "quay", "a platform where ships load and unload"),
@@ -344,7 +381,43 @@ async def test_full_stack(database, dictionary, deployment, config, monkeypatch,
                         "INSERT INTO senses(id,entry_id,definition,sense_order) VALUES(?,?,?,1)",
                         (identifier, identifier, definition),
                     )
+                connection.execute(
+                    "INSERT INTO words VALUES(5,'glistening','glistening','word','done')"
+                )
+                connection.execute(
+                    "INSERT INTO entries(id,word_id,pos,headword,definition,examples,entry_order) "
+                    "VALUES(5,5,'verb','glisten','shine with reflected light','[]',1)"
+                )
+                connection.execute(
+                    "INSERT INTO senses(id,entry_id,definition,sense_order) "
+                    "VALUES(5,5,'shine with reflected light',1)"
+                )
+                connection.execute(
+                    "INSERT INTO words VALUES(7,'glistened','glistened','word','done')"
+                )
+                connection.execute(
+                    "INSERT INTO entries(id,word_id,pos,headword,definition,examples,entry_order) "
+                    "VALUES(7,7,'verb','glisten','shine with reflected light','[]',1)"
+                )
+                connection.execute(
+                    "INSERT INTO senses(id,entry_id,definition,sense_order) "
+                    "VALUES(7,7,'shine with reflected light',1)"
+                )
+                connection.execute(
+                    "INSERT INTO words VALUES(?,?,?,?,?)",
+                    (6, "glisten-with", "glisten with something", "expression", "done"),
+                )
+                connection.execute(
+                    "INSERT INTO entries(id,word_id,pos,headword,definition,examples,entry_order) "
+                    "VALUES(6,6,'verb',?,?,'[]',1)",
+                    ("glisten with something", "be covered with something shiny"),
+                )
+                connection.execute(
+                    "INSERT INTO senses(id,entry_id,definition,sense_order) "
+                    "VALUES(6,6,'be covered with something shiny',1)"
+                )
             dictionary[0].llm = BrowserLexicalCompletion()
+            await dictionary[0].import_reference(reference)
             async with engine.begin() as connection:
                 await connection.execute(
                     text(
@@ -381,7 +454,7 @@ async def test_full_stack(database, dictionary, deployment, config, monkeypatch,
                 await connection.execute(
                     text(
                         "INSERT INTO lexi.examples(sense_id,content) "
-                        "SELECT id,'I visited the <t inf=\"base\">bank</t>.' "
+                        "SELECT id,'I visited the [bank].' "
                         "FROM lexi.senses WHERE word_id=1"
                     )
                 )
@@ -395,7 +468,7 @@ async def test_full_stack(database, dictionary, deployment, config, monkeypatch,
             await fill(database, dictionary, config)
             async with sessions() as session, session.begin():
                 moment = datetime.now(UTC) - timedelta(days=30)
-                stability, difficulty, due = next_state(None, Rating.GOOD, moment, config)
+                stability, difficulty, due = next_state(None, [1], moment, config)
                 assert due < datetime.now(UTC)
                 session.add(
                     UserSense(
@@ -403,9 +476,9 @@ async def test_full_stack(database, dictionary, deployment, config, monkeypatch,
                         sense_id=30,
                         stability=stability,
                         difficulty=difficulty,
-                        last_review_at=moment,
+                        last_exposure_at=moment,
                         due_at=due,
-                        last_rating=Rating.GOOD,
+                        elo=600,
                         review_count=1,
                         lapse_count=0,
                     )
@@ -433,6 +506,8 @@ async def test_full_stack(database, dictionary, deployment, config, monkeypatch,
             resources = await stack.enter_async_context(process_resources(config, real_deployment))
             if provider_profile != "live":
                 resources.lexicon = dictionary[0]
+                await resources.lexicon.start()
+                resources.generations = dictionary[0].test_generations
             else:
 
                 def observe(native):
@@ -472,7 +547,7 @@ async def test_full_stack(database, dictionary, deployment, config, monkeypatch,
 
                     return observed
 
-                for operation in ("generate", "generate_questions"):
+                for operation in ("generate_word", "generate_question_artifacts"):
                     monkeypatch.setattr(
                         resources.lexicon, operation, observe(getattr(resources.lexicon, operation))
                     )
@@ -489,28 +564,15 @@ async def test_full_stack(database, dictionary, deployment, config, monkeypatch,
             )
             serving = asyncio.create_task(server.serve(sockets=[endpoint]))
 
-            async def worker():
-                async with ownership(resources.engine) as ensure_owner:
-                    while True:
-                        row = await claim(resources.sessions, config)
-                        if row:
-                            await execute(
-                                resources.sessions, resources.lexicon, row, config, ensure_owner
-                            )
-                        else:
-                            await asyncio.sleep(0.1)
-
-            processing = asyncio.create_task(worker())
             for _ in range(100):
                 if server.started:
                     break
                 await asyncio.sleep(0.05)
             assert server.started, "The owned API failed to start."
             args = [
-                str(ROOT / "apps/web/node_modules/.bin/playwright"),
-                "test",
-                "--config",
-                "playwright.e2e.config.ts",
+                "pnpm",
+                "run",
+                "test:e2e",
             ]
             if provider_profile == "live":
                 args += ["provider.spec.ts"]
@@ -532,15 +594,7 @@ async def test_full_stack(database, dictionary, deployment, config, monkeypatch,
                 except TimeoutError:
                     os.killpg(child.pid, signal.SIGKILL)
                     await child.wait()
-            if processing:
-                processing.cancel()
-                try:
-                    await processing
-                except asyncio.CancelledError:
-                    pass
-                except Exception:
-                    cleanup.append("The owned worker failed before cleanup.")
-            if server:
+            if server is not None:
                 server.should_exit = True
             if serving:
                 try:

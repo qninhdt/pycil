@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto'
 import { proTest as test, expect, api } from './fixtures'
 import { start, finish, session } from './study-session'
 import type { Conversation, ConversationDetails } from '../src/lib/assistant-api'
@@ -17,20 +16,68 @@ test.describe('live external providers', () => {
   test.skip(process.env.E2E_PROVIDER_PROFILE !== 'live', 'Run the separate live provider profile with configured inference and decision services.')
   test.setTimeout(240000)
 
-  test('real generation reaches the worker and produces native readable senses', async ({ page, profile, nodes }) => {
+  test('real generation normalizes an inflected input into its lemma', async ({ page, profile }) => {
+    test.setTimeout(720000)
+    expect(profile.id).toBeTruthy()
+    const hits = (await api<{ items: { kind: string; reference_id?: string; display?: string }[] }>(page, 'words:search?query=glistening&include_reference=true')).body.items
+    const reference = hits.find(hit => hit.kind === 'REFERENCE' && hit.display === 'glistening')!
+    expect(reference).toBeTruthy()
+    const generated = await api<WordGeneration>(page, 'words:generate', 'POST', { reference_id: reference.reference_id, target: 'glistening' })
+    expect(generated.status).toBe(202)
+    await expect.poll(async () => (await api<WordGeneration>(page, generated.body.status_url.replace('/v1/', ''))).body.status, { timeout: 600000 }).toBe('SUCCEEDED')
+    const task = (await api<WordGeneration>(page, `word-tasks/${generated.body.task_id}`)).body
+    const word = (await api<DictionaryWord>(page, `words/${task.word_id}`)).body
+    expect(word.lemma).toBe('glisten')
+    expect(word.senses.length).toBeGreaterThan(0)
+    const pastHits = (await api<{ items: { kind: string; reference_id?: string; display?: string }[] }>(page, 'words:search?query=glistened&include_reference=true')).body.items
+    const past = pastHits.find(hit => hit.kind === 'REFERENCE' && hit.display === 'glistened')!
+    expect(past).toBeTruthy()
+    const reuse = await api<WordGeneration>(page, 'words:generate', 'POST', { reference_id: past.reference_id, target: 'glistened' })
+    await expect.poll(async () => (await api<WordGeneration>(page, reuse.body.status_url.replace('/v1/', ''))).body.status, { timeout: 600000 }).toBe('SUCCEEDED')
+    const reusedTask = (await api<WordGeneration>(page, `word-tasks/${reuse.body.task_id}`)).body
+    expect(reusedTask.word_id).toBe(word.id)
+    expect((await api<DictionaryWord>(page, `words/${word.id}`)).body).toEqual(word)
+    const after = (await api<{ items: { kind: string; reference_id?: string }[] }>(page, 'words:search?query=glistened&include_reference=true')).body.items
+    expect(after.some(hit => hit.reference_id === past.reference_id)).toBe(false)
+  })
+
+  test('real Assistant reads actual sense IDs and accepts another message', async ({ page, profile }) => {
+    expect(profile.id).toBeTruthy()
+    await openAssistant(page)
+    const created = page.waitForResponse(r => r.url().endsWith('/assistant/conversations') && r.request().method() === 'POST')
+    const streamed = page.waitForResponse(r => r.url().endsWith('/assistant:run'))
+    await page.getByRole('textbox', { name: 'Message PycilAI' }).fill('Use dictionary tools to find the saved word bank, read its senses, then check my learning state for those exact sense IDs. Keep your answer brief.')
+    await page.getByRole('button', { name: 'Send message', exact: true }).click()
+    const conversation: Conversation = await (await created).json()
+    try {
+      const stream = await (await streamed).text()
+      expect(stream).toMatch(/search_words|read_vocabulary/)
+      expect(stream).toContain('RUN_FINISHED')
+      expect(stream).not.toContain('RUN_ERROR')
+      const next = page.waitForResponse(r => r.url().endsWith('/assistant:run'))
+      await page.getByRole('textbox', { name: 'Message PycilAI' }).fill('Give one short example using the financial sense of bank.')
+      await page.getByRole('button', { name: 'Send message', exact: true }).click()
+      const reply = await (await next).text()
+      expect(reply).toContain('RUN_FINISHED')
+      expect(reply).not.toContain('RUN_ERROR')
+      await expect(page.locator('.ai-message-error, .ai-error')).toHaveCount(0)
+    } finally { expect((await api(page, `assistant/conversations/${conversation.id}`, 'DELETE')).status).toBe(204) }
+  })
+
+  test('real generation produces native readable senses', async ({ page, profile, nodes }) => {
     test.setTimeout(720000)
     expect(profile.plan).toBe('PRO')
     await page.goto('/app/dictionary?q=harbor')
     await expect(page.locator('.shell-desktop').getByRole('button', { name: 'Open account menu' })).toContainText('Pro plan')
-    await page.getByRole('button', { name: 'harbor Needs preparation', exact: true }).click()
-    const created = page.waitForResponse(r => r.url().endsWith('/word-generations') && r.request().method() === 'POST')
+    await page.getByRole('button', { name: 'harbor Needs preparation Generate', exact: true }).click()
+    const created = page.waitForResponse(r => r.url().endsWith('/words:generate') && r.request().method() === 'POST')
     await page.getByRole('button', { name: 'Prepare entry', exact: true }).click()
     const response = await created
     expect(response.status()).toBe(202)
     const job: WordGeneration = await response.json()
     let saved = job
     await expect.poll(async () => {
-      saved = (await api<WordGeneration>(page, `word-generations/${job.generation_id}`)).body
+      saved = (await api<WordGeneration>(page, `word-tasks/${job.task_id}`)).body
       return ['SUCCEEDED', 'FAILED'].includes(saved.status)
     }, { timeout: 630000 }).toBe(true)
     expect(saved.status, `${saved.stage}: ${saved.error}`).toBe('SUCCEEDED')
@@ -59,7 +106,6 @@ test.describe('live external providers', () => {
   test('real typed grading completes a native session and persists its review', async ({ page, profile, nodes }) => {
     const deck = await nodes.create({ type: 'DECK', sense_ids: [16] })
     try {
-      expect((await api(page, 'study:submitReviews', 'POST', { results: [{ sense_id: 16, rating: 'GOOD' }] }, true, { 'Idempotency-Key': randomUUID() })).status).toBe(200)
       expect((await api(page, 'me/settings', 'PATCH', { learning: { question_types: ['WORD_TO_DEFINITION'], formats: ['SHORT_ANSWER'], questions_per_sense: 1, max_sense_count: 1 } })).status).toBe(200)
       await start(page, deck.id)
       const graded = page.waitForResponse(r => r.url().endsWith('/study:grade'), { timeout: 120000 })
@@ -70,11 +116,9 @@ test.describe('live external providers', () => {
     } finally { expect((await api(page, 'me/settings', 'PATCH', profile.settings)).status).toBe(200) }
   })
 
-  test('real Assistant streams reasoning and a long answer before completion; checkpoint history reopens', async ({ page, profile }) => {
+  test('real Assistant streams an answer and reopens checkpoint history', async ({ page, profile }) => {
     expect(profile.id).toBeTruthy()
     await openAssistant(page)
-    let completed = false
-    page.on('requestfinished', request => { if (request.url().endsWith('/assistant:run')) completed = true })
     const created = page.waitForResponse(r => r.url().endsWith('/assistant/conversations') && r.request().method() === 'POST')
     const streamed = page.waitForResponse(r => r.url().endsWith('/assistant:run'), { timeout: 120000 })
     await page.getByRole('textbox', { name: 'Message PycilAI' }).fill('Reason through why ships float. Write approximately 800 words for a learner. Start your answer with: Pycil integration verified.')
@@ -83,15 +127,12 @@ test.describe('live external providers', () => {
     try {
       const response = await streamed
       expect(response.status()).toBe(200)
-      await expect(page.locator('.ai-reasoning-body')).toBeVisible()
-      expect(completed).toBe(false)
       await expect(page.locator('.ai-markdown').last()).toContainText('Pycil integration verified.')
-      expect(completed).toBe(false)
       const stream = await response.text()
+      expect(stream).toContain('TEXT_MESSAGE_CONTENT')
       expect(stream).toContain('RUN_FINISHED')
       expect(stream).not.toContain('RUN_ERROR')
       const saved = (await api<ConversationDetails>(page, `assistant/conversations/${conversation.id}`)).body
-      expect(saved.state.messages.some(message => message.role === 'reasoning' && message.content)).toBe(true)
       expect(saved.state.messages.some(message => message.role === 'assistant' && typeof message.content === 'string' && message.content.length > 1000)).toBe(true)
       await expect(page.locator('.ai-message-error, .ai-error')).toHaveCount(0)
       await page.reload()

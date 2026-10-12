@@ -13,6 +13,25 @@ import { parseDictionaryWord } from '../src/lib/dictionary-model'
 const signal = () => new AbortController().signal
 const now = () => new Date('2026-10-07T02:00:00Z')
 
+test('references use the existing create endpoint and enforce publication boundaries', async () => {
+  const service = createMockServices({ latency: 0, now })
+  const published = database.account.published_node_id
+  await expect(service.library.createReference(published, 'travel-source', 'Travel', signal())).rejects.toMatchObject({ code: 'publication_confirmation_required' })
+  await expect(service.library.createReference(published, 'everyday', 'Private', signal(), true)).rejects.toMatchObject({ code: 'private_reference_cannot_be_published' })
+  const id = await service.library.createReference(published, 'travel-source', 'Travel', signal(), true)
+  expect((await service.library.details(id, signal())).target?.id).toBe('travel-source')
+  const original = globalThis.fetch
+  const requests: unknown[] = []
+  globalThis.fetch = async (_, options) => {
+    requests.push(JSON.parse(options!.body as string))
+    return Response.json({ id })
+  }
+  try {
+    await createHttpServices(async () => 'test-only-bearer').library.createReference(published, 'travel-source', 'Travel', signal(), true)
+    expect(requests).toEqual([{ type: 'REFERENCE', name: 'Travel', parent_id: published, reference_id: 'travel-source', confirm_publication: true }])
+  } finally { globalThis.fetch = original }
+})
+
 test('adaptive background canvases fill arbitrary ratios without cropping or x/y distortion', () => {
   for (const [width, height] of [[400, 240], [1200, 200], [760, 360], [320, 500], [240, 240]]) {
     const canvas = backgroundCanvas(width, height)
@@ -40,16 +59,17 @@ test('flashcard seeds select only the existing 16 backgrounds, independent of or
 })
 
 test('marked text follows backend inflections, repeated/discontinuous targets and Unicode', () => {
-  for (const inf of targetInflections) {
-    for (const label of [inf, inf.toUpperCase()]) {
-      const parsed = parseMarkedText(`Before <T inf="${label}">Target</T> after.`)
+  const codes = ['', 'p', 'pp', '3', 'ing', 'pl', 'c', 's']
+  for (const [index, inf] of targetInflections.entries()) {
+    for (const label of [codes[index], codes[index].toUpperCase()]) {
+      const parsed = parseMarkedText(`Before [Target${label ? '|' + label : ''}] after.`)
       expect(parsed).toEqual({ valid: true, text: 'Before Target after.', spans: [{ surface: 'Target', inf, start: 7, end: 13 }] })
     }
   }
-  const split = parseMarkedText('She <t inf="past">gave</t> it <t inf="base">up</t>, then <t inf="past">gave up</t> again.')
+  const split = parseMarkedText('She [gave|p] it [up], then [gave up|p] again.')
   expect(split.text).toBe('She gave it up, then gave up again.')
   expect(split.spans.map(span => span.surface)).toEqual(['gave', 'up', 'gave up'])
-  const unicode = parseMarkedText('🌍 <t inf="base">café</t> — café.')
+  const unicode = parseMarkedText('🌍 [café] — café.')
   expect(unicode.spans.map(span => unicode.text.slice(span.start, span.end))).toEqual(['café'])
   expect(parseMarkedText('a word with no markup')).toEqual({ text: 'a word with no markup', spans: [], valid: true })
   for (const sense of database.dictionary.words.map(parseDictionaryWord).flatMap(word => word.senses)) {
@@ -60,15 +80,14 @@ test('marked text follows backend inflections, repeated/discontinuous targets an
 })
 
 test('malformed markup remains literal, without partially trusted targets or HTML execution', () => {
-  const invalid = ['<t inf="unknown">word</t>', '<t inf="base"> </t>', '<t inf="base">word',
-    '<t inf="base"><b>word</b></t>', '<t inf="base" onclick="alert(1)">word</t>', '<t inf="base">good</t><t>bad</t>', 'x'.repeat(16001)]
+  const invalid = ['[word|unknown]', '[ ]', '[word', '[[word]]', '[word|]', '[good][bad', 'x'.repeat(16001)]
   for (const text of invalid) expect(parseMarkedText(text)).toEqual({ text, spans: [], valid: false })
   const html = '<script>alert(1)</script> <img src=x onerror=alert(1)>'
   expect(parseMarkedText(html)).toEqual({ text: html, spans: [], valid: true }) // Rendered as React text, never HTML.
 })
 
 test('live lexical examples read native content and retain backend target markup', () => {
-  const content = 'They <t inf="past">abandoned</t> the car.'
+  const content = 'They [abandoned|p] the car.'
   const page = parseMeaningPage({ senses: [{ sense_id: 8, lemma: 'abandon', pos: 'VERB', definition: 'to leave permanently', cefr_level: 'B1',
     learning: null, examples: [{ id: 91, content, theme_id: null }], sources: [], sources_has_more: false }], next_cursor: null })
   expect(page.senses[0].examples).toEqual([{ text: content }])
@@ -90,7 +109,7 @@ test('Library mock is canonical, scoped, deduplicated and consistent with Home',
   expect(meanings.senses.filter(sense => sense.learning!.state === 'NEW')).toHaveLength(folder.summary!.new)
   const agenda = meanings.senses.find(sense => sense.lemma === 'agenda')!
   expect(agenda.sources.map(source => source.id).sort()).toEqual(['business-core', 'meeting-expressions'])
-  expect(folder.breadcrumbs.map(node => node.name)).toEqual(['My Library', 'Personal'])
+  expect(folder.breadcrumbs.map(node => node.name)).toEqual(['My Library', 'Personal', 'Business English'])
 })
 
 test('meaning pagination, search, filters and sort do not leak other scopes', async () => {
@@ -122,7 +141,7 @@ test('references preserve placement but resolve readable sources; missing target
   expect(source.owner_id).not.toBe(database.account.id)
   expect(reference.target?.id).toBe(source.id)
   expect(reference.summary!.total).toBe(source.summary!.total)
-  expect(source.breadcrumbs).toEqual([{ id: 'preview-sam-published', name: 'Published' }])
+  expect(source.breadcrumbs).toEqual([{ id: 'preview-sam-published', name: 'Published' }, { id: 'travel-source', name: 'Travel essentials' }])
   expect((await service.library.meanings('travel', {}, signal())).senses.map(sense => sense.sense_id)).toEqual((await service.library.meanings('travel-source', {}, signal())).senses.map(sense => sense.sense_id))
   expect((await service.library.contents(database.account.personal_node_id, {}, signal())).nodes.find(node => node.id === 'travel')?.target_type).toBe('DECK')
   const savedBusiness = await service.library.details('saved-business', signal())

@@ -1,4 +1,4 @@
-"""Build the unreleased enum-capable dependency; never publish or alter Lexi's checkout."""
+"""Package native Lexi without patches; never publish or alter its checkout."""
 
 import argparse
 import hashlib
@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-VERSION = "0.1.0+pycil.20261002"
+VERSION = "0.1.0+pycil.20261011"
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -19,7 +19,7 @@ def digest(path):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("source", type=Path, help="explicit enum-capable Lexi checkout")
+    parser.add_argument("source", type=Path, help="explicit native Lexi checkout")
     parser.add_argument("--replace", action="store_true", help="replace a changed local artifact")
     args = parser.parse_args()
     source = args.source.resolve()
@@ -50,7 +50,7 @@ def main():
             check=True,
             env=environment,
         )
-        wheel, = (stage / "wheel").glob("*.whl")
+        (wheel,) = (stage / "wheel").glob("*.whl")
         target = destination / wheel.name
         if target.exists() and digest(target) != digest(wheel) and not args.replace:
             parser.error("artifact differs; inspect source changes before using --replace")
@@ -61,7 +61,9 @@ def main():
             "source_head": subprocess.check_output(
                 ["git", "-C", str(source), "rev-parse", "HEAD"], text=True
             ).strip(),
-            "source_files_sha256": {str(p.relative_to(source)): digest(p) for p in files},
+            "source_files_sha256": {
+                str(p.relative_to(source)): digest(stage / p.relative_to(source)) for p in files
+            },
             "wheel": wheel.name,
             "wheel_sha256": digest(wheel),
             "source_date_epoch": environment["SOURCE_DATE_EPOCH"],

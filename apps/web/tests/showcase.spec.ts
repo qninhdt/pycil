@@ -123,7 +123,7 @@ test('all authored artwork, composed interactions and no runtime errors', async 
   await expect(page.locator('#identity-icons .art-tile')).toHaveCount(54)
   expect(await page.locator('#control-icons .art-tile').count()).toBeGreaterThan(30)
   await category(page, 'Compositions').click()
-  await expect(page.locator('.specimen')).toHaveCount(8)
+  await expect(page.locator('.specimen')).toHaveCount(10)
   await page.getByRole('button', { name: 'Reveal explanation' }).click()
   await expect(page.getByRole('heading', { name: 'Intention.' })).toBeVisible()
   await page.getByRole('button', { name: 'Next slide' }).click()
@@ -168,7 +168,7 @@ test('desktop and mobile visual matrix in both themes', async ({ page }) => {
 })
 
 test('every installed shadcn family has a showcase reference', () => {
-  const installed = readdirSync('src/components/ui').filter(name => name.endsWith('.tsx'))
+  const installed = readdirSync('src/components/ui').filter(name => name.endsWith('.tsx') && !name.endsWith('.stories.tsx'))
   expect(installed).toHaveLength(61)
   const source = readdirSync('src/components/showcase').filter(name => name.endsWith('.tsx')).map(name => readFileSync(`src/components/showcase/${name}`, 'utf8')).join('\n')
   for (const file of installed) expect(source, `${file} should have a reachable showcase import`).toContain(`@/components/ui/${file.replace('.tsx', '')}`)
@@ -274,7 +274,7 @@ test('authored icons show distinct color and mono drawings and copy usage', asyn
   await category(page, 'Icons').click()
   await expect(page.getByRole('heading', { name: 'One icon language.' })).toBeVisible()
   await expect(page.locator('#identity-icons .icon-tile')).toHaveCount(54)
-  await expect(page.locator('#control-icons .icon-tile')).toHaveCount(53)
+  await expect(page.locator('#control-icons .icon-tile')).toHaveCount(54)
   await expect(page.locator('#learning-icons .icon-tile')).toHaveCount(10)
   const invalid = await page.locator('.icon-tile').evaluateAll(tiles => tiles.flatMap((tile, index) => {
     const [color, mono] = tile.querySelectorAll('svg.catalog-icon')

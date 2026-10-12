@@ -1,5 +1,6 @@
 'use client'
 
+import { useTranslations } from 'next-intl'
 import { Search, X, ArrowLeft, ArrowRight } from '@/components/artwork/artwork'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -21,14 +22,17 @@ export function LibrarySearch({ value, onChange, label }: { value: string; onCha
 }
 
 export function LibraryEmpty({ title, description, reset }: { title: string; description?: string; reset?: () => void }) {
+  const t = useTranslations('library')
   return <Empty className="min-h-60"><EmptyHeader><EmptyTitle>{title}</EmptyTitle>{description && <EmptyDescription>{description}</EmptyDescription>}</EmptyHeader>
-    {reset && <EmptyContent><Button variant="outline" onClick={reset}>Clear filters</Button></EmptyContent>}
+    {reset && <EmptyContent><Button variant="outline" onClick={reset}>{t('clearFilters')}</Button></EmptyContent>}
   </Empty>
 }
 
 export function LibraryPagination({ previous, next, page, busy = false }: { previous?: () => void; next?: () => void; page: number; busy?: boolean }) {
-  return <nav className="flex items-center justify-between gap-4 border-t border-border pt-5 mt-3 text-xs text-muted-foreground [&_>_div]:flex [&_>_div]:gap-2 max-[767px]:items-start max-[767px]:flex-wrap" aria-label="Pagination"><span aria-live="polite">Page {page}</span><div>
-    <Button variant="outline" size="sm" onClick={previous} disabled={!previous || busy} aria-label="Previous page"><ArrowLeft data-icon="inline-start" aria-hidden="true" />Previous</Button>
-    <Button variant="outline" size="sm" onClick={next} disabled={!next || busy} aria-label="Next page">Next<ArrowRight data-icon="inline-end" aria-hidden="true" /></Button>
+  const t = useTranslations('library')
+  const tCommon = useTranslations('common')
+  return <nav className="flex items-center justify-between gap-4 border-t border-border pt-5 mt-3 text-xs text-muted-foreground [&_>_div]:flex [&_>_div]:gap-2 max-[767px]:items-start max-[767px]:flex-wrap" aria-label={t('pagination')}><span aria-live="polite">{tCommon('page', { page })}</span><div>
+    <Button variant="outline" size="sm" onClick={previous} disabled={!previous || busy} aria-label={t('previousPage')}><ArrowLeft data-icon="inline-start" aria-hidden="true" />{tCommon('previous')}</Button>
+    <Button variant="outline" size="sm" onClick={next} disabled={!next || busy} aria-label={t('nextPage')}>{tCommon('next')}<ArrowRight data-icon="inline-end" aria-hidden="true" /></Button>
   </div></nav>
 }

@@ -43,10 +43,10 @@ test('atomic sense deltas preserve concurrent additions; invalid batches and sys
   const deck = await nodes.create({ type: 'DECK', sense_ids: [1] })
   const writes = await Promise.all([2, 3].map(id => api(page, `nodes/${deck.id}:modifySenses`, 'POST', { add: [id], remove: [] })))
   expect(writes.map(write => write.status)).toEqual([200, 200])
-  const editor = async () => (await api<{ sense_ids: number[] }>(page, `nodes/${deck.id}/editor`)).body.sense_ids
-  expect((await editor()).sort()).toEqual([1, 2, 3])
+  const members = async () => (await api<{ senses: { sense_id: number }[] }>(page, `nodes/${deck.id}/senses?limit=100`)).body.senses.map(sense => sense.sense_id)
+  expect((await members()).sort()).toEqual([1, 2, 3])
   expect((await api(page, `nodes/${deck.id}:modifySenses`, 'POST', { add: [4, 2147483647], remove: [1] })).status).toBe(422)
-  expect((await editor()).sort()).toEqual([1, 2, 3])
+  expect((await members()).sort()).toEqual([1, 2, 3])
   expect((await api(page, `nodes/${folder.id}:move`, 'POST', { parent_id: child.id })).status).toBe(422)
   expect((await api(page, `nodes/${profile.personal_node_id}`, 'DELETE')).status).toBe(422)
   expect((await api(page, `nodes/${profile.personal_node_id}`, 'PATCH', { name: 'must stay Personal' })).status).toBe(422)
@@ -89,18 +89,18 @@ test('copy persists independent memberships; reference cycles terminate with ded
   const copiedDeck = children.find(node => node.type === 'DECK')!
   expect(copiedDeck.id).not.toBe(deck.id)
   expect((await api(page, `nodes/${copiedDeck.id}:modifySenses`, 'POST', { add: [3], remove: [1] })).status).toBe(200)
-  expect((await api<{ sense_ids: number[] }>(page, `nodes/${deck.id}/editor`)).body.sense_ids.sort()).toEqual([1, 2])
-  expect((await api<{ sense_ids: number[] }>(page, `nodes/${copiedDeck.id}/editor`)).body.sense_ids.sort()).toEqual([2, 3])
+  expect((await api<{ senses: { sense_id: number }[] }>(page, `nodes/${deck.id}/senses?limit=100`)).body.senses.map(sense => sense.sense_id).sort()).toEqual([1, 2])
+  expect((await api<{ senses: { sense_id: number }[] }>(page, `nodes/${copiedDeck.id}/senses?limit=100`)).body.senses.map(sense => sense.sense_id).sort()).toEqual([2, 3])
   await page.goto(`/app/personal/${copy.body.id}/words`)
   await expect(page.getByRole('button', { name: /^View / })).toHaveCount(3)
 })
 
-test('Discovery filters and pages public records; guessed private IDs and editor routes remain hidden', async ({ page, profile, nodes }) => {
+test('Discovery filters and pages public records; guessed private IDs and mutation routes remain hidden', async ({ page, profile, nodes }) => {
   const marker = 'public ' + randomUUID()
   for (let n = 0; n < 13; n++) {
     const deck = await nodes.create({ type: 'DECK', name: `${marker} ${n}` })
     expect((await api(page, `nodes/${deck.id}:move`, 'POST', { parent_id: profile.published_node_id, confirm_publication: true })).status).toBe(200)
-    expect((await api(page, `nodes/${deck.id}/editor`, 'GET', undefined, false)).status).toBe(401)
+    expect((await api(page, `nodes/${deck.id}`, 'PATCH', { name: 'denied' }, false)).status).toBe(401)
   }
   const privateDeck = await nodes.create({ type: 'DECK', name: marker + ' secret' })
   await page.goto('/app/discovery')
@@ -152,7 +152,7 @@ test('native folder and deck quotas reject atomically, including concurrent crea
   const tooMany = [...Array.from({ length: 32 }, (_, n) => n + 1), ...Array.from({ length: 89 }, (_, n) => n + 100)]
   const denied = await api<{ error: string }>(page, `nodes/${deck.id}:modifySenses`, 'POST', { add: tooMany, remove: [] })
   expect(denied).toMatchObject({ status: 422, body: { error: 'deck_sense_limit_exceeded' } })
-  expect((await api<{ sense_ids: number[] }>(page, `nodes/${deck.id}/editor`)).body.sense_ids).toEqual([1])
+  expect((await api<{ senses: { sense_id: number }[] }>(page, `nodes/${deck.id}/senses?limit=100`)).body.senses.map(sense => sense.sense_id)).toEqual([1])
 })
 
 test('all paginated source decks resolve canonically without duplicates', async ({ page, nodes }) => {

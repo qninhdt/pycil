@@ -9,7 +9,7 @@ from pycil.http import Problem
 from pycil.library.models import DeckSense, Node, NodeRole, NodeSpace, NodeType
 from pycil.library.tree import add_paths, roots
 from pycil.study import progress as reports
-from pycil.study.models import DailyActivity, Rating, UserSense
+from pycil.study.models import DailyActivity, UserSense
 
 NOW = datetime(2026, 10, 2, 2, tzinfo=UTC)
 
@@ -52,9 +52,9 @@ async def tracked(database, user, senses, config, monkeypatch):
                     sense_id=sense_id,
                     stability=stability,
                     difficulty=5,
-                    last_review_at=NOW - timedelta(days=1),
+                    last_exposure_at=NOW - timedelta(days=1),
                     due_at=due,
-                    last_rating=Rating.GOOD,
+                    elo=600,
                     review_count=1,
                     lapse_count=0,
                 )

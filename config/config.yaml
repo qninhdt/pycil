@@ -11,6 +11,8 @@ account:
     locale: en
     timezone: UTC
     translation_language: vi
+    assistant:
+      auto_approve: false
   locales: [en, vi]
   translation_languages: [en, vi]
 learning:
@@ -24,18 +26,18 @@ learning:
         WORD_TO_USAGE,
         DIALOGUE_COMPLETION,
         MEANING_IN_CONTEXT,
+        SENTENCE_REWRITE,
       ]
     formats: [SINGLE_CHOICE]
-    questions_per_sense: 3
+    questions_per_sense: 2
     max_sense_count: 10
-    show_explanations: true
   limits:
     min_questions_per_sense: 1
-    max_questions_per_sense: 7
-    max_questions_per_prepare: 100
-    candidate_read_batch_size: 100
+    max_questions_per_sense: 3
+    max_questions_per_prepare: 60
+    max_sense_count: 20
     max_answer_chars: 8000
-    max_review_batch: 100
+    max_review_batch: 60
     max_summary_nodes: 50
     max_activity_days: 366
     max_schedule_days: 30
@@ -47,24 +49,25 @@ learning:
     WORD_TO_USAGE: { SINGLE_CHOICE: 2, SHORT_ANSWER: 4 }
     DIALOGUE_COMPLETION: { SINGLE_CHOICE: 2 }
     MEANING_IN_CONTEXT: { SINGLE_CHOICE: 2 }
-  format_mix:
-    NEW: { max_single_word: 0, max_short_answer: 0 }
-    AGAIN: { max_single_word: 0, max_short_answer: 0 }
-    HARD: { max_single_word: 1, max_short_answer: 0 }
-    GOOD: { max_single_word: 1, max_short_answer: 1 }
-    EASY: { max_single_word: 1, max_short_answer: 1 }
+    SENTENCE_REWRITE: { SINGLE_CHOICE: 2, SHORT_ANSWER: 5 }
+  mastery:
+    initial_elo: 600
+    k_elo: 32
+    horizon_hours: 24
+    level_thresholds: [800, 1000, 1200, 1400]
+    opponent_elo: [600, 800, 1000, 1200, 1400]
+    policy_version: 1
   fsrs:
     desired_retention: 0.9
     max_interval_days: 365
+    initial_stability: 1
+    initial_difficulty: 5
 generation:
-  questions_per_type: 8
+  question_artifact_batch_size: 8
+  correct_count: 1
   distractor_count: 3
   examples_per_sense: 5
-  worker:
-    poll_interval_seconds: 1
-    attempt_timeout_seconds: 600
-    max_attempts: 3
-    retry_delay_seconds: 5
+  timeout_seconds: 600
 assistant:
   default_model: openai/gpt-6-luna
   default_effort: medium
@@ -75,9 +78,6 @@ assistant:
   max_images: 4
   max_image_bytes: 10000000
   starts_per_minute: 20
-  retention_days: 30
-  purge_interval_seconds: 3600
-  purge_batch_size: 100
 models:
   # OpenRouter catalog checked 2026-10-08; units are USD per million tokens.
   - id: openai/gpt-6-luna
@@ -124,7 +124,6 @@ library:
   scope_timeout_seconds: 5
 cache:
   actor_ttl_seconds: 60
-  deck_ttl_seconds: 60
   max_entries: 1000
   max_value_bytes: 65536
 projections:

@@ -9,10 +9,7 @@ from pycil.database import Base
 
 class Conversation(Base):
     __tablename__ = "conversations"
-    __table_args__ = (
-        Index("ix_conversations_owner_updated", "user_id", "updated_at", "id"),
-        Index("ix_conversations_retention", "updated_at", "id"),
-    )
+    __table_args__ = (Index("ix_conversations_owner_updated", "user_id", "updated_at", "id"),)
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))

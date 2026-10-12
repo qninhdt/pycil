@@ -11,6 +11,8 @@ export const initialUiScript = `(()=>{
   root.dataset.timeOfDay=hour<starts.morning||hour>=starts.night?'night':hour<starts.afternoon?'morning':'afternoon';
   try{
     if(localStorage.getItem('bauhaus-theme')==='dark')root.classList.add('dark');
+    const loc=localStorage.getItem('pycil-locale');
+    if(loc==='vi'||loc==='en')root.lang=loc;
     root.dataset.navigationCollapsed=localStorage.getItem(${JSON.stringify(navigationCollapsedKey)})==='true'?'true':'false';
     root.dataset.aiOpen=localStorage.getItem(${JSON.stringify(aiOpenKey)})==='true'?'true':'false';
   }catch{root.dataset.navigationCollapsed='false';root.dataset.aiOpen='false'}

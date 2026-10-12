@@ -1,7 +1,5 @@
 import asyncio
 import os
-import subprocess
-import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TypedDict
@@ -11,6 +9,7 @@ import pytest
 from alembic import command
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.graph import END, START, StateGraph
+from lexi_ai.migrations import inspect_head
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -30,12 +29,12 @@ def forbid_setup(monkeypatch):
     monkeypatch.setattr(AsyncPostgresSaver, "setup", forbidden)
 
 
-async def test_migration_gate_rejects_checkpoint_version_gap(database):
+async def test_migration_gate_rejects_checkpoint_version_gap(database, content):
     engine, _, url = database
     async with engine.begin() as connection:
         await connection.execute(text("DELETE FROM checkpoints.checkpoint_migrations WHERE v=1"))
     with pytest.raises(RuntimeError, match="checkpoint_version_mismatch"):
-        await asyncio.to_thread(migrate, url)
+        await asyncio.to_thread(migrate, url, content_path=content)
 
 
 async def test_migration_gate_separates_all_three_schema_owners(database):
@@ -56,27 +55,27 @@ async def test_migration_gate_separates_all_three_schema_owners(database):
         )
         assert ("lexi", "senses") in owners
         assert ("public", "users") in owners
-    # A lossy placement downgrade is explicitly blocked; external schemas stay intact.
-    with pytest.raises(RuntimeError, match="pre-upgrade backup"):
+    with pytest.raises(RuntimeError, match="Diagnostic learning"):
         await asyncio.to_thread(command.downgrade, migration_config(url), "base")
     async with engine.connect() as connection:
         assert await connection.scalar(text("SELECT to_regclass('public.users')")) is not None
         assert (
             await connection.scalar(text("SELECT version_num FROM lexi.alembic_version"))
-            == "20261003_base"
+            == inspect_head()
         )
         assert await connection.scalar(
             text("SELECT count(*) FROM checkpoints.checkpoint_migrations")
         ) == len(AsyncPostgresSaver.MIGRATIONS)
-    await asyncio.to_thread(command.upgrade, migration_config(url), "head")
     await verify_schema(engine)
     await asyncio.to_thread(command.check, migration_config(url))
 
 
-@pytest.mark.parametrize("database", ["0001_baseline"], indirect=True)
 async def test_fresh_baseline_refuses_existing_public_data_without_reset(database):
     engine, _, url = database
-    await asyncio.to_thread(command.downgrade, migration_config(url), "base")
+    # This fixture owns a fresh disposable database; only reset its application schema.
+    async with engine.begin() as connection:
+        await connection.execute(text("DROP SCHEMA public CASCADE"))
+        await connection.execute(text("CREATE SCHEMA public"))
     async with engine.begin() as connection:
         await connection.execute(text("CREATE TABLE public.protected_marker(value text)"))
         await connection.execute(text("INSERT INTO public.protected_marker VALUES ('keep')"))
@@ -87,7 +86,7 @@ async def test_fresh_baseline_refuses_existing_public_data_without_reset(databas
         assert await connection.scalar(text("SELECT to_regclass('public.users')")) is None
         assert (
             await connection.scalar(text("SELECT version_num FROM lexi.alembic_version"))
-            == "20261003_base"
+            == inspect_head()
         )
 
 
@@ -124,8 +123,9 @@ async def test_native_resources_close_after_lifespan_and_restart(
     for _ in range(2):
         async with app.router.lifespan_context(app):
             resource = app.state.lexicon
-            refresh = resource._refresh_task
-            assert refresh is not None and not refresh.done()
+            generation = app.state.generations
+            assert resource._search.snapshot is not None
+            assert not generation.closed
             saved.append(resource)
             http = app.state.http
             pool = app.state.checkpoint_pool
@@ -142,7 +142,9 @@ async def test_native_resources_close_after_lifespan_and_restart(
                 assert response.headers["access-control-allow-origin"] == "https://client.invalid"
                 assert response.headers["x-request-id"]
         assert http.is_closed
-        assert refresh.done()
+        assert generation.closed
+        assert not generation.flights
+        assert resource._search.snapshot is None
         assert pool.closed
         assert not redis.connection_pool._in_use_connections
         assert not any(c.is_connected for c in redis.connection_pool._available_connections)
@@ -407,7 +409,6 @@ def deployment_environment(deployment):
         "CLERK_JWKS_URL": "clerk_jwks_url",
         "CLERK_ISSUER": "clerk_issuer",
         "CLERK_SECRET_KEY": "clerk_secret_key",
-        "LEXI_CAMBRIDGE_DB_PATH": "cambridge_path",
         "INFERENCE_API_KEY": "inference_api_key",
         "INFERENCE_BASE_URL": "inference_base_url",
         "LEXI_DECISION_API_KEY": "decision_api_key",
@@ -421,19 +422,6 @@ def deployment_environment(deployment):
     env["CLERK_AUDIENCE"] = "pycil"
     env["ALLOWED_ORIGINS"] = "https://client.invalid"
     return env
-
-
-async def test_worker_check_cli_exits_cleanly_without_processing(deployment):
-    result = await asyncio.to_thread(
-        subprocess.run,
-        [sys.executable, "-m", "pycil.worker", "--check"],
-        env=deployment_environment(deployment),
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode == 0, result.stderr
-    assert "no generation or user-unit debit" in result.stdout
-    assert "test-only" not in result.stdout + result.stderr
 
 
 @pytest.mark.parametrize(

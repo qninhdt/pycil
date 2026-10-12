@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client'
 import { AppShell } from '../../src/components/application/app-shell'
 import { HomeDashboard } from '../../src/components/home/home-page'
 import { TooltipProvider } from '../../src/components/ui/tooltip'
+import { I18nProvider } from '../../src/components/application/i18n-provider'
 import { ScrollArea } from '../../src/components/ui/scroll-area'
 import type { AccountProfile } from '../../src/lib/api'
 import { ServicesProvider } from '../../src/lib/services/provider'
@@ -24,11 +25,11 @@ function Fixture() {
     window.addEventListener('test-account-change', update)
     return () => window.removeEventListener('test-account-change', update)
   }, [])
-  return <ServicesProvider key={account?.id ?? 'signed-out'} services={services} scope={account?.id ?? 'signed-out'}><TooltipProvider><AppShell>
+  return <ServicesProvider key={account?.id ?? 'signed-out'} services={services} scope={account?.id ?? 'signed-out'}><I18nProvider><TooltipProvider><AppShell>
     <p className="home-footnote">Test fixture · synthetic data</p>
     {account ? <HomeDashboard key={account.id} profile={account} /> : <p>Signed out of the test fixture.</p>}
     {new URLSearchParams(location.search).has('scroll') && <ScrollArea style={{ height: 160, width: 200 }}><div style={{ height: 1000 }}>Scrollbar test</div></ScrollArea>}
-  </AppShell></TooltipProvider></ServicesProvider>
+  </AppShell></TooltipProvider></I18nProvider></ServicesProvider>
 }
 
 createRoot(document.getElementById('fixture')!).render(<Fixture />)

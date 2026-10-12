@@ -22,6 +22,11 @@ class User(Base):
     __table_args__ = (
         CheckConstraint("jsonb_typeof(settings) = 'object'", name="settings_object"),
         CheckConstraint("handle IS NULL OR handle ~ '^[a-z][a-z0-9_]{2,29}$'", name="handle_shape"),
+        CheckConstraint(
+            "display_name IS NULL OR (display_name = btrim(display_name) "
+            "AND length(display_name) BETWEEN 1 AND 255)",
+            name="display_name_shape",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)

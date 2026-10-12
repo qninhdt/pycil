@@ -104,18 +104,26 @@ async def word_previews(session, lexicon, identifiers, config):
     ]
 
 
-async def viewer_context(session, user_id, config, identifiers):
-    if len(identifiers) > config.projections.max_context_senses or len(set(identifiers)) != len(
-        identifiers
-    ):
+async def viewer_context(
+    session, user_id, config, identifiers, *, include_sources=True, max_senses=None
+):
+    if len(identifiers) > (max_senses or config.projections.max_context_senses) or len(
+        set(identifiers)
+    ) != len(identifiers):
         raise Problem(422, "context_too_large")
     found = set((await session.scalars(select(Sense.id).where(Sense.id.in_(identifiers)))).all())
     if found != set(identifiers):
         raise Problem(404, "sense_not_found")
     budget = ScopeBudget(user_id)
     async with bounded(session, config, budget):
-        scope = next(
-            iter((await resolve_scopes(session, [None], user_id, config, budget=budget)).values())
+        scope = (
+            next(
+                iter(
+                    (await resolve_scopes(session, [None], user_id, config, budget=budget)).values()
+                )
+            )
+            if include_sources
+            else None
         )
         memories = {
             m.sense_id: m
@@ -127,12 +135,16 @@ async def viewer_context(session, user_id, config, identifiers):
                 )
             ).all()
         }
-        membership = await source_batch(session, scope.decks, identifiers, user_id, config)
+        membership = (
+            await source_batch(session, scope.decks, identifiers, user_id, config)
+            if scope
+            else {i: {"decks": [], "count": 0} for i in identifiers}
+        )
         now = datetime.now(UTC)
         senses = [
             {
                 "sense_id": identifier,
-                "learning": learning_preview(memories.get(identifier), now, user_id),
+                "learning": learning_preview(memories.get(identifier), now, user_id, config),
                 "decks": membership[identifier]["decks"],
                 "deck_count": membership[identifier]["count"],
                 "decks_has_more": membership[identifier]["count"]

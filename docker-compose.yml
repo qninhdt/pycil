@@ -10,7 +10,6 @@ x-runtime-env: &runtime-env
   CLERK_AUDIENCE: ${CLERK_AUDIENCE:-}
   CLERK_SECRET_KEY: ${CLERK_SECRET_KEY}
   ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
-  LEXI_CAMBRIDGE_DB_PATH: /reference/cambridge.db
   INFERENCE_API_KEY: ${INFERENCE_API_KEY}
   INFERENCE_BASE_URL: ${INFERENCE_BASE_URL}
   LEXI_DECISION_API_KEY: ${LEXI_DECISION_API_KEY}
@@ -82,22 +81,11 @@ services:
     ports:
       - "${API_HOST_PORT:-127.0.0.1:8000}:8000"
     depends_on: *stores-ready
-    volumes:
-      - ${LEXI_CAMBRIDGE_DB_PATH:?explicit reference artifact path required}:/reference/cambridge.db:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/ready').read()"]
       interval: 10s
       timeout: 5s
       retries: 6
-
-  worker:
-    <<: *backend
-    restart: unless-stopped
-    environment: *runtime-env
-    command: ["python", "-m", "pycil.worker"]
-    depends_on: *stores-ready
-    volumes:
-      - ${LEXI_CAMBRIDGE_DB_PATH:?explicit reference artifact path required}:/reference/cambridge.db:ro
 
   caddy:
     image: caddy:2.11.6-alpine

@@ -9,6 +9,7 @@ export type Approval = { interrupt_id: string; action_requests: { name: string; 
 export type ConversationDetails = Conversation & { state: { messages: Message[]; pending_approvals: Approval[] } }
 export type ConversationPage = { conversations: Conversation[]; next_cursor: string | null }
 export type AssistantService = ReturnType<typeof createAssistantService>
+export type AssistantView = { path: string; node_id?: string; word_id?: number }
 
 export class AssistantError extends Error {
   constructor(public status: number, public code: string) {
@@ -52,7 +53,7 @@ export function parseConversationDetails(value: unknown): ConversationDetails {
 }
 
 // The server owns history and tools: send only the new turn or the approval resolution.
-export function turnInput(input: RunAgentInput, threadId: string, model: AssistantModel, effort: string): RunAgentInput {
+export function turnInput(input: RunAgentInput, threadId: string, model: AssistantModel, effort: string, currentView?: AssistantView): RunAgentInput {
   if (!model.efforts.includes(effort) || !REASONING_EFFORTS.includes(effort as ReasoningEffort)) throw new Error('Select a supported reasoning effort.')
   const messages = input.resume?.length ? [] : input.messages.slice(-1)
   if (!input.resume?.length && (messages.length !== 1 || messages[0].role !== 'user')) throw new Error('Enter a new message to continue.')
@@ -69,7 +70,7 @@ export function turnInput(input: RunAgentInput, threadId: string, model: Assista
     }
   }
   if (chars > 8000 || images > 4) throw new Error('Use up to 8,000 characters and four images per message.')
-  const body = { threadId, runId: input.runId, messages, state: {}, tools: [], context: [], forwardedProps: { model_id: model.id, effort }, ...(input.resume?.length ? { resume: input.resume } : {}) }
+  const body = { threadId, runId: input.runId, messages, state: {}, tools: [], context: [], forwardedProps: { model_id: model.id, effort, ...(currentView ? { current_view: currentView } : {}) }, ...(input.resume?.length ? { resume: input.resume } : {}) }
   if (new TextEncoder().encode(JSON.stringify(body)).length > 15_000_000) throw new Error('Use fewer or smaller images. The complete message must fit within 15 MB.')
   return body
 }

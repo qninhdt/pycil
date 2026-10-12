@@ -7,7 +7,7 @@ import { parseDictionaryWord, parseWordContext, parseWordGeneration, parseWordPr
 
 export function createHttpServices(getToken: () => Promise<string | null>): FrontendServices {
   async function request<T>(path: string, parse: (value: unknown) => T, signal: AbortSignal, body?: unknown, method?: 'POST' | 'PATCH' | 'DELETE', publicRead = false, headers?: Record<string, string>) {
-    const boundedSignal = AbortSignal.any([signal, AbortSignal.timeout(12000)])
+    const boundedSignal = AbortSignal.any([signal, AbortSignal.timeout(path === 'study:prepare' ? 30000 : 12000)])
     return homeRequest(path, publicRead ? null : await homeToken(getToken, boundedSignal), parse, boundedSignal, body, method, headers)
   }
   const windowQuery = (window: DateWindow) => new URLSearchParams({ start_date: window.start, end_date: window.end }).toString()
@@ -48,7 +48,7 @@ export function createHttpServices(getToken: () => Promise<string | null>): Fron
       schedule: (window, signal) => request(`study/review-schedule?${windowQuery(window)}`, parseSchedule, signal),
       prepare: (input, signal) => request('study:prepare', parsePreparation, signal, input),
       grade: (input, signal) => request('study:grade', parseGrade, signal, input),
-      review: ({ results, key }, signal) => request('study:submitReviews', parseReviewBatch, signal, { results }, 'POST', false, { 'Idempotency-Key': key }),
+      review: ({ results, key }, signal) => request('study:submitResults', parseReviewBatch, signal, { results }, 'POST', false, { 'Idempotency-Key': key }),
     },
     library: {
       discovery: (options, signal) => {
@@ -60,7 +60,7 @@ export function createHttpServices(getToken: () => Promise<string | null>): Fron
         return libraryPage(`discovery/nodes?${query}`, signal, true)
       },
       sources: (id, senseId, cursor, signal) => request(`nodes/${encodeURIComponent(id)}/senses/${senseId}/sources?limit=20${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, parseSources, signal),
-      createReference: (parentId, targetId, name, signal) => request('nodes', nodeId, signal, { type: 'REFERENCE', name, parent_id: parentId, reference_id: targetId }),
+      createReference: (parentId, targetId, name, signal, confirmPublication = false) => request('nodes', nodeId, signal, { type: 'REFERENCE', name, parent_id: parentId, reference_id: targetId, confirm_publication: confirmPublication }),
       list: (parentId, signal) => libraryPage(`nodes?parent_id=${encodeURIComponent(parentId)}&include=summary&limit=4`, signal),
       publicContents: (parentId, cursor, signal) => libraryPage(`nodes?parent_id=${encodeURIComponent(parentId)}&limit=12${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, signal, true),
       publicNode: async (nodeId, signal) => {
@@ -104,12 +104,12 @@ export function createHttpServices(getToken: () => Promise<string | null>): Fron
       deleteNode: (id, signal) => request(`nodes/${encodeURIComponent(id)}`, () => undefined, signal, undefined, 'DELETE'),
     },
     dictionary: {
-      search: (query, signal) => request(`words:search?query=${encodeURIComponent(query)}&include_available=true`, parseWordSearch, signal, undefined, undefined, true),
+      search: (query, signal) => request(`words:search?query=${encodeURIComponent(query)}&include_reference=true`, parseWordSearch, signal, undefined, undefined, true),
       word: (id, signal) => request(`words/${id}`, parseDictionaryWord, signal, undefined, undefined, true),
       previews: (ids, signal) => request('words:batchPreview', parseWordPreviews, signal, { word_ids: ids }, 'POST', true),
       context: (id, signal) => request(`me/words/${id}`, parseWordContext, signal),
-      prepare: (availableId, target, signal) => request('word-generations', parseWordGeneration, signal, { available_id: availableId, target }),
-      generation: (id, signal) => request(`word-generations/${encodeURIComponent(id)}`, parseWordGeneration, signal),
+      prepare: (referenceId, target, signal) => request('words:generate', parseWordGeneration, signal, { reference_id: referenceId, target }),
+      generation: (id, signal) => request(`word-tasks/${encodeURIComponent(id)}`, parseWordGeneration, signal),
     },
   }
 }

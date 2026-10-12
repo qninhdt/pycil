@@ -9,8 +9,10 @@
     "start": "next start",
     "lint": "oxlint",
     "typecheck": "tsc --noEmit",
-    "test": "playwright test",
-    "test:e2e": "playwright test --config playwright.e2e.config.ts"
+    "test": "node node_modules/@playwright/test/cli.js test",
+    "test:e2e": "node node_modules/@playwright/test/cli.js test --config playwright.e2e.config.ts",
+    "storybook": "storybook dev -p 6006",
+    "build-storybook": "storybook build"
   },
   "dependencies": {
     "@ag-ui/client": "0.0.59",
@@ -19,7 +21,7 @@
     "@assistant-ui/react-ag-ui": "^0.0.65",
     "@assistant-ui/react-markdown": "^0.14.19",
     "@base-ui/react": "^1.8.0",
-    "@clerk/react": "^6.17.6",
+    "@clerk/nextjs": "^7.9.14",
     "@fontsource-variable/geist": "^5.3.0",
     "@fontsource-variable/manrope": "^5.3.0",
     "@next/env": "^16.3.8",
@@ -35,6 +37,7 @@
     "input-otp": "^1.5.0",
     "katex": "~0.16.47",
     "next": "^16.3.8",
+    "next-intl": "^4.14.9",
     "next-themes": "^0.4.6",
     "radix-ui": "^1.7.0",
     "react": "^19.2.8",
@@ -55,14 +58,27 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@chromatic-com/storybook": "latest",
     "@clerk/testing": "^2.2.43",
-    "@playwright/test": "^1.63.0",
+    "@playwright/test": "^1.64.0",
+    "@storybook/addon-a11y": "^10.6.1",
+    "@storybook/addon-docs": "^10.6.1",
+    "@storybook/addon-mcp": "^10.6.1",
+    "@storybook/addon-vitest": "^10.6.1",
+    "@storybook/nextjs-vite": "^10.6.1",
+    "@storybook/react": "^10.6.1",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
+    "@vitest/browser-playwright": "latest",
+    "@vitest/coverage-v8": "latest",
     "esbuild": "^0.28.2",
     "oxlint": "^1.81.0",
+    "playwright": "latest",
     "shadcn": "^4.21.3",
-    "typescript": "~6.0.2"
+    "storybook": "^10.6.1",
+    "typescript": "~6.0.2",
+    "vite": "latest",
+    "vitest": "latest"
   }
 }

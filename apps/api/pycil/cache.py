@@ -49,7 +49,7 @@ class RedisCache:
     async def put(self, key, value, ttl):
         if type(ttl) is not int:
             raise TypeError("Cache TTL must be an integer")
-        index_ttl = max(self.policy.actor_ttl_seconds, self.policy.deck_ttl_seconds)
+        index_ttl = self.policy.actor_ttl_seconds
         if not 0 < ttl <= index_ttl:
             raise ValueError("Cache TTL must be between 1 and the configured maximum")
         payload = orjson.dumps(value.model_dump(mode="json"))

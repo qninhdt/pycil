@@ -8,7 +8,7 @@ import httpx
 import pytest
 from ag_ui.core import RunAgentInput
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import AIMessage, AIMessageChunk
+from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from pydantic import Field
@@ -17,7 +17,7 @@ from sqlalchemy import func, select
 from pycil.account.auth import actor
 from pycil.account.models import UsageEvent, UsagePeriod, User
 from pycil.assistant import graph as agents
-from pycil.assistant.conversations import delete_conversation, guard, purge
+from pycil.assistant.conversations import delete_conversation, guard
 from pycil.assistant.models import Conversation
 from pycil.assistant.stream import prepare_turn, validate_input
 from pycil.assistant.tools import tools
@@ -141,6 +141,51 @@ async def test_native_stream_units_owned_state_restart_and_delete(
         assert state["channel_values"]["messages"][-1].content == "Hello"
         await delete_conversation(restarted, user, conversation.id)
         assert await saver.aget({"configurable": {"thread_id": str(conversation.id)}}) is None
+
+
+async def test_reasoning_after_tool_calls_is_streamed_and_saved(
+    runtime, deployment, config, user, conversation, monkeypatch
+):
+    provider = Completion(
+        responses=[
+            answer(
+                "",
+                tool_calls=[
+                    {
+                        "name": "search_nodes",
+                        "args": {"queries": ["Hogwarts"]},
+                        "id": "call_search",
+                    }
+                ],
+            ),
+            answer(
+                [
+                    {"type": "reasoning", "reasoning": "Explain the empty result."},
+                    {"type": "text", "text": "The library is empty."},
+                ]
+            ),
+        ]
+    )
+    monkeypatch.setattr(agents, "model", lambda *args: nullcontext(provider))
+    events = await collect(runtime, deployment, user, request(conversation.id), config)
+    assert events[-1]["type"] == "RUN_FINISHED", events
+    assert (
+        "".join(
+            event.get("delta", "")
+            for event in events
+            if event["type"] == "REASONING_MESSAGE_CONTENT"
+        )
+        == "Explain the empty result."
+    )
+    from ag_ui_langgraph.utils import langchain_messages_to_agui
+
+    snapshot = await AsyncPostgresSaver(runtime.checkpoint_pool).aget(
+        {"configurable": {"thread_id": str(conversation.id)}}
+    )
+    messages = langchain_messages_to_agui(snapshot["channel_values"]["messages"])
+    assert [message.content for message in messages if message.role == "reasoning"] == [
+        "Explain the empty result."
+    ]
 
 
 @pytest.mark.parametrize("outcome", ["finish", "cancel", "timeout"])
@@ -291,6 +336,45 @@ async def test_openrouter_reasoning_and_text_arrive_before_provider_finishes(
         await asyncio.gather(*connections, return_exceptions=True)
 
 
+async def test_auto_approve_uses_current_saved_setting_without_interrupt(
+    runtime, deployment, config, user, conversation, monkeypatch
+):
+    # The actor remains stale; execution must read the setting committed by PATCH.
+    async with runtime.sessions() as session, session.begin():
+        persisted = await session.get(User, user.id)
+        persisted.settings = {"assistant": {"auto_approve": True}}
+    provider = Completion(
+        responses=[
+            answer(
+                "",
+                tool_calls=[
+                    {
+                        "name": "create_node",
+                        "args": {"type": "DECK", "name": "auto created"},
+                        "id": "call_auto",
+                    }
+                ],
+            ),
+            answer("Done"),
+        ]
+    )
+    monkeypatch.setattr(agents, "model", lambda *args: nullcontext(provider))
+    events = await collect(runtime, deployment, user, request(conversation.id), config)
+    assert events[-1]["type"] == "RUN_FINISHED", events
+    state = await agents.graph(runtime, user, config, provider).aget_state(
+        {"configurable": {"thread_id": str(conversation.id)}}
+    )
+    assert not any(task.interrupts for task in state.tasks)
+    assert provider.calls == 2
+    async with runtime.sessions() as session:
+        assert (
+            await session.scalar(
+                select(Node.id).where(Node.name == "auto created", Node.owner_id == user.id)
+            )
+            is not None
+        )
+
+
 @pytest.mark.parametrize("decision", ["approve", "reject"])
 async def test_native_approval_and_free_rejection(
     runtime, deployment, config, user, conversation, monkeypatch, decision
@@ -302,7 +386,7 @@ async def test_native_approval_and_free_rejection(
                 tool_calls=[
                     {
                         "name": "create_node",
-                        "args": {"data": {"type": "DECK", "name": "created"}},
+                        "args": {"type": "DECK", "name": "created"},
                         "id": "call_create",
                     }
                 ],
@@ -359,6 +443,9 @@ async def test_native_approval_and_free_rejection(
             assert denied.json() == {"error": "conversation_not_found"}
             app.dependency_overrides[actor] = authenticated
 
+    async with runtime.sessions() as session, session.begin():
+        persisted = await session.get(User, user.id)
+        persisted.settings = {"assistant": {"auto_approve": True}}
     if decision == "reject":
         async with runtime.sessions() as session, session.begin():
             period = await session.scalar(select(UsagePeriod))
@@ -440,14 +527,14 @@ async def test_http_conversation_create_list_empty_state_and_delete(
     assert provider.calls == 0
 
 
-async def test_active_turn_blocks_delete_and_retention_then_purges(
+async def test_active_turn_blocks_manual_delete_and_renews_lease(
     runtime, deployment, config, user, conversation, monkeypatch
 ):
     provider = Completion(responses=[answer()])
     monkeypatch.setattr(agents, "model", lambda *args: nullcontext(provider))
     async with runtime.sessions() as session, session.begin():
         row = await session.get(Conversation, conversation.id)
-        row.updated_at = datetime.now(UTC) - timedelta(days=config.assistant.retention_days + 1)
+        row.updated_at = datetime.now(UTC) - timedelta(days=365)
     async with guard(runtime.redis, conversation.id):
         assert runtime.engine.pool.checkedout() == 0
         assert not runtime.redis.connection_pool._in_use_connections
@@ -463,10 +550,9 @@ async def test_active_turn_blocks_delete_and_retention_then_purges(
             await collect(runtime, deployment, user, request(conversation.id), config)
         with pytest.raises(Problem, match="conversation_busy"):
             await delete_conversation(runtime, user, conversation.id)
-        await purge(runtime, config)
         async with runtime.sessions() as session:
             assert await session.get(Conversation, conversation.id) is not None
-    await purge(runtime, config)
+    await delete_conversation(runtime, user, conversation.id)
     async with runtime.sessions() as session:
         assert await session.get(Conversation, conversation.id) is None
     monkeypatch.setattr("pycil.assistant.conversations.LOCK_TTL_SECONDS", 0.3)
@@ -494,8 +580,8 @@ async def test_approval_reauthorizes_live_library_ownership(
         )
     surface = {t.name: t for t in tools(runtime, user, config)}
     assert "edit_membership" not in surface
-    detail = await surface["get_node_editor"].ainvoke({"node_id": str(deck["id"])})
-    assert detail["id"] == deck["id"] and detail["sense_ids"] == []
+    detail = await surface["read_library"].ainvoke({"node_id": str(deck["id"])})
+    assert detail["node"]["node_id"] == str(deck["id"])
     provider = Completion(
         responses=[
             answer(
@@ -505,13 +591,13 @@ async def test_approval_reauthorizes_live_library_ownership(
                         "name": "update_node",
                         "args": {
                             "node_id": str(deck["id"]),
-                            "data": {"name": "edited", "sense_ids": []},
+                            "name": "edited",
                         },
                         "id": "call_save",
                     }
                 ],
             ),
-            answer("should not run"),
+            answer("The deck no longer exists; no changes were made."),
         ]
     )
     monkeypatch.setattr(agents, "model", lambda *args: nullcontext(provider))
@@ -522,7 +608,7 @@ async def test_approval_reauthorizes_live_library_ownership(
     async with runtime.sessions() as session:
         await delete_node(session, user.id, deck["id"], config)
     with pytest.raises(Problem, match="node_not_found"):
-        await surface["get_node_editor"].ainvoke({"node_id": str(deck["id"])})
+        await surface["read_library"].ainvoke({"node_id": str(deck["id"])})
     events = await collect(
         runtime,
         deployment,
@@ -533,9 +619,11 @@ async def test_approval_reauthorizes_live_library_ownership(
         ),
         config,
     )
-    assert events[-1]["type"] == "RUN_ERROR", events
-    assert events[-1]["message"] == "assistant_failed"
-    assert provider.calls == 1
+    assert events[-1]["type"] == "RUN_FINISHED", events
+    assert provider.calls == 2
+    state = await native.aget_state({"configurable": {"thread_id": str(conversation.id)}})
+    error = next(m for m in state.values["messages"] if isinstance(m, ToolMessage))
+    assert error.status == "error" and error.content == "node_not_found"
 
     # A completed model call remains billable when its subsequent tool fails.
     provider = Completion(
@@ -544,12 +632,13 @@ async def test_approval_reauthorizes_live_library_ownership(
                 "",
                 tool_calls=[
                     {
-                        "name": "list_nodes",
-                        "args": {"parent_id": "invalid-uuid"},
+                        "name": "read_library",
+                        "args": {"node_id": "invalid-uuid"},
                         "id": "bad_call",
                     }
                 ],
-            )
+            ),
+            answer("The supplied parent ID is invalid."),
         ]
     )
     monkeypatch.setattr(agents, "model", lambda *args: nullcontext(provider))
@@ -558,10 +647,84 @@ async def test_approval_reauthorizes_live_library_ownership(
         session.add(failed)
         await session.flush()
     failed_events = await collect(runtime, deployment, user, request(failed.id), config)
-    assert failed_events[-1]["type"] == "RUN_ERROR"
+    assert failed_events[-1]["type"] == "RUN_FINISHED", failed_events
     async with runtime.sessions() as session:
-        assert await session.scalar(select(UsagePeriod.used_units)) == 4
+        assert await session.scalar(select(UsagePeriod.used_units)) == 8
         assert await session.scalar(select(func.count()).select_from(UsageEvent)) == 3
+
+
+async def test_missing_sense_tool_result_allows_the_next_message(
+    runtime, deployment, config, user, conversation, monkeypatch
+):
+    provider = Completion(
+        responses=[
+            answer(
+                "",
+                tool_calls=[
+                    {
+                        "name": "read_vocabulary",
+                        "args": {"sense_ids": [999999]},
+                        "id": "missing_sense",
+                    }
+                ],
+            ),
+            answer("That sense does not exist."),
+            answer("You can still send a message."),
+        ]
+    )
+    monkeypatch.setattr(agents, "model", lambda *args: nullcontext(provider))
+    events = await collect(runtime, deployment, user, request(conversation.id), config)
+    assert events[-1]["type"] == "RUN_FINISHED", events
+    native = agents.graph(runtime, user, config, provider)
+    state = await native.aget_state({"configurable": {"thread_id": str(conversation.id)}})
+    result = next(m for m in state.values["messages"] if isinstance(m, ToolMessage))
+    assert result.content == "sense_not_found" and result.status == "error"
+    assert result.tool_call_id == "missing_sense"
+    events = await collect(runtime, deployment, user, request(conversation.id), config)
+    assert events[-1]["type"] == "RUN_FINISHED", events
+
+
+async def test_interrupted_tool_history_can_continue_without_reexecuting_tools(
+    runtime, deployment, config, user, conversation, monkeypatch
+):
+    class InspectCompletion(Completion):
+        def _generate(self, messages, **kwargs):
+            call = next(i for i, m in enumerate(messages) if getattr(m, "tool_calls", []))
+            result = messages[call + 1]
+            assert isinstance(result, ToolMessage)
+            assert result.tool_call_id == "interrupted_mutation"
+            assert result.status == "error" and result.content == "tool_result_unavailable"
+            assert isinstance(messages[call + 2], HumanMessage)
+            return super()._generate(messages, **kwargs)
+
+    provider = InspectCompletion(responses=[answer("Conversation recovered.")])
+    monkeypatch.setattr(agents, "model", lambda *args: nullcontext(provider))
+    native = agents.graph(runtime, user, config, provider)
+    await native.aupdate_state(
+        {"configurable": {"thread_id": str(conversation.id)}},
+        {
+            "messages": [
+                HumanMessage("Delete this node."),
+                answer(
+                    "",
+                    tool_calls=[
+                        {
+                            "name": "delete_nodes",
+                            "args": {"node_ids": [str(uuid4())]},
+                            "id": "interrupted_mutation",
+                        }
+                    ],
+                ),
+                HumanMessage("Continue the conversation."),
+            ]
+        },
+        as_node="model",
+    )
+    events = await collect(runtime, deployment, user, request(conversation.id), config)
+    assert events[-1]["type"] == "RUN_FINISHED", events
+    state = await native.aget_state({"configurable": {"thread_id": str(conversation.id)}})
+    # Recovery adjusts outbound history; it never retries the old mutation.
+    assert not any(isinstance(m, ToolMessage) for m in state.values["messages"])
 
 
 @pytest.mark.parametrize("failed_event", ["http.response.start", "http.response.body"])
@@ -749,3 +912,156 @@ async def test_cancel_before_completion_releases_lock_without_charging(
         assert (await session.scalar(select(UsagePeriod.used_units)) or 0) == 0
         event = await session.scalar(select(UsageEvent))
         assert event.units == event.unmetered_calls == 0
+
+
+async def test_turn_context_is_fresh_authorized_and_never_persisted(
+    runtime, deployment, config, user, conversation, senses, monkeypatch
+):
+    class ObservedCompletion(Completion):
+        observed: list[list] = Field(default_factory=list)
+
+        def _generate(self, messages, **kwargs):
+            self.observed.append(list(messages))
+            return super()._generate(messages, **kwargs)
+
+    async with runtime.sessions() as session:
+        deck = await create_node(
+            session, user.id, NodeCreate(type="DECK", name="Hello", sense_ids=senses), config
+        )
+    async with runtime.sessions() as session, session.begin():
+        current = await session.get(User, user.id)
+        current.display_name = "Learner </context>"
+        current.handle = "learner"
+        user.display_name = current.display_name
+        user.handle = current.handle
+        current.settings = {"timezone": "Asia/Ho_Chi_Minh"}
+    provider = ObservedCompletion(
+        responses=[
+            answer(
+                "",
+                tool_calls=[
+                    {
+                        "id": "read-current",
+                        "name": "read_library",
+                        "args": {"node_id": str(deck["id"])},
+                        "type": "tool_call",
+                    }
+                ],
+            ),
+            answer("Read the deck."),
+            answer("Read the word."),
+            answer("Unavailable."),
+        ]
+    )
+    monkeypatch.setattr(agents, "model", lambda *args: nullcontext(provider))
+    data = request(conversation.id)
+    data.forwarded_props = {
+        "current_view": {"path": "/app/library/decks/hello", "node_id": str(deck["id"])}
+    }
+    events = await collect(runtime, deployment, user, data, config)
+    assert events[-1]["type"] == "RUN_FINISHED", events
+
+    def context(messages):
+        blocks = [
+            m
+            for m in messages
+            if m.type == "human"
+            and isinstance(m.content, str)
+            and m.content.startswith("<context>")
+        ]
+        assert len(blocks) == 1
+        assert blocks[0].content.count("</context>") == 1
+        position = messages.index(blocks[0])
+        assert (
+            messages[position - 1].type == "human"
+            and messages[position - 1].content == "Please help"
+        )
+        return json.loads(blocks[0].content.removeprefix("<context>").removesuffix("</context>"))
+
+    first = context(provider.observed[0])
+    assert set(first) == {"now", "timezone", "current_view", "name", "username"}
+    assert first["timezone"] == "Asia/Ho_Chi_Minh"
+    assert datetime.fromisoformat(first["now"]).utcoffset() == timedelta(hours=7)
+    assert first["name"] == "Learner </context>" and first["username"] == "learner"
+    assert first["current_view"]["name"] == "Hello"
+    assert context(provider.observed[1]) == first
+    # Context never splits an assistant tool call from its result.
+    messages = provider.observed[1]
+    position = next(i for i, m in enumerate(messages) if m.type == "ai" and m.tool_calls)
+    assert messages[position + 1].type == "tool"
+    async with runtime.sessions() as session, session.begin():
+        (await session.get(User, user.id)).settings = {"timezone": "UTC"}
+    data = request(conversation.id)
+    data.forwarded_props = {"current_view": {"path": "/app/dictionary", "word_id": 1}}
+    assert (await collect(runtime, deployment, user, data, config))[-1]["type"] == "RUN_FINISHED"
+    second = context(provider.observed[2])
+    assert second["timezone"] == "UTC" and second["current_view"]["name"] == "bank"
+    data = request(conversation.id)
+    data.forwarded_props = {
+        "current_view": {"path": "/app/library/decks/private", "node_id": str(uuid4())}
+    }
+    assert (await collect(runtime, deployment, user, data, config))[-1]["type"] == "RUN_FINISHED"
+    assert context(provider.observed[3])["current_view"] == {
+        "path": "/app/library/decks/private",
+        "unavailable": True,
+    }
+    saved = await AsyncPostgresSaver(runtime.checkpoint_pool).aget(
+        {"configurable": {"thread_id": str(conversation.id)}}
+    )
+    assert not any(
+        isinstance(m.content, str) and m.content.startswith("<context>")
+        for m in saved["channel_values"]["messages"]
+    )
+    assert "<context>" not in json.dumps(events)
+
+
+@pytest.mark.parametrize(
+    "hint",
+    [
+        {"path": "/app", "name": "Client supplied"},
+        {"path": "/app", "word_id": True},
+        {"path": "/app", "word_id": 1, "node_id": str(uuid4())},
+        {"path": "https://other.example"},
+    ],
+)
+def test_current_view_rejects_untrusted_extra_fields(config, hint):
+    data = request(uuid4())
+    data.forwarded_props = {"current_view": hint}
+    with pytest.raises(Problem, match="invalid_assistant_view"):
+        validate_input(data, config)
+
+
+@pytest.mark.parametrize(
+    "name,arguments",
+    [
+        ("update_node", {"node_id": str(uuid4()), "clear_description": True}),
+        ("move_nodes", {"node_ids": [str(uuid4())], "parent_id": str(uuid4())}),
+        ("copy_nodes", {"node_ids": [str(uuid4())], "parent_id": str(uuid4())}),
+        ("delete_nodes", {"node_ids": [str(uuid4())]}),
+        ("generate_words", {"words": ["running"]}),
+        ("update_preferences", {"timezone": "UTC"}),
+    ],
+)
+async def test_new_mutations_still_require_approval(
+    runtime, deployment, config, user, conversation, monkeypatch, name, arguments
+):
+    provider = Completion(
+        responses=[
+            answer(
+                "",
+                tool_calls=[
+                    {"id": "protected", "type": "tool_call", "name": name, "args": arguments}
+                ],
+            )
+        ]
+    )
+    monkeypatch.setattr(agents, "model", lambda *args: nullcontext(provider))
+    events = await collect(runtime, deployment, user, request(conversation.id), config)
+    assert events[-1]["type"] == "RUN_FINISHED", events
+    snapshot = await agents.graph(runtime, user, config, provider).aget_state(
+        {"configurable": {"thread_id": str(conversation.id)}}
+    )
+    actions = [i.value["action_requests"] for task in snapshot.tasks for i in task.interrupts]
+    assert len(actions) == 1 and actions[0][0]["name"] == name
+    assert actions[0][0]["args"] == arguments
+    assert provider.calls == 1

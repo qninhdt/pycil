@@ -21,8 +21,7 @@ All ordinary editing/deleting is owner-only and rejects system nodes.
 ## Current API
 
 Read, creation, targeted metadata/membership writes, move/publication and subtree copy
-are implemented. The frontend uses the targeted contracts. Legacy complete PUT saves
-and editor reads remain available for existing Assistant callers.
+are implemented. The frontend and assistant use these same targeted contracts.
 
 | Operation | Contract |
 | --- | --- |
@@ -39,7 +38,7 @@ and editor reads remain available for existing Assistant callers.
 | `GET /v1/nodes/{node_id}:search` | Name/description FTS within container/reference scope |
 | `GET /v1/discovery/nodes` | Public catalog browse/search, owner/type filters |
 
-### Targeted writes and compatibility
+### Targeted writes
 
 `POST /v1/nodes/{node_id}:modifySenses` accepts `{"add":[123],"remove":[456]}` and
 returns saved deck metadata with the resulting complete `sense_ids`. Both arrays
@@ -53,15 +52,11 @@ field and `description: null` clears it. It cannot move a node or replace senses
 Empty patches and blank/null names are rejected.
 
 Move accepts `parent_id`, `confirm_publication` and `retain_personal_reference`.
-It shares destination/cycle/depth/publication rules with legacy Save. Copy accepts
+It enforces destination/cycle/depth/publication rules. Copy accepts
 `parent_id` and `confirm_publication`, returns the new root, and runs the entire
 physical subtree in one owner-locked transaction. Deck memberships are independent;
 references to copied internal targets are remapped to their copies. External targets
 retain live authorization checks. Quota or publication failure rolls back every copy.
-
-Legacy `PUT /v1/nodes/{node_id}` and `GET /v1/nodes/{node_id}/editor` preserve
-existing complete-state callers. New frontend mutations do not read a browse/editor
-snapshot and then overwrite it. No migration is required for these route additions.
 
 There are no mutable visibility flags or old collection/library-route aliases. Role,
 space, owner, and type changes cannot be supplied through metadata edit. Reference target is immutable.
@@ -76,6 +71,8 @@ not the security authority. Normal owner edits also reject corrupted space/path 
 Owners see full private breadcrumbs. Visitors see breadcrumbs starting at Published;
 the Published detail has no exposed navigable private parent. Public-safe profile
 provides the starting Published ID. Unreadable guessed IDs return `node_not_found`.
+Breadcrumbs include the current node as their final entry. UI paths that append the
+current node themselves must first exclude that entry.
 
 Anonymous listing requires an explicit public parent. A reference to a folder can be
 used as `parent_id`: the server resolves it and lists the target's immediate children.
@@ -214,4 +211,4 @@ Important codes: `node_not_found`, `system_node_protected`, `invalid_parent`,
 - [Router/schemas](../../../apps/api/pycil/library/api.py), [schemas](../../../apps/api/pycil/library/schemas.py)
 - [Shared mutation service](../../../apps/api/pycil/library/nodes.py), [authorization](../../../apps/api/pycil/library/access.py)
 - [Closure](../../../apps/api/pycil/library/tree.py), [scope](../../../apps/api/pycil/library/scope.py), [sense pages](../../../apps/api/pycil/library/senses.py)
-- [Library integration](../../../apps/api/tests/integration/test_library.py), [migration tests](../../../apps/api/tests/integration/test_nodes_migration.py)
+- [Library integration](../../../apps/api/tests/integration/test_library.py)

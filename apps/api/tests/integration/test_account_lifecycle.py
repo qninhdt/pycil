@@ -122,7 +122,7 @@ async def test_concurrent_provisioning_is_idempotent_without_account_lock(
 
         def clerk(request):
             assert request.method == "GET"
-            return httpx.Response(200)
+            return httpx.Response(200, json={"first_name": "Nguyễn", "last_name": "Ninh"})
 
         async with httpx.AsyncClient(transport=httpx.MockTransport(clerk)) as http:
             state = SimpleNamespace(
@@ -150,6 +150,9 @@ async def test_concurrent_provisioning_is_idempotent_without_account_lock(
             results = await asyncio.gather(*(provision() for _ in range(4)))
             assert len({result.id for result in results}) == 1
             assert results[0].id.version == 7
+            assert all(result.display_name == "Nguyễn Ninh" for result in results)
+            assert len({result.handle for result in results}) == 1
+            assert results[0].handle.startswith("nguyen_ninh_")
         async with resources.sessions() as session:
             assert await session.get(User, user.id) is not None
             assert (
@@ -209,6 +212,7 @@ async def test_actor_cache_detached_hits_jwt_gate_outage_and_fresh_entitlements(
             async with resources.sessions() as session:
                 warm = await actor(request(), session, await bearer(request()))
             assert warm.id == cold.id and warm.settings == {}
+            assert warm.display_name == user.display_name and warm.handle == user.handle
             assert queries == []
             assert len(verified) == 2
             with pytest.raises(Problem, match="invalid_credentials"):
@@ -220,7 +224,7 @@ async def test_actor_cache_detached_hits_jwt_gate_outage_and_fresh_entitlements(
 
         async with resources.sessions() as session:
             await change_plan(session, user.id, Plan.PRO, config, datetime.now(UTC))
-        assert await resources.cache.get(f"actor:v2:{user.clerk_subject}", ActorContext) is None
+        assert await resources.cache.get(f"actor:v3:{user.clerk_subject}", ActorContext) is None
         async with resources.sessions() as session:
             pro = await actor(request(), session, await bearer(request()))
         assert pro.plan is Plan.PRO
@@ -229,7 +233,7 @@ async def test_actor_cache_detached_hits_jwt_gate_outage_and_fresh_entitlements(
         async with sessions() as session:
             await change_plan(session, user.id, Plan.FREE, config, datetime.now(UTC))
         assert (
-            await resources.cache.get(f"actor:v2:{user.clerk_subject}", ActorContext)
+            await resources.cache.get(f"actor:v3:{user.clerk_subject}", ActorContext)
         ).plan is Plan.PRO
         app = create_app()
         for name, value in vars(state).items():
@@ -243,14 +247,15 @@ async def test_actor_cache_detached_hits_jwt_gate_outage_and_fresh_entitlements(
             denied = await client.post(
                 "/v1/study:grade",
                 json={
-                    "question_id": 123,
+                    "question_artifact_id": 123,
+                    "question_type": "DEFINITION_TO_WORD",
                     "format": "SINGLE_WORD",
                     "answer": "bank",
                 },
             )
             assert denied.status_code == 403
             assert (await client.get("/v1/me/usage")).json()["allowance_units"] == 1_000_000
-        assert await resources.redis.ttl(resources.cache.key(f"actor:v2:{user.clerk_subject}")) > 0
+        assert await resources.redis.ttl(resources.cache.key(f"actor:v3:{user.clerk_subject}")) > 0
 
         async def unavailable(*args, **kwargs):
             raise ConnectionError("cache unavailable")
@@ -260,3 +265,84 @@ async def test_actor_cache_detached_hits_jwt_gate_outage_and_fresh_entitlements(
         async with resources.sessions() as session:
             fallback = await actor(request(), session, await bearer(request()))
         assert fallback.id == user.id and fallback.plan is Plan.FREE
+
+
+async def test_legacy_identity_initializes_once_preserves_edits_and_retries_handle_collision(
+    database, user, deployment, config, no_inference, monkeypatch
+):
+    from pycil.account.api import edit_profile
+    from pycil.account.schemas import ProfilePatch
+
+    async with process_resources(config, deployment) as resources:
+        async with resources.sessions() as session, session.begin():
+            current = await session.get(User, user.id)
+            current.display_name = None
+            current.handle = None
+            other = User(clerk_subject="other-" + uuid4().hex, handle="taken", settings={})
+            session.add(other)
+        handles = iter(["taken", "nguyen_ninh_generated"])
+        monkeypatch.setattr("pycil.account.auth.generate_handle", lambda name: next(handles))
+        calls = []
+
+        async def subject(token):
+            return user.clerk_subject
+
+        def clerk(request):
+            calls.append(request.url)
+            return httpx.Response(200, json={"first_name": " Nguyễn ", "last_name": "Ninh"})
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(clerk)) as http:
+            state = SimpleNamespace(
+                **(
+                    vars(resources)
+                    | {
+                        "http": http,
+                        "deployment": deployment,
+                        "identity": SimpleNamespace(subject=subject),
+                    }
+                )
+            )
+            request = Request(
+                {
+                    "type": "http",
+                    "headers": [(b"authorization", b"Bearer test")],
+                    "app": SimpleNamespace(state=state),
+                }
+            )
+            async with resources.sessions() as session:
+                initial = await actor(request, session, await bearer(request))
+            assert initial.display_name == "Nguyễn Ninh"
+            assert initial.handle == "nguyen_ninh_generated"
+            assert len(calls) == 1
+            async with resources.sessions() as session:
+                edited = await edit_profile(
+                    ProfilePatch(
+                        display_name=" My chosen name ", handle="my_handle", bio=" Hello "
+                    ),
+                    initial,
+                    config,
+                    session,
+                )
+            assert (edited["display_name"], edited["handle"], edited["bio"]) == (
+                "My chosen name",
+                "my_handle",
+                "Hello",
+            )
+            assert await resources.cache.get(f"actor:v3:{user.clerk_subject}", ActorContext) is None
+            async with resources.sessions() as session:
+                refreshed = await actor(request, session, await bearer(request))
+            assert refreshed.display_name == "My chosen name" and refreshed.handle == "my_handle"
+            assert len(calls) == 1
+            queries = []
+
+            def capture(_conn, _cursor, statement, *_):
+                queries.append(statement)
+
+            event.listen(resources.engine.sync_engine, "before_cursor_execute", capture)
+            try:
+                async with resources.sessions() as session:
+                    cached = await actor(request, session, await bearer(request))
+                assert cached == refreshed
+                assert queries == [] and len(calls) == 1
+            finally:
+                event.remove(resources.engine.sync_engine, "before_cursor_execute", capture)

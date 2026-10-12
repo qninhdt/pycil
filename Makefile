@@ -1,12 +1,15 @@
 # Application startup never migrates. Invoke migrate against an explicit target.
-.PHONY: api-dev worker migrate docker-build docker-up docker-down lint test test-api \
-	test-unit test-integration test-system openapi
+.PHONY: api-dev migrate docker-build docker-up docker-down lint test test-api \
+	test-unit test-integration test-system openapi storybook storybook-build
+
+storybook:
+	cd apps/web && pnpm run storybook
+
+storybook-build:
+	cd apps/web && pnpm run build-storybook
 
 api-dev:
 	cd apps/api && uv run --locked uvicorn pycil.main:app --reload
-
-worker:
-	cd apps/api && uv run --locked python -m pycil.worker
 
 migrate:
 	cd apps/api && uv run --locked python -m pycil.migrate
@@ -15,7 +18,7 @@ docker-build:
 	docker build -f apps/api/Dockerfile -t pycil-api:local .
 
 docker-up:
-	python scripts/compose.py up --build
+	python scripts/compose.py up --build --remove-orphans
 
 docker-down:
 	python scripts/compose.py down

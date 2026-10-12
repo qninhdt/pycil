@@ -58,9 +58,8 @@ def register_models():
     from pycil.assistant import models as assistant
     from pycil.library import models as library
     from pycil.study import models as study
-    from pycil.vocabulary import models as vocabulary
 
-    return account, library, study, vocabulary, assistant
+    return account, library, study, assistant
 
 
 async def verify_schema(engine):
@@ -107,15 +106,23 @@ async def verify_schema(engine):
             f"checkpoints.{name}"
             for name in ("checkpoints", "checkpoint_blobs", "checkpoint_writes")
         }
+        required |= {
+            f"lexi_reference.{name}"
+            for name in ("words", "entries", "senses", "examples", "word_alternatives", "datasets")
+        }
         existing = set(
             (
                 await connection.execute(
                     text(
                         "SELECT schemaname || '.' || tablename FROM pg_tables "
-                        "WHERE schemaname IN ('public', 'lexi', 'checkpoints')"
+                        "WHERE schemaname IN ('public', 'lexi', 'lexi_reference', 'checkpoints')"
                     )
                 )
             ).scalars()
         )
         if not required <= existing:
             raise RuntimeError("schema_tables_missing; run the explicit migration gate")
+        if not await connection.scalar(
+            text("SELECT checksum FROM lexi_reference.datasets WHERE name='reference'")
+        ):
+            raise RuntimeError("reference_dataset_missing; run the explicit migration gate")

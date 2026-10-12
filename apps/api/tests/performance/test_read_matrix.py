@@ -10,7 +10,7 @@ from time import perf_counter
 from uuid import uuid4
 
 import pytest
-from lexi_ai import Lexicon, QuestionType
+from lexi_ai import Lexicon, QuestionArtifactType
 from sqlalchemy import delete, event, text, update
 
 from pycil.account.models import User
@@ -28,6 +28,7 @@ from pycil.study.progress import activity, progress, schedule, summaries
 from pycil.study.reviews import request_hash, review
 from pycil.study.schemas import ReviewBatch
 from pycil.vocabulary.context import viewer_context, word_previews
+from tests.learning_fixtures import quiz_result
 
 pytestmark = pytest.mark.skipif(
     os.getenv("PERF_TIER") is None, reason="Opt-in disposable performance matrix"
@@ -48,21 +49,19 @@ class FixtureCompletion:
 
     async def complete(self, instruction, data, schema):
         context = json.loads(
-            data.removeprefix("<question_context>").removesuffix("</question_context>").strip()
+            data.removeprefix("<artifact_context>").removesuffix("</artifact_context>")
         )
-        return {
-            "questions": [
-                {
-                    "content": context["definition"],
-                    "correct_explanation": "Stored meaning",
-                    "distractors": [
-                        {"content": word, "explanation": "Different meaning"}
+        return dict(
+            artifacts=[
+                dict(
+                    corrects=[context["definition"]],
+                    distractors=[
+                        dict(word=word, definition=f"another meaning of {word}")
                         for word in ("tree", "meal", "car")
                     ],
-                }
-                for _ in range(context["count"])
+                )
             ]
-        }
+        )
 
 
 async def test_read_matrix(database, user, deployment, reference, config, no_inference):
@@ -123,14 +122,14 @@ async def test_read_matrix(database, user, deployment, reference, config, no_inf
         )
         await connection.execute(
             text("""INSERT INTO user_senses(user_id,sense_id,stability,difficulty,
-            last_review_at,due_at,last_rating,review_count,lapse_count,created_at,updated_at)
+            last_exposure_at,due_at,elo,review_count,lapse_count,created_at,updated_at)
             SELECT md5('perf-user-'||u)::uuid,s,10,5,now()-interval '1 day',
-            now()+interval '1 day','GOOD',1,0,now(),now()
+            now()+interval '1 day',600,1,0,now(),now()
             FROM generate_series(1,:users) u CROSS JOIN generate_series(1,:per_user) s"""),
             {"users": user_count, "per_user": state_count // user_count},
         )
         hashes = [
-            request_hash(ReviewBatch(results=[{"sense_id": i, "rating": "GOOD"}]))
+            request_hash(ReviewBatch(results=[quiz_result(i, correct=True)]))
             for i in range(1, state_count // user_count + 1)
         ]
         await connection.execute(
@@ -139,7 +138,7 @@ async def test_read_matrix(database, user, deployment, reference, config, no_inf
             SELECT md5('perf-user-'||u)::uuid,md5('perf-receipt-'||u||'-'||s)::uuid,
                 h.hash,now(),CURRENT_DATE,jsonb_build_object(
                     'accepted_at',now(),'activity_day',CURRENT_DATE,'results',jsonb_build_array(
-                        jsonb_build_object('sense_id',s,'rating','GOOD','applied',true,
+                        jsonb_build_object('sense_id',s,'elo',600,'applied',true,
                             'accepted_at',now(),'due_after',now()+interval '1 day')))
             FROM generate_series(1,:users) u
             CROSS JOIN unnest(CAST(:hashes AS text[])) WITH ORDINALITY AS h(hash,s)"""),
@@ -241,13 +240,12 @@ async def test_read_matrix(database, user, deployment, reference, config, no_inf
     generator = Lexicon(
         db_url=deployment.db_url.get_secret_value(),
         db_schema="lexi",
-        cambridge_path=str(reference),
         llm=FixtureCompletion(),
     )
     try:
-        for sense_id in range(1, 31):
-            await generator.generate_questions(
-                sense_id, QuestionType.DEFINITION_TO_WORD, 3, distractor_count=3
+        for sense_id in range(1, 61):
+            await generator.generate_question_artifacts(
+                sense_id, QuestionArtifactType.WORD_DEFINITION, 1, distractor_count=3
             )
     finally:
         await generator.close()
@@ -312,6 +310,7 @@ async def test_read_matrix(database, user, deployment, reference, config, no_inf
             lock_samples.append((perf_counter() - started) * 1000)
 
     async with process_resources(config, deployment) as resources:
+        resources.lexicon.llm = FixtureCompletion()
         event.listen(engine.sync_engine, "before_cursor_execute", capture)
         event.listen(engine.sync_engine, "after_cursor_execute", completed)
         event.listen(resources.lexicon.db.engine.sync_engine, "before_cursor_execute", capture)
@@ -368,18 +367,17 @@ async def test_read_matrix(database, user, deployment, reference, config, no_inf
 
                         return await search_nodes(session, None, config, type=NodeType.DECK)
                     if kind == "lexical_search":
-                        return await resources.lexicon.search("word", include_available=True)
-                    if kind == "lexical_refresh":
+                        return await resources.lexicon.search("word", include_reference=True)
+                    if kind == "lexical_startup":
                         fresh = Lexicon(
                             db_url=deployment.db_url.get_secret_value(),
                             db_schema="lexi",
-                            cambridge_path=str(reference),
                             llm=FixtureCompletion(),
                         )
                         event.listen(fresh.db.engine.sync_engine, "before_cursor_execute", capture)
                         try:
                             await fresh.start()
-                            return await fresh.search("word", include_available=True)
+                            return await fresh.search("word", include_reference=True)
                         finally:
                             event.remove(
                                 fresh.db.engine.sync_engine, "before_cursor_execute", capture
@@ -395,9 +393,7 @@ async def test_read_matrix(database, user, deployment, reference, config, no_inf
                         return await review(
                             session,
                             user.id,
-                            ReviewBatch(
-                                results=[{"sense_id": i, "rating": "AGAIN"} for i in (1, 2)]
-                            ),
+                            ReviewBatch(results=[quiz_result(i, correct=False) for i in (1, 2)]),
                             uuid4(),
                             config,
                         )
@@ -409,7 +405,7 @@ async def test_read_matrix(database, user, deployment, reference, config, no_inf
                             published,
                             config,
                             selection=kind[8:].removesuffix("_starved"),
-                            max_sense_count=30 if kind.endswith("_starved") else 10,
+                            max_sense_count=20 if kind.endswith("_starved") else 10,
                         )
                     node = await readable(session, published, user.id, config)
                     return await sense_page(
@@ -427,7 +423,7 @@ async def test_read_matrix(database, user, deployment, reference, config, no_inf
                         include="sources,examples",
                     )
 
-            batch = ReviewBatch(results=[{"sense_id": i, "rating": "GOOD"} for i in range(1, 101)])
+            batch = ReviewBatch(results=[quiz_result(i, correct=True) for i in range(1, 61)])
             key = uuid4()
             async with sessions() as session:
                 await review(session, user.id, batch, key, config)
@@ -466,7 +462,7 @@ async def test_read_matrix(database, user, deployment, reference, config, no_inf
                 "catalog_owner",
                 "catalog_type",
                 "lexical_search",
-                "lexical_refresh",
+                "lexical_startup",
                 "activity",
                 "schedule",
                 "receipt_replay",
@@ -486,7 +482,7 @@ async def test_read_matrix(database, user, deployment, reference, config, no_inf
                 first_result = await run(kind)
                 if kind in {"prepare_AUTO", "prepare_DUE", "prepare_NEW"}:
                     assert first_result["actual_sense_count"] == 10
-                    assert first_result["actual_question_count"] == 30
+                    assert first_result["actual_question_count"] == 20
                     if kind == "prepare_AUTO":
                         assert {b["reason"] for b in first_result["bundles"]} == {"DUE"}
                 if kind == "summary_near_budget":

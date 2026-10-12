@@ -42,6 +42,7 @@ export const compactIcons = {
   'folder-personal': (m) => <><path d="M3 6h7l2 2h9v12H3Z"/><path d="M3 6h7l2 2H3Z" {...plane(m, yellow)}/><path d="M11 14v-2a1.5 1.5 0 0 1 3 0v2"/><rect x="9.5" y="14" width="5" height="4" {...plane(m, blue)}/></>,
   'folder-published': (m) => <><path d="M3 6h7l2 2h9v12H3Z"/><path d="M3 6h7l2 2H3Z" {...plane(m, yellow)}/><circle cx="14" cy="15" r="3"/><path d="M11 15h6" stroke={ink(m, red)}/></>,
   document: (m) => <><path d="M5 3h10l4 4v14H5Z"/><path d="m15 3 4 4h-4Z" {...plane(m, red)}/><path d="M8 13h8"/></>,
+  dictionary: (m) => <><path d="M12 5.5C8.5 3.5 5.5 4 2.5 5v14.5c3-1 6-1.5 9.5.5 3.5-2 6.5-1.5 9.5-.5V5c-3-1-6-1.5-9.5.5Z"/><path d="M12 5.5v14.5M4.5 9h5M14.5 9h5M4.5 12.5h5M14.5 12.5h5"/><path d="M14.5 5.5c2.5-1 4.5-1 7-.5v7.5h-7Z" {...plane(m, red)}/></>,
   image: (m) => <><rect x="3" y="4" width="18" height="16"/><circle cx="8" cy="9" r="2" {...plane(m, yellow)}/><path d="m5 18 5-5 3 3 3-4 4 6" stroke={ink(m, blue)}/></>,
   stop: (m) => <rect x="5" y="5" width="14" height="14" {...plane(m, red)}/>,
   share: (m) => <><path d="m6 12 12-7M6 12l12 7"/><circle cx="5" cy="12" r="2.5" {...plane(m, red)}/><rect x="17" y="3" width="4" height="4" {...plane(m, blue)}/><path d="m19 17 2.5 4h-5Z" {...plane(m, yellow)}/></>,

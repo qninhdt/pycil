@@ -15,10 +15,10 @@ RUN apt-get update \
 
 COPY apps/api /app/apps/api
 COPY vendor/lexi-ai /app/vendor/lexi-ai
-RUN cd /app/vendor/lexi-ai && sha256sum --check SHA256SUMS
+RUN cd /app/vendor/lexi-ai && sha256sum --check SHA256SUMS && sha256sum --check CONTENT_SHA256SUMS
 
 # Product policy lives at one fixed path in the image rather than being resolved
-# from a working directory, so the API and the worker read the same revision
+# from a working directory, so the API reads the same revision
 # regardless of where their process was started. It holds no secrets; those
 # arrive through the environment.
 COPY config/config.yaml /app/config/config.yaml
@@ -29,12 +29,6 @@ WORKDIR /app/apps/api
 RUN uv sync --locked --no-dev
 
 ENV PATH="/app/apps/api/.venv/bin:$PATH"
-
-# Word generation runs in the worker process from this same image and needs the
-# WordNet corpus at runtime (the nltk package alone does not include its data).
-ENV NLTK_DATA=/usr/local/nltk_data
-RUN python -m nltk.downloader -d "$NLTK_DATA" wordnet \
-    && python -c "from nltk.corpus import wordnet; assert wordnet.synsets('resilient')"
 
 # Runtime reads packaged application/policy only; no reason to recursively chown
 # the entire dependency environment (or make installed code runtime-writable).

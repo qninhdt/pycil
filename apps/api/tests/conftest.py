@@ -8,7 +8,6 @@ from urllib.parse import urlsplit
 from uuid import uuid4
 
 import pytest
-from alembic import command
 from lexi_ai.migrations import upgrade_to_head
 from pydantic import SecretStr
 from redis.asyncio import Redis
@@ -20,7 +19,7 @@ from pycil.account.models import User
 from pycil.config import Deployment, load_config
 from pycil.database import connect
 from pycil.library.tree import provision_library
-from pycil.migrate import migrate, migration_config
+from pycil.migrate import migrate
 
 
 @pytest.fixture
@@ -29,7 +28,7 @@ def config():
 
 
 @pytest.fixture
-async def database(request):
+async def database(reference, content):
     target = os.environ.get("TEST_DB_URL")
     if not target:
         pytest.fail("Run make test-api (automatic stores), or supply disposable TEST_DB_URL")
@@ -43,12 +42,7 @@ async def database(request):
     url = admin_url.set(database=name).render_as_string(hide_password=False)
     engine = None
     try:
-        revision = getattr(request, "param", "head")
-        if revision == "head":
-            await asyncio.to_thread(migrate, url)
-        else:
-            await asyncio.to_thread(upgrade_to_head, url, db_schema="lexi")
-            await asyncio.to_thread(command.upgrade, migration_config(url), revision)
+        await asyncio.to_thread(migrate, url, reference_path=reference, content_path=content)
         engine, sessions = connect(url)
         yield engine, sessions, url
     finally:
@@ -65,6 +59,8 @@ async def user(database):
     async with sessions() as session, session.begin():
         user = User(
             clerk_subject="user_" + uuid4().hex,
+            display_name="Learner",
+            handle="learner_" + uuid4().hex[:8],
             settings={},
             cycle_anchor=datetime(2026, 1, 31, 12, tzinfo=UTC),
         )
@@ -123,6 +119,13 @@ async def senses(database):
 
 
 @pytest.fixture
+def content(tmp_path):
+    path = tmp_path / "content.sqlite"
+    upgrade_to_head(f"sqlite+aiosqlite:///{path}")
+    return path
+
+
+@pytest.fixture
 def reference(tmp_path):
     # Empty native Cambridge schema is enough for lifecycle/read-only search tests.
     # This is an external SQLite reference, NOT a fake Lexi service or DTO.
@@ -133,13 +136,15 @@ def reference(tmp_path):
             "entry_type TEXT, status TEXT);"
             "CREATE TABLE entries(id INTEGER PRIMARY KEY, word_id INTEGER, pos TEXT, "
             "definition TEXT, examples TEXT, cefr_level TEXT, entry_order INTEGER, "
-            "pronunciation_uk TEXT, pronunciation_us TEXT, phrase_title TEXT);"
+            "pronunciation_uk TEXT, pronunciation_us TEXT, phrase_title TEXT, headword TEXT);"
             "CREATE TABLE senses(id INTEGER PRIMARY KEY, entry_id INTEGER, definition TEXT, "
             "cefr_level TEXT, phrase_title TEXT, sense_order INTEGER);"
             "CREATE TABLE examples(id INTEGER PRIMARY KEY, sense_id INTEGER, "
             "example TEXT, example_order INTEGER);"
             "CREATE TABLE word_alternatives(word_id INTEGER, alternative_word TEXT, "
             "alternative_type TEXT);"
+            "CREATE TABLE entry_inflections(id INTEGER PRIMARY KEY, entry_id INTEGER, "
+            "form_type TEXT, inflected_form TEXT);"
         )
     return path
 
@@ -155,7 +160,6 @@ def deployment(database, redis_url, reference):
         clerk_audience="pycil",
         clerk_secret_key=SecretStr("test-only-clerk-secret"),
         allowed_origins=["https://client.invalid"],
-        cambridge_path=reference,
         inference_api_key=SecretStr("test-only-inference-key"),
         inference_base_url="https://inference.invalid/v1",
         decision_api_key=SecretStr("test-only-decision-key"),

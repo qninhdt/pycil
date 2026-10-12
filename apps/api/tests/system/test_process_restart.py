@@ -15,7 +15,6 @@ def environment(deployment):
         "CLERK_ISSUER": deployment.clerk_issuer,
         "CLERK_AUDIENCE": deployment.clerk_audience or "",
         "CLERK_SECRET_KEY": deployment.clerk_secret_key.get_secret_value(),
-        "LEXI_CAMBRIDGE_DB_PATH": str(deployment.cambridge_path),
         "INFERENCE_API_KEY": deployment.inference_api_key.get_secret_value(),
         "INFERENCE_BASE_URL": deployment.inference_base_url,
         "LEXI_DECISION_API_KEY": deployment.decision_api_key.get_secret_value(),
@@ -41,12 +40,9 @@ async def command(*args, env):
             await process.wait()
 
 
-async def test_actual_api_worker_processes_restart_without_schema_repair(deployment):
+async def test_actual_api_process_restarts_without_schema_repair(deployment):
     env = environment(deployment)
     for _ in range(2):
-        output = await command("-m", "pycil.worker", "--check", env=env)
-        assert "no generation or user-unit debit" in output
-        await command("-m", "pycil.worker", "--once", env=env)
         with socket.socket() as listener:
             listener.bind(("127.0.0.1", 0))
             port = listener.getsockname()[1]

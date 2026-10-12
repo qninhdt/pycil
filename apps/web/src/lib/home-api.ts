@@ -23,16 +23,25 @@ export type LibraryNode = {
 }
 export type LibraryPage = { nodes: LibraryNode[]; next_cursor: string | null }
 export type SessionSelection = 'DUE' | 'NEW' | 'AUTO'
-export type QuestionType = 'DEFINITION_TO_WORD' | 'CONTEXT_TO_WORD' | 'CLOZE_TO_WORD' | 'WORD_TO_DEFINITION' | 'WORD_TO_USAGE' | 'DIALOGUE_COMPLETION' | 'MEANING_IN_CONTEXT'
-export type QuestionOption = { id: string; content: string; explanation: string }
-export type StudyQuestion = { id: number; sense_id: number; theme_id: number | null; question_type: QuestionType; content: string | { speaker: string; text: string | null }[]; correct: QuestionOption; distractors: QuestionOption[]; correct_alternatives: string[]; target_placement: 'DIALOGUE' | 'OPTIONS' | null }
+export type QuestionType = 'DEFINITION_TO_WORD' | 'CONTEXT_TO_WORD' | 'CLOZE_TO_WORD' | 'WORD_TO_DEFINITION' | 'WORD_TO_USAGE' | 'DIALOGUE_COMPLETION' | 'MEANING_IN_CONTEXT' | 'SENTENCE_REWRITE'
+export type QuestionOption = { id: string; content: string }
+export type StudyQuestion = { question_artifact_id: number; sense_id: number; question_type: QuestionType; content: string | { speaker: string; text: string | null }[]; correct: QuestionOption; distractors: QuestionOption[]; target_placement: 'DIALOGUE' | 'OPTIONS' | null }
 export type PreparedQuestion = { question: StudyQuestion; format: AnswerFormat; level: number; options: QuestionOption[] }
 export type PreparedBundle = { sense: DictionarySense; reason: 'DUE' | 'NEW' | 'NOT_YET_DUE'; questions: PreparedQuestion[] }
 export type PreparedSession = { node_id: string; selection: SessionSelection; max_sense_count: number; actual_sense_count: number; actual_question_count: number; preferences: LearningSettings; bundles: PreparedBundle[] }
-export type GradeResult = { task_fit: boolean; spelling_error: boolean; sense_id: number | null } | { sense_id: number | null; accuracy: 'ACCURATE' | 'MIXED' | 'INACCURATE' | null; coverage: 'SUFFICIENT' | 'PARTIAL' | 'MINIMAL' | null } | { used: boolean; meaning: 'CORRECT' | 'APPROXIMATE' | 'WRONG' | null; form: 'CORRECT' | 'SPELLING_ERROR' | 'FORM_ERROR' | null; construction: boolean | null; collocation: 'NATURAL' | 'ACCEPTABLE' | 'UNNATURAL' | null; appropriacy: 'APPROPRIATE' | 'MARKED' | 'INAPPROPRIATE' | null }
-export type Rating = 'AGAIN' | 'HARD' | 'GOOD' | 'EASY'
-export type ReviewBatchResult = { accepted_at: string; activity_day: string; results: { sense_id: number; rating: Rating; applied: boolean; accepted_at: string; due_after: string }[] }
-const questionTypes: QuestionType[] = ['DEFINITION_TO_WORD','CONTEXT_TO_WORD','CLOZE_TO_WORD','WORD_TO_DEFINITION','WORD_TO_USAGE','DIALOGUE_COMPLETION','MEANING_IN_CONTEXT']
+export type QuizDiagnostic = { correct: boolean }
+export type SingleWordDiagnostic = { task_fit: boolean; spelling_error: boolean; sense_id: number | null }
+export type DefinitionDiagnostic = { sense_id: number | null; accuracy: 'ACCURATE' | 'MIXED' | 'INACCURATE' | null; coverage: 'SUFFICIENT' | 'PARTIAL' | 'MINIMAL' | null }
+export type UsageDiagnostic = { used: boolean; meaning: 'CORRECT' | 'APPROXIMATE' | 'WRONG' | null; form: 'CORRECT' | 'SPELLING_ERROR' | 'FORM_ERROR' | null; construction: boolean | null; collocation: boolean | null; appropriacy: boolean | null }
+export type RewriteDiagnostic = UsageDiagnostic & { meaning_preservation: 'PRESERVED' | 'PARTIAL' | 'CHANGED' | null }
+export type Diagnostic = QuizDiagnostic | SingleWordDiagnostic | DefinitionDiagnostic | UsageDiagnostic | RewriteDiagnostic
+export type QuestionReference = { question_artifact_id: number; question_type: QuestionType; format: AnswerFormat }
+export type GradeInput = QuestionReference & { answer: string | null }
+export type GradeResult = QuestionReference & { diagnostics: Diagnostic }
+export type SubmittedResult = GradeResult & { answered_at: string }
+export type TrackedEvidence = SubmittedResult & { evaluated_sense_id: number; recall: number | null; performance: number | null; opponent_elo: number; policy_version: number }
+export type ReviewBatchResult = { accepted_at: string; activity_day: string; results: { sense_id: number; applied: boolean; elo: number; level: number; stability: number; difficulty: number; last_exposure_at: string; due_after: string }[]; evidence: TrackedEvidence[] }
+const questionTypes: QuestionType[] = ['DEFINITION_TO_WORD','CONTEXT_TO_WORD','CLOZE_TO_WORD','WORD_TO_DEFINITION','WORD_TO_USAGE','DIALOGUE_COMPLETION','MEANING_IN_CONTEXT','SENTENCE_REWRITE']
 const answerFormats: AnswerFormat[] = ['SINGLE_CHOICE','SINGLE_WORD','SHORT_ANSWER']
 
 export class HomeApiError extends Error {
@@ -89,7 +98,7 @@ function nullableChoice<T extends string>(value: unknown, choices: readonly T[])
   if (typeof value !== 'string' || !choices.includes(value as T)) throw new HomeApiError(502, 'invalid_response')
   return value as T
 }
-function option(value: unknown): QuestionOption { const item = record(value); return { id: text(item.id), content: text(item.content), explanation: text(item.explanation) } }
+function option(value: unknown): QuestionOption { const item = record(value); return { id: text(item.id), content: text(item.content) } }
 function preparedQuestion(value: unknown): PreparedQuestion {
   const item = record(value), question = record(item.question), kind = text(question.question_type), format = text(item.format)
   if (!questionTypes.includes(kind as QuestionType) || !answerFormats.includes(format as AnswerFormat)) throw new HomeApiError(502, 'invalid_response')
@@ -98,12 +107,13 @@ function preparedQuestion(value: unknown): PreparedQuestion {
     new Set([correct.id, ...distractors.map(value => value.id)]).size !== options.length ||
     options.some(value => ![correct.id, ...distractors.map(item => item.id)].includes(value.id))) throw new HomeApiError(502, 'invalid_response')
   const content = typeof question.content === 'string' ? question.content : list(question.content).map(value => {
-    const turn = record(value); return { speaker: text(turn.speaker), text: turn.text === null ? null : text(turn.text) }
+    const turn = record(value)
+    return { speaker: text(turn.speaker), text: turn.text === null ? null : text(turn.text) }
   })
   const placement = question.target_placement === null ? null : text(question.target_placement)
   if (placement !== null && placement !== 'DIALOGUE' && placement !== 'OPTIONS') throw new HomeApiError(502, 'invalid_response')
-  return { question: { id: positive(question.id), sense_id: positive(question.sense_id), theme_id: nullablePositive(question.theme_id),
-    question_type: kind as QuestionType, content, correct, distractors, correct_alternatives: list(question.correct_alternatives).map(text),
+  return { question: { question_artifact_id: positive(question.question_artifact_id), sense_id: positive(question.sense_id),
+    question_type: kind as QuestionType, content, correct, distractors,
     target_placement: placement }, format: format as AnswerFormat, level: positive(item.level), options }
 }
 
@@ -175,37 +185,68 @@ export function parsePreparation(value: unknown): PreparedSession {
     if (questions.some(value => value.question.sense_id !== sense.id)) throw new HomeApiError(502, 'invalid_response')
     return { sense, reason: reason as PreparedBundle['reason'], questions }
   })
-  if (typeof preferences.show_explanations !== 'boolean') throw new HomeApiError(502, 'invalid_response')
   const settings: LearningSettings = { question_types: list(preferences.question_types).map(value => {
     const kind = text(value); if (!questionTypes.includes(kind as QuestionType)) throw new HomeApiError(502, 'invalid_response'); return kind
   }), formats: list(preferences.formats).map(value => {
     const format = text(value); if (!answerFormats.includes(format as AnswerFormat)) throw new HomeApiError(502, 'invalid_response'); return format as AnswerFormat
   }),
-    questions_per_sense: positive(preferences.questions_per_sense), max_sense_count: positive(preferences.max_sense_count), show_explanations: preferences.show_explanations }
+    questions_per_sense: positive(preferences.questions_per_sense), max_sense_count: positive(preferences.max_sense_count) }
   const result = { node_id: text(item.node_id), selection: item.selection as SessionSelection, max_sense_count: positive(item.max_sense_count),
     actual_sense_count: count(item.actual_sense_count), actual_question_count: count(item.actual_question_count), preferences: settings, bundles }
   const questions = bundles.flatMap(bundle => bundle.questions)
   if (result.actual_sense_count !== bundles.length || result.actual_question_count !== questions.length ||
-    result.actual_question_count > 100 || result.max_sense_count > 100 || result.actual_sense_count > result.max_sense_count || new Set(questions.map(value => value.question.id)).size !== questions.length ||
+    result.actual_question_count > 60 || result.max_sense_count > 20 || settings.questions_per_sense > 3 || result.actual_sense_count > result.max_sense_count ||
     new Set(bundles.map(bundle => bundle.sense.id)).size !== bundles.length || bundles.some(bundle => bundle.questions.length !== settings.questions_per_sense) ||
-    questions.some(value => value.level > 4)) throw new HomeApiError(502, 'invalid_response')
+    questions.some(value => value.level > 5)) throw new HomeApiError(502, 'invalid_response')
+  return result
+}
+function bool(value: unknown): boolean {
+  if (typeof value !== 'boolean') throw new HomeApiError(502, 'invalid_response')
+  return value
+}
+function nullableBool(value: unknown): boolean | null { return value === null ? null : bool(value) }
+function finite(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) throw new HomeApiError(502, 'invalid_response')
+  return value
+}
+function score(value: unknown): number | null {
+  if (value === null) return null
+  const result = finite(value)
+  if (result < 0 || result > 1) throw new HomeApiError(502, 'invalid_response')
   return result
 }
 export function parseGrade(value: unknown): GradeResult {
-  const item = record(value)
-  if ('task_fit' in item) { if (typeof item.task_fit !== 'boolean' || typeof item.spelling_error !== 'boolean') throw new HomeApiError(502, 'invalid_response'); return { task_fit: item.task_fit, spelling_error: item.spelling_error, sense_id: nullablePositive(item.sense_id) } }
-  if ('accuracy' in item) return { sense_id: nullablePositive(item.sense_id), accuracy: nullableChoice(item.accuracy, ['ACCURATE','MIXED','INACCURATE']), coverage: nullableChoice(item.coverage, ['SUFFICIENT','PARTIAL','MINIMAL']) }
-  if (typeof item.used !== 'boolean') throw new HomeApiError(502, 'invalid_response')
-  if (item.construction !== null && typeof item.construction !== 'boolean') throw new HomeApiError(502, 'invalid_response')
-  return { used: item.used, meaning: nullableChoice(item.meaning, ['CORRECT','APPROXIMATE','WRONG']), form: nullableChoice(item.form, ['CORRECT','SPELLING_ERROR','FORM_ERROR']),
-    construction: item.construction, collocation: nullableChoice(item.collocation, ['NATURAL','ACCEPTABLE','UNNATURAL']), appropriacy: nullableChoice(item.appropriacy, ['APPROPRIATE','MARKED','INAPPROPRIATE']) }
+  const item = record(value), kind = text(item.question_type), format = text(item.format), diag = record(item.diagnostics)
+  if (!questionTypes.includes(kind as QuestionType) || !answerFormats.includes(format as AnswerFormat)) throw new HomeApiError(502, 'invalid_response')
+  let diagnostics: Diagnostic
+  if (format === 'SINGLE_CHOICE') diagnostics = { correct: bool(diag.correct) }
+  else if (format === 'SINGLE_WORD') diagnostics = { task_fit: bool(diag.task_fit), spelling_error: bool(diag.spelling_error), sense_id: nullablePositive(diag.sense_id) }
+  else if (kind === 'WORD_TO_DEFINITION') {
+    const sense_id = nullablePositive(diag.sense_id), accuracy = nullableChoice(diag.accuracy, ['ACCURATE','MIXED','INACCURATE']), coverage = nullableChoice(diag.coverage, ['SUFFICIENT','PARTIAL','MINIMAL'])
+    if (sense_id === null ? accuracy !== null || coverage !== null : accuracy === null || coverage === null) throw new HomeApiError(502, 'invalid_response')
+    diagnostics = { sense_id, accuracy, coverage }
+  } else {
+    const usage: UsageDiagnostic = { used: bool(diag.used), meaning: nullableChoice(diag.meaning, ['CORRECT','APPROXIMATE','WRONG']), form: nullableChoice(diag.form, ['CORRECT','SPELLING_ERROR','FORM_ERROR']), construction: nullableBool(diag.construction), collocation: nullableBool(diag.collocation), appropriacy: nullableBool(diag.appropriacy) }
+    const components = [usage.meaning, usage.form, usage.construction, usage.collocation, usage.appropriacy]
+    if (usage.used ? components.some(value => value === null) : components.some(value => value !== null)) throw new HomeApiError(502, 'invalid_response')
+    diagnostics = usage
+    if (kind === 'SENTENCE_REWRITE') {
+      const meaning_preservation = nullableChoice(diag.meaning_preservation, ['PRESERVED','PARTIAL','CHANGED'])
+      if (usage.used === (meaning_preservation === null)) throw new HomeApiError(502, 'invalid_response')
+      diagnostics = { ...usage, meaning_preservation }
+    }
+  }
+  return { question_artifact_id: positive(item.question_artifact_id), question_type: kind as QuestionType, format: format as AnswerFormat, diagnostics }
 }
 export function parseReviewBatch(value: unknown): ReviewBatchResult {
   const item = record(value)
   return { accepted_at: timestamp(item.accepted_at), activity_day: date(item.activity_day), results: list(item.results).map(value => {
-    const row = record(value), rating = text(row.rating)
-    if (!['AGAIN','HARD','GOOD','EASY'].includes(rating) || typeof row.applied !== 'boolean') throw new HomeApiError(502, 'invalid_response')
-    return { sense_id: positive(row.sense_id), rating: rating as Rating, applied: row.applied, accepted_at: timestamp(row.accepted_at), due_after: timestamp(row.due_after) }
+    const row = record(value), level = positive(row.level), stability = finite(row.stability), difficulty = finite(row.difficulty)
+    if (level > 5 || stability <= 0 || difficulty < 1 || difficulty > 10) throw new HomeApiError(502, 'invalid_response')
+    return { sense_id: positive(row.sense_id), applied: bool(row.applied), elo: finite(row.elo), level, stability, difficulty, last_exposure_at: timestamp(row.last_exposure_at), due_after: timestamp(row.due_after) }
+  }), evidence: list(item.evidence).map(value => {
+    const row = record(value)
+    return { ...parseGrade(row), answered_at: timestamp(row.answered_at), evaluated_sense_id: positive(row.evaluated_sense_id), recall: score(row.recall), performance: score(row.performance), opponent_elo: finite(row.opponent_elo), policy_version: positive(row.policy_version) }
   }) }
 }
 

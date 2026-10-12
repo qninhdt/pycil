@@ -1,10 +1,15 @@
+from dataclasses import asdict
 from datetime import date
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Header, Request
 from lexi_ai import ResponseFormat
-from lexi_ai.errors import LexiconError, QuestionNotFoundError, UnsupportedQuestionFormatError
+from lexi_ai.errors import (
+    LexiconError,
+    QuestionArtifactNotFoundError,
+    UnsupportedQuestionFormatError,
+)
 from sqlalchemy import select
 
 from pycil.account.auth import Actor, Viewer
@@ -44,6 +49,7 @@ async def preparation(
         config,
         selection=data.selection,
         max_sense_count=data.max_sense_count,
+        questions_per_sense=data.questions_per_sense,
     )
 
 
@@ -57,13 +63,14 @@ async def grade(data: Grade, user: Actor, config: Product, lexicon: Dictionary, 
         raise Problem(403, "advanced_grading_not_available")
     if (
         data.format is ResponseFormat.SINGLE_CHOICE
-        or not data.answer.strip()
-        or len(data.answer) > config.learning.limits.max_answer_chars
+        or data.answer is not None
+        and (not data.answer.strip() or len(data.answer) > config.learning.limits.max_answer_chars)
     ):
         raise Problem(422, "invalid_grade_request")
     try:
-        return await lexicon.grade_answer(
-            data.question_id,
+        diagnostics = await lexicon.grade_answer(
+            data.question_artifact_id,
+            data.question_type,
             data.format,
             data.answer,
             mode=config.providers.lexi.decision_mode,
@@ -73,16 +80,17 @@ async def grade(data: Grade, user: Actor, config: Product, lexicon: Dictionary, 
                 for fmt in formats
             },
         )
-    except QuestionNotFoundError:
-        raise Problem(404, "question_not_found") from None
+        return data.model_dump(exclude={"answer"}) | {"diagnostics": asdict(diagnostics)}
+    except QuestionArtifactNotFoundError:
+        raise Problem(404, "question_artifact_not_found") from None
     except UnsupportedQuestionFormatError:
         raise Problem(422, "unsupported_question_format") from None
     except LexiconError:
         raise Problem(503, "grading_unavailable") from None
 
 
-@router.post(":submitReviews", response_model=BatchResult)
-async def rating(
+@router.post(":submitResults", response_model=BatchResult)
+async def submit_results(
     data: ReviewBatch,
     user: Actor,
     session: Session,

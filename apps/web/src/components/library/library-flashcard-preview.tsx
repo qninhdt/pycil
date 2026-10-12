@@ -7,10 +7,12 @@ import { Button } from '@/components/ui/button'
 import { HomeFailure, HomeLoading } from '@/components/home/home-state'
 import { useLibraryMeanings } from '@/hooks/use-library'
 import { LibraryEmpty } from './library-shared'
+import { useTranslations } from 'next-intl'
 
 const pageSize = 12
 
 export function LibraryFlashcardPreview({ nodeId, total }: { nodeId: string; total: number }) {
+  const t = useTranslations('library')
   const [cursors, setCursors] = useState<string[]>([])
   const [index, setIndex] = useState(0)
   const [revealed, setRevealed] = useState(false)
@@ -38,13 +40,13 @@ export function LibraryFlashcardPreview({ nodeId, total }: { nodeId: string; tot
     if (event.key === 'ArrowRight') { event.preventDefault(); next() }
     if (event.key === 'ArrowLeft') { event.preventDefault(); previous() }
   }
-  return <section className="library-inline-preview @container/preview min-w-0" aria-label="Flashcard preview" onKeyDown={keyboard} aria-busy={query.isFetching}>
-    <div className="flex items-center justify-between gap-4 mb-3 [&_h2]:text-[19px] [&_h2]:leading-snug"><h2>Flashcard preview</h2>{sense && <span className="text-muted-foreground text-xs tabular-nums" role="status">{ordinal} / {total}</span>}</div>
-    {query.isError ? <HomeFailure label="flashcard preview" error={query.error} retry={() => { void query.refetch() }} /> : query.isPending ? <HomeLoading label="flashcard preview" /> : !sense ? <LibraryEmpty title="No words to preview." />
-      : <div className="grid grid-cols-[40px_minmax(0,1fr)_40px] gap-3 items-center [&_>_article]:col-start-2 [&_>_article]:row-start-1 ">
+  return <section className="library-inline-preview @container/preview min-w-0" aria-label={t('flashcardPreview')} onKeyDown={keyboard} aria-busy={query.isFetching}>
+    <div className="flex items-center justify-between gap-4 mb-3 [&_h2]:text-[19px] [&_h2]:leading-snug"><h2>{t('flashcardPreview')}</h2>{sense && <span className="text-muted-foreground text-xs tabular-nums" role="status">{ordinal} / {total}</span>}</div>
+    {query.isError ? <HomeFailure label="flashcard preview" error={query.error} retry={() => { void query.refetch() }} /> : query.isPending ? <HomeLoading label="flashcard preview" /> : !sense ? <LibraryEmpty title={t('noWordsToPreview')} />
+      : <div className="grid grid-cols-[40px_minmax(0,1fr)_40px] gap-3 items-center h-[420px] max-h-[420px] @max-[440px]/preview:h-[360px] @max-[440px]/preview:max-h-[360px] [&_>_article]:col-start-2 [&_>_article]:row-start-1 [&_>_article]:h-full">
          <Flashcard cardId={sense.sense_id} content={sense} ordinal={ordinal} revealed={revealed} onRevealedChange={setRevealed} />
-        <Button variant="outline" size="icon" className="col-start-1 row-start-1" aria-label="Previous flashcard" onClick={previous} disabled={previousDisabled}><ArrowLeft aria-hidden="true" /></Button>
-        <Button variant="outline" size="icon" className="col-start-3 row-start-1" aria-label="Next flashcard" onClick={next} disabled={nextDisabled}><ArrowRight aria-hidden="true" /></Button>
+        <Button variant="outline" size="icon" className="col-start-1 row-start-1" aria-label={t('previousFlashcard')} onClick={previous} disabled={previousDisabled}><ArrowLeft aria-hidden="true" /></Button>
+        <Button variant="outline" size="icon" className="col-start-3 row-start-1" aria-label={t('nextFlashcard')} onClick={next} disabled={nextDisabled}><ArrowRight aria-hidden="true" /></Button>
       </div>}
   </section>
 }

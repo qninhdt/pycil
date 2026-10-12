@@ -15,17 +15,39 @@ from pycil.account.models import User
 from pycil.dependencies import process_resources
 from pycil.http import Problem
 from pycil.library.models import Node, NodePath, NodeRole, NodeSpace
-from pycil.library.nodes import create_node, delete_node, save_node
-from pycil.library.schemas import NodeCreate, NodeSave
+from pycil.library.nodes import create_node, delete_node, move_node, patch_node, patch_senses
+from pycil.library.schemas import NodeCreate, NodeMove, NodePatch, SenseDelta
 from pycil.library.scope import ScopeBudget
 from pycil.library.tree import provision_library, roots
 from pycil.main import create_app
 from pycil.study import reviews
 from pycil.study.models import DailyActivity, ReviewReceipt, UserSense
-from pycil.study.progress import summaries
+from pycil.study.progress import schedules, summaries
 from pycil.study.schemas import ReviewBatch
+from tests.learning_fixtures import quiz_result
 
 
+@pytest.fixture
+async def saved_artifacts(database, senses):
+    import json
+
+    async with database[0].begin() as connection:
+        for sid in senses:
+            payload = dict(
+                corrects=[f"Meaning {sid}"],
+                distractors=[dict(word="other", definition="another meaning")],
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO lexi.question_artifacts"
+                    "(id,sense_id,artifact_type,payload,payload_hash) "
+                    "VALUES(:id,:id,'WORD_DEFINITION',:payload,:hash)"
+                ),
+                dict(id=sid, payload=json.dumps(payload), hash=str(sid)),
+            )
+
+
+@pytest.mark.usefixtures("saved_artifacts")
 @pytest.mark.parametrize(
     "instant",
     [
@@ -57,7 +79,7 @@ async def test_accepted_day_dst_midnight_and_timezone_replay(
     async with sessions() as session, session.begin():
         (await session.get(User, user.id)).settings = {"timezone": "America/New_York"}
     key = uuid4()
-    body = ReviewBatch(results=[{"sense_id": 1, "rating": "AGAIN"}])
+    body = ReviewBatch(results=[quiz_result(1, correct=False, answered_at=now.isoformat())])
     async with sessions() as session:
         saved = await reviews.review(session, user.id, body, key, config)
     assert saved["activity_day"] == now.astimezone(ZoneInfo("America/New_York")).date().isoformat()
@@ -80,14 +102,25 @@ async def test_assistant_read_tools_share_authorized_services(
 
     deck = await make_node(database[1], user, config, type="DECK", name="bank", sense_ids=[1, 2])
     available = {tool.name: tool for tool in tools(resources, user, config)}
-    assert {"search_nodes", "sense_context"} <= available.keys()
+    assert {"search_nodes", "read_vocabulary", "read_library"} <= available.keys()
+    assert not {"get_word", "sense_context", "list_nodes", "get_node"} & available.keys()
     async with database[1]() as session:
         personal = (await roots(session, user.id))[NodeRole.PERSONAL_ROOT].id
-    result = await available["search_nodes"].ainvoke({"query": "bank", "node_id": str(personal)})
-    assert [node["id"] for node in result["nodes"]] == [deck["id"]]
-    context = await available["sense_context"].ainvoke({"sense_ids": [1, 2]})
-    assert (context["new"], context["total"]) == (2, 2)
-    assert context["senses"][0]["deck_count"] == 1
+    result = await available["search_nodes"].ainvoke(
+        {"queries": ["bank"], "node_id": str(personal)}
+    )
+    assert [node["node_id"] for node in result["nodes"]] == [str(deck["id"])]
+    assert result["nodes"][0]["summary"]["total"] == 2
+    word = await available["read_vocabulary"].ainvoke(
+        {"word_ids": [1], "include": ["learning", "sources"]}
+    )
+    assert [sense["sense_id"] for sense in word["senses"]] == [1, 2]
+    assert word["senses"][0]["source_count"] == 1
+    with pytest.raises(Problem, match="word_not_found"):
+        await available["read_vocabulary"].ainvoke({"word_ids": [999999]})
+    content = await available["read_library"].ainvoke({"node_id": str(deck["id"])})
+    assert [sense["sense_id"] for sense in content["senses"]] == [1, 2]
+    assert content["summary"]["total"] == 2
     assert not {"review", "edit_profile", "star_node"} & available.keys()
 
 
@@ -117,11 +150,11 @@ async def test_search_vector_weights_updates_and_authoritative_paths(
         rejected = await client.get("/v1/discovery/nodes", params={"q": "x" * 201})
         assert rejected.status_code == 422
     async with sessions() as session:
-        await save_node(
+        await patch_node(
             session,
             user.id,
             title["id"],
-            NodeSave(name="Động từ", description="updated token", parent_id=title["parent_id"]),
+            NodePatch(name="Động từ", description="updated token"),
             config,
         )
     async with client_for(resources, config, None) as guest:
@@ -217,28 +250,14 @@ async def test_over_limit_owner_can_repair_without_growth(database, user, senses
         }
     )
     async with sessions() as session:
-        renamed = await save_node(
-            session,
-            user.id,
-            deck["id"],
-            NodeSave(name="renamed", parent_id=folder["id"], sense_ids=senses),
-            limited,
-        )
-        assert renamed["sense_ids"] == senses
+        renamed = await patch_node(session, user.id, deck["id"], NodePatch(name="renamed"), limited)
+        assert renamed["name"] == "renamed"
     async with sessions() as session:
-        repaired = await save_node(
-            session, user.id, deck["id"], NodeSave(name="repaired", sense_ids=[1]), limited
-        )
+        repaired = await patch_senses(session, user.id, deck["id"], SenseDelta(remove=[2]), limited)
         assert repaired["sense_ids"] == [1]
     async with sessions() as session:
         with pytest.raises(Problem, match="deck_sense_limit_exceeded"):
-            await save_node(
-                session,
-                user.id,
-                deck["id"],
-                NodeSave(name="invalid growth", sense_ids=senses),
-                limited,
-            )
+            await patch_senses(session, user.id, deck["id"], SenseDelta(add=[2]), limited)
     async with sessions() as session:
         with pytest.raises(Problem, match="quota_exceeded"):
             await create_node(session, user.id, NodeCreate(type="FOLDER", name="new"), limited)
@@ -329,22 +348,22 @@ async def test_physical_closure_matches_parent_walk_oracle(database, user, sense
     await check()
     for node, parent in ((nested, b), (b, c), (a, b)):
         async with sessions() as session:
-            await save_node(
+            await move_node(
                 session,
                 user.id,
                 node["id"],
-                NodeSave(name=node["name"], parent_id=parent["id"]),
+                NodeMove(parent_id=parent["id"]),
                 config,
             )
         await check()
     async with sessions() as session:
         public = (await roots(session, user.id))[NodeRole.PUBLISHED_ROOT].id
         await session.rollback()
-        await save_node(
+        await move_node(
             session,
             user.id,
             c["id"],
-            NodeSave(name="public", parent_id=public, confirm_publication=True),
+            NodeMove(parent_id=public, confirm_publication=True),
             config,
         )
     await check()
@@ -353,9 +372,10 @@ async def test_physical_closure_matches_parent_walk_oracle(database, user, sense
     await check()
 
 
+@pytest.mark.usefixtures("saved_artifacts")
 async def test_account_delete_cascades_learning_receipts_activity(database, user, senses, config):
     sessions = database[1]
-    body = ReviewBatch(results=[{"sense_id": 1, "rating": "GOOD"}])
+    body = ReviewBatch(results=[quiz_result(1, correct=True)])
     async with sessions() as session:
         await reviews.review(session, user.id, body, uuid4(), config)
     async with sessions() as session, session.begin():
@@ -415,6 +435,7 @@ async def publish(sessions, user, config, **values):
     )
 
 
+@pytest.mark.usefixtures("saved_artifacts")
 async def test_batch_atomic_rollback_replay_and_cross_day(
     database, user, senses, config, monkeypatch
 ):
@@ -428,17 +449,20 @@ async def test_batch_atomic_rollback_replay_and_cross_day(
 
     monkeypatch.setattr(reviews, "datetime", Clock)
     data = ReviewBatch(
-        results=[{"sense_id": 2, "rating": "GOOD"}, {"sense_id": 1, "rating": "AGAIN"}]
+        results=[
+            quiz_result(2, correct=True, answered_at=now.isoformat()),
+            quiz_result(1, correct=False, answered_at=now.isoformat()),
+        ]
     )
     original = reviews.next_state
     calls = 0
 
-    def fail_second(*args):
+    def fail_second(*args, **kwargs):
         nonlocal calls
         calls += 1
         if calls == 2:
             raise RuntimeError("injected")
-        return original(*args)
+        return original(*args, **kwargs)
 
     monkeypatch.setattr(reviews, "next_state", fail_second)
     async with sessions() as session:
@@ -458,15 +482,15 @@ async def test_batch_atomic_rollback_replay_and_cross_day(
     now += timedelta(days=2)
     async with sessions() as session, session.begin():
         (await session.get(User, user.id)).settings = {"timezone": "Asia/Ho_Chi_Minh"}
-    await send(ReviewBatch(results=[{"sense_id": 1, "rating": "AGAIN"}]), uuid4())
+    await send(
+        ReviewBatch(results=[quiz_result(1, correct=False, answered_at=now.isoformat())]), uuid4()
+    )
     assert await send() == first
     with pytest.raises(Problem, match="review_batch_conflict"):
         await send(ReviewBatch(results=list(reversed(data.results))))
-    with pytest.raises(Problem, match="sense_not_found"):
+    with pytest.raises(Problem, match="question_artifact_not_found"):
         await send(
-            ReviewBatch(
-                results=[{"sense_id": 1, "rating": "AGAIN"}, {"sense_id": 999999, "rating": "GOOD"}]
-            ),
+            ReviewBatch(results=[quiz_result(1, correct=False), quiz_result(999999, correct=True)]),
             uuid4(),
         )
     async with sessions() as session:
@@ -475,6 +499,7 @@ async def test_batch_atomic_rollback_replay_and_cross_day(
         assert (await session.get(UserSense, (user.id, 1))).review_count == 2
 
 
+@pytest.mark.usefixtures("saved_artifacts")
 async def test_overlapping_batches_sorted_locks(database, user, senses, config):
     _, sessions, _ = database
 
@@ -483,7 +508,7 @@ async def test_overlapping_batches_sorted_locks(database, user, senses, config):
             return await reviews.review(
                 session,
                 user.id,
-                ReviewBatch(results=[{"sense_id": i, "rating": "AGAIN"} for i in ids]),
+                ReviewBatch(results=[quiz_result(i, correct=False) for i in ids]),
                 uuid4(),
                 config,
             )
@@ -509,7 +534,12 @@ async def test_profile_handle_concurrency_and_public_privacy(resources, user, co
     async with client_for(resources, config, user) as a, client_for(resources, config, other) as b:
         responses = await asyncio.gather(
             a.patch(
-                "/v1/me/profile", json={"handle": " " + handle.upper() + " ", "bio": " Hello "}
+                "/v1/me/profile",
+                json={
+                    "handle": " " + handle.upper() + " ",
+                    "bio": " Hello ",
+                    "display_name": " Chosen name ",
+                },
             ),
             b.patch("/v1/me/profile", json={"handle": handle}),
         )
@@ -527,6 +557,11 @@ async def test_profile_handle_concurrency_and_public_privacy(resources, user, co
         }
         assert (await a.patch("/v1/me/profile", json={"country": "VN"})).status_code == 422
         assert (await a.patch("/v1/me/profile", json={"handle": None})).status_code == 422
+        for name in (None, "", " \n ", "a" * 256):
+            assert (await a.patch("/v1/me/profile", json={"display_name": name})).status_code == 422
+        updated = await a.patch("/v1/me/profile", json={"display_name": " My name "})
+        assert updated.status_code == 200 and updated.json()["display_name"] == "My name"
+        assert (await a.get("/v1/users/" + str(user.id))).json()["display_name"] == "My name"
         assert (await a.patch("/v1/me/profile", json={"bio": None})).status_code == 200
         assert "pairs" in (await a.get("/v1/me")).json()["learning_options"]
     async with client_for(resources, config, None) as guest:
@@ -578,11 +613,11 @@ async def test_search_discovery_revoke_and_bound_cursors(resources, user, senses
             system = await roots(session, user.id)
             personal_id = system[NodeRole.PERSONAL_ROOT].id
             await session.rollback()
-            await save_node(
+            await move_node(
                 session,
                 user.id,
                 deck["id"],
-                NodeSave(name=deck["name"], parent_id=personal_id, sense_ids=senses),
+                NodeMove(parent_id=personal_id),
                 config,
             )
         assert (await guest.get("/v1/discovery/nodes", params={"q": "bank"})).json()["nodes"] == []
@@ -600,6 +635,7 @@ async def test_search_discovery_revoke_and_bound_cursors(resources, user, senses
         ).status_code == 422
 
 
+@pytest.mark.usefixtures("saved_artifacts")
 async def test_dictionary_context_sources_examples_and_sort(resources, user, senses, config):
     sessions = resources.sessions
     decks = [
@@ -646,10 +682,10 @@ async def test_dictionary_context_sources_examples_and_sort(resources, user, sen
             "senses"
         ] == []
         key = str(uuid4())
-        body = {"results": [{"sense_id": 1, "rating": "GOOD"}]}
+        body = {"results": [quiz_result(1, correct=True)]}
         assert (
             await client.post(
-                "/v1/study:submitReviews", json=body, headers={"Idempotency-Key": key}
+                "/v1/study:submitResults", json=body, headers={"Idempotency-Key": key}
             )
         ).status_code == 200
         context = (await client.get("/v1/me/words/1")).json()
@@ -743,6 +779,7 @@ async def test_deleted_anchor_and_profile_rename(resources, user, config):
         ] == "new_handle"
 
 
+@pytest.mark.usefixtures("saved_artifacts")
 async def test_direct_public_learning_tracking_and_live_context_revocation(
     resources, user, senses, config
 ):
@@ -757,8 +794,8 @@ async def test_direct_public_learning_tracking_and_live_context_revocation(
     )
     async with client_for(resources, config, user) as client:
         submitted = await client.post(
-            "/v1/study:submitReviews",
-            json={"results": [{"sense_id": 1, "rating": "GOOD"}]},
+            "/v1/study:submitResults",
+            json={"results": [quiz_result(1, correct=True)]},
             headers={"Idempotency-Key": str(uuid4())},
         )
         assert submitted.status_code == 200
@@ -774,11 +811,13 @@ async def test_direct_public_learning_tracking_and_live_context_revocation(
             and not context["senses"][0]["decks"][0]["editable"]
         )
         async with sessions() as session:
-            await save_node(
+            personal_id = (await roots(session, author.id))[NodeRole.PERSONAL_ROOT].id
+            await session.rollback()
+            await move_node(
                 session,
                 author.id,
                 public["id"],
-                NodeSave(name=public["name"], sense_ids=senses),
+                NodeMove(parent_id=personal_id),
                 config,
             )
         assert (await client.get(f"/v1/nodes/{reference['id']}/senses")).json()["senses"] == []
@@ -804,6 +843,7 @@ async def test_logical_projection_budget_and_alias_memoization(database, user, s
     async with sessions() as session:
         result = await summaries(session, user.id, limited, [deck["id"], alias["id"]])
         assert [r["total"] for r in result] == [2, 2]  # identical scopes charged once
+        assert len(await schedules(session, user.id, limited, [deck["id"], alias["id"]])) == 2
         with pytest.raises(Problem, match="scope_too_large"):
             await summaries(
                 session, user.id, limited, [deck["id"], root]

@@ -21,15 +21,37 @@ session token, which the frontend sends as a bearer token through `/api/v1/*`.
 Next.js only forwards these requests to `PYCIL_API_URL` (default
 `http://127.0.0.1:8000`); the API verifies the token using Clerk's public JWKS.
 The frontend loads its own environment files and does not load the root `.env`.
+Signed-in visitors to `/login`, `/signup` and `/forgot-password` are redirected to
+their safe `/app` return route, or `/app` by default. Pending Clerk account tasks
+continue at `/auth/continue`; credential forms wait for the session to load.
+
+The application scrolls inside its workspace pane. Navigating to another page
+starts at the top; Back/Forward restores the position of that history entry.
+Restoration waits for loaded content when necessary and stops on user input.
+Automatic scroll anchoring is disabled in this pane so content updates cannot
+shift the restored position. The assistant keeps its own independent scrolling.
 
 ```sh
 pnpm run build    # TypeScript checks + production build
 pnpm run lint     # Oxlint
-pnpm exec playwright install chromium
+node node_modules/@playwright/test/cli.js install chromium
 pnpm run test
 ```
 
 The existing mock UI suite starts a Next.js server using the port in `playwright.config.ts`. For a preinstalled Chromium, set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to its executable. To retain the visual matrix outside ignored `test-results/`, set `SHOWCASE_SCREENSHOT_DIR`.
+
+## Landing page
+
+`/` is the public Bauhaus landing page; `/app` opens the learning application.
+The landing page's English learning worksheet lets visitors choose a meaning of
+“bank” and try its contextual question. It is a labeled local example: it does
+not save Library changes or submit learning progress. Signup and sign-in actions
+use the existing `/signup` and `/login` routes.
+
+The page uses Tailwind, shared palette tokens, artwork and shadcn buttons. Static
+content lives in `src/components/landing/landing-page.tsx`; the interactive example
+lives in `learning-map.tsx`. Run `pnpm run test tests/landing.spec.ts`
+for interaction, navigation, responsive and theme checks.
 
 ## Live integration and E2E
 
@@ -39,6 +61,12 @@ sense deltas and metadata patches; move, copy, publish/unpublish and saved refer
 use the [backend Library contracts](../../docs/backend/modules/library.md).
 Public creation/publication requires explicit confirmation. Viewing flashcards does
 not submit reviews. Accepted reviews invalidate progress/reporting queries.
+
+Use **Create reference** in a folder/deck's menu, after **Copy**, to name a live
+link and choose its destination. This is also available for other users' Published
+material. A Published reference links to its original folder/deck. Private sources
+can be saved in Personal; Published sources can also be saved in Published with
+explicit confirmation.
 
 Run the managed full-stack profile from the repository root after starting the
 frontend in live mode on port 3000:
@@ -51,18 +79,19 @@ The runner starts the real API on port 8000, owns disposable PostgreSQL/Redis,
 prepares native lexical/question data, and runs `pnpm run test:e2e` against the
 existing Next server. It refuses an occupied API port and never changes FE dotenv
 files or starts another frontend. The runner reads the matching development Clerk
-configuration from the root `.env` (`E2E_CLERK_ENV_FILE` can select a runner-only
-file). A Clerk secret is required only by the runner to provision/delete its own
+secret configuration from the root `.env` (`E2E_CLERK_ENV_FILE` can select a runner-only
+file), and the publishable key from `apps/web/.env.local` unless explicitly supplied
+to the runner. A Clerk secret is required only by the runner to provision/delete its own
 temporary test users and obtain the official bot-protection testing token. Browser
 authentication uses the actual custom forms, email verification/client-trust
 challenges and Clerk session JWTs verified by the API. There is no auth mock or
 locally signed session token.
 
 The suite covers authentication, profile/settings, Home/reporting, Library writes,
-publication/references/Discovery, source pagination, Dictionary/worker generation,
-all seven question types, typed grading, FSRS reviews/idempotent replay, flashcards,
+publication/references/Discovery, source pagination, Dictionary/background generation,
+runtime question types, typed grading, Memory/Mastery results and idempotent replay, flashcards,
 Assistant SSE/history/approval/deletion/usage, account isolation and mobile completion.
-Only external inference is deterministic in the default profile; API, native worker,
+Only external inference is deterministic in the default profile; API, native generation,
 validation, domain services, PostgreSQL, Redis and checkpoint history remain real.
 Transport fault tests delay or abort requests, including after real server acceptance.
 Test-only Library limits make quota boundaries inexpensive to exercise; production
@@ -91,7 +120,7 @@ translated. This profile invokes paid services and is separate from routine E2E.
 HTML reports and failure screenshots use ignored `e2e-report/` and `e2e-results/`.
 Network tracing is disabled because it records credentials/bearer tokens. Treat test
 artifacts as private. Execution evidence and external limitations are recorded in
-the [English E2E plan](../../tmp/frontend-backend-e2e-plan.md); collection alone is
+the [Lexi/E2E verification report](../../plans/261010-lexi-refresh/reports/verification.md); collection alone is
 not evidence of successful execution.
 
 ## Explore
@@ -115,6 +144,8 @@ the same bearer-token and `/api/v1/*` forwarding route as the rest of the app.
 The server owns conversation history; the client sends only the new user message,
 or an explicit approval resolution. Closing an active panel cancels the client run;
 reopening fetches saved state without replaying an unknown turn.
+If a remembered conversation returns 404, the panel clears that ID and opens a
+new chat. Other failures retain the ID and offer retry.
 
 Image attachments require a vision model and support PNG, JPEG and WebP. Each
 message accepts up to four images, 10 MB per image, 8,000 text characters and a
@@ -137,7 +168,7 @@ Assistant content uses the available message width without an enclosing bubble a
 reasoning/tool disclosures. Copy is shown only for messages containing answer text.
 
 Owned styles and primitives are under `src/components/assistant-ui/`. The focused
-contract/browser suite is `pnpm exec playwright test tests/assistant.spec.ts`.
+contract/browser suite is `pnpm run test tests/assistant.spec.ts`.
 
 The sidebar jumps to specimens; catalog search filters them. `Ctrl/⌘ K` or the header search button opens global navigation. The theme toggle persists via `bauhaus-theme`; the root layout applies the saved mode before hydration. Copy buttons offer selectable source when clipboard permissions are denied.
 

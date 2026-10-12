@@ -9,14 +9,12 @@ from pycil.library import nodes
 from pycil.library.access import readable
 from pycil.library.models import NodeType
 from pycil.library.schemas import (
-    DeckSnapshot,
     NodeCreate,
     NodeDestination,
     NodeDetails,
     NodeMove,
     NodePage,
     NodePatch,
-    NodeSave,
     NodeView,
     NodeViewWithReference,
     SavedDeck,
@@ -90,16 +88,6 @@ async def scoped_search(
 @router.get("/{node_id}", response_model=NodeDetails, openapi_extra={"security": [{}]})
 async def detail(node_id: UUID, viewer: Viewer, session: Session, config: Product):
     return await nodes.node_details(session, node_id, viewer.id if viewer else None, config)
-
-
-@router.get("/{node_id}/editor", response_model=DeckSnapshot | NodeView)
-async def editor(node_id: UUID, user: Actor, session: Session, config: Product):
-    return await nodes.editor_snapshot(session, node_id, user.id, config)
-
-
-@router.put("/{node_id}", response_model=SavedNode)
-async def save(node_id: UUID, data: NodeSave, user: Actor, session: Session, config: Product):
-    return await nodes.save_node(session, user.id, node_id, data, config)
 
 
 @router.patch("/{node_id}", response_model=NodeView)

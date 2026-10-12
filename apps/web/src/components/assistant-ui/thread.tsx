@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActionBarPrimitive,
   AuiIf,
@@ -8,15 +8,18 @@ import {
   ComposerPrimitive,
   MessagePrimitive,
   ThreadPrimitive,
+  ReadonlyThreadProvider,
   useAui,
   useAuiState,
   type ReasoningMessagePartComponent,
   type ToolCallMessagePartComponent,
+  type ThreadMessage,
 } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import remarkMath from "remark-math";
 import remarkMathjaxDelimiters from "remark-mathjax-delimiters";
 import rehypeKatex from "rehype-katex";
+import { useTranslations } from "next-intl";
 import { Icon } from "@/components/artwork/artwork";
 import { Button } from "@/components/ui/button";
 import {
@@ -31,8 +34,12 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 import { ModelLogo } from "./model-logo";
+import { ToolBodyContent, getToolPreview, toolTitles } from "./tool-renderers";
+import { AssistantContextTab } from "./assistant-context";
 import type { AssistantModel, ReasoningEffort } from "@/lib/assistant-api";
+import { mergeAssistantTurns } from "@/lib/assistant-messages";
 
 export function AssistantGeometry() {
   return (
@@ -45,65 +52,25 @@ export function AssistantGeometry() {
   );
 }
 
-export const Reasoning: ReasoningMessagePartComponent = ({ status }) => (
-  <details className="ai-reasoning" open={status.type === "running"}>
-    <summary>
-      <Icon name="layers" tone="color" />
-      <span>{status.type === "running" ? "Thinking…" : "Reasoning"}</span>
-      <Icon name="chevron-down" variant="control" />
-    </summary>
-    <div className="ai-reasoning-body">
-      <Markdown />
-    </div>
-  </details>
-);
-
-const toolLabels: Record<string, string> = {
-  search_words: "Searching the Dictionary",
-  list_nodes: "Reading your Library",
-  get_node: "Opening Library content",
-  get_node_editor: "Reading deck details",
-  learning_progress: "Checking learning progress",
-  create_node: "Create Library content",
-  update_node: "Update Library content",
-  delete_node: "Delete Library content",
+export const Reasoning: ReasoningMessagePartComponent = ({ status }) => {
+  const t = useTranslations("assistant");
+  const isRunning = status.type === "running";
+  return (
+    <details className="ai-reasoning" open={isRunning}>
+      <summary>
+        <Icon name="layers" tone="color" />
+        <span className={cn(isRunning && "shimmer text-foreground/70")}>{isRunning ? t("thinking") : t("reasoning")}</span>
+        <Icon name="chevron-down" variant="control" />
+      </summary>
+      <div className="ai-reasoning-body">
+        <Markdown />
+      </div>
+    </details>
+  );
 };
-export const ToolResult: ToolCallMessagePartComponent = ({
-  toolName,
-  args,
-  result,
-  status,
-  isError,
-}) => (
-  <details className="ai-tool">
-    <summary>
-      <Icon name="folder" variant="control" tone="color" />
-      <span>{toolLabels[toolName] ?? toolName.replaceAll("_", " ")}</span>
-      <span className="ai-tool-status">
-        {isError
-          ? "Failed"
-          : status.type === "running"
-            ? "Working"
-            : result !== undefined
-              ? "Done"
-              : "Review"}
-      </span>
-      <Icon name="chevron-down" variant="control" />
-    </summary>
-    <div className="ai-tool-body">
-      <pre>{JSON.stringify(args, null, 2)}</pre>
-      {result !== undefined && (
-        <pre>
-          {typeof result === "string"
-            ? result
-            : JSON.stringify(result, null, 2)}
-        </pre>
-      )}
-    </div>
-  </details>
-);
 
 function Attachment({ removable = false }: { removable?: boolean }) {
+  const t = useTranslations("assistant");
   const attachment = useAuiState((s) => s.attachment);
   const [preview, setPreview] = useState<string>();
   useEffect(() => {
@@ -133,11 +100,11 @@ function Attachment({ removable = false }: { removable?: boolean }) {
       <span>
         <AttachmentPrimitive.Name />
         {attachment.status.type === "running" && (
-          <small>Preparing image…</small>
+          <small>{t("preparingImage")}</small>
         )}
         {attachment.status.type === "incomplete" && (
           <small role="alert">
-            Image unavailable. Remove it and try again.
+            {t("imageUnavailable")}
           </small>
         )}
       </span>
@@ -146,7 +113,7 @@ function Attachment({ removable = false }: { removable?: boolean }) {
           <Button
             variant="ghost"
             size="icon-sm"
-            aria-label={`Remove ${attachment.name}`}
+            aria-label={t("removeAttachmentAria", { name: attachment.name })}
           >
             <Icon name="x" variant="control" />
           </Button>
@@ -183,21 +150,184 @@ export function UserMessage() {
     </MessagePrimitive.Root>
   );
 }
+function TimelineReasoningPart() {
+  return (
+    <div className="ai-timeline-item ai-timeline-item-reasoning">
+      <div className="ai-timeline-content">
+        <Markdown />
+      </div>
+    </div>
+  );
+}
+
+function TimelineToolPart({ part }: { part: any }) {
+  const t = useTranslations("assistant");
+  const [isOpen, setIsOpen] = useState(false);
+  const meta = toolTitles[part.toolName] ?? {
+    title: part.toolName.replace(/_/g, " "),
+    icon: "folder",
+    tone: "color",
+  };
+  const isRunning = part.status?.type === "running";
+  const preview = getToolPreview(part.toolName, part.args, part.result);
+
+  return (
+    <div className="ai-timeline-item ai-timeline-item-tool">
+      <div className="ai-timeline-content w-full">
+        <details className="ai-tool" open={isOpen || isRunning}>
+          <summary
+            className="ai-tool-summary w-full text-left cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden"
+            onClick={(e) => {
+              e.preventDefault();
+              setIsOpen(!isOpen);
+            }}
+            aria-expanded={isOpen || isRunning}
+          >
+            <Icon
+              name={meta.icon as any}
+              variant="control"
+              tone={meta.tone as any}
+              className="size-4 shrink-0"
+            />
+            <div className="flex items-baseline gap-2 min-w-0">
+              <span className="ai-tool-title">{meta.title}</span>
+              {preview && (
+                <span className="ai-tool-preview font-mono text-[11px] text-muted-foreground truncate max-w-[180px] hidden sm:inline">
+                  {preview}
+                </span>
+              )}
+            </div>
+            {isRunning && (
+              <span className="ai-tool-status shimmer text-foreground/80 font-medium" data-running="true">
+                {t("working")}
+              </span>
+            )}
+            {part.isError && (
+              <span className="ai-tool-status" data-error="true">
+                {t("failed")}
+              </span>
+            )}
+            <Icon
+              name="chevron-down"
+              variant="control"
+              className="size-3.5 opacity-60 ml-auto transition-transform"
+            />
+          </summary>
+          {(isOpen || isRunning) && (
+            <div className="ai-tool-body">
+              <ToolBodyContent
+                toolName={part.toolName}
+                args={part.args}
+                result={part.result}
+                status={part.status ?? { type: "complete" }}
+                isError={part.isError}
+                meta={meta}
+              />
+            </div>
+          )}
+        </details>
+      </div>
+    </div>
+  );
+}
+
+const TimelineTool: ToolCallMessagePartComponent = (part) => <TimelineToolPart part={part} />;
+
+function ThoughtProcessContainer({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const message = useAuiState((s) => s.message);
+  const status = useAuiState((s) => s.message.status);
+
+  // Check if this message already has started receiving text tokens
+  const hasText = message.parts.some(
+    (p) => p.type === "text" && Boolean(p.text && p.text.trim().length > 0),
+  );
+  const isRunning = status?.type === "running";
+
+  // If text already exists (e.g. completed message/history), start collapsed.
+  // If streaming tools/reasoning without text yet, start open.
+  const [isOpen, setIsOpen] = useState(!hasText);
+
+  const prevHasTextRef = useRef(hasText);
+  const prevRunningRef = useRef(isRunning);
+
+  useEffect(() => {
+    // When text begins streaming (transition from no text -> has text), auto-collapse thought!
+    if (!prevHasTextRef.current && hasText) {
+      setIsOpen(false);
+    }
+    // When starting a new run that has no text yet (streaming tools/reasoning), auto-expand thought!
+    else if (!prevRunningRef.current && isRunning && !hasText) {
+      setIsOpen(true);
+    }
+    // When turn completes and has text, ensure thought is collapsed
+    else if (prevRunningRef.current && !isRunning && hasText) {
+      setIsOpen(false);
+    }
+
+    prevHasTextRef.current = hasText;
+    prevRunningRef.current = isRunning;
+  }, [isRunning, hasText]);
+
+  const t = useTranslations("assistant");
+  const title = isRunning ? t("thinking") : t("thought");
+
+  return (
+    <details
+      className="ai-reasoning"
+      open={isOpen}
+      onToggle={(e) => {
+        setIsOpen((e.currentTarget as HTMLDetailsElement).open);
+      }}
+    >
+      <summary className="ai-reasoning-summary">
+        <Icon name="layers" tone="color" className="size-3.5 shrink-0" />
+        <span className={cn("ai-reasoning-label", isRunning && "shimmer text-foreground/70")}>{title}</span>
+        {isRunning && (
+          <span className="inline-block size-1.5 bg-[var(--art-blue)] shimmer ml-1" />
+        )}
+        <Icon
+          name="chevron-down"
+          variant="control"
+          className="size-3.5 shrink-0 ml-auto transition-transform"
+        />
+      </summary>
+      <div className="ai-reasoning-body">
+        <div className="ai-timeline">{children}</div>
+      </div>
+    </details>
+  );
+}
+
 export function AssistantMessage() {
+  const t = useTranslations("assistant");
+  const hasThought = useAuiState((s) =>
+    s.message.parts.some((p) => p.type === "reasoning" || p.type === "tool-call"),
+  );
+  const parts = useAuiState((s) => s.message.parts);
+
   return (
     <MessagePrimitive.Root className="ai-message ai-message-assistant">
       <div className="ai-message-content">
-        <MessagePrimitive.Parts
-          components={{
-            Text: Markdown,
-            Reasoning,
-            tools: { Fallback: ToolResult },
-          }}
-        />
+        {hasThought ? (
+          <>
+            <ThoughtProcessContainer>
+              {parts.map((part, index) => (part.type === "reasoning" || part.type === "tool-call") &&
+                <MessagePrimitive.PartByIndex key={index} index={index}
+                  components={{ Reasoning: TimelineReasoningPart, tools: { Fallback: TimelineTool } }} />)}
+            </ThoughtProcessContainer>
+            {parts.map((part, index) => part.type !== "reasoning" && part.type !== "tool-call" &&
+              <MessagePrimitive.PartByIndex key={index} index={index} components={{ Text: Markdown }} />)}
+          </>
+        ) : (
+          <MessagePrimitive.Parts components={{ Text: Markdown }} />
+        )}
         <MessagePrimitive.Error>
           <p className="ai-message-error" role="alert">
-            The response was interrupted. Reopen this conversation to check what
-            was saved.
+            {t("responseInterrupted")}
           </p>
         </MessagePrimitive.Error>
       </div>
@@ -210,7 +340,7 @@ export function AssistantMessage() {
       >
         <ActionBarPrimitive.Root className="ai-message-actions">
           <ActionBarPrimitive.Copy asChild>
-            <Button variant="ghost" size="icon-sm" aria-label="Copy response">
+            <Button variant="ghost" size="icon-sm" aria-label={t("copyResponseAria")}>
               <Icon name="copy" variant="control" />
             </Button>
           </ActionBarPrimitive.Copy>
@@ -220,16 +350,24 @@ export function AssistantMessage() {
   );
 }
 
+function TurnMessages({ snapshot }: { snapshot?: readonly ThreadMessage[] }) {
+  const messages = useAuiState((s) => s.thread.messages);
+  const turns = useMemo(() => mergeAssistantTurns(messages, snapshot), [messages, snapshot]);
+  return <ReadonlyThreadProvider messages={turns}>
+    <ThreadPrimitive.Messages components={{ UserMessage, AssistantMessage }} />
+  </ReadonlyThreadProvider>;
+}
+
 const REASONING_STEPS: readonly ReasoningEffort[] = [
   "low",
   "medium",
   "high",
 ] as const;
 
-function formatEffort(value: string): string {
-  if (value === "low") return "Low";
-  if (value === "medium") return "Medium";
-  if (value === "high") return "High";
+function formatEffort(value: string, t: (key: any) => string): string {
+  if (value === "low") return t("effortLow");
+  if (value === "medium") return t("effortMedium");
+  if (value === "high") return t("effortHigh");
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
@@ -242,6 +380,7 @@ function ReasoningEffortSlider({
   currentStep: ReasoningEffort;
   onEffort: (effort: string) => void;
 }) {
+  const t = useTranslations("assistant");
   const currentIndex = steps.indexOf(currentStep);
   const trackRef = useRef<HTMLDivElement>(null);
   const isDraggingRef = useRef(false);
@@ -298,11 +437,11 @@ function ReasoningEffortSlider({
         ref={trackRef}
         className="ai-effort-track"
         role="slider"
-        aria-label="Thinking effort"
+        aria-label={t("thinkingEffortAria")}
         aria-valuemin={0}
         aria-valuemax={steps.length - 1}
         aria-valuenow={currentIndex}
-        aria-valuetext={formatEffort(currentStep)}
+        aria-valuetext={formatEffort(currentStep, t)}
         tabIndex={0}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -347,7 +486,7 @@ function ReasoningEffortSlider({
             data-active={idx === currentIndex}
             onClick={() => onEffort(step)}
           >
-            {formatEffort(step)}
+            {formatEffort(step, t)}
           </button>
         ))}
       </div>
@@ -370,6 +509,7 @@ export function ModelPicker({
   onEffort: (effort: string) => void;
   disabled?: boolean;
 }) {
+  const t = useTranslations("assistant");
   const [open, setOpen] = useState(false);
   const [showModels, setShowModels] = useState(false);
 
@@ -391,7 +531,7 @@ export function ModelPicker({
           variant="ghost"
           className="ai-model-trigger"
           disabled={disabled}
-          aria-label="Choose model"
+          aria-label={t("chooseModelAria")}
         >
           <ModelLogo modelId={model.id} modelName={model.name} />
           <span className="ai-model-name">{model.name}</span>
@@ -405,7 +545,7 @@ export function ModelPicker({
               <button
                 type="button"
                 className="ai-model-select-btn"
-                aria-label="Select model"
+                aria-label={t("selectModelAria")}
               >
                 <div className="ai-model-select-left">
                   <ModelLogo modelId={model.id} modelName={model.name} />
@@ -470,6 +610,7 @@ export function AssistantThread({
   clearError,
   footer,
   usage,
+  snapshot,
 }: {
   models: AssistantModel[];
   model: AssistantModel;
@@ -480,7 +621,9 @@ export function AssistantThread({
   clearError?: () => void;
   footer?: React.ReactNode;
   usage?: React.ReactNode;
+  snapshot?: readonly ThreadMessage[];
 }) {
+  const t = useTranslations("assistant");
   const aui = useAui();
   const running = useAuiState((s) => s.thread.isRunning);
   const attachmentCount = useAuiState((s) => s.composer.attachments.length);
@@ -501,39 +644,123 @@ export function AssistantThread({
       ),
     [aui],
   );
+
+  const [isDragging, setIsDragging] = useState(false);
+  const dragCounterRef = useRef(0);
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes("Files")) return;
+    e.preventDefault();
+    dragCounterRef.current += 1;
+    if (dragCounterRef.current === 1) {
+      setIsDragging(true);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes("Files")) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = model.vision && attachmentCount < 4 ? "copy" : "none";
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes("Files")) return;
+    e.preventDefault();
+    dragCounterRef.current = Math.max(0, dragCounterRef.current - 1);
+    if (dragCounterRef.current === 0) {
+      setIsDragging(false);
+    }
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes("Files")) return;
+    e.preventDefault();
+    dragCounterRef.current = 0;
+    setIsDragging(false);
+
+    if (running) return;
+
+    if (!model.vision) {
+      setAttachmentError(t("chooseVisionModelPrompt"));
+      return;
+    }
+
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length === 0) return;
+
+    const imageFiles = files.filter(
+      (f) => f.type.startsWith("image/") || /\.(png|jpe?g|webp)$/i.test(f.name)
+    );
+    if (imageFiles.length === 0) {
+      setAttachmentError(t("imageFormatNotice"));
+      return;
+    }
+
+    if (attachmentCount + imageFiles.length > 4) {
+      setAttachmentError(t("maxImagesNotice"));
+      return;
+    }
+
+    for (const file of imageFiles) {
+      try {
+        await aui.composer.addAttachment(file);
+      } catch (err) {
+        setAttachmentError(err instanceof Error ? err.message : t("failedToAddImage"));
+      }
+    }
+  };
+
   return (
-    <ThreadPrimitive.Root className="ai-thread">
+    <ThreadPrimitive.Root
+      className="ai-thread"
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {isDragging && (
+        <div className="ai-drop-overlay">
+          <div className="ai-drop-overlay-badge">
+            <Icon name="image" variant="control" tone="color" className="size-6" />
+          </div>
+          <p className="ai-drop-overlay-title">{t("dropImagesTitle")}</p>
+          <p className="ai-drop-overlay-sub">
+            {model.vision
+              ? t("dropImagesSubVision")
+              : t("dropImagesSubNoVision")}
+          </p>
+        </div>
+      )}
       <ThreadPrimitive.Viewport
         className="ai-viewport"
-        aria-label="Conversation messages"
+        aria-label={t("conversationMessagesAria")}
       >
         <ThreadPrimitive.Empty>
           <div className="ai-empty">
             <div className="ai-empty-badge">
               <Icon name="spark" tone="color" className="size-6" />
             </div>
-            <h2>How can I help you today?</h2>
+            <h2>{t("howCanIHelp")}</h2>
             <div className="ai-suggestions">
               {[
                 {
-                  title: "Summarize this page",
-                  prompt: "Summarize the current page and key concepts",
+                  title: t("suggestionSummarize"),
+                  prompt: t("suggestionSummarizePrompt"),
                   icon: "list" as const,
                 },
                 {
-                  title: "Translate this page",
-                  prompt: "Translate and explain key words in context",
+                  title: t("suggestionTranslate"),
+                  prompt: t("suggestionTranslatePrompt"),
                   icon: "translate" as const,
                 },
                 {
-                  title: "Analyze for insights",
-                  prompt:
-                    "Analyze my vocabulary retention and suggest improvements",
+                  title: t("suggestionAnalyze"),
+                  prompt: t("suggestionAnalyzePrompt"),
                   icon: "search" as const,
                 },
                 {
-                  title: "Create a task tracker",
-                  prompt: "Create a quick quiz for my recently studied cards",
+                  title: t("suggestionQuiz"),
+                  prompt: t("suggestionQuizPrompt"),
                   icon: "circle-check" as const,
                 },
               ].map((item) => (
@@ -556,9 +783,7 @@ export function AssistantThread({
             </div>
           </div>
         </ThreadPrimitive.Empty>
-        <ThreadPrimitive.Messages
-          components={{ UserMessage, AssistantMessage }}
-        />
+        <TurnMessages snapshot={snapshot} />
         {footer}
       </ThreadPrimitive.Viewport>
       <div className="ai-composer-wrap">
@@ -567,7 +792,7 @@ export function AssistantThread({
             variant="outline"
             size="icon-sm"
             className="ai-scroll-bottom"
-            aria-label="Scroll to latest message"
+            aria-label={t("scrollToBottomAria")}
           >
             <Icon name="arrow-down" variant="control" />
           </Button>
@@ -583,18 +808,15 @@ export function AssistantThread({
                   setAttachmentError(null);
                   clearError?.();
                 }}
-                aria-label="Dismiss assistant error"
+                aria-label={t("dismissErrorAria")}
               >
                 <Icon name="x" variant="control" />
               </Button>
             )}
           </div>
         )}
-        {usage ?? (
-          <div className="ai-plan-banner">
-            Design preview · No AI allowance is consumed.
-          </div>
-        )}
+        {usage}
+        <AssistantContextTab />
         <ComposerPrimitive.Root className="ai-composer">
           <div className="ai-composer-attachments">
             <ComposerPrimitive.Attachments
@@ -603,8 +825,8 @@ export function AssistantThread({
           </div>
           <ComposerPrimitive.Input
             autoFocus
-            aria-label="Message PycilAI"
-            placeholder="Ask Pycil AI…"
+            aria-label={t("messagePycilAiAria")}
+            placeholder={t("askPycilAiPlaceholder")}
             maxLength={8000}
             rows={2}
             className="ai-input"
@@ -614,12 +836,12 @@ export function AssistantThread({
               <Button
                 variant="ghost"
                 size="icon-sm"
-                aria-label="Attach images"
+                aria-label={t("attachImagesAria")}
                 disabled={!model.vision || running || attachmentCount >= 4}
                 title={
                   model.vision
-                    ? "Attach images (PNG, JPEG, WebP)"
-                    : "Choose a vision model to attach images"
+                    ? t("attachImagesTitleVision")
+                    : t("attachImagesTitleNoVision")
                 }
               >
                 <Icon name="plus" variant="control" />
@@ -637,7 +859,7 @@ export function AssistantThread({
               <ComposerPrimitive.Cancel asChild>
                 <Button
                   size="icon"
-                  aria-label="Stop response"
+                  aria-label={t("stopResponseAria")}
                   className="ai-send"
                 >
                   <Icon name="stop" variant="control" />
@@ -647,7 +869,7 @@ export function AssistantThread({
               <ComposerPrimitive.Send asChild>
                 <Button
                   size="icon"
-                  aria-label="Send message"
+                  aria-label={t("sendMessageAria")}
                   className="ai-send"
                 >
                   <Icon name="arrow-up" variant="control" />

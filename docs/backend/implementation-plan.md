@@ -1,5 +1,6 @@
 # Backend completion and frontend-readiness implementation plan
 
+Archived record. Current-only baselines and targeted Library mutations supersede the migration/editor contracts below; see [current setup](operations/migrations.md) and [OpenAPI](openapi.json).
 Date: 2026-10-06. Status: **backend implemented; local verification and handoff**.
 
 This is the consolidated execution plan for the remaining 2026-10-05 redesign and
@@ -153,7 +154,7 @@ and the exported OpenAPI describe the current breaking contract.
 | --- | --- |
 | `GET /v1/me` | Existing self profile/root IDs plus handle, bio, joined date and safe learning-option metadata |
 | `PATCH /v1/me/settings` | `max_sense_count`; reject old budget field; preserve other settings/entitlements |
-| `PATCH /v1/me/profile` | Owner edits handle/bio only; no country or plan changes |
+| `PATCH /v1/me/profile` | Owner edits display_name/handle/bio; no country or plan changes |
 | `GET /v1/users/{user_id}` | Safe identity, handle/bio/joined date and Published root; no learning/private roots |
 | `GET /v1/users/by-handle/{handle}` | Same safe profile lookup using canonical current handle |
 | `GET /v1/nodes` | Bounded children with opaque cursor; optional `include=summary` inline card enrichment |
@@ -677,15 +678,16 @@ single revision chain. Files: account models/schemas/API, invalidation, migratio
 - [x] Add nullable handle/bio to existing users; backfill null, not invented identities.
 - [x] Handle: trim, canonical lowercase ASCII, 3-30 characters matching
   `[a-z][a-z0-9_]{2,29}`; unique at database level. Do not derive it from contact email.
-- [x] Handle is optional until set; PATCH omission preserves it. Renaming is allowed;
+- [x] Handle is initialized from the display name with a unique random suffix; PATCH
+  omission preserves it. Renaming is allowed;
   clearing an established handle is rejected. Existing stable user-ID URLs remain.
 - [x] Bio: trim; maximum 500 characters; explicit null clears it. No HTML rendering.
 - [x] Owner-only `PATCH /me/profile`; reject plan/settings/country/unknown writes.
 - [x] Map concurrent unique-handle conflicts to 409 `handle_unavailable`, safely roll
   back, invalidate actor values where relevant and return the saved self profile.
-- [x] Self/public profiles expose handle/bio and `joined_at` from existing created
-  timestamp. Keep display name nullable; do not bundle a new display-name write or
-  full Clerk synchronization subsystem into this task.
+- [x] Self/public profiles expose display name/handle/bio and `joined_at` from existing
+  created timestamp. Display name is initialized from Clerk once and owner-editable;
+  no recurring Clerk synchronization subsystem. See [account](modules/account.md).
 - [x] Add current-handle lookup with the same safe public response. After rename the
   old handle returns not found; no historical handle/redirect ownership service.
 - [x] Read persisted profile data, not stale detached actor fields; no email/Clerk
@@ -705,14 +707,14 @@ Dependencies: implemented contracts in Phases 2-8.
 Files: assistant tools/graph and packaged `system_prompt.txt`; active source/config,
 OpenAPI, tests and documentation. Preserve existing conversation persistence/protocol.
 
-- [x] Update `learning_progress` tool to summary-only service, root IDs and bounded
-  scope behavior; add read-only search/context tools only as thin shared-service calls.
-- [x] Update list tools for cursor/limit and optional batch summaries; no one-card loop.
+- [x] Migrate Assistant reads to batched task tools with exact summaries, vocabulary
+  and paginated Library content; see [current contracts](modules/assistant.md).
+- [x] Read Library content/structure with cursor/limit and batched enrichment; no one-card loop.
 - [x] Preserve create/update/delete explicit approval guards and publication consent.
 - [x] Keep complete editor IDs before full-state saves; assistant cannot replace a
   whole deck from a paginated browse response.
-- [x] Do not add assistant review submission, profile edits, tags, preferences or
-  import/translation tools merely because new HTTP read services exist.
+- [x] Do not add assistant review submission, profile edits, tags or import/translation
+  tools merely because HTTP services exist. Explicitly requested preference tools are available.
 - [x] Update packaged prompt/tool descriptions; preserve excluded local `prompt.md`.
 - [x] Remove mastery function/config/storage/result fields, weakest queries/index,
   CEFR dashboard aggregation, raw history routes/models and old budget handling.

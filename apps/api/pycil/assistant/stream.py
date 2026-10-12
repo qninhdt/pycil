@@ -1,23 +1,31 @@
 """Authenticated AG-UI integration and established unit settlement."""
 
 import base64
+import json
 from contextlib import aclosing, asynccontextmanager
 from datetime import UTC, datetime
 from uuid import UUID, uuid7
+from zoneinfo import ZoneInfo
 
 from ag_ui.core import EventType, RunErrorEvent
 from ag_ui.encoder import EventEncoder
 from ag_ui_langgraph import LangGraphAgent
 from anyio import CancelScope
-from sqlalchemy import update
+from lexi_ai.contract import Word
+from pydantic import ValidationError
+from sqlalchemy import select, update
 
+from pycil.account.models import User
 from pycil.account.plans import Feature
+from pycil.account.schemas import preferences
 from pycil.account.usage import admit, settle
 from pycil.assistant import graph as agents
 from pycil.assistant.conversations import guard, owned
 from pycil.assistant.metering import Meter
 from pycil.assistant.models import Conversation
+from pycil.assistant.schemas import CurrentView
 from pycil.http import Problem
+from pycil.library.nodes import node_details
 
 
 def validate_input(data, config):
@@ -26,8 +34,13 @@ def validate_input(data, config):
     except ValueError:
         raise Problem(422, "invalid_conversation_id") from None
     props = data.forwarded_props or {}
-    if not isinstance(props, dict) or set(props) - {"model_id", "effort"}:
+    if not isinstance(props, dict) or set(props) - {"model_id", "effort", "current_view"}:
         raise Problem(422, "invalid_assistant_options")
+    if props.get("current_view") is not None:
+        try:
+            CurrentView.model_validate(props["current_view"])
+        except ValidationError:
+            raise Problem(422, "invalid_assistant_view") from None
     policy = next(
         (p for p in config.models if p.id == props.get("model_id", config.assistant.default_model)),
         None,
@@ -78,10 +91,52 @@ async def prepare_turn(resources, deployment, user, data, config):
     identifier, policy, effort = validate_input(data, config)
     async with resources.sessions() as session:
         await owned(session, user.id, identifier)
+        saved_settings = await session.scalar(select(User.settings).where(User.id == user.id))
+        if saved_settings is None:
+            raise Problem(404, "account_not_found")
+        settings = preferences(saved_settings, config)
+        auto_approve = settings.assistant.auto_approve and not data.resume
+        view = None
+        hint = (data.forwarded_props or {}).get("current_view")
+        if hint is not None:
+            selected = CurrentView.model_validate(hint)
+            view = selected.model_dump(mode="json", exclude_none=True)
+            if selected.node_id is not None:
+                try:
+                    detail = await node_details(session, selected.node_id, user.id, config)
+                except Problem as exc:
+                    if exc.status != 404:
+                        raise
+                    view = {"path": selected.path, "unavailable": True}
+                else:
+                    view |= {"name": detail["name"], "type": detail["type"]}
+            elif selected.word_id is not None:
+                lemma = await session.scalar(
+                    select(Word.lemma).where(
+                        Word.id == selected.word_id, Word.generation_state == "DONE"
+                    )
+                )
+                view = (
+                    view | {"name": lemma, "type": "WORD"}
+                    if lemma is not None
+                    else {"path": selected.path, "unavailable": True}
+                )
+        context = {
+            "now": datetime.now(ZoneInfo(settings.timezone)).isoformat(),
+            "timezone": settings.timezone,
+            "current_view": view,
+            "name": user.display_name,
+            "username": user.handle,
+        }
+        packed = json.dumps(context, ensure_ascii=False, separators=(",", ":"), default=str)
+        packed = packed.replace("<", "\\u003c").replace(">", "\\u003e")
+        turn_context = f"<context>{packed}</context>"
     async with agents.model(
         deployment, policy, effort, config.assistant.llm_timeout_seconds
     ) as selected:
-        agent = agents.graph(resources, user, config, selected)
+        agent = agents.graph(
+            resources, user, config, selected, auto_approve=auto_approve, turn_context=turn_context
+        )
         checkpoint_config = {"configurable": {"thread_id": str(identifier)}}
         async with guard(resources.redis, identifier):
             async with resources.sessions() as session:

@@ -18,8 +18,8 @@ from pycil.http import Problem
 
 
 def test_config_native_types_and_integer_levels(config):
-    assert len(config.learning.pair_levels) == 7
-    assert sum(map(len, config.learning.pair_levels.values())) == 12
+    assert len(config.learning.pair_levels) == 8
+    assert sum(map(len, config.learning.pair_levels.values())) == 14
     assert all(isinstance(kind, QuestionType) for kind in config.learning.pair_levels)
     assert all(
         isinstance(fmt, ResponseFormat) and type(level) is int
@@ -60,14 +60,14 @@ def test_duplicate_yaml_key_is_an_error(tmp_path):
 
 
 def test_jsonb_preferences_merge_only_known_levels(config):
-    saved = {"locale": "vi", "learning": {"show_explanations": False}}
+    saved = {"locale": "vi", "learning": {"questions_per_sense": 1}}
     patch = PreferencesPatch.model_validate({"learning": {"max_sense_count": 12}})
     merged = merge_preferences(saved, patch, Plan.FREE, config)
     assert merged == {
         "locale": "vi",
-        "learning": {"show_explanations": False, "max_sense_count": 12},
+        "learning": {"questions_per_sense": 1, "max_sense_count": 12},
     }
-    assert saved["learning"] == {"show_explanations": False}
+    assert saved["learning"] == {"questions_per_sense": 1}
     assert preferences({}, config).timezone == "UTC"
     assert effective_learning(merged, Plan.FREE, config).max_sense_count == 12
 
@@ -78,7 +78,7 @@ def test_jsonb_preferences_merge_only_known_levels(config):
         {"plan": "PRO"},
         {"timezone": None},
         {"learning": None},
-        {"learning": {"show_explanations": None}},
+        {"learning": {"questions_per_sense": None}},
         {"learning": {"session_id": "x"}},
     ],
 )
@@ -99,13 +99,33 @@ def test_paid_preferences_preserved_on_downgrade(config):
     saved = merge_preferences({}, patch, Plan.PRO, config)
     with pytest.raises(Problem, match="advanced_grading_not_available"):
         merge_preferences({}, patch, Plan.FREE, config)
-    with pytest.raises(Problem, match="infeasible_learning_preferences"):
-        effective_learning(saved, Plan.FREE, config)
+    assert effective_learning(saved, Plan.FREE, config).formats == [ResponseFormat.SINGLE_CHOICE]
     assert preferences(saved, config).learning.formats == [ResponseFormat.SINGLE_WORD]
     assert (
         merge_preferences(saved, PreferencesPatch(locale="vi"), Plan.FREE, config)["learning"]
         == saved["learning"]
     )
+
+
+def test_free_quiz_type_change_preserves_saved_pro_formats(config):
+    saved = {"learning": {"question_types": ["DEFINITION_TO_WORD"], "formats": ["SINGLE_WORD"]}}
+    patch = PreferencesPatch(learning={"question_types": ["MEANING_IN_CONTEXT"]})
+    merged = merge_preferences(saved, patch, Plan.FREE, config)
+    assert preferences(merged, config).learning.formats == [ResponseFormat.SINGLE_WORD]
+    effective = effective_learning(merged, Plan.FREE, config)
+    assert effective.question_types == [QuestionType.MEANING_IN_CONTEXT]
+    assert effective.formats == [ResponseFormat.SINGLE_CHOICE]
+    assert saved["learning"]["question_types"] == ["DEFINITION_TO_WORD"]
+    with pytest.raises(Problem, match="infeasible_learning_preferences"):
+        effective_learning(merged, Plan.PRO, config)
+    with pytest.raises(Problem):
+        merge_preferences(saved, patch, Plan.PRO, config)
+
+
+@pytest.mark.parametrize("patch", [{"questions_per_sense": 4}, {"max_sense_count": 21}])
+def test_saved_learning_limits_remain_enforced(config, patch):
+    with pytest.raises(Problem, match="invalid_preferences"):
+        merge_preferences({}, PreferencesPatch(learning=patch), Plan.FREE, config)
 
 
 def test_month_end_anchor_does_not_drift():
@@ -114,3 +134,12 @@ def test_month_end_anchor_does_not_drift():
     assert start == datetime(2026, 2, 28, 12, tzinfo=UTC)
     assert end == datetime(2026, 3, 31, 12, tzinfo=UTC)
     assert period_bounds(anchor, end)[0] == end
+
+
+def test_lexi_reasoning_output_budget_can_be_raised_without_changing_defaults(config):
+    data = config.model_dump(mode="json")
+    data["providers"]["lexi"]["max_completion_tokens"] = 32768
+    assert ProductConfig.model_validate(data).providers.lexi.max_completion_tokens == 32768
+    data["providers"]["lexi"]["max_completion_tokens"] = 32769
+    with pytest.raises(ValidationError):
+        ProductConfig.model_validate(data)

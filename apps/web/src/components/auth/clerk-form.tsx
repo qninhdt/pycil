@@ -2,23 +2,30 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useClerk, useSignIn, useSignUp } from '@clerk/react'
+import { useClerk, useSession, useSignIn, useSignUp } from '@clerk/nextjs'
+import { useTranslations } from 'next-intl'
 import { AuthForm } from './auth-form'
 import { safeReturnTo, type AuthDriver, type AuthMode, type AuthResult } from '@/lib/auth-flow'
 
 export function ConnectedAuthForm({ mode }: { mode: AuthMode }) {
   const clerk = useClerk()
+  const { isLoaded, session } = useSession()
+  const t = useTranslations('auth')
   const { signIn } = useSignIn()
   const { signUp } = useSignUp()
   const router = useRouter()
   const search = useSearchParams()
   const [unavailable, setUnavailable] = useState(false)
   useEffect(() => {
-    if (clerk.loaded) return
+    if (clerk.loaded && isLoaded) return
     const timer = setTimeout(() => setUnavailable(true), 12000)
     return () => clearTimeout(timer)
-  }, [clerk.loaded])
+  }, [clerk.loaded, isLoaded])
   const destination = safeReturnTo(search.get('returnTo'))
+  const redirectTo = isLoaded && session ? session.currentTask ? '/auth/continue' : destination : null
+  useEffect(() => {
+    if (redirectTo) router.replace(redirectTo)
+  }, [redirectTo, router])
   const finish = async (signup: boolean): Promise<AuthResult> => {
     let task = false
     const resource = signup ? signUp : signIn
@@ -53,7 +60,7 @@ export function ConnectedAuthForm({ mode }: { mode: AuthMode }) {
     return { message: 'Your account needs additional information. Continue securely to complete sign up.', continuation: true }
   }
   const driver: AuthDriver = {
-    ready: clerk.loaded,
+    ready: clerk.loaded && isLoaded && !session,
     submit: async (fields, step) => {
       if (step === 'verify-email') {
         const result = await signUp.verifications.verifyEmailCode({ code: fields.code })
@@ -99,5 +106,6 @@ export function ConnectedAuthForm({ mode }: { mode: AuthMode }) {
       if (result.error) throw result.error
     },
   }
-  return <AuthForm mode={mode} driver={driver} unavailable={unavailable && !clerk.loaded} />
+  if ((!isLoaded && !unavailable) || redirectTo) return <p role="status">{t('connecting')}</p>
+  return <AuthForm mode={mode} driver={driver} unavailable={unavailable && (!clerk.loaded || !isLoaded)} />
 }

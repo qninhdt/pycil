@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import type { AnswerFormat } from '@/lib/api'
 import type { QuestionType } from '@/lib/home-api'
 
-type Name = QuestionType | AnswerFormat
+type Name = Exclude<QuestionType, 'SENTENCE_REWRITE'> | AnswerFormat
 type Glyph = (mono: boolean) => ReactNode
 const red = 'var(--art-red)', blue = 'var(--art-blue)', yellow = 'var(--art-yellow)'
 const plane = (mono: boolean, color: string) => ({ fill: mono ? 'currentColor' : color, stroke: 'none' })

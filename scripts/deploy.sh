@@ -16,11 +16,11 @@ actual="$(sha256sum "$VERIFIED_BACKUP_FILE")"
 export API_IMAGE
 compose=(python scripts/compose.py --env-file "$ENV_FILE")
 "${compose[@]}" config -q
-"${compose[@]}" pull api worker migrate
-# Stop both writers before the explicit migration. A failed migration leaves
-# them stopped; never pretend swapping an old image reverses schema changes.
-"${compose[@]}" stop api worker
+"${compose[@]}" pull api migrate
+# Stop the API writer before the explicit migration. A failed migration leaves
+# it stopped; never pretend swapping an old image reverses schema changes.
+"${compose[@]}" stop api
+"${compose[@]}" up -d --no-deps --wait --remove-orphans postgres redis
 "${compose[@]}" run --rm --no-deps migrate
-"${compose[@]}" up -d --no-deps --wait api worker
-"${compose[@]}" run --rm --no-deps worker python -m pycil.worker --check
-echo "deploy: API and worker replaced after explicit schema verification"
+"${compose[@]}" up -d --no-deps --wait api
+echo "deploy: API replaced after explicit schema verification"

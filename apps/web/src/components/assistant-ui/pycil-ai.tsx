@@ -2,27 +2,34 @@
 
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslations } from 'next-intl'
 import { HttpAgent } from '@ag-ui/client'
 import { RunAgentInputSchema } from '@ag-ui/core'
-import { AssistantRuntimeProvider, ExportedMessageRepository, SimpleImageAttachmentAdapter, useAuiState, type AttachmentAdapter } from '@assistant-ui/react'
+import { AssistantRuntimeProvider, ExportedMessageRepository, SimpleImageAttachmentAdapter, fromThreadMessageLike, useAuiState, type AttachmentAdapter, type ThreadMessage } from '@assistant-ui/react'
 import { fromAgUiMessages, useAgUiRuntime, useAgUiInterrupts, useAgUiSubmitInterruptResponses } from '@assistant-ui/react-ag-ui'
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Icon } from '@/components/artwork/artwork'
+import { ArrowLeft, Icon } from '@/components/artwork/artwork'
 import { Button } from '@/components/ui/button'
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel } from '@/components/ui/alert-dialog'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { Switch } from '@/components/ui/switch'
+import { Label } from '@/components/ui/label'
+import { cn } from 'cn'
+import { toast } from 'sonner'
 import { useAiPanelState } from '@/hooks/use-ai-panel-state'
+import { currentAssistantView } from '@/hooks/use-assistant-view'
 import { useServices } from '@/lib/services/provider'
 import { useAccount } from '@/components/application/providers'
 import { AssistantThread, AssistantGeometry } from './thread'
-import { UsageStatus } from '@/components/account/usage-status'
-import { turnInput, type Approval, type AssistantModel, type AssistantService, type ConversationDetails } from '@/lib/assistant-api'
+import { AssistantError, turnInput, type Approval, type AssistantModel, type AssistantService, type ConversationDetails } from '@/lib/assistant-api'
 
 export function ApprovalPanel({ approvals, busy = false, onDecision }: { approvals: Approval[]; busy?: boolean; onDecision: (approve: boolean) => void }) {
+  const t = useTranslations('assistant')
   if (!approvals.length) return null
-  return <section className="ai-approval" aria-label="Pending Library changes">
-    <h3 className="ai-approval-heading"><Icon name="triangle-alert" variant="control" tone="color" />Review Library changes</h3>
+  return <section className="ai-approval" aria-label={t('pendingChanges')}>
+    <h3 className="ai-approval-heading"><Icon name="triangle-alert" variant="control" tone="color" />{t('reviewChanges')}</h3>
     {approvals.flatMap(approval => approval.action_requests).map((action, index) => <div className="ai-approval-action" key={index}><strong>{action.description || action.name.replaceAll('_', ' ')}</strong><pre>{JSON.stringify(action.args, null, 2)}</pre></div>)}
-    <div className="ai-approval-buttons"><Button onClick={() => onDecision(true)} disabled={busy}>Approve changes<Icon name="check" variant="control" /></Button><Button variant="outline" onClick={() => onDecision(false)} disabled={busy}>Reject</Button></div>
+    <div className="ai-approval-buttons"><Button onClick={() => onDecision(true)} disabled={busy}>{t('approveChanges')}<Icon name="check" variant="control" /></Button><Button variant="outline" onClick={() => onDecision(false)} disabled={busy}>{t('reject')}</Button></div>
   </section>
 }
 
@@ -54,6 +61,7 @@ function ConversationRuntime({ service, details, models, onCreated, onFinished, 
   const model = models.find(item => item.id === modelId) ?? models[0]
   const [effort, setEffort] = useState(model.efforts.includes('medium') ? 'medium' : model.efforts[0])
   const [error, setError] = useState<string | null>(null)
+  const [snapshot, setSnapshot] = useState<ThreadMessage[]>([])
   const id = useRef(details?.id ?? null)
   const selection = useRef({ model, effort })
   const callbacks = useRef({ onCreated, onFinished, onBusy })
@@ -64,14 +72,15 @@ function ConversationRuntime({ service, details, models, onCreated, onFinished, 
     const signal = init.signal ?? new AbortController().signal
     const { model, effort } = selection.current
     // Validate before creating metadata, so an invalid draft never creates an empty conversation.
-    turnInput(input, id.current ?? input.threadId, model, effort)
+    const view = currentAssistantView()
+    turnInput(input, id.current ?? input.threadId, model, effort, view)
     if (!id.current) {
       const user = input.messages.at(-1)
       const title = user?.role === 'user' ? typeof user.content === 'string' ? user.content : user.content.filter(part => part.type === 'text').map(part => part.text).join(' ') : 'New conversation'
       id.current = (await service.create(title, signal)).id
       callbacks.current.onCreated(id.current)
     }
-    return service.run(turnInput(input, id.current, model, effort), signal)
+    return service.run(turnInput(input, id.current, model, effort, view), signal)
   }, [service])
   const [agent] = useState(() => new HttpAgent({ url: '/api/v1/assistant:run', threadId: details?.id, fetch: fetchTurn }))
   const adapters = useMemo(() => {
@@ -98,14 +107,20 @@ function ConversationRuntime({ service, details, models, onCreated, onFinished, 
     } }
   }, [details])
   const runtime = useAgUiRuntime({ agent, adapters, resumeTranscript: 'appended', autoCancelPendingToolCalls: false, onError: error => setError(error.message === 'assistant_failed' ? 'The response failed. Reopen this conversation to check its saved state.' : error.message) })
-  useEffect(() => agent.subscribe({ onRunInitialized: () => callbacks.current.onBusy(true), onRunFinalized: () => { callbacks.current.onBusy(false); callbacks.current.onFinished() } }).unsubscribe, [agent])
+  useEffect(() => agent.subscribe({
+    onRunInitialized: () => callbacks.current.onBusy(true),
+    onMessagesSnapshotEvent: ({ event }) => {
+      setSnapshot(fromAgUiMessages(event.messages).map(message => fromThreadMessageLike(message, message.id!, { type: 'complete', reason: 'unknown' })))
+    },
+    onRunFinalized: () => { callbacks.current.onBusy(false); callbacks.current.onFinished() },
+  }).unsubscribe, [agent])
   useEffect(() => () => { agent.abortRun(); callbacks.current.onBusy(false) }, [agent])
   function chooseModel(id: string) {
     const next = models.find(model => model.id === id)!
     setModelId(id)
     if (!next.efforts.includes(effort)) setEffort(next.efforts.includes('medium') ? 'medium' : next.efforts[0])
   }
-  return <AssistantRuntimeProvider runtime={runtime}><AssistantThread models={models} model={model} effort={effort} onModel={chooseModel} onEffort={setEffort} error={error} clearError={() => setError(null)} footer={<LiveApproval onError={setError} />} usage={<UsageStatus />} /></AssistantRuntimeProvider>
+  return <AssistantRuntimeProvider runtime={runtime}><AssistantThread models={models} model={model} effort={effort} onModel={chooseModel} onEffort={setEffort} error={error} clearError={() => setError(null)} footer={<LiveApproval onError={setError} />} usage={null} snapshot={snapshot} /></AssistantRuntimeProvider>
 }
 
 function LiveAssistant({ initialId, remember, historyOpen, closeHistory, busy, setBusy, onTitleChange }: {
@@ -113,6 +128,8 @@ function LiveAssistant({ initialId, remember, historyOpen, closeHistory, busy, s
   onTitleChange?: (title: string | null) => void
 }) {
   const { services, scope } = useServices()
+  const t = useTranslations('assistant')
+  const tCommon = useTranslations('common')
   const service = services.assistant!
   const queryClient = useQueryClient()
   const [selectedId, setSelectedId] = useState(initialId)
@@ -121,8 +138,15 @@ function LiveAssistant({ initialId, remember, historyOpen, closeHistory, busy, s
   const [deleteError, setDeleteError] = useState('')
   const [version, setVersion] = useState(0)
   const models = useQuery({ queryKey: [scope, 'assistant-models'], queryFn: ({ signal }) => service.models(signal) })
-  const detail = useQuery({ queryKey: [scope, 'assistant-conversation', selectedId, version], queryFn: ({ signal }) => service.details(selectedId!, signal), enabled: !!selectedId, staleTime: 0 })
+  const detail = useQuery({ queryKey: [scope, 'assistant-conversation', selectedId, version], queryFn: ({ signal }) => service.details(selectedId!, signal), enabled: !!selectedId, staleTime: 0,
+    retry: (count, error) => !(error instanceof AssistantError && error.status === 404) && count < 3 })
   const history = useInfiniteQuery({ queryKey: [scope, 'assistant-conversations'], initialPageParam: undefined as string | undefined, queryFn: ({ pageParam, signal }) => service.list(pageParam, signal), getNextPageParam: page => page.next_cursor ?? undefined })
+  useEffect(() => {
+    if (selectedId && detail.error instanceof AssistantError && detail.error.status === 404) {
+      setSelectedId(null)
+      remember(null)
+    }
+  }, [selectedId, detail.error, remember])
   useEffect(() => {
     if (detail.data?.title) onTitleChange?.(detail.data.title)
     else if (!selectedId) onTitleChange?.(null)
@@ -136,23 +160,219 @@ function LiveAssistant({ initialId, remember, historyOpen, closeHistory, busy, s
       await service.remove(deleting.id, new AbortController().signal)
       if (selectedId === deleting.id || initialId === deleting.id) { setSelectedId(null); remember(null); setVersion(value => value + 1) }
       setDeleting(null); refresh()
-    } catch (error) { setDeleteError(error instanceof Error ? error.message : 'Could not delete this conversation.') }
+    } catch (error) { setDeleteError(error instanceof Error ? error.message : t('couldNotDeleteConversation')) }
     finally { setDeleteBusy(false) }
   }
   const failure = models.error ?? detail.error
   return <>
     <div className="ai-conversation-view" hidden={historyOpen}>
-    {failure ? <div className="ai-state" role="alert"><h3>Couldn’t open PycilAI.</h3><p>{failure.message}</p><Button variant="outline" onClick={() => { void models.refetch(); void detail.refetch() }}>Retry</Button></div>
-      : models.isPending || selectedId && detail.isPending ? <div className="ai-state" role="status">Opening your conversation…</div>
-        : !models.data?.length ? <div className="ai-state"><h3>No models available.</h3><p>PycilAI needs a configured model before you can start a conversation.</p></div>
+    {failure ? <div className="ai-state" role="alert"><h3>{t('couldNotOpenAi')}</h3><p>{failure.message}</p><Button variant="outline" onClick={() => { void models.refetch(); void detail.refetch() }}>{tCommon('retry')}</Button></div>
+      : models.isPending || selectedId && detail.isPending ? <div className="ai-state" role="status">{t('openingConversation')}</div>
+        : !models.data?.length ? <div className="ai-state"><h3>{t('noModelsAvailable')}</h3><p>{t('noModelsAvailableDesc')}</p></div>
           : <ConversationRuntime key={`${selectedId ?? 'new'}:${version}`} service={service} details={selectedId ? detail.data! : null} models={models.data} onCreated={remember} onFinished={refresh} onBusy={setBusy} />}
     </div>
-    {historyOpen && <section className="ai-history" aria-label="Conversation history"><div className="ai-history-header"><h3>Your conversations</h3><Button variant="ghost" size="icon" onClick={closeHistory} aria-label="Back to conversation"><Icon name="arrow-right" variant="control" /></Button></div>
-      <div className="ai-history-list">{history.isPending ? <p className="ai-state" role="status">Loading conversations…</p> : history.isError ? <div className="ai-state" role="alert"><p>{history.error.message}</p><Button variant="outline" onClick={() => { void history.refetch() }}>Retry history</Button></div> : !history.data.pages.some(page => page.conversations.length) ? <div className="ai-state"><h3>Room for a new idea.</h3><p>Your conversations will appear here after you send a message.</p></div> : history.data.pages.flatMap(page => page.conversations).map(item => <div key={item.id} className="flex items-center"><button className="ai-conversation flex-1" aria-current={selectedId === item.id} disabled={busy} onClick={() => select(item.id)}><Icon name="book" tone="color" /><span><strong>{item.title || 'Untitled conversation'}</strong><small>{new Date(item.updated_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</small></span></button><Button variant="ghost" size="icon" aria-label={`Delete conversation ${item.title || 'Untitled conversation'}`} disabled={busy} onClick={() => { setDeleting({ id: item.id, title: item.title || 'Untitled conversation' }); setDeleteError('') }}><Icon name="trash" variant="control" /></Button></div>)}
-        {history.hasNextPage && <Button variant="outline" disabled={history.isFetchingNextPage} onClick={() => { void history.fetchNextPage() }}>{history.isFetchingNextPage ? 'Loading…' : 'Load older conversations'}</Button>}
+    {historyOpen && <section className="ai-history" aria-label={t('conversationHistory')}>
+      <div className="flex items-center justify-between px-3.5 py-2 border-b border-border bg-accent/20 flex-none">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={closeHistory}
+          aria-label={t('backToConversation')}
+          className="h-7 gap-1.5 px-2 text-xs font-bold -ml-1 hover:bg-accent"
+        >
+          <ArrowLeft className="size-3.5" aria-hidden="true" />
+          <span>{tCommon('back')}</span>
+        </Button>
+        <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+          {t('conversations')}
+        </span>
+      </div>
+      <div className="ai-history-list">
+        {history.isPending ? <p className="ai-state shimmer text-foreground/50 font-medium" role="status">{t('loadingConversations')}</p>
+          : history.isError ? <div className="ai-state" role="alert"><p>{history.error.message}</p><Button variant="outline" onClick={() => { void history.refetch() }}>{t('retryHistory')}</Button></div>
+          : !history.data.pages.some(page => page.conversations.length) ? <div className="ai-state"><h3>{t('roomForNewIdea')}</h3><p>{t('conversationsEmptyDesc')}</p></div>
+          : (history.data.pages.flatMap(page => page.conversations) ?? [])
+              .slice()
+              .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+              .map(item => (
+                <div
+                  key={item.id}
+                  className={cn(
+                    'ai-history-row group relative flex items-center w-full border-b border-border transition-colors duration-150',
+                    selectedId === item.id ? 'bg-accent/80 border-l border-l-art-blue' : 'hover:bg-accent'
+                  )}
+                  data-active={selectedId === item.id}
+                >
+                  <button
+                    type="button"
+                    className="ai-conversation flex-1"
+                    aria-current={selectedId === item.id}
+                    disabled={busy}
+                    onClick={() => select(item.id)}
+                  >
+                    <Icon name="book" tone={selectedId === item.id ? 'color' : 'mono'} />
+                    <span>
+                      <strong>{item.title || t('untitledConversation')}</strong>
+                      <small>{new Date(item.updated_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</small>
+                    </span>
+                  </button>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity mr-3 flex-none hover:text-destructive hover:bg-destructive/10"
+                    aria-label={t('deleteConversationAria', { title: item.title || t('untitledConversation') })}
+                    disabled={busy}
+                    onClick={() => {
+                      setDeleting({ id: item.id, title: item.title || t('untitledConversation') })
+                      setDeleteError('')
+                    }}
+                  >
+                    <Icon name="trash" variant="control" className="size-3.5" />
+                  </Button>
+                </div>
+              ))}
+        {history.hasNextPage && (
+          <div className="p-4 flex justify-center border-t border-border">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={history.isFetchingNextPage}
+              onClick={() => { void history.fetchNextPage() }}
+            >
+              {history.isFetchingNextPage ? tCommon('loading') : t('loadOlderConversations')}
+            </Button>
+          </div>
+        )}
       </div></section>}
-    <AlertDialog open={Boolean(deleting)} onOpenChange={open => { if (!open && !deleteBusy) setDeleting(null) }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Delete conversation?</AlertDialogTitle><AlertDialogDescription>“{deleting?.title}” and its saved messages will be deleted.</AlertDialogDescription></AlertDialogHeader>{deleteError && <p role="alert">{deleteError}</p>}<AlertDialogFooter><AlertDialogCancel disabled={deleteBusy}>Cancel</AlertDialogCancel><Button variant="destructive" disabled={deleteBusy} onClick={() => { void remove() }}>{deleteBusy ? 'Deleting…' : 'Delete conversation'}</Button></AlertDialogFooter></AlertDialogContent></AlertDialog>
+    <AlertDialog open={Boolean(deleting)} onOpenChange={open => { if (!open && !deleteBusy) setDeleting(null) }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>{t('deleteConversationTitle')}</AlertDialogTitle><AlertDialogDescription>{t('deleteConversationDesc', { title: deleting?.title ?? '' })}</AlertDialogDescription></AlertDialogHeader>{deleteError && <p role="alert">{deleteError}</p>}<AlertDialogFooter><AlertDialogCancel disabled={deleteBusy}>{tCommon('cancel')}</AlertDialogCancel><Button variant="destructive" disabled={deleteBusy} onClick={() => { void remove() }}>{deleteBusy ? tCommon('deleting') : t('deleteConversation')}</Button></AlertDialogFooter></AlertDialogContent></AlertDialog>
   </>
+}
+
+function AiSettingsDropdown({ disabled }: { disabled?: boolean }) {
+  const t = useTranslations('assistant')
+  const tAccount = useTranslations('account')
+  const { services, scope } = useServices()
+  const queryClient = useQueryClient()
+  const [saving, setSaving] = useState(false)
+  const profile = useQuery({
+    queryKey: [services.mode, scope, 'account'],
+    queryFn: ({ signal }) => services.account.profile(signal),
+    enabled: !disabled,
+  })
+
+  const usage = useQuery({
+    queryKey: [services.mode, scope, 'usage'],
+    queryFn: ({ signal }) => services.account.usage(signal),
+    enabled: !!services.account,
+  })
+
+  const handleToggleAutoApprove = async (checked: boolean) => {
+    setSaving(true)
+    try {
+      const next = await services.account.updateSettings({ assistant: { auto_approve: checked } }, new AbortController().signal)
+      queryClient.setQueryData([services.mode, scope, 'account'], next)
+    } catch (error) { toast.error(error instanceof Error ? error.message : tAccount('couldNotSaveSettings')) }
+    finally { setSaving(false) }
+  }
+
+  const allowance = usage.data?.allowance_units ?? 1
+  const remaining = usage.data?.remaining_units ?? 0
+  const used = Math.max(0, allowance - remaining)
+  const ratio = allowance > 0 ? Math.min(1, Math.max(0, used / allowance)) : 0
+  const percent = Math.round(ratio * 100)
+
+  const isExhausted = usage.data ? remaining <= 0 : false
+  const isNearLimit = usage.data ? ratio >= 0.8 : false
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label={t('aiSettings')}
+          title={t('aiSettings')}
+          disabled={disabled}
+        >
+          <Icon name="more" variant="control" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="end"
+        sideOffset={6}
+        className="w-72 p-3.5 space-y-3.5 border-border bg-popover text-popover-foreground shadow-none rounded-none"
+      >
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-xs font-bold tracking-tight">
+            <span className="text-[11px] font-bold uppercase tracking-[.08em] text-muted-foreground">
+              {t('aiUnitUsage')}
+            </span>
+            {isExhausted ? (
+              <span className="px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider border border-art-red bg-art-red/10 text-art-red">
+                {t('quotaExhausted')}
+              </span>
+            ) : isNearLimit ? (
+              <span className="px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider border border-art-yellow bg-art-yellow/20 text-[var(--palette-sunflower-dark,#b7950b)]">
+                {t('quotaNearLimit')}
+              </span>
+            ) : null}
+          </div>
+
+          <div
+            className="h-2 w-full bg-muted border border-border overflow-hidden relative"
+            role="progressbar"
+            aria-label={t('aiUnitUsage')}
+            aria-valuenow={percent}
+            aria-valuemin={0}
+            aria-valuemax={100}
+          >
+            <div
+              className={cn(
+                'h-full transition-all duration-300 ease-out',
+                isExhausted
+                  ? 'bg-art-red'
+                  : isNearLimit
+                    ? 'bg-art-yellow'
+                    : 'bg-art-blue'
+              )}
+              style={{ width: `${percent}%` }}
+            />
+          </div>
+
+          {usage.data?.period_end && (
+            <p className="text-[11px] text-muted-foreground">
+              {t('resetsDate', {
+                date: new Date(usage.data.period_end).toLocaleDateString(undefined, {
+                  month: 'short',
+                  day: 'numeric',
+                }),
+              })}
+            </p>
+          )}
+        </div>
+
+        <div className="h-px bg-border -mx-3.5" />
+
+        <div className="flex items-center justify-between gap-3 pt-0.5">
+          <Label
+            htmlFor="ai-auto-approve-toggle"
+            className="text-xs font-bold leading-none cursor-pointer block select-none"
+          >
+            {t('bypassPermissionTitle')}
+          </Label>
+          <Switch
+            id="ai-auto-approve-toggle"
+            size="sm"
+            checked={profile.data?.settings.assistant.auto_approve ?? false}
+            disabled={saving || !profile.data || disabled}
+            onCheckedChange={checked => { void handleToggleAutoApprove(checked) }}
+            aria-label={t('bypassPermissionTitle')}
+          />
+        </div>
+        {profile.isError && <p className="text-xs text-destructive" role="alert">{profile.error.message}</p>}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
 }
 
 export function PycilAI() {
@@ -163,6 +383,8 @@ export function PycilAI() {
 function PycilAIPanel() {
   const { services, scope } = useServices()
   const account = useAccount()
+  const t = useTranslations('assistant')
+  const tCommon = useTranslations('common')
   const { open, setOpen } = useAiPanelState()
   const [historyOpen, setHistoryOpen] = useState(false)
   const [newKey, setNewKey] = useState(0)
@@ -250,7 +472,7 @@ function PycilAIPanel() {
       ref={launcherRef}
       className="ai-launcher"
       data-open={open}
-      aria-label="Open PycilAI"
+      aria-label={t('openPycilAI')}
       title="PycilAI"
       onClick={() => setOpen(true)}
     >
@@ -261,11 +483,11 @@ function PycilAIPanel() {
         className="ai-resize-handle"
         role="separator"
         aria-orientation="vertical"
-        aria-label="Resize assistant panel"
+        aria-label={t('resizePanel')}
         data-resizing={isResizing}
         onPointerDown={handlePointerDown}
         onDoubleClick={handleDoubleClick}
-        title="Drag to resize, double-click to reset"
+        title={t('resizePanelTitle')}
       />
       <header className="ai-header">
         <div className="ai-header-left">
@@ -274,10 +496,10 @@ function PycilAIPanel() {
             className="ai-chat-selector"
             onClick={() => setHistoryOpen(value => !value)}
             disabled={busy || !services.assistant || !account.signedIn}
-            aria-label="Conversation selector"
-            title={activeTitle || 'New AI chat'}
+            aria-label={t('conversationSelector')}
+            title={activeTitle || t('newAIChat')}
           >
-            <span className="ai-chat-selector-title">{activeTitle || 'New AI chat'}</span>
+            <span className="ai-chat-selector-title">{historyOpen ? t('conversations') : (activeTitle || t('newAIChat'))}</span>
             <Icon name="chevron-down" variant="control" className="size-3 shrink-0 text-muted-foreground" />
           </button>
         </div>
@@ -285,8 +507,8 @@ function PycilAIPanel() {
           <Button
             variant="ghost"
             size="icon"
-            aria-label="New conversation"
-            title="New conversation"
+            aria-label={t('newConversation')}
+            title={t('newConversation')}
             disabled={busy || !services.assistant || !account.signedIn}
             onClick={() => { remember(null); setActiveTitle(null); setNewKey(value => value + 1); setHistoryOpen(false) }}
           >
@@ -295,21 +517,22 @@ function PycilAIPanel() {
           <Button
             variant="ghost"
             size="icon"
-            aria-label="Conversation history"
-            title="Conversation history"
+            aria-label={t('conversationHistory')}
+            title={t('conversationHistory')}
             disabled={busy || !services.assistant || !account.signedIn}
             onClick={() => setHistoryOpen(value => !value)}
           >
             <Icon name="history" />
           </Button>
-          <Button variant="ghost" size="icon" aria-label="Close PycilAI" title="Close panel" onClick={handleClose}>
+          <AiSettingsDropdown disabled={busy || !services.assistant || !account.signedIn} />
+          <Button variant="ghost" size="icon" aria-label={t('closePycilAI')} title={t('closePanel')} onClick={handleClose}>
             <Icon name="x" variant="control" />
           </Button>
         </div>
       </header>
       <div className="ai-panel-body">
-        {!services.assistant ? <div className="ai-state"><AssistantGeometry /><h3>Meet PycilAI.</h3><p>AI conversations are available in the live app. Explore the components in the design workshop.</p><Button variant="outline" asChild><Link href="/showcase?view=assistant">Open assistant showcase</Link></Button></div>
-          : !account.signedIn ? <div className="ai-state"><AssistantGeometry /><h3>A place for your questions.</h3><p>Sign in to chat with PycilAI and return to your saved conversations.</p><Button asChild><Link href="/login">Sign in</Link></Button></div>
+        {!services.assistant ? <div className="ai-state"><AssistantGeometry /><h3>{t('meetPycilAi')}</h3><p>{t('meetPycilAiDesc')}</p><Button variant="outline" asChild><Link href="/showcase?view=assistant">{t('openAssistantShowcase')}</Link></Button></div>
+          : !account.signedIn ? <div className="ai-state"><AssistantGeometry /><h3>{t('placeForQuestions')}</h3><p>{t('placeForQuestionsDesc')}</p><Button asChild><Link href="/login">{tCommon('signIn')}</Link></Button></div>
             : <LiveAssistant key={`${scope}:${newKey}`} initialId={lastId} remember={remember} historyOpen={historyOpen} closeHistory={() => setHistoryOpen(false)} busy={busy} setBusy={setBusy} onTitleChange={setActiveTitle} />}
       </div>
     </aside>}

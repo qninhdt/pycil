@@ -9,9 +9,11 @@ import jwt
 from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import IntegrityError
 
+from pycil.account.handles import generate_handle
 from pycil.account.lifecycle import clerk_user
 from pycil.account.models import User
 from pycil.account.plans import Plan
@@ -53,6 +55,7 @@ class ActorContext(BaseModel):
     id: UUID
     clerk_subject: str
     display_name: str | None
+    handle: str | None
     plan: Plan
     settings: dict
     cycle_anchor: datetime
@@ -70,29 +73,51 @@ async def actor(request: Request, session: Session, credentials: Credentials) ->
         raise Problem(401, "invalid_credentials")
     subject = await request.app.state.identity.subject(credentials.credentials)
     cache = session.info.get("cache")
-    key = f"actor:v2:{subject}"
+    key = f"actor:v3:{subject}"
     if cache and (context := await cache.get(key, ActorContext)) is not None:
         return context
     # Verify missing identities with Clerk before provisioning, preventing stale
     # signed tokens from recreating an account whose identity was deleted.
     async with session.begin():
         user = await session.scalar(select(User).where(User.clerk_subject == subject))
-    if user is None:
+    if user is None or user.display_name is None or user.handle is None:
         now = datetime.now(UTC)
-        await clerk_user(request.app.state.http, request.app.state.deployment, subject)
+        identity = await clerk_user(request.app.state.http, request.app.state.deployment, subject)
+        name = " ".join((identity.get(key) or "").strip() for key in ("first_name", "last_name"))
+        name = name.strip()[:255].strip() or "Pycil learner"
+        identifier = uuid7() if user is None else user.id
+        handle_name = user.display_name if user and user.display_name else name
         async with session.begin():
-            await session.execute(
-                insert(User)
-                .values(
-                    id=uuid7(),
+            for _ in range(5):
+                statement = insert(User).values(
+                    id=identifier,
                     clerk_subject=subject,
+                    display_name=name,
+                    handle=generate_handle(handle_name),
                     cycle_anchor=now,
                     created_at=now,
                     settings={},
                 )
-                .on_conflict_do_nothing(index_elements=[User.clerk_subject])
-            )
-            user = await session.scalar(select(User).where(User.clerk_subject == subject))
+                statement = statement.on_conflict_do_update(
+                    index_elements=[User.clerk_subject],
+                    set_={
+                        "display_name": func.coalesce(
+                            User.display_name, statement.excluded.display_name
+                        ),
+                        "handle": func.coalesce(User.handle, statement.excluded.handle),
+                    },
+                ).returning(User)
+                try:
+                    async with session.begin_nested():
+                        user = await session.scalar(
+                            statement.execution_options(populate_existing=True)
+                        )
+                    break
+                except IntegrityError as exc:
+                    if getattr(exc.orig, "sqlstate", None) != "23505":
+                        raise
+            else:
+                raise Problem(503, "handle_generation_failed")
             await provision_library(session, user.id)
     context = ActorContext.model_validate(user)
     if cache:
