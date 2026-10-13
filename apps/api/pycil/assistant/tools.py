@@ -338,7 +338,7 @@ def tools(
         )
         for result in results:
             if result["task_id"] is not None:
-                result.update(resources.generations.status(result["task_id"]))
+                result.update(await resources.generations.status(result["task_id"]))
         items = await generation_items(results)
         return {
             "items": [
@@ -356,7 +356,7 @@ def tools(
         results: list[dict[str, Any]] = []
         for identifier in data.task_ids:
             try:
-                results.append(resources.generations.status(identifier))
+                results.append(await resources.generations.status(identifier))
             except Problem as exc:
                 results.append(
                     {

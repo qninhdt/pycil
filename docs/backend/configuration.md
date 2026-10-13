@@ -25,6 +25,7 @@ the image sets `/app/config/config.yaml`. Credentials belong only in the environ
 | `DECISION_API_KEY`, `DECISION_BASE_URL` | Required OpenRouter credential and complete Decisions endpoint |
 | `ALLOWED_ORIGINS` | Optional comma-separated exact HTTP(S) origins |
 | `CONFIG_PATH` | Optional product-policy path |
+| `SEARCH_INDEX_PATH` | Optional directory for the shared on-disk search index; in memory when unset |
 
 Service URLs reject embedded credentials. Origins also reject paths, queries and
 fragments. Direct commands need exported values or uv's explicit `--env-file`.

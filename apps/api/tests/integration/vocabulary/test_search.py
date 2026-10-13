@@ -1,7 +1,8 @@
 import asyncio
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import event, select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from pycil.vocabulary.enums import (
     EntryType,
@@ -175,3 +176,234 @@ async def test_cancelled_index_update_joins_native_publication_and_keeps_visible
         if task is not None:
             await asyncio.gather(task, return_exceptions=True)
         await index.close()
+
+
+async def test_disk_index_is_reused_and_follows_another_instance_commits(database, tmp_path):
+    from tests.support.vocabulary import neutral_word
+
+    word_id, _ = await neutral_word(database.sessions)
+    first = SearchIndex(database.sessions, str(tmp_path))
+    second = SearchIndex(database.sessions, str(tmp_path))
+    await first.start()
+    try:
+        await second.start()
+        stored = SearchIndex.stored_fingerprint(second.snapshot)
+        assert stored == await second.fingerprint()
+        async with database.sessions() as session, session.begin():
+            word = await session.get(Word, word_id)
+            word.lemma, word.match_key = "lender", "lender"
+        await first.update(word_id)
+        async with asyncio.timeout(5):
+            while not (await second.search("lender")).items:
+                await asyncio.sleep(0.05)
+        assert [hit.word_id for hit in (await second.search("lender")).items] == [word_id]
+    finally:
+        await first.close()
+        await second.close()
+
+
+async def test_concurrent_start_reuses_index_without_rebuilding(database, tmp_path):
+    from tests.support.vocabulary import neutral_word
+
+    word_id, _ = await neutral_word(database.sessions)
+    first = SearchIndex(database.sessions, str(tmp_path))
+    second = SearchIndex(database.sessions, str(tmp_path))
+    try:
+        await asyncio.gather(first.start(), second.start())
+        assert first.snapshot is not None and second.snapshot is not None
+        assert SearchIndex.stored_fingerprint(first.snapshot) == await first.fingerprint()
+        assert SearchIndex.stored_fingerprint(second.snapshot) == await second.fingerprint()
+    finally:
+        await first.close()
+        await second.close()
+
+
+async def test_rebuild_freezes_word_membership_during_concurrent_generation(database, tmp_path):
+    await import_reference(
+        database.sessions, reference_file(tmp_path / "reference.jsonl", [reference_word()])
+    )
+    async with database.sessions() as session, session.begin():
+        words = [
+            Word(
+                lemma=lemma,
+                match_key=lemma,
+                entry_type=EntryType.EXPRESSION if position == 1 else EntryType.WORD,
+                generation_state=GenerationState.PENDING if position == 1 else GenerationState.DONE,
+            )
+            for position, lemma in enumerate(["first", "give {sb} a hand", "last"])
+        ]
+        session.add_all(words)
+        await session.flush()
+    word_id = words[1].id
+    published = False
+
+    class InterleavedSession(AsyncSession):
+        async def execute(self, statement, *args, **kwargs):
+            nonlocal published
+            result = await super().execute(statement, *args, **kwargs)
+            if not published and [column["name"] for column in statement.column_descriptions] == [
+                "id",
+                "lemma",
+                "entry_type",
+            ]:
+                published = True
+                async with database.sessions() as publishing, publishing.begin():
+                    word = await publishing.get(Word, word_id)
+                    word.generation_state = GenerationState.DONE
+                    sense = Sense(word_id=word_id, pos=PartOfSpeech.VERB, tier=Tier.CORE)
+                    publishing.add(sense)
+                    await publishing.flush()
+                    publishing.add_all(
+                        [
+                            WordAlias(word_id=word_id, content="assist", match_key="assist"),
+                            SenseForm(
+                                sense_id=sense.id,
+                                surface="gave",
+                                match_key="gave",
+                                head_key="gave",
+                                inf=Inflection.PAST,
+                            ),
+                            SensePattern(
+                                sense_id=sense.id,
+                                content="give {sb} a hand",
+                                head_key="give",
+                            ),
+                            WordReference(word_id=word_id, source_id=1),
+                        ]
+                    )
+            return result
+
+    index = SearchIndex(
+        async_sessionmaker(database.engine, class_=InterleavedSession, expire_on_commit=False)
+    )
+    try:
+        await index.start()
+        assert published
+        assert [hit.word_id for hit in (await index.search("first")).items] == [words[0].id]
+        assert [hit.word_id for hit in (await index.search("last")).items] == [words[2].id]
+        for query in ["give {sb} a hand", "assist", "gave", "gave Jo a hand"]:
+            assert (await index.search(query)).items == []
+        assert any(
+            hit.kind is HitKind.REFERENCE for hit in (await index.search("bank", True)).items
+        )
+        assert SearchIndex.stored_fingerprint(index.snapshot) != await index.fingerprint()
+
+        await index.update(word_id)
+        for query in ["give {sb} a hand", "assist", "gave", "gave Jo a hand"]:
+            assert [hit.word_id for hit in (await index.search(query)).items] == [word_id]
+        assert not any(
+            hit.kind is HitKind.REFERENCE for hit in (await index.search("bank", True)).items
+        )
+        assert SearchIndex.stored_fingerprint(index.snapshot) == await index.fingerprint()
+    finally:
+        await index.close()
+
+
+@pytest.mark.parametrize("published", [0, 1])
+async def test_restart_recovers_unpublished_word_and_consumed_reference(
+    database, tmp_path, published, monkeypatch
+):
+    records = [reference_word(1, 101), reference_word(2, 102)]
+    records[1] |= {
+        "lemma": "zucchini",
+        "display_form": "zucchini",
+        "alternatives": [],
+        "inflections": [],
+    }
+    await import_reference(database.sessions, reference_file(tmp_path / "reference.jsonl", records))
+    index = SearchIndex(database.sessions, str(tmp_path / "index"))
+    await index.start()
+    try:
+        async with database.sessions() as session, session.begin():
+            words = [
+                Word(
+                    lemma=lemma,
+                    match_key=lemma,
+                    entry_type=EntryType.WORD,
+                    generation_state=GenerationState.DONE,
+                )
+                for lemma in ["bank", "zucchini"]
+            ]
+            session.add_all(words)
+            await session.flush()
+            session.add_all(
+                [
+                    WordReference(word_id=word.id, source_id=position)
+                    for position, word in enumerate(words, 1)
+                ]
+            )
+        await index.update(words[published].id)
+        documents = index.documents
+
+        def failed_publication(*args):
+            yield from documents(*args)
+            raise RuntimeError("publication failed before commit")
+
+        with monkeypatch.context() as patch:
+            patch.setattr(index, "documents", failed_publication)
+            with pytest.raises(RuntimeError, match="publication failed before commit"):
+                await index.update(words[1 - published].id)
+        assert index.stored_fingerprint(index.snapshot) != await index.fingerprint()
+        await index.close()
+        await index.start()
+        assert index.stored_fingerprint(index.snapshot) == await index.fingerprint()
+        for word in words:
+            hits = (await index.search(word.lemma, True)).items
+            assert hits[0].word_id == word.id
+            assert all(hit.kind is HitKind.WORD for hit in hits)
+    finally:
+        await index.close()
+
+
+async def test_update_uses_five_queries_and_concurrent_retries_preserve_reusable_index(
+    database, tmp_path, monkeypatch
+):
+    from tests.support.vocabulary import neutral_word
+
+    await import_reference(
+        database.sessions, reference_file(tmp_path / "reference.jsonl", [reference_word()])
+    )
+    first = SearchIndex(database.sessions, str(tmp_path / "index"))
+    second = SearchIndex(database.sessions, str(tmp_path / "index"))
+    await first.start()
+    await second.start()
+    try:
+        word_id, _ = await neutral_word(database.sessions)
+        async with database.sessions() as session, session.begin():
+            session.add(WordReference(word_id=word_id, source_id=1))
+        statements = []
+
+        def record(_connection, _cursor, statement, _parameters, _context, _executemany):
+            statements.append(statement)
+
+        event.listen(database.engine.sync_engine, "before_cursor_execute", record)
+        try:
+            await first.update(word_id)
+        finally:
+            event.remove(database.engine.sync_engine, "before_cursor_execute", record)
+        assert len(statements) == 5
+        assert not any("count(" in statement.lower() for statement in statements)
+        await asyncio.gather(first.update(word_id), second.update(word_id))
+        async with database.sessions() as session, session.begin():
+            other = Word(
+                lemma="zucchini",
+                match_key="zucchini",
+                entry_type=EntryType.WORD,
+                generation_state=GenerationState.DONE,
+            )
+            session.add(other)
+        await asyncio.gather(first.update(word_id), second.update(other.id))
+        assert first.stored_fingerprint(first.snapshot) == await first.fingerprint()
+
+        async def unexpected_rebuild(*_args):
+            pytest.fail("a completely published index must be reused")
+
+        monkeypatch.setattr(first, "rebuild", unexpected_rebuild)
+        await first.close()
+        await first.start()
+        assert (await first.search("bank", True)).items[0].word_id == word_id
+        assert (await first.search("zucchini")).items[0].word_id == other.id
+        assert all(hit.kind is HitKind.WORD for hit in (await first.search("bank", True)).items)
+    finally:
+        await first.close()
+        await second.close()

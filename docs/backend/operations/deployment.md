@@ -10,7 +10,10 @@ Build from the repository root:
 docker build -f apps/api/Dockerfile -t pycil-api:local .
 ```
 
-Use one API process: generation jobs and Tantivy snapshots are process-local. Runtime
+API processes share generation task status through Redis; job execution, singleflight
+and concurrency limits remain per process. Workers must use the same Redis namespace
+(derived from database URL and Clerk issuer) and disk index directory. The Tantivy index
+lives in the `search` volume (`SEARCH_INDEX_PATH`) and is shared safely by processes. Runtime
 requires PostgreSQL with imported reference, Redis, Clerk and model provider configuration.
 WordNet is optional. There is no separate vocabulary package or service.
 
@@ -44,7 +47,10 @@ retrying. No production deployment was performed as part of this rewrite.
 - `/health` checks process liveness.
 - `/ready` checks current PostgreSQL, Redis and initialized search within a bounded deadline.
 - Startup verifies schema and reference without repairing either.
-- Restart loses generation job status; committed vocabulary remains available for reuse.
+- Generation status remains in Redis for 24 hours after each initial/final write. Graceful
+  shutdown records interruption; a worker crash loses unfinished jobs and can leave
+  `running` status until expiry. Final Redis publication failures are logged and can also
+  leave stale status. Committed vocabulary remains available for reuse on retry.
 - New words are committed before incremental search publication; index failure fails the job.
 - `X-Request-ID`, task and conversation context correlate structured events. Logs redact
   provider payloads, tokens and credentials.

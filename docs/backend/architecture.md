@@ -1,9 +1,9 @@
 # Architecture
 
 Pycil is one private backend organized by business domain. The API process owns HTTP,
-process-local generation jobs and a Tantivy search projection. PostgreSQL stores all
-application and native checkpoint tables in `public`; Redis supplies bounded caching
-and coordination. The migration command is a separate finite process.
+process-local generation jobs and a Tantivy search projection (on disk when configured). PostgreSQL stores all
+application and native checkpoint tables in `public`; Redis supplies bounded caching,
+shared generation task status and coordination. The migration command is a separate finite process.
 
 ## Ownership
 
@@ -35,7 +35,7 @@ configuration and enters [process resources](../../apps/api/pycil/app/resources.
 
 Resources verify the application/native setup and required reference data, ping Redis,
 create scoped caching, open HTTP/provider clients and the native checkpoint pool, then
-build the Tantivy projection. An exit stack closes acquired resources after startup
+open the Tantivy projection, rebuilding it when stale. An exit stack closes acquired resources after startup
 failure and shutdown; jobs close before the resources they use. Closed resources are
 removed from application state.
 
@@ -66,10 +66,13 @@ Library writes serialize per owner; reviews serialize per learner; usage settlem
 serializes per execution key and user. These transactions are separate from checkpoint
 persistence and Redis leases. Admission is not a quota reservation.
 
-Generation jobs and search snapshots belong to one process. Restart loses unfinished
-jobs/status, while committed vocabulary and checkpoint data remain. Search builds once
-at startup and publishes one-word updates with a serialized native writer; concurrent
-readers may finish against their old immutable snapshot.
+Generation execution and singleflight belong to one process; polling reads shared Redis
+status. Restart loses unfinished jobs, while committed vocabulary and checkpoint data
+remain. Task status expires 24 hours after each initial/final write; a worker crash or
+failed final Redis write can leave `running` until expiry. Workers share a configured disk
+index directory for search updates. Search builds at startup when stale and publishes
+one-word updates with a serialized native writer; concurrent readers may finish against
+their old immutable snapshot.
 
 Provider attempts share bounded concurrency, explicit timeouts/retries, validated output
 schemas and normalized token measurements. Structured observations bind correlation

@@ -22,6 +22,7 @@ Final local checks and phase-to-test mapping: [verification record](verification
 | Work on preparation, grading, and progress | [Study](modules/study.md) |
 | Work on conversations and approvals | [Assistant](modules/assistant.md) |
 | Deploy or diagnose a service | [Deployment](operations/deployment.md) |
+| Plan VPS/AWS observability and deployment | [Platform design proposal](../operations/README.md) |
 | Upgrade or recover a database | [Migrations](operations/migrations.md) |
 | Verify a change | [Testing](testing.md) |
 | Follow the approved consolidation | [Redesign](../../redesign.md) |
@@ -35,8 +36,8 @@ Final local checks and phase-to-test mapping: [verification record](verification
 - Redis for optional cached values and required coordination.
 - Application-owned vocabulary, immutable reference JSONL and configured model/decision services.
 - Node FTS/Discovery, atomic reviews, durable activity and jointly bounded summaries.
-- Product frontend under `apps/web` with live services and a separate full-stack E2E
-  profile; live execution remains an external verification gate. No Star/Pin/tag/
+- Product frontend under `apps/web` with live services and a root [product E2E](../../e2e/README.md)
+  package; live execution remains an external verification gate. No Star/Pin/tag/
   translation/import/audio subsystem.
 
 ## Sources of truth

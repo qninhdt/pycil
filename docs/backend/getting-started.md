@@ -47,9 +47,11 @@ Old schema revisions require an explicit export/transfer; see [migrations](opera
 uv run --locked --env-file /absolute/path/to/development.env uvicorn pycil.main:app --reload
 ```
 
-Use one API process. Search is process-local and builds at startup; word generation jobs
-are in memory. Restart interrupts active work while committed content survives. Requested
-generation may call paid providers.
+Search uses an in-memory index unless `SEARCH_INDEX_PATH` is set. Multiple API workers
+must share the disk index directory and Redis namespace; task polling reads shared Redis
+status, while generation execution and singleflight stay per process. Restart interrupts
+active work while committed content survives. See [runtime operations](operations/deployment.md)
+for status expiry and crash limits. Requested generation may call paid providers.
 
 For Compose, run from the repository root:
 

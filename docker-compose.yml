@@ -14,6 +14,7 @@ x-runtime-env: &runtime-env
   LLM_BASE_URL: ${LLM_BASE_URL}
   DECISION_API_KEY: ${DECISION_API_KEY}
   DECISION_BASE_URL: ${DECISION_BASE_URL}
+  SEARCH_INDEX_PATH: /var/lib/pycil/search
 
 x-stores-ready: &stores-ready
   postgres:
@@ -85,6 +86,8 @@ services:
     <<: *backend
     restart: unless-stopped
     environment: *runtime-env
+    volumes:
+      - search:/var/lib/pycil/search
     ports:
       - "${API_HOST_PORT:-127.0.0.1:8000}:8000"
     depends_on: *stores-ready
@@ -111,6 +114,7 @@ services:
         condition: service_healthy
 
 volumes:
+  search:
   pgdata:
   redisdata:
   caddy_data:

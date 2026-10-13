@@ -175,9 +175,9 @@ async def search_nodes(
                 item["summary"] = summary
         return {
             "nodes": items,
-            "next_cursor": encode(binding, [page[-1][1], page[-1][0].id])
-            if len(rows) > limit
-            else None,
+            "next_cursor": (
+                encode(binding, [page[-1][1], page[-1][0].id]) if len(rows) > limit else None
+            ),
         }
 
 

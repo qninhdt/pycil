@@ -17,6 +17,7 @@ from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
 from langchain_openrouter import ChatOpenRouter
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.config import get_config
+from openrouter import OpenRouter
 from pydantic import ValidationError
 
 from pycil.account.auth import ActorContext
@@ -156,6 +157,13 @@ async def model(
         app_title=None,
         max_tokens=policy.max_output_tokens,
         max_retries=0,
+        # LangChain's zero leaves the SDK's default 5xx retry policy enabled.
+        client=OpenRouter(
+            api_key=deployment.llm_api_key.get_secret_value(),
+            server_url=deployment.llm_base_url,
+            timeout_ms=timeout_seconds * 1000,
+            retry_config=None,
+        ),
         reasoning={"effort": effort, "exclude": False},
         streaming=True,
         output_version="v1",

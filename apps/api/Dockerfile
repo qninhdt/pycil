@@ -30,7 +30,8 @@ ENV PATH="/app/apps/api/.venv/bin:$PATH"
 
 # Runtime reads packaged application/policy only; no reason to recursively chown
 # the entire dependency environment (or make installed code runtime-writable).
-RUN useradd --create-home --uid 10001 appuser
+RUN useradd --create-home --uid 10001 appuser \
+    && install -d -o appuser -g appuser /var/lib/pycil/search
 USER appuser
 
 CMD ["uvicorn", "pycil.main:app", "--host", "0.0.0.0", "--port", "8000"]

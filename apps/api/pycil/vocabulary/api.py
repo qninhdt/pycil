@@ -103,4 +103,4 @@ async def generate(data: GenerationRequest, user: Actor, request: Request):
 
 @router.get("/word-tasks/{task_id}", response_model=GenerationResult)
 async def status(task_id: UUID, user: Actor, request: Request):
-    return request.app.state.generations.status(task_id)
+    return await request.app.state.generations.status(task_id)

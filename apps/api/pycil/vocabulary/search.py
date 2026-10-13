@@ -1,14 +1,17 @@
-"""A startup-built Tantivy index with serialized incremental publication."""
+"""A Tantivy index shared on disk by API processes, with serialized incremental publication."""
 
 import asyncio
-import json
+import fcntl
 from collections import defaultdict
-from collections.abc import Generator, Sequence
+from collections.abc import Callable, Generator, Iterable, Sequence
+from functools import partial
+from pathlib import Path
 from time import perf_counter
-from typing import cast
+from typing import Any, cast
 
+import orjson
 import tantivy
-from sqlalchemy import select
+from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from pycil.infrastructure.observability import get_logger
@@ -22,14 +25,46 @@ from pycil.vocabulary.schemas import ReferenceHit, SearchResult, WordHit
 from pycil.vocabulary.text import answer_key
 
 logger = get_logger(__name__)
+# Bump whenever fields or document contents change; a new directory forces a rebuild.
+SCHEMA_VERSION = 2
+BATCH = 2_000
+MATCH_KIND_ORDER = {
+    MatchKind.EXACT: 0,
+    MatchKind.PREFIX: 1,
+    MatchKind.SUBSTRING: 2,
+    MatchKind.FUZZY: 3,
+}
 
 
-def _get_str(doc: tantivy.Document, name: str) -> str:
-    return cast(str, doc[name][0])
+def _schema() -> tantivy.Schema:
+    """Index only what queries match or sort on; hit display data lives in one stored payload."""
+    builder = tantivy.SchemaBuilder()
+    for name in ("identity", "source", "surface", "head", "order", "trigram"):
+        builder.add_text_field(
+            name, fast=name == "order", tokenizer_name="raw", index_option="basic"
+        )
+    builder.add_bytes_field("payload", stored=True, indexed=False)
+    builder.add_unsigned_field("identifier", fast=True)
+    return builder.build()
 
 
-def _get_int(doc: tantivy.Document, name: str) -> int:
-    return cast(int, doc[name][0])
+def _trigrams(value: str) -> set[str]:
+    return {value[position : position + 3] for position in range(len(value) - 2)}
+
+
+def _payload(doc: tantivy.Document) -> list[Any]:
+    """`[identity, label, entry_type, matched_surface, surface_rank, forms | None]`."""
+    return cast(list[Any], orjson.loads(cast(bytes, doc["payload"][0])))
+
+
+async def _native[T](call: Callable[[], T]) -> T:
+    """Run native index work off-loop and join it on cancellation, never abandoning a writer."""
+    task = asyncio.create_task(asyncio.to_thread(call))
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        await task
+        raise
 
 
 type SearchProjection = tuple[
@@ -42,34 +77,33 @@ type SearchProjection = tuple[
 
 
 class SearchIndex:
-    def __init__(self, sessions: async_sessionmaker[AsyncSession]) -> None:
+    def __init__(self, sessions: async_sessionmaker[AsyncSession], path: str | None = None) -> None:
         self.sessions = sessions
-        self.index: tantivy.Index | None = None
-        self.writer: tantivy.IndexWriter | None = None
-        self.snapshot: tuple[tantivy.Index, tantivy.Searcher] | None = None
+        self.path = path
+        self.snapshot: tantivy.Index | None = None
         self.lock = asyncio.Lock()
 
-    async def projection(self, word_id: int | None = None) -> SearchProjection:
-        ids = select(rows.Word.id).where(rows.Word.generation_state == GenerationState.DONE)
-        if word_id is not None:
-            ids = ids.where(rows.Word.id == word_id)
+    async def projection(self, first: int, last: int) -> SearchProjection:
         async with self.sessions() as session:
             words: list[tuple[int, str, EntryType | None]] = [
                 (row[0], row[1], row[2])
                 for row in (
                     await session.execute(
                         select(rows.Word.id, rows.Word.lemma, rows.Word.entry_type).where(
-                            rows.Word.id.in_(ids)
+                            rows.Word.generation_state == GenerationState.DONE,
+                            rows.Word.id.between(first, last),
                         )
                     )
                 ).all()
             ]
+            # Freeze membership: another process may finish a pending word between queries.
+            word_ids = [identifier for identifier, _lemma, _kind in words]
             aliases: list[tuple[int, str]] = [
                 (row[0], row[1])
                 for row in (
                     await session.execute(
                         select(rows.WordAlias.word_id, rows.WordAlias.content).where(
-                            rows.WordAlias.word_id.in_(ids)
+                            rows.WordAlias.word_id.in_(word_ids)
                         )
                     )
                 ).all()
@@ -80,7 +114,7 @@ class SearchIndex:
                     await session.execute(
                         select(rows.Sense.word_id, rows.SenseForm.sense_id, rows.SenseForm.surface)
                         .join(rows.Sense, rows.Sense.id == rows.SenseForm.sense_id)
-                        .where(rows.Sense.word_id.in_(ids))
+                        .where(rows.Sense.word_id.in_(word_ids))
                     )
                 ).all()
             ]
@@ -95,7 +129,7 @@ class SearchIndex:
                             rows.SensePattern.head_key,
                         )
                         .join(rows.Sense, rows.Sense.id == rows.SensePattern.sense_id)
-                        .where(rows.Sense.word_id.in_(ids))
+                        .where(rows.Sense.word_id.in_(word_ids))
                     )
                 ).all()
             ]
@@ -103,7 +137,7 @@ class SearchIndex:
                 (
                     await session.scalars(
                         select(rows.WordReference.source_id).where(
-                            rows.WordReference.word_id.in_(ids)
+                            rows.WordReference.word_id.in_(word_ids)
                         )
                     )
                 ).all()
@@ -139,40 +173,43 @@ class SearchIndex:
                     ],
                 )
 
-        def document(identity: str, rank: int, surface: str) -> tantivy.Document:
+        def document(
+            identity: str, rank: int, surface: str, forms: dict[str, list[str]] | None = None
+        ) -> tantivy.Document:
             identifier, label, kind, _surfaces = entries[identity]
             source = identity.split(":", 1)[0]
-            return tantivy.Document(
+            doc = tantivy.Document(
                 identity=identity,
                 source=source,
-                label=label,
-                entry_type=kind.value if kind is not None else "",
-                matched_surface=surface,
-                identifier=identifier,
-                surface_rank=rank,
                 order=(
                     f"{int(source != HitKind.WORD)}{rank}{answer_key(label)}"
                     f"\0{identifier:020d}\0{answer_key(surface)}"
                 ),
             )
+            entry_type = kind.value if kind is not None else ""
+            doc.add_bytes(
+                "payload", orjson.dumps([identity, label, entry_type, surface, rank, forms])
+            )
+            return doc
 
         for identity, (_identifier, _lemma, _kind, surfaces) in entries.items():
             for rank, surface in sorted(set(surfaces)):
                 doc = document(identity, rank, surface)
-                doc.add_text("surface", answer_key(surface))
+                key = answer_key(surface)
+                doc.add_text("surface", key)
+                for trigram in _trigrams(key):
+                    doc.add_text("trigram", trigram)
                 yield doc
         for identifier, sense_id, pattern, head in patterns:
             identity = f"word:{identifier}"
             lemma = answer_key(entries[identity][1])
             first, _, tail = lemma.partition(" ")
-            licensed = [
-                value.partition(" ")[0]
-                for form in sense_forms[sense_id]
-                if not (value := answer_key(form)).partition(" ")[2]
-                or value.partition(" ")[2] == tail
-            ]
-            doc = document(identity, 3, pattern)
-            doc.add_text("forms", json.dumps({first: licensed}))
+            licensed = []
+            for form in sense_forms[sense_id]:
+                form_head, _, form_tail = answer_key(form).partition(" ")
+                if not form_tail or form_tail == tail:
+                    licensed.append(form_head)
+            doc = document(identity, 3, pattern, {first: licensed})
             for candidate_head in {
                 head,
                 *(surface_head_key(form) for form in sense_forms[sense_id]),
@@ -180,76 +217,176 @@ class SearchIndex:
                 doc.add_text("head", candidate_head or "\0")
             yield doc
 
+        for identifier, _lemma, _kind in words:
+            doc = tantivy.Document(identity=f"word:{identifier}", source="word_meta")
+            doc.add_unsigned("identifier", identifier)
+            yield doc
+        if words:
+            for identifier in consumed:
+                yield tantivy.Document(identity=f"reference:{identifier}", source="consumed_meta")
+
+    def open(self) -> tantivy.Index:
+        if self.path is None:
+            index = tantivy.Index(_schema())
+        else:
+            root = Path(self.path)
+            root.mkdir(parents=True, exist_ok=True)
+            with (root / f"v{SCHEMA_VERSION}.lock").open("a") as guard:
+                fcntl.flock(guard, fcntl.LOCK_EX)  # concurrent first boots create it once
+                directory = root / f"v{SCHEMA_VERSION}"
+                directory.mkdir(exist_ok=True)
+                index = tantivy.Index(_schema(), path=str(directory), reuse=True)
+        # Readers follow commits from any process; the publishing process also reloads at once.
+        index.config_reader(reload_policy="OnCommit")
+        return index
+
     @staticmethod
-    def build(
-        projection: SearchProjection, reference: Sequence[ReferenceWord]
-    ) -> tuple[tantivy.Index, tantivy.IndexWriter, tuple[tantivy.Index, tantivy.Searcher]]:
-        builder = tantivy.SchemaBuilder()
-        for name in ("identity", "source", "surface", "head"):
-            builder.add_text_field(
-                name, stored=name == "identity", tokenizer_name="raw", index_option="basic"
-            )
-        for name in ("label", "entry_type", "matched_surface", "forms"):
-            builder.add_text_field(name, stored=True, tokenizer_name="raw", index_option="basic")
-        builder.add_text_field("order", fast=True, tokenizer_name="raw")
-        builder.add_unsigned_field("identifier", stored=True)
-        builder.add_unsigned_field("surface_rank", stored=True)
-        index = tantivy.Index(builder.build())
-        writer = index.writer(heap_size=15_000_000, num_threads=1)
-        try:
-            for document in SearchIndex.documents(projection, reference):
+    async def lease(index: tantivy.Index) -> tantivy.IndexWriter:
+        """Tantivy's lockfile admits one writer across processes; wait for the holder."""
+        while True:
+            try:
+                return index.writer(heap_size=15_000_000, num_threads=1)
+            except ValueError as error:
+                if "LockBusy" not in str(error):
+                    raise
+            await asyncio.sleep(0.1)
+
+    async def fingerprint(self) -> bytes:
+        # shortcut: counts/max IDs miss in-place edits that bypass `update`; delete the index
+        # directory to force a rebuild, or add a per-row version column if that recurs.
+        async with self.sessions() as session:
+            values = [
+                list((await session.execute(statement)).one())
+                for statement in (
+                    select(func.count(), func.max(rows.Word.id)).where(
+                        rows.Word.generation_state == GenerationState.DONE
+                    ),
+                    select(func.count(), func.max(ReferenceWord.id)),
+                    select(func.count())
+                    .select_from(rows.WordReference)
+                    .join(rows.Word, rows.Word.id == rows.WordReference.word_id)
+                    .where(rows.Word.generation_state == GenerationState.DONE),
+                )
+            ]
+        return orjson.dumps(values)
+
+    @staticmethod
+    def stored_fingerprint(index: tantivy.Index) -> bytes | None:
+        index.reload()
+        searcher = index.searcher()
+        hits = searcher.search(tantivy.Query.term_query(index.schema, "identity", "meta"), 1).hits
+        if not hits:
+            return None
+        references = orjson.loads(cast(bytes, searcher.doc(hits[0][1])["payload"][0]))
+        words = searcher.search(
+            tantivy.Query.term_query(index.schema, "source", "word_meta"),
+            1,
+            order_by_field="identifier",
+            order=tantivy.Order.Desc,
+        )
+        consumed = searcher.search(
+            tantivy.Query.term_query(index.schema, "source", "consumed_meta"), 1
+        ).count
+        return orjson.dumps(
+            [[words.count, words.hits[0][0] if words.hits else None], references, [consumed]]
+        )
+
+    @staticmethod
+    def meta(references: tuple[int, int | None]) -> tantivy.Document:
+        doc = tantivy.Document(identity="meta", source="meta")
+        doc.add_bytes("payload", orjson.dumps(references))
+        return doc
+
+    async def rebuild(self, index: tantivy.Index, writer: tantivy.IndexWriter) -> None:
+        """Replace every document in one commit, projecting the database in bounded batches."""
+
+        def add(documents: Iterable[tantivy.Document]) -> None:
+            for document in documents:
                 writer.add_document(document)
-            writer.commit()
-            index.reload()
-            return index, writer, (index, index.searcher())
-        except BaseException:
-            writer.wait_merging_threads()
-            raise
+
+        async def page[T](statement: Select[T]) -> list[T]:
+            async with self.sessions() as session:
+                return list((await session.scalars(statement.limit(BATCH))).all())
+
+        await _native(writer.delete_all_documents)
+        after, reference_count = 0, 0
+        while reference := await page(
+            select(ReferenceWord).where(ReferenceWord.id > after).order_by(ReferenceWord.id)
+        ):
+            after = reference[-1].id
+            reference_count += len(reference)
+            await _native(partial(add, self.documents(([], [], [], [], set()), reference)))
+        writer.add_document(self.meta((reference_count, after if reference_count else None)))
+
+        def add_words(projection: SearchProjection) -> None:
+            for identifier in projection[4]:
+                writer.delete_documents_by_term("identity", f"reference:{identifier}")
+            add(self.documents(projection, []))
+
+        done = rows.Word.generation_state == GenerationState.DONE
+        after = 0
+        while ids := await page(
+            select(rows.Word.id).where(done, rows.Word.id > after).order_by(rows.Word.id)
+        ):
+            after = ids[-1]
+            projection = await self.projection(ids[0], after)
+            await _native(partial(add_words, projection))
+        await _native(writer.commit)
+        await _native(index.reload)
 
     async def start(self) -> None:
         async with self.lock:
             if self.snapshot is not None:
                 return
-            async with self.sessions() as session:
-                reference = list(
-                    (await session.scalars(select(ReferenceWord).order_by(ReferenceWord.id))).all()
+            index = await asyncio.to_thread(self.open)
+            fingerprint = await self.fingerprint()
+            stored = await _native(lambda: self.stored_fingerprint(index))
+            if stored == fingerprint:
+                self.snapshot = index
+                logger.info(
+                    "search_index_started", rebuilt=False, documents=index.searcher().num_docs
                 )
-            projection = await self.projection()
-            task = asyncio.create_task(asyncio.to_thread(self.build, projection, reference))
+                return
+
+            writer = await self.lease(index)
             try:
-                self.index, self.writer, self.snapshot = await asyncio.shield(task)
-            except asyncio.CancelledError:
-                self.index, self.writer, self.snapshot = await task
-                raise
+                fingerprint = await self.fingerprint()
+                stored = await _native(lambda: self.stored_fingerprint(index))
+                rebuilt = stored != fingerprint
+                if rebuilt:
+                    await self.rebuild(index, writer)
+            finally:
+                await _native(writer.wait_merging_threads)
+                del writer
+            self.snapshot = index
             logger.info(
-                "search_index_started", words=len(projection[0]), reference_words=len(reference)
+                "search_index_started", rebuilt=rebuilt, documents=index.searcher().num_docs
             )
 
     async def update(self, word_id: int) -> None:
         started = perf_counter()
         async with self.lock:
             self.ready()
-            assert self.writer is not None
-            assert self.index is not None
-            projection = await self.projection(word_id)
-            writer, index = self.writer, self.index
+            index = cast(tantivy.Index, self.snapshot)
+            projection = await self.projection(word_id, word_id)
+            writer = await self.lease(index)
 
-            def publish() -> tuple[tantivy.Index, tantivy.Searcher]:
-                writer.delete_documents_by_term("identity", f"word:{word_id}")
-                for identifier in projection[4]:
-                    writer.delete_documents_by_term("identity", f"reference:{identifier}")
-                for document in self.documents(projection, []):
-                    writer.add_document(document)
-                writer.commit()
+            def publish(writer: tantivy.IndexWriter) -> None:
+                try:
+                    writer.delete_documents_by_term("identity", f"word:{word_id}")
+                    for identifier in projection[4]:
+                        writer.delete_documents_by_term("identity", f"reference:{identifier}")
+                    for document in self.documents(projection, []):
+                        writer.add_document(document)
+                    writer.commit()
+                finally:
+                    writer.wait_merging_threads()
                 index.reload()
-                return index, index.searcher()
 
-            task = asyncio.create_task(asyncio.to_thread(publish))
             try:
-                self.snapshot = await asyncio.shield(task)
-            except asyncio.CancelledError:
-                self.snapshot = await task
-                raise
+                await _native(partial(publish, writer))
+            finally:
+                del writer
             logger.info(
                 "search_word_published",
                 word_id=word_id,
@@ -262,23 +399,24 @@ class SearchIndex:
 
     @staticmethod
     def find(
-        snapshot: tuple[tantivy.Index, tantivy.Searcher] | None,
+        snapshot: tantivy.Index | None,
         query: str,
         include_reference: bool,
         limit: int,
     ) -> list[WordHit | ReferenceHit]:
         assert snapshot is not None
-        index, searcher = snapshot
-        schema, key = index.schema, answer_key(query)
+        searcher = snapshot.searcher()
+        schema, key = snapshot.schema, answer_key(query)
         ranked: dict[str, tuple[tuple[int, int, int, str, int], WordHit | ReferenceHit]] = {}
 
-        def candidate(doc: tantivy.Document, kind: MatchKind) -> None:
-            identity = _get_str(doc, "identity")
+        def candidate(payload: list[Any], kind: MatchKind) -> None:
+            identity = payload[0]
+            if identity in ranked:
+                return
+            _, label, entry_value, matched_surface, rank, _forms = payload
             generated = identity.startswith("word:")
-            identifier = _get_int(doc, "identifier")
-            label = _get_str(doc, "label")
-            entry_type = EntryType(_get_str(doc, "entry_type"))
-            matched_surface = _get_str(doc, "matched_surface")
+            identifier = int(identity.partition(":")[2])
+            entry_type = EntryType(entry_value)
             hit: WordHit | ReferenceHit = (
                 WordHit(
                     word_id=identifier,
@@ -297,34 +435,16 @@ class SearchIndex:
                 )
             )
             order = (
-                tuple(MatchKind).index(kind),
+                MATCH_KIND_ORDER[kind],
                 int(not generated),
-                _get_int(doc, "surface_rank"),
+                rank,
                 answer_key(label),
                 identifier,
             )
-            if identity not in ranked or order < ranked[identity][0]:
-                ranked[identity] = (order, hit)
+            ranked[identity] = (order, hit)
 
         literal = "".join("\\" + char if char in r"\.^$|?*+(){}[]" else char for char in key)
-        branches: list[tuple[MatchKind, tantivy.Query]] = [
-            (MatchKind.EXACT, tantivy.Query.term_query(schema, "surface", key)),
-            (MatchKind.PREFIX, tantivy.Query.regex_query(schema, "surface", literal + ".*")),
-            (
-                MatchKind.SUBSTRING,
-                tantivy.Query.regex_query(schema, "surface", ".*" + literal + ".*"),
-            ),
-        ]
-        if len(key) >= 3:
-            branches.append(
-                (
-                    MatchKind.FUZZY,
-                    tantivy.Query.fuzzy_term_query(
-                        schema, "surface", key, distance=1 if len(key) < 6 else 2
-                    ),
-                )
-            )
-        for kind, branch in branches:
+        for kind in MatchKind:
             if kind is MatchKind.PREFIX:
                 heads = tantivy.Query.boolean_query(
                     [
@@ -332,20 +452,54 @@ class SearchIndex:
                         for head in {surface_head_key(key), "\0"}
                     ]
                 )
-                total: int = int(getattr(searcher.search(heads, limit=1), "count", 0))
-                if total and sum(order[1] == 0 for order, _hit in ranked.values()) < limit:
-                    prefix_search = searcher.search(heads, limit=total, count=False)
-                    for hit_tuple in prefix_search.hits:
-                        address = hit_tuple[1]
-                        doc = searcher.doc(address)
-                        if _get_str(doc, "identity") not in ranked and matches_pattern(
-                            _get_str(doc, "matched_surface"),
-                            query,
-                            forms=cast(dict[str, list[str]], json.loads(_get_str(doc, "forms"))),
+                fetched, size = 0, limit
+                generated = sum(order[1] == 0 for order, _hit in ranked.values())
+                while generated < limit:
+                    hits = searcher.search(
+                        heads,
+                        limit=size,
+                        count=False,
+                        order_by_field="order",
+                        order=tantivy.Order.Asc,
+                    ).hits
+                    for _score, address in hits[fetched:]:
+                        payload = _payload(searcher.doc(address))
+                        if payload[0] not in ranked and matches_pattern(
+                            payload[3], query, forms=payload[5]
                         ):
-                            candidate(doc, MatchKind.EXACT)
+                            candidate(payload, MatchKind.EXACT)
+                            generated += 1
+                        if generated >= limit:
+                            break
+                    if len(hits) < size:
+                        break
+                    fetched, size = size, size * 2
             if kind is not MatchKind.EXACT and len(ranked) >= limit:
                 break
+            if kind is MatchKind.EXACT:
+                branch = tantivy.Query.term_query(schema, "surface", key)
+            elif kind is MatchKind.PREFIX:
+                branch = tantivy.Query.regex_query(schema, "surface", literal + ".*")
+            elif kind is MatchKind.SUBSTRING:
+                branch = (
+                    tantivy.Query.boolean_query(
+                        [
+                            (
+                                tantivy.Occur.Must,
+                                tantivy.Query.term_query(schema, "trigram", trigram),
+                            )
+                            for trigram in sorted(_trigrams(key))
+                        ]
+                    )
+                    if len(key) >= 3
+                    else tantivy.Query.regex_query(schema, "surface", ".*" + literal + ".*")
+                )
+            else:
+                if len(key) < 3:
+                    break
+                branch = tantivy.Query.fuzzy_term_query(
+                    schema, "surface", key, distance=1 if len(key) < 6 else 2
+                )
             combined = tantivy.Query.const_score_query(branch, 1.0)
             if not include_reference:
                 combined = tantivy.Query.boolean_query(
@@ -359,21 +513,20 @@ class SearchIndex:
                 )
             fetched, size, seen = 0, limit, set[str]()
             while len(seen) < limit:
-                search_res = searcher.search(
+                hits = searcher.search(
                     combined,
                     limit=size,
                     count=False,
                     order_by_field="order",
                     order=tantivy.Order.Asc,
-                )
-                hits = search_res.hits
-                for hit_tuple in hits[fetched:]:
-                    address = hit_tuple[1]
-                    doc = searcher.doc(address)
-                    identity = _get_str(doc, "identity")
-                    if identity not in seen:
-                        seen.add(identity)
-                        candidate(doc, kind)
+                ).hits
+                for _score, address in hits[fetched:]:
+                    payload = _payload(searcher.doc(address))
+                    if kind is MatchKind.SUBSTRING and key not in answer_key(payload[3]):
+                        continue
+                    if payload[0] not in seen:
+                        seen.add(payload[0])
+                        candidate(payload, kind)
                     if len(seen) >= limit:
                         break
                 if len(hits) < size:
@@ -393,7 +546,3 @@ class SearchIndex:
     async def close(self) -> None:
         async with self.lock:
             self.snapshot = None
-            writer, self.writer = self.writer, None
-            self.index = None
-            if writer is not None:
-                await asyncio.to_thread(writer.wait_merging_threads)

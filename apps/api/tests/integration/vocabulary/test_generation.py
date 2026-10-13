@@ -133,13 +133,18 @@ async def test_native_instructor_reasks_for_semantic_defects_before_publication(
 
 
 async def test_index_failure_keeps_committed_content_and_retry_reuses_it(
-    database, tmp_path, monkeypatch
+    database, tmp_path, monkeypatch, redis_store
 ):
     await import_reference(
         database.sessions, reference_file(tmp_path / "reference.jsonl", [reference_word()])
     )
     index, provider, cache = SearchIndex(database.sessions), WordProvider(), ContentCache()
-    jobs = Generations(database.sessions, index, provider, cache, load_config())
+    from pycil.infrastructure.cache import RedisCache
+
+    redis, namespace = redis_store
+    jobs = Generations(
+        database.sessions, index, provider, cache, load_config(), store=RedisCache(redis, namespace)
+    )
 
     async def failed_update(word_id):
         raise RuntimeError("private index error")
@@ -150,7 +155,7 @@ async def test_index_failure_keeps_committed_content_and_retry_reuses_it(
             patch.setattr(index, "update", failed_update)
             submitted = await jobs.submit("bank", reference_id=encode_reference_id(1))
             await jobs.wait([submitted["task_id"]])
-            failed = jobs.status(submitted["task_id"])
+            failed = await jobs.status(submitted["task_id"])
             assert failed["status"] is JobState.FAILED
             assert failed["stage"] is not GenerationStage.READY
             assert failed["error"] == "generation_failed"
@@ -161,7 +166,7 @@ async def test_index_failure_keeps_committed_content_and_retry_reuses_it(
             assert await session.scalar(select(func.count()).select_from(Sense)) == 1
         retry = await jobs.submit("bank", reference_id=encode_reference_id(1))
         await jobs.wait([retry["task_id"]])
-        completed = jobs.status(retry["task_id"])
+        completed = await jobs.status(retry["task_id"])
         assert completed["status"] is JobState.SUCCEEDED
         assert completed["stage"] is GenerationStage.READY
         assert completed["word_id"] == word_id
@@ -171,6 +176,44 @@ async def test_index_failure_keeps_committed_content_and_retry_reuses_it(
         assert all(item.kind is HitKind.WORD for item in found)
     finally:
         await jobs.close()
+        await index.close()
+
+
+async def test_assistant_generation_tools_share_status_and_reuse_content(database, redis_store):
+    from types import SimpleNamespace
+
+    from pycil.assistant.tools import tools
+    from pycil.infrastructure.cache import RedisCache
+    from tests.support.account import account
+    from tests.support.vocabulary import neutral_word
+
+    user, _ = await account(database.sessions)
+    word_id, sense_id = await neutral_word(database.sessions)
+    config = load_config()
+    redis, namespace = redis_store
+    store = RedisCache(redis, namespace)
+    index, provider, cache = SearchIndex(database.sessions), WordProvider(), ContentCache()
+    owner = Generations(database.sessions, index, provider, cache, config, store=store)
+    observer = Generations(database.sessions, index, provider, cache, config, store=store)
+
+    def surface(generations):
+        resources = SimpleNamespace(
+            sessions=database.sessions, content_cache=cache, generations=generations
+        )
+        return {tool.name: tool for tool in tools(resources, user, config)}
+
+    try:
+        await index.start()
+        generated = await surface(owner)["generate_words"].ainvoke({"words": ["bank"]})
+        item = generated["items"][0]
+        assert item["status"] == "succeeded" and item["word_id"] == word_id
+        assert item["senses"][0]["sense_id"] == sense_id
+        polled = await surface(observer)["get_generations"].ainvoke({"task_ids": [item["task_id"]]})
+        assert polled["items"][0] == {key: value for key, value in item.items() if key != "target"}
+        assert not observer.flights and provider.calls == 0
+    finally:
+        await owner.close()
+        await observer.close()
         await index.close()
 
 

@@ -28,8 +28,9 @@ Internal business services, SQL constraints, artifact validation, search publica
 native checkpoint persistence remain real. ASGI transports can exercise real HTTP routes
 without a separate server process.
 
-Browser E2E belongs to `apps/web`. Its setup must use disposable infrastructure and the
-current backend resources, rather than importing a backend system test.
+Product browser E2E belongs to the root [`e2e/`](../../e2e/README.md) package.
+It runs the production API with disposable infrastructure and real development
+identity. Its fixtures do not import backend integration fixtures.
 
 ## Infrastructure ownership
 

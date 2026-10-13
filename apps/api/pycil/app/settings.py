@@ -20,6 +20,7 @@ class Deployment(BaseModel):
     llm_base_url: str
     decision_api_key: SecretStr
     decision_base_url: str
+    search_index_path: str | None = None
 
     @model_validator(mode="after")
     def validate_addresses(self):
@@ -95,6 +96,7 @@ class Deployment(BaseModel):
                 llm_base_url=os.environ["LLM_BASE_URL"],
                 decision_api_key=SecretStr(os.environ["DECISION_API_KEY"]),
                 decision_base_url=os.environ["DECISION_BASE_URL"],
+                search_index_path=os.getenv("SEARCH_INDEX_PATH") or None,
             )
         except ValueError, TypeError:
             # Validation errors may embed raw input, including database passwords.

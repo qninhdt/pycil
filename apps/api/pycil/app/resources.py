@@ -85,10 +85,12 @@ async def process_resources(
             content_cache, artifact_cache = ContentCache(), ContentCache()
             stack.callback(content_cache.clear)
             stack.callback(artifact_cache.clear)
-            search = SearchIndex(sessions)
+            search = SearchIndex(sessions, deployment.search_index_path)
             stack.push_async_callback(search.close)
             await search.start()
-            generations = Generations(sessions, search, structured_llm, content_cache, config)
+            generations = Generations(
+                sessions, search, structured_llm, content_cache, config, store=cache
+            )
             stack.push_async_callback(generations.close)
             logger.info(
                 "resources_initialized", duration_ms=round((perf_counter() - started) * 1000, 2)

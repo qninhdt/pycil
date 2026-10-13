@@ -22,6 +22,7 @@ dependencies = [
   "ag-ui-protocol>=1.0.0",
   "ag-ui-langgraph>=0.0.46",
   "langchain-openrouter>=0.2.9",
+  "openrouter>=0.10.8",
   "structlog>=26.1.0",
   "cachetools>=7.2.0,<8",
   "tantivy>=0.26.2,<0.27",

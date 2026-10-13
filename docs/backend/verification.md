@@ -11,7 +11,7 @@ deleted without reading it; current tests were written from behavior and source 
 | Fresh schema and ORM agreement | [Real PostgreSQL comparison](../../apps/api/tests/integration/infrastructure/test_schema.py) |
 | JSONL import | [Identity, replay, conflicts and atomicity](../../apps/api/tests/integration/vocabulary/test_reference_import.py) |
 | Generation/search | [Evidence validation, incremental visibility and failed-index retry](../../apps/api/tests/integration/vocabulary/test_generation.py) |
-| Job ownership | [Singleflight and cancellation](../../apps/api/tests/unit/vocabulary/test_jobs.py) |
+| Job ownership | [Shared Redis status, singleflight and cancellation](../../apps/api/tests/integration/vocabulary/test_jobs.py) |
 | Relations/themes/translation | [Vocabulary integrations](../../apps/api/tests/integration/vocabulary/), [theme namespaces](../../apps/api/tests/integration/themes/test_namespaces.py) |
 | Artifact banks and grading | [Study integrations](../../apps/api/tests/integration/study/) |
 | Atomic progress | [Review replay/concurrency and rollback](../../apps/api/tests/integration/study/test_reviews.py) |
