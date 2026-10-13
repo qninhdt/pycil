@@ -1,6 +1,6 @@
 import { expect,test } from 'vitest'
 
-import { parsePatternTokens } from '../../src/components/dictionary/pattern-badge'
+import { parsePatternTokens } from '../../src/features/vocabulary/pattern'
 
 test('grammar pattern tokenizer decomposes formulas into semantic slots and connectors', () => {
   const t1 = parsePatternTokens('hard {sth}', 'hard')
@@ -44,5 +44,14 @@ test('grammar pattern tokenizer decomposes formulas into semantic slots and conn
     { type: 'word', text: 'of', isLemma: false, isConnector: true },
     { type: 'slot', slot: expect.objectContaining({ code: "one's", label: "one's" }) },
     { type: 'word', text: 'personality', isLemma: false, isConnector: false },
+  ])
+})
+
+
+test('possessive and unknown placeholders keep their distinct translated meanings', () => {
+  expect(parsePatternTokens("{one's} {clause} {custom slot}")).toEqual([
+    { type: 'slot', slot: { code: "one's", label: "one's", descriptionKey: 'slotPossessive' } },
+    { type: 'slot', slot: { code: 'clause', label: 'clause', descriptionKey: 'slotClause' } },
+    { type: 'slot', slot: { code: 'custom slot', label: 'custom slot', descriptionKey: 'slotPlaceholder' } },
   ])
 })

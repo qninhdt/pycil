@@ -1,6 +1,6 @@
 import { expect,test } from 'vitest'
 
-import { MatchKind,parseWordSearch } from '../../src/lib/dictionary-model'
+import { MatchKind,parseWordSearch } from '../../src/lib/api/vocabulary'
 
 test('search parser preserves mixed ranking and validates classified hits', () => {
   const response = { items: [

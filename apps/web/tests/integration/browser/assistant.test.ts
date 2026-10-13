@@ -1,4 +1,4 @@
-import database from '../../../src/lib/services/mock/database'
+import database from '../../../src/lib/api/services/mock/database'
 
 import { expect,test,type Page } from '@playwright/test'
 
@@ -21,8 +21,8 @@ const state = { messages: [{ id: 'old-user', role: 'user', content: 'A saved que
 let bundle: string
 
 test.beforeAll(async () => {
-  const account = `export function useAccount(){return {status:'ready',signedIn:true,profile:null,name:'Test learner',signOut:async()=>{}}}; export function useTheme(){return {theme:'light',toggleTheme:()=>{}}}`
-  bundle = await buildFixture('assistant', { '@/components/application/providers': account, './providers': account })
+  const account = `export function useAccount(){return {status:'ready',signedIn:true,canMutate:true,profile:null,name:'Test learner',signOut:async()=>{}}}; export function useTheme(){return {theme:'light',toggleTheme:()=>{}}}`
+  bundle = await buildFixture('assistant', { '@/features/account/account.client': account, '@/lib/preferences/theme-provider.client': account })
 })
 
 async function fixture(page: Page) {

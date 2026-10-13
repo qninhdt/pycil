@@ -51,7 +51,7 @@ test('landing actions lead to the existing signup, login and application routes'
 test('the landing worksheet works at mobile, tablet and desktop widths in both themes', async ({ page }) => {
   for (const theme of ['light', 'dark']) {
     await page.goto('/')
-    await page.evaluate(value => localStorage.setItem('bauhaus-theme', value), theme)
+    await page.evaluate(value => document.cookie = `pycil-theme=${value}; Path=/; SameSite=Lax`, theme)
     for (const width of [320, 390, 768, 1024, 1280, 1440]) {
       await page.setViewportSize({ width, height: width >= 1280 ? 1000 : 844 })
       await page.goto('/')

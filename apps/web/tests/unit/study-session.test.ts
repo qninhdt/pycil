@@ -2,7 +2,7 @@ import { expect,test } from 'vitest'
 
 import { preparation } from './fixtures'
 
-import { advanceSession,beginAttempt,createStudySession,currentQuestion,diagnosticComplete,finishSession,recordAttempt,startNextRound } from '../../src/lib/study-session'
+import { advanceSession,beginAttempt,createStudySession,currentQuestion,diagnosticComplete,finishSession,recordAttempt,startNextRound } from '../../src/features/study/session'
 
 test('retry recovery preserves the initial diagnostics and duplicated artifact occurrences', async () => {
   const prepared = preparation(1, 'single_choice', 2)

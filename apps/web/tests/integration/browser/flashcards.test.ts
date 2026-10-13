@@ -1,5 +1,6 @@
 import { expect,test } from '@playwright/test'
 
+import { backgroundCanvas } from '../../../src/lib/background-layout'
 import { flashcardArtwork } from '../../../src/lib/flashcard-artwork'
 
 test('Deck preview reuses the two-face card, supports keyboard and crosses page boundaries without submitting learning', async ({ page }) => {
@@ -9,6 +10,13 @@ test('Deck preview reuses the two-face card, supports keyboard and crosses page 
   const preview = page.getByRole('region', { name: 'Flashcard preview' })
   const card = preview.locator('article')
   await expect(preview.getByRole('status')).toHaveText('1 / 36')
+  await page.evaluate(() => document.fonts.ready)
+  await expect.poll(async () => {
+    const bounds = await card.locator('svg.bauhaus-background').boundingBox()
+    const expected = backgroundCanvas(bounds!.width, bounds!.height)
+    const actual = (await card.locator('svg.bauhaus-background').getAttribute('viewBox'))!.split(' ').map(Number)
+    return Math.abs(actual[2] - expected.width) + Math.abs(actual[3] - expected.height)
+  }).toBeLessThan(.01)
   const firstArtwork = await card.getAttribute('data-artwork')
   const firstGeometry = await card.getAttribute('style')
   const firstSvg = await card.locator('svg.bauhaus-background').evaluate(node => node.outerHTML)

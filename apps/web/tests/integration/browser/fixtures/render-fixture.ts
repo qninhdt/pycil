@@ -1,12 +1,12 @@
 import type { Page } from '@playwright/test'
 import { build } from 'esbuild'
-import { initialUiScript } from '../../../../src/lib/ui-preferences'
+import { initialUiScript } from '../../../../src/lib/preferences/browser'
 
 const link = `import {forwardRef} from 'react'; export default forwardRef(function Link({prefetch,replace,scroll,locale,...props},ref){return <a {...props} ref={ref}/>})`
-const navigation = `export function usePathname(){return '/app'}`
+import { navigationPlatform } from './navigation'
 
 export async function buildFixture(entry: string, platform: Record<string, string> = {}) {
-  const modules = { 'next/link': link, 'next/navigation': navigation, ...platform }
+  const modules = { 'next/link': link, 'next/navigation': navigationPlatform, ...platform }
   const result = await build({
     entryPoints: [`tests/integration/browser/fixtures/${entry}.tsx`],
     bundle: true, write: false, platform: 'browser', format: 'iife', jsx: 'automatic',

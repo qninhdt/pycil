@@ -1,10 +1,11 @@
+import { NextIntlClientProvider } from 'next-intl'
+import messages from '../../../../src/messages/en.json'
 import { useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { I18nProvider } from '../../../../src/components/application/i18n-provider'
-import { LibraryDestinationDialog } from '../../../../src/components/library/library-destination-dialog'
-import { createHttpServices } from '../../../../src/lib/services/http'
-import { createMockServices } from '../../../../src/lib/services/mock'
-import { ServicesProvider } from '../../../../src/lib/services/provider'
+import { LibraryDestinationDialog } from '../../../../src/features/library/library-destination-dialog.client'
+import { createHttpServices } from '../../../../src/lib/api/services/http'
+import { createMockServices } from '../../../../src/lib/api/services/mock'
+import { ServicesProvider } from '../../../../src/lib/api/services/provider.client'
 
 const services = createHttpServices(async () => 'test-only-bearer')
 const profile = { ...createMockServices().account.initialProfile!, id: 'test-account',
@@ -13,14 +14,14 @@ const profile = { ...createMockServices().account.initialProfile!, id: 'test-acc
 export function Fixture() {
   const [open, setOpen] = useState(true)
   const [saved, setSaved] = useState('')
-  return <ServicesProvider services={services} scope={profile.id}><I18nProvider>
+  return <ServicesProvider services={services} scope={profile.id}><NextIntlClientProvider locale="en" messages={messages}>
     {open && <LibraryDestinationDialog open profile={profile} kind="deck" action="Add to deck" onOpenChange={setOpen}
       onConfirm={async destination => {
         await services.library.updateDeckSenses(destination.id, { add: [49], remove: [] }, new AbortController().signal)
         setSaved(destination.id)
       }} />}
     <output>{saved}</output>
-  </I18nProvider></ServicesProvider>
+  </NextIntlClientProvider></ServicesProvider>
 }
 
 createRoot(document.getElementById('fixture')!).render(<Fixture />)

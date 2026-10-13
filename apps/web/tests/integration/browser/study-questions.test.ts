@@ -4,14 +4,14 @@ import { accountPlatform,navigationPlatform } from './fixtures/api-fixtures'
 import { buildFixture,renderFixture } from './fixtures/render-fixture'
 
 
-import { createMockServices } from '../../../src/lib/services/mock'
+import { createMockServices } from '../../../src/lib/api/services/mock'
 
-import { advanceSession,beginAttempt,createStudySession,currentQuestion,recordAttempt,sessionKey } from '../../../src/lib/study-session'
+import { advanceSession,beginAttempt,createStudySession,currentQuestion,recordAttempt,sessionKey } from '../../../src/features/study/session'
 
 const focusSignal = new AbortController().signal
 
 test('HTTP study renders native single word and short answer question formats', async ({ page }) => {
-  const bundle = await buildFixture('study', { '@/components/application/providers': accountPlatform, 'next/navigation': navigationPlatform })
+  const bundle = await buildFixture('study', { '@/features/account/account.client': accountPlatform, 'next/navigation': navigationPlatform })
   for (const [type, format, label] of [
     ['definition_to_word', 'single_word', 'Your word'],
     ['word_to_definition', 'short_answer', 'Your answer'],
@@ -109,7 +109,7 @@ test('Study actions route to fullscreen focus mode without preparing questions o
 })
 
 test('HTTP study preparation failure stays in focus and exposes an accessible retry popup', async ({ page }) => {
-  const bundle = await buildFixture('study', { '@/components/application/providers': accountPlatform, 'next/navigation': navigationPlatform })
+  const bundle = await buildFixture('study', { '@/features/account/account.client': accountPlatform, 'next/navigation': navigationPlatform })
   let preparations = 0
   await page.route('**/*v1/**', route => {
     expect(new URL(route.request().url()).pathname.endsWith('/study:prepare')).toBe(true)

@@ -1,9 +1,10 @@
+import messages from '../src/messages/en.json';
 import type { Preview } from '@storybook/nextjs-vite';
 import React, { useEffect } from 'react';
 import '../src/app/globals.css';
-import { PreviewProvider } from '../src/components/application/providers';
-import { TooltipProvider } from '../src/components/ui/tooltip';
-import { Toaster } from '../src/components/ui/sonner';
+import { PreviewProvider } from '../src/lib/api/services/preview-provider.client';
+import { ThemeProvider } from '../src/lib/preferences/theme-provider.client';
+import { UiProvider } from '../src/lib/preferences/ui-provider.client';
 
 const preview: Preview = {
   parameters: {
@@ -48,7 +49,7 @@ const preview: Preview = {
   },
   decorators: [
     (Story, context) => {
-      const theme = context.globals.theme || 'light';
+      const theme = context.globals.theme === 'dark' ? 'dark' : 'light';
 
       useEffect(() => {
         const root = document.documentElement;
@@ -60,14 +61,11 @@ const preview: Preview = {
       }, [theme]);
 
       return (
-        <PreviewProvider>
-          <TooltipProvider>
+        <ThemeProvider key={theme} initialTheme={theme}><UiProvider><PreviewProvider messages={messages}>
             <div className="font-sans antialiased text-foreground min-h-full">
               <Story />
             </div>
-            <Toaster position="bottom-right" />
-          </TooltipProvider>
-        </PreviewProvider>
+        </PreviewProvider></UiProvider></ThemeProvider>
       );
     },
   ],

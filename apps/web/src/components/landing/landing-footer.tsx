@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { getTranslations } from 'next-intl/server'
-import { PycilBrand } from '@/components/application/brand'
+import { PycilBrand } from '@/components/shell/brand'
 import { ArrowRight } from '@/components/artwork/artwork'
 
 export async function LandingFooter() {

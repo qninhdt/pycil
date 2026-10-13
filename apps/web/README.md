@@ -15,11 +15,11 @@ Open the URL printed by Next.js. In development, the mock data mode needs no API
 
 For live authentication, set `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` in
 `apps/web/.env.local` for the same Clerk instance used by the API, and use
-`NEXT_PUBLIC_DATA_MODE=live`. The frontend uses `@clerk/nextjs` and Clerk middleware;
+`NEXT_PUBLIC_DATA_MODE=live`. The frontend uses `@clerk/nextjs` and Clerk request protection in `src/proxy.ts`;
 server account loading also requires the matching `CLERK_SECRET_KEY`. Clerk issues the
 session token, which the frontend sends as a bearer token directly to the API at
 `NEXT_PUBLIC_PYCIL_API_URL` (default `http://127.0.0.1:8000`), under `/v1/*`.
-Server account loading uses the configured API address as well. The API verifies
+Server reads prefer the server-only `PYCIL_API_URL` when configured, then the public API address. Set `NEXT_PUBLIC_PYCIL_API_URL` separately when the backend has a private server address. The API verifies
 the token using Clerk's public JWKS; `ALLOWED_ORIGINS` must include the web origin.
 The frontend loads its own environment files and does not load the root `.env`.
 Signed-in visitors to `/login`, `/signup` and `/forgot-password` are redirected to
@@ -41,6 +41,31 @@ pnpm run test
 
 Testing uses unit, integration and E2E levels. See [test ownership and commands](tests/README.md). For a preinstalled Chromium, set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to its executable.
 
+
+## Rendering and state ownership
+
+Routes and layouts render initial data from Pycil on the server. Interactive domain
+views receive a matching dehydrated TanStack cache with 60 seconds of freshness.
+Filters, cursors, selection and ordinary mutations call Pycil directly from the
+browser; Next.js has no CRUD forwarding endpoints or Server Actions. Same-page
+controls update native history so Back, Forward and reload retain the current URL.
+
+The browser cache is scoped to the active Clerk session and cleared on a session
+change. Account display and settings use the canonical account query. Initial
+account content renders before the Clerk browser SDK finishes loading; operations
+requiring its token wait for the SDK.
+
+The `pycil-theme` cookie owns light/dark rendering. NextIntl owns locale messages;
+the locale cookie, Accept-Language and English fallback determine server rendering.
+Successful settings saves and `/auth/complete` synchronize the saved locale cookie.
+The completion route writes Next.js-owned preferences and redirects; it is not a
+backend API proxy. Personal and own Published material use `/app/personal` and
+`/app/published`; public profiles and collections use `/u/[identifier]`.
+
+Domain views live in `src/features/{home,account,auth,library,vocabulary,study,assistant}`.
+Shared controls, artwork and shell live in `src/components`. Shared HTTP, identity,
+query and preference boundaries live in `src/lib/{api,auth,query,preferences}`.
+
 ## Landing page
 
 `/` is the public Bauhaus landing page; `/app` opens the learning application.
@@ -51,7 +76,7 @@ use the existing `/signup` and `/login` routes.
 
 The page uses Tailwind, shared palette tokens, artwork and shadcn buttons. Static
 content lives in `src/components/landing/landing-page.tsx`; the interactive example
-lives in `learning-map.tsx`. Run `pnpm exec playwright test landing.test.ts --project=integration`
+lives in `learning-map.client.tsx`. Run `pnpm exec playwright test landing.test.ts --project=integration`
 for interaction, navigation, responsive and theme checks.
 
 ## Live integration and E2E
@@ -76,72 +101,24 @@ material. A Published reference links to its original folder/deck. Private sourc
 can be saved in Personal; Published sources can also be saved in Published with
 explicit confirmation.
 
-Run the managed E2E suite from `apps/web`:
+Product browser E2E lives in the independent root [`e2e/`](../../e2e/README.md)
+package. From the repository root:
 
 ```sh
-pnpm test:e2e
+pnpm --dir e2e test
+pnpm --dir e2e test:live
 ```
 
-The runner builds and starts production Next.js on port 3200, the real API on port 8100 and disposable
-PostgreSQL/Redis. The frontend runs from a disposable source snapshot so workspace
-edits cannot interrupt an active browser journey. Installed dependencies are shared
-through hard links; the snapshot is removed after its process exits. It prepares native lexical/question data and runs the installed
-Playwright CLI. It refuses occupied test ports, stops its processes afterwards,
-keeps an application API on port 8000 untouched and never changes FE dotenv
-files. The runner reads the matching development Clerk
-secret configuration from the root `.env` (`E2E_CLERK_ENV_FILE` can select a runner-only
-file), and the publishable key from `apps/web/.env.local` unless explicitly supplied
-to the runner. A Clerk secret is required only by the runner to provision/delete its own
-temporary test users and obtain the official bot-protection testing token. Browser
-authentication uses the actual custom forms, email verification/client-trust
-challenges and Clerk session JWTs verified by the API. There is no auth mock or
-locally signed session token.
+The default profile uses production Next.js, the real API, disposable PostgreSQL/
+Redis, real development Clerk, and a controlled external model boundary. Live is
+three fixed model journeys. E2E owns its explicit ignored credentials, per-test
+actors/scenarios and private diagnostics; it does not read application dotenv files.
+See its README for setup, mobile/WebKit, external-auth prerequisites and cleanup.
 
-The suite covers authentication, profile/settings, Home/reporting, Library writes,
-publication/references/Discovery, source pagination, Dictionary/background generation,
-runtime question types, typed grading, Memory/Mastery results and idempotent replay, flashcards,
-Assistant SSE/history/approval/deletion/usage, account isolation and mobile completion.
-All eight choice question types and all six supported typed pairs are exercised.
-Cold-bank generation, provider rejection/retry, invalid saved sessions, storage failure,
-delayed preparation cancellation and account hydration have explicit regressions.
-Unexpected browser exceptions fail the live suite.
-Only external inference is deterministic in the default profile; API, native generation,
-validation, domain services, PostgreSQL, Redis and checkpoint history remain real.
-Transport fault tests delay or abort requests, including after real server acceptance.
-Test-only Library limits make quota boundaries inexpensive to exercise; production
-policy is unchanged. Test-owned nodes and Clerk users are cleaned by exact ID;
-the managed store runner removes its containers, network and volumes.
-
-Use `E2E_GREP='pattern'` with the managed command to run a focused group. Google OAuth
-completion requires dedicated `E2E_GOOGLE_EMAIL` / `E2E_GOOGLE_PASSWORD` runner
-credentials. Authenticator MFA tests enroll their own user and explicitly skip if
-Clerk reports that the feature is disabled. Account continuation requires an
-instance configured with the corresponding pending task; it is not inferred from
-successful ordinary login.
-
-The selected `@live-provider` E2E group uses the actual configured inference
-and decision services for generation, typed grading and Assistant streaming:
-
-```sh
-pnpm test:e2e:live
-```
-
-It requires `LLM_API_KEY`, `LLM_BASE_URL`, `DECISION_API_KEY` and
-`DECISION_BASE_URL` in the runner environment/file. It fails before creating
-users if configuration is missing. Legacy provider variable names are not silently
-translated. This profile invokes paid services and is separate from routine E2E.
-
-HTML reports and failure screenshots use ignored `playwright-report/` and `test-results/`.
-Network tracing is disabled because it records credentials/bearer tokens. Treat test
-artifacts as private. Execution evidence and external limitations are recorded in
-the [focus/E2E verification report](../../plans/261012-focus-e2e-hardening/reports/verification.md); collection alone is
-not evidence of successful execution.
-
-The `Tests` GitHub Actions workflow runs unit/integration, TypeScript, lint and build.
-Trusted changes also run real-stack E2E using development Clerk secrets. Fork PRs
-cannot run that secret-dependent job; their unit/integration success does not prove E2E.
-A manual workflow input selects paid-provider checks. Missing mandatory secrets fail
-the managed runner before user provisioning.
+Frontend `pnpm test` owns unit and browser/service integration only. The `Tests`
+workflow runs these checks and the separate root E2E job on trusted changes.
+Fork PRs cannot use development identity secrets; a skipped job is missing coverage.
+A manual `live_provider` input adds paid checks after the default profile.
 
 ## Explore
 
@@ -174,8 +151,7 @@ panel, including after reopening the conversation. Reasoning disclosures render
 only when the model supplies reasoning events; availability depends on the model.
 Reasoning opens while streaming and text renders incrementally through the native
 `useAgUiRuntime` / `HttpAgent` pipeline. The SSE response uses `no-transform` to avoid
-compression buffering. Next uses a 210-second proxy inactivity timeout; the backend
-uses a 180-second SDK request timeout and has no deadline for the entire agent turn.
+compression buffering. Assistant streams connect directly to the backend; Next.js does not proxy them. The backend uses a 180-second SDK request timeout and has no deadline for the entire agent turn.
 Image selection uses `ComposerPrimitive.AddAttachment` and the native image adapter;
 the application adds model/MIME/size validation.
 
@@ -187,7 +163,7 @@ formulas scroll horizontally only when needed, with vertical space for tall symb
 Assistant content uses the available message width without an enclosing bubble around
 reasoning/tool disclosures. Copy is shown only for messages containing answer text.
 
-Owned styles and primitives are under `src/components/assistant-ui/`. The focused
+Owned styles and primitives are under `src/features/assistant/`. The focused
 contract/browser suite is `pnpm exec playwright test assistant.test.ts --project=integration`.
 
 The sidebar jumps to specimens; catalog search filters them. `Ctrl/⌘ K` or the header search button opens global navigation. The theme toggle persists via `bauhaus-theme`; the root layout applies the saved mode before hydration. Copy buttons offer selectable source when clipboard permissions are denied.
@@ -201,8 +177,8 @@ The root [`DESIGN.md`](../../DESIGN.md) is the palette authority. The showcase d
 | `src/app/globals.css` | Canonical palette literals, Tailwind theme, semantic color roles and global treatments |
 | `src/components/ui/` | Official shadcn source; primitive behavior and component variants |
 | `src/components/artwork/` | Authored paths, typed names and shared SVG renderers |
-| `src/components/showcase/` | Catalog examples, composition frames, source and copy affordances |
-| `src/components/application/` | Application shell and account controls |
+| `src/app/(public)/showcase/examples/` | Catalog examples, composition frames, source and copy affordances |
+| `src/components/shell/` | Application shell and account controls |
 
 Do not add palette literals to JSX or invent dark-mode colors. Dark mode remaps the existing palette. Decorative colors do not acquire universal functional meanings. Small red action labels use Pomegranate/Clouds for contrast; blue actions use an alpha fill with semantic text. Dark destructive actions retain a red outline with readable foreground text. Saturated art stays unchanged. The favicon is derived from the rendered `BrandMark` and CSS tokens.
 

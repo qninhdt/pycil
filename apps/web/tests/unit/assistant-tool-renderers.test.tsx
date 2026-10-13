@@ -1,7 +1,7 @@
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect,test } from 'vitest'
-import { ToolBodyContent } from '../../src/components/assistant-ui/tool-renderers'
+import { ToolBodyContent } from '../../src/features/assistant/tool-renderers.client'
 
 function render(toolName: string, result: unknown, args: object = {}) {
   return renderToStaticMarkup(React.createElement(ToolBodyContent, {

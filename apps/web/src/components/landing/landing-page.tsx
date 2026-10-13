@@ -1,7 +1,7 @@
 import { getTranslations } from 'next-intl/server'
 import { LandingHeader } from './landing-header'
 import { LandingHero } from './landing-hero'
-import { LearningMap } from './learning-map'
+import { LearningMap } from './learning-map.client'
 import { LandingLibrary } from './landing-library'
 import { LandingPrinciples } from './landing-principles'
 import { LandingClosing } from './landing-closing'

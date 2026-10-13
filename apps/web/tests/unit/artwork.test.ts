@@ -1,4 +1,4 @@
-import database from '../../src/lib/services/mock/database.json' with { type: 'json' }
+import database from '../../src/lib/api/services/mock/database.json' with { type: 'json' }
 
 import { expect,test } from 'vitest'
 
@@ -8,7 +8,7 @@ import { flashcardArtwork,flashcardBackgrounds } from '../../src/lib/flashcard-a
 
 import { backgroundCanvas } from '../../src/lib/background-layout'
 
-import { parseDictionaryWord } from '../../src/lib/dictionary-model'
+import { parseDictionaryWord } from '../../src/lib/api/vocabulary'
 
 test('seeded patterns are deterministic, balanced and extend without changing existing blocks', () => {
   const blocks = generateBauhausPattern('pycil-1923')

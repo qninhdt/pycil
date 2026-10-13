@@ -35,7 +35,7 @@ test('Words route supports filters, pagination and node actions without personal
 
 test('Create reference can save another user’s Published deck or folder, with publication consent', async ({ page }) => {
   for (const source of [{ id: 'travel-source', name: 'Travel essentials' }, { id: 'preview-sam-published', name: 'Published' }]) {
-    await page.goto(`/app/u/preview-sam/published/${source.id}`)
+    await page.goto(`/u/preview-sam/${source.id}`)
     await page.getByRole('button', { name: `Settings for ${source.name}` }).click()
     await expect(page.getByRole('menuitem')).toHaveText(['Copy link', 'Create reference'])
     await page.getByRole('menuitem', { name: 'Create reference', exact: true }).click()
@@ -54,7 +54,7 @@ test('Create reference can save another user’s Published deck or folder, with 
     const link = page.getByRole('link', { name: new RegExp(`Open ${name},`) })
     await expect(link).toBeVisible()
     await link.click()
-    await expect(page.getByRole('link', { name: 'Open source', exact: true })).toHaveAttribute('href', `/app/u/preview-sam/published/${source.id}`)
+    await expect(page.getByRole('link', { name: 'Open source', exact: true })).toHaveAttribute('href', `/u/preview-sam/${source.id}`)
     await page.getByRole('button', { name: `Settings for ${name}` }).click()
     await page.getByRole('menuitem', { name: 'Create reference', exact: true }).click()
     const again = page.getByRole('dialog', { name: 'Create reference', exact: true })
@@ -64,7 +64,7 @@ test('Create reference can save another user’s Published deck or folder, with 
     await expect(again).toHaveCount(0)
     await page.getByRole('navigation', { name: 'App navigation' }).getByRole('link', { name: 'My Library', exact: true }).click()
     await page.getByRole('link', { name: new RegExp(`Open ${alias},`) }).click()
-    await expect(page.getByRole('link', { name: 'Open source', exact: true })).toHaveAttribute('href', `/app/u/preview-sam/published/${source.id}`)
+    await expect(page.getByRole('link', { name: 'Open source', exact: true })).toHaveAttribute('href', `/u/preview-sam/${source.id}`)
   }
 })
 
@@ -107,6 +107,6 @@ test('Library creation, actions, and view preference work in mock mode', async (
   await newDeck.getByRole('textbox', { name: 'Title' }).fill('Published practice')
   await newDeck.getByRole('checkbox', { name: 'Make this deck publicly readable.' }).check()
   await newDeck.getByRole('button', { name: 'Create deck' }).click()
-  await expect(page).toHaveURL(/\/app\/u\/preview-alex\/published\/preview-deck-/)
+  await expect(page).toHaveURL(/\/app\/published\/preview-deck-/)
   await expect(page.getByRole('heading', { name: 'Published practice', exact: true })).toBeVisible()
 })

@@ -381,7 +381,7 @@ test('foundation desktop/mobile light/dark visual matrix', async ({ page }) => {
     await page.setViewportSize({ width, height: width === 1440 ? 1000 : 844 })
     for (const theme of ['light', 'dark']) {
       await page.goto('/app')
-      await page.evaluate(next => { localStorage.setItem('bauhaus-theme', next); document.documentElement.classList.toggle('dark', next === 'dark') }, theme)
+      await page.evaluate(next => { document.cookie = `pycil-theme=${next}; Path=/; SameSite=Lax`; document.documentElement.classList.toggle('dark', next === 'dark') }, theme)
       for (const [name, route] of [['shell', '/app'], ['login', '/login'], ['signup', '/signup']]) {
         await page.goto(route)
         await expect(page.getByRole('heading', { level: 1 })).toBeVisible()

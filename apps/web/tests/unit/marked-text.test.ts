@@ -1,10 +1,10 @@
-import database from '../../src/lib/services/mock/database.json' with { type: 'json' }
+import database from '../../src/lib/api/services/mock/database.json' with { type: 'json' }
 
 import { expect,test } from 'vitest'
 
 import { parseMarkedText,targetInflections } from '../../src/lib/marked-text'
 
-import { parseDictionaryWord } from '../../src/lib/dictionary-model'
+import { parseDictionaryWord } from '../../src/lib/api/vocabulary'
 
 test('marked text follows backend inflections, repeated/discontinuous targets and Unicode', () => {
   const codes = ['', 'p', 'pp', '3', 'ing', 'pl', 'c', 's']

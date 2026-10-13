@@ -1,9 +1,9 @@
 import { expect,test } from 'vitest'
 
-import { createHttpServices } from '../../../src/lib/services/http'
+import { createHttpServices } from '../../../src/lib/api/services/http'
 
-import { getApiBaseUrl } from '../../../src/lib/services/config'
-import { AssistantError,createAssistantService } from '../../../src/lib/assistant-api'
+import { getApiBaseUrl } from '../../../src/lib/api/services/config'
+import { AssistantError,createAssistantService } from '../../../src/lib/api/assistant'
 
 const apiBase = getApiBaseUrl()
 const signal = () => new AbortController().signal

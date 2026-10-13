@@ -18,7 +18,7 @@ test('public profiles use /u and expose only published material', async ({ page 
 })
 
 test('own profile routes to the public address and edits public fields', async ({ page }) => {
-  await page.goto('/app/profile')
+  await page.goto('/u/preview-alex')
   await expect(page).toHaveURL(/\/u\/preview-alex$/)
   await page.getByRole('button', { name: 'Edit profile' }).click()
   await page.getByRole('textbox', { name: 'Display name' }).fill('Nguyễn Ninh')
@@ -49,7 +49,7 @@ test('settings show all three response formats and persist supported choices', a
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible()
   await page.getByRole('button', { name: 'Learning' }).click()
   expect(await page.locator('[data-learning-icon]').evaluateAll(nodes => nodes.map(node => node.getAttribute('data-learning-icon')))).toEqual([
-    'definition_to_word', 'word_to_definition', 'context_to_word', 'cloze_to_word', 'dialogue_completion', 'word_to_usage', 'meaning_in_context',
+    'definition_to_word', 'word_to_definition', 'context_to_word', 'cloze_to_word', 'dialogue_completion', 'word_to_usage', 'meaning_in_context', 'sentence_rewrite',
     'single_choice', 'single_word', 'short_answer',
   ])
   await page.evaluate(() => document.documentElement.classList.add('dark'))
@@ -73,7 +73,7 @@ test('settings show all three response formats and persist supported choices', a
 })
 
 test('HTTP settings keep the draft after a rejected save and send only the changed native fields', async ({ page }) => {
-  const bundle = await buildFixture('account', { '@/components/application/providers': accountPlatform, 'next/navigation': navigationPlatform })
+  const bundle = await buildFixture('account', { '@/features/account/account.client': accountPlatform, 'next/navigation': navigationPlatform })
   const patches: unknown[] = []
   await page.route('**/*v1/**', route => {
     expect(new URL(route.request().url()).pathname.endsWith('/me/settings')).toBe(true)

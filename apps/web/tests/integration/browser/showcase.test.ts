@@ -242,7 +242,7 @@ test('authored icons show distinct color and mono drawings and copy usage', asyn
   await expect(page.getByRole('heading', { name: 'One icon language.' })).toBeVisible()
   await expect(page.locator('#identity-icons .icon-tile')).toHaveCount(54)
   await expect(page.locator('#control-icons .icon-tile')).toHaveCount(54)
-  await expect(page.locator('#learning-icons .icon-tile')).toHaveCount(10)
+  await expect(page.locator('#learning-icons .icon-tile')).toHaveCount(11)
   const invalid = await page.locator('.icon-tile').evaluateAll(tiles => tiles.flatMap((tile, index) => {
     const [color, mono] = tile.querySelectorAll('svg.catalog-icon')
     return color && mono && color.getAttribute('viewBox') === mono.getAttribute('viewBox')

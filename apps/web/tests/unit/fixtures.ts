@@ -1,5 +1,5 @@
-import type { AnswerFormat } from '../../src/lib/api'
-import type { PreparedSession } from '../../src/lib/home-api'
+import type { AnswerFormat } from '../../src/lib/api/account'
+import type { PreparedSession } from '../../src/lib/api/study'
 
 export function preparation(count = 1, format: AnswerFormat = 'single_choice', questionsPerSense = 1): PreparedSession {
   const options = [{ id: 'correct', content: 'bank' }, { id: 'wrong', content: 'shore' }]

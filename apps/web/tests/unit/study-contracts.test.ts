@@ -1,5 +1,6 @@
 import { expect,test } from 'vitest'
-import { HomeApiError,parsePreparation } from '../../src/lib/home-api'
+import { parsePreparation } from '../../src/lib/api/study'
+import { ApiError } from '../../src/lib/api/error'
 import { preparation } from './fixtures'
 
 test('preparation validates counts, limits, native identities and queue inputs', () => {
@@ -11,13 +12,13 @@ test('preparation validates counts, limits, native identities and queue inputs',
     { bundles: [{ ...valid.bundles[0], reason: 'unknown' }] },
     { preferences: { ...valid.preferences, formats: ['UNKNOWN'] } },
     { preferences: { ...valid.preferences, questions_per_sense: 4 } },
-  ]) expect(() => parsePreparation({ ...valid, ...patch })).toThrow(HomeApiError)
+  ]) expect(() => parsePreparation({ ...valid, ...patch })).toThrow(ApiError)
   const wrongSense = structuredClone(valid)
   wrongSense.bundles[0].questions[0].question.sense_id = 999
-  expect(() => parsePreparation(wrongSense)).toThrow(HomeApiError)
+  expect(() => parsePreparation(wrongSense)).toThrow(ApiError)
 })
 
 test('empty scopes require zero questions rather than invented data', () => {
   expect(parsePreparation({ ...preparation(), actual_sense_count: 0, actual_question_count: 0, bundles: [] }).bundles).toEqual([])
-  expect(() => parsePreparation({ node_id: 'root', selection: 'due', actual_sense_count: 0, actual_question_count: 3 })).toThrow(HomeApiError)
+  expect(() => parsePreparation({ node_id: 'root', selection: 'due', actual_sense_count: 0, actual_question_count: 3 })).toThrow(ApiError)
 })

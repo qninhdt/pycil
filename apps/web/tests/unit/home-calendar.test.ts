@@ -1,6 +1,6 @@
 import { expect,test } from 'vitest'
 
-import { activityLevel,monthCells,reportingDay,shiftDay } from '../../src/lib/home-calendar'
+import { activityLevel,monthCells,reportingDay,shiftDay } from '../../src/features/home/calendar'
 
 test('Home calendar respects reporting timezone, leap months and monotonic activity levels', () => {
   expect(reportingDay(new Date('2026-10-06T18:00:00Z'), 'Asia/Ho_Chi_Minh')).toBe('2026-10-07')

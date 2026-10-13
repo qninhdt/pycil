@@ -1,6 +1,6 @@
 import { expect,test } from '@playwright/test'
 
-import { navigationCollapsedKey } from '../../../src/lib/ui-preferences'
+import { navigationCollapsedKey } from '../../../src/lib/preferences/browser'
 
 test('pattern resizes its block count without clipping and keeps its seed across resize and reload', async ({ page }) => {
   await page.goto('/app')

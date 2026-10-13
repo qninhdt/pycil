@@ -31,19 +31,6 @@ test('Canonical node routes default to Overview; Words supports direct loads, re
   await expect(page.getByRole('tab', { name: 'Overview', exact: true })).toHaveAttribute('data-state', 'active')
 })
 
-test('Legacy query links redirect to canonical paths without reviving the old tab names', async ({ page }) => {
-  for (const [query, path, tab] of [
-    ['node=everyday', '/everyday', 'Overview'],
-    ['node=everyday&tab=meanings', '/everyday/words', 'Words'],
-    ['node=business&tab=words', '/business/words', 'Words'],
-    ['node=business&tab=overview', '/business', 'Overview'],
-  ]) {
-    await page.goto(`/app/personal?${query}`)
-    await expect(page).toHaveURL(new RegExp(`/app/personal${path}$`))
-    await expect(page.getByRole('tab', { name: tab, exact: true })).toHaveAttribute('data-state', 'active')
-  }
-})
-
 test('Overview and Words tabs have no outer outline or ring but keep a keyboard focus cue', async ({ page }) => {
   await page.goto('/app/personal/everyday')
   await expect(page.getByRole('tab', { name: 'Overview', exact: true })).toBeVisible()
@@ -136,7 +123,7 @@ test('References retain deck/folder identities in Library and Home, with no gene
 test('References, empty decks and missing material keep distinct truthful states', async ({ page }) => {
   await page.goto('/app/personal/travel')
   await expect(page.getByRole('heading', { name: 'Travel essentials', exact: true })).toBeVisible()
-  await expect(page.getByRole('link', { name: 'Open source', exact: true })).toHaveAttribute('href', '/app/u/preview-sam/published/travel-source')
+  await expect(page.getByRole('link', { name: 'Open source', exact: true })).toHaveAttribute('href', '/u/preview-sam/travel-source')
   await expect(page.getByRole('button', { name: 'Add words', exact: true })).toHaveCount(0)
   await page.getByRole('link', { name: 'Open source', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Edit deck', exact: true })).toHaveCount(0)
@@ -165,12 +152,12 @@ test('Personal and Published have separate navigation and ownership breadcrumbs'
   await expect(navigation.getByRole('link')).toHaveText(['Home', 'My Library', 'Published', 'Discovery', 'Dictionary'])
   await expect(navigation.getByRole('link', { name: 'Published', exact: true }).locator('[data-art-icon=published]')).toBeVisible()
   await navigation.getByRole('link', { name: 'Published', exact: true }).click()
-  await expect(page).toHaveURL(/\/app\/u\/preview-alex\/published$/)
+  await expect(page).toHaveURL(/\/app\/published$/)
   await expect(page.getByRole('heading', { name: 'Published', exact: true })).toBeVisible()
   await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText('Me')
   await expect(navigation.getByRole('link', { name: 'Published', exact: true })).toHaveAttribute('aria-current', 'page')
   await expect(page.getByRole('link', { name: /A few useful expressions.*Deck/ })).toBeVisible()
-  await page.goto('/app/u/preview-sam/published/travel-source')
+  await page.goto('/u/preview-sam/travel-source')
   await expect(navigation.getByRole('link', { name: 'Discovery', exact: true })).toHaveAttribute('aria-current', 'page')
   await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText('Sam')
   await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText('Published')
@@ -178,10 +165,10 @@ test('Personal and Published have separate navigation and ownership breadcrumbs'
 })
 
 test('Published word sources and author labels keep their owner route', async ({ page }) => {
-  await page.goto('/app/u/preview-alex/published/published-everyday/words')
+  await page.goto('/app/published/published-everyday/words')
   await expect(page.getByText('By Me', { exact: true })).toBeVisible()
   await page.locator('.library-meaning-table tbody tr').first().getByRole('button').click()
-  await expect(page.getByRole('dialog').getByRole('link', { name: 'A few useful expressions' })).toHaveAttribute('href', '/app/u/preview-alex/published/published-everyday')
+  await expect(page.getByRole('dialog').getByRole('link', { name: 'A few useful expressions' })).toHaveAttribute('href', '/u/preview-alex/published-everyday')
   const response = await page.goto('/app/library')
   expect(response?.status()).toBe(404)
 })
@@ -286,7 +273,7 @@ for (const source of [{ id: 'everyday', name: 'Everyday conversation', width: 14
 })
 
 test('loading identity waits; guest resolution reads public contents without private auth or summaries', async ({ page }) => {
-  const bundle = await buildFixture('library', { '@/components/application/providers': accountFixture })
+  const bundle = await buildFixture('library', { '@/features/account/account.client': accountFixture })
   const calls: { authorization?: string; include: string | null }[] = []
   await page.route('**/*v1/**', route => {
     const request = route.request()
@@ -303,7 +290,7 @@ test('loading identity waits; guest resolution reads public contents without pri
 })
 
 test('changing accounts removes pending private contents and late responses cannot restore the old scope', async ({ page }) => {
-  const bundle = await buildFixture('library', { '@/components/application/providers': accountFixture })
+  const bundle = await buildFixture('library', { '@/features/account/account.client': accountFixture })
   let release!: () => void
   const delayed = new Promise<void>(resolve => { release = resolve })
   let first!: () => void

@@ -1,5 +1,5 @@
 import { afterEach,beforeEach,expect,test,vi } from 'vitest'
-import { createStudySession,discardSession,listActiveSessions,loadSession,pruneStaleSessions,saveSession,sessionKey } from '../../src/lib/study-session'
+import { createStudySession,discardSession,listActiveSessions,loadSession,pruneStaleSessions,saveSession,sessionKey } from '../../src/features/study/session'
 import { preparation } from './fixtures'
 
 let values: Map<string, string>

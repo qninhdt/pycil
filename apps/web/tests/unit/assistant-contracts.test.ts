@@ -1,6 +1,6 @@
 import { expect,test } from 'vitest'
 
-import { parseConversationDetails,turnInput } from '../../src/lib/assistant-api'
+import { parseConversationDetails,turnInput } from '../../src/lib/api/assistant'
 
 import type { RunAgentInput } from '@ag-ui/core'
 

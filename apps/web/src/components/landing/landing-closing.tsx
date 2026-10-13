@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { getTranslations } from 'next-intl/server'
-import { MarkPaths } from '@/components/application/brand'
+import { MarkPaths } from '@/components/shell/brand'
 import { ArrowUpRight } from '@/components/artwork/artwork'
 import { Button } from '@/components/ui/button'
 

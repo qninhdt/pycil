@@ -1,6 +1,6 @@
 import { expect,test } from 'vitest'
 
-import { authErrorMessage,safeReturnTo } from '../../src/lib/auth-flow'
+import { authErrorMessage,safeReturnTo } from '../../src/features/auth/flow'
 
 test('post-auth destinations cannot leave the application subtree', () => {
   for (const value of ['https://evil.example', '//evil.example', '/app\\evil', '/application', '/login', '/app\n//evil']) expect(safeReturnTo(value)).toBe('/app')

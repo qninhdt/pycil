@@ -1,8 +1,8 @@
 import { expect,test } from 'vitest'
 
-import { libraryHref,publishedHref } from '../../src/lib/library-model'
+import { libraryHref,publishedHref } from '../../src/features/library/model'
 
-import { parseMeaningPage,parseNodeDetails } from '../../src/lib/library-api'
+import { parseMeaningPage,parseNodeDetails } from '../../src/lib/api/library'
 
 test('live lexical examples read native content and retain backend target markup', () => {
   const content = 'They [abandoned|p] the car.'
@@ -20,6 +20,6 @@ test('Library contracts reject incomplete DTOs and links safely encode node iden
   expect(libraryHref('everyday')).toBe('/app/personal/everyday')
   expect(libraryHref('everyday', 'overview')).toBe('/app/personal/everyday')
   expect(libraryHref()).toBe('/app/personal')
-  expect(publishedHref('a/b', 'node ?', 'words')).toBe('/app/u/a%2Fb/published/node%20%3F/words')
+  expect(publishedHref('node ?', 'words')).toBe('/app/published/node%20%3F/words')
   expect(parseMeaningPage({ senses: [], next_cursor: null }).senses).toEqual([])
 })

@@ -1,6 +1,6 @@
 import type { ThreadMessage } from '@assistant-ui/react'
 import { expect,test } from 'vitest'
-import { mergeAssistantTurns } from '../../src/lib/assistant-messages'
+import { mergeAssistantTurns } from '../../src/features/assistant/messages'
 
 function message(id: string, role: 'assistant' | 'user', text: string, complete = true): ThreadMessage {
   const common = { id, createdAt: new Date('2026-10-12T00:00:00Z'), content: [{ type: 'text' as const, text }], metadata: { custom: {}, unstable_state: {}, unstable_annotations: [], unstable_data: [], steps: [] } }

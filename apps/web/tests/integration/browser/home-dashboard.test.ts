@@ -3,7 +3,7 @@ import { expect,test,type Page } from '@playwright/test'
 import { buildFixture,renderFixture } from './fixtures/render-fixture'
 
 
-import { shiftDay } from '../../../src/lib/home-calendar'
+import { shiftDay } from '../../../src/features/home/calendar'
 
 const summary = { node_id: 'library-root', as_of: '2026-10-07T02:00:00Z', total: 142, new: 46, studied: 96, due: 12, not_due: 84, last_studied_at: '2026-10-06T02:00:00Z', reachable_decks: 4 }
 

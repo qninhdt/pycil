@@ -4,7 +4,7 @@
 @import "@fontsource-variable/manrope";
 @import "tw-shimmer";
 @import "katex/dist/katex.min.css";
-@import "../components/assistant-ui/assistant.css";
+@import "../features/assistant/assistant.css";
 
 /* Canonical values from root DESIGN.md: Flat UI Palette v1 (defo).
  * Only this file contains palette literals. Semantic roles belong in app/globals.css.

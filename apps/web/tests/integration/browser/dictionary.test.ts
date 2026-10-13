@@ -48,7 +48,7 @@ test('Reference entry prepares into a readable word', async ({ page }) => {
   await page.getByRole('button', { name: /orbit.*Needs preparation/i }).click()
   await expect(page.getByRole('heading', { name: 'orbit', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Prepare entry' }).click()
-  await expect(page).toHaveURL(/\/app\/dictionary$/)
+  await expect(page).toHaveURL(/\/app\/dictionary\?q=.+&word=\d+$/)
   await expect(page.getByText('the curved path of an object around a planet or star')).toBeVisible()
 })
 
@@ -72,7 +72,7 @@ test('Dictionary selection stays on one page and reveals native sense detail', a
   await expect(page.getByRole('button', { name: 'Clear search' })).toHaveCount(1)
   await page.evaluate(() => { Object.defineProperty(window, 'dictionaryNavigationProbe', { value: true }) })
   await page.getByRole('button', { name: /bank.*Ready/i }).click()
-  await expect(page).toHaveURL(/\/app\/dictionary$/)
+  await expect(page).toHaveURL(/\/app\/dictionary\?q=.+&word=\d+$/)
   expect(await page.evaluate(() => 'dictionaryNavigationProbe' in window)).toBe(true)
   await expect(page.getByText('5 senses')).toBeVisible()
   await expect(page.getByText('CEFR A2').first()).toBeVisible()
@@ -84,13 +84,13 @@ test('Dictionary selection stays on one page and reveals native sense detail', a
 })
 
 test('HTTP Dictionary distinguishes an unavailable search from an honest empty result and retries', async ({ page }) => {
-  const bundle = await buildFixture('dictionary', { '@/components/application/providers': accountPlatform, 'next/navigation': navigationPlatform })
+  const bundle = await buildFixture('dictionary', { '@/features/account/account.client': accountPlatform, 'next/navigation': navigationPlatform })
   let unavailable = true
   await page.route('**/*v1/**', route => {
     expect(new URL(route.request().url()).pathname.endsWith('/words:search')).toBe(true)
     return route.fulfill(unavailable ? { status: 503, json: { error: 'search_unavailable' } } : { json: { items: [] } })
   })
-  await renderFixture(page, bundle, 'dictionary')
+  await renderFixture(page, bundle, 'dictionary', '?q=bank')
   await expect(page.getByRole('button', { name: 'Retry', exact: true })).toBeVisible()
   await expect(page.getByText('No matches', { exact: true })).toHaveCount(0)
   unavailable = false

@@ -1,16 +1,16 @@
-import database from '../../../src/lib/services/mock/database.json' with { type: 'json' }
+import database from '../../../src/lib/api/services/mock/database.json' with { type: 'json' }
 
 import { expect,test } from 'vitest'
 
-import { createMockServices } from '../../../src/lib/services/mock'
+import { createMockServices } from '../../../src/lib/api/services/mock'
 
-import { reportingDay,shiftDay } from '../../../src/lib/home-calendar'
+import { reportingDay,shiftDay } from '../../../src/features/home/calendar'
 
-import { createHttpServices } from '../../../src/lib/services/http'
+import { createHttpServices } from '../../../src/lib/api/services/http'
 
-import { libraryNodeKind } from '../../../src/lib/library-model'
+import { libraryNodeKind } from '../../../src/features/library/model'
 
-import { MatchKind,parseDictionaryWord } from '../../../src/lib/dictionary-model'
+import { MatchKind,parseDictionaryWord } from '../../../src/lib/api/vocabulary'
 
 const now = () => new Date('2026-10-07T02:00:00Z')
 
@@ -107,7 +107,7 @@ test('preview Discovery, references and publication use the shared Library state
   await service.library.moveNode(id, profile.published_node_id, signal(), { confirm: true, retainReference: true })
   expect((await service.library.discovery({ q: 'Publish this' }, signal())).nodes.map(node => node.id)).toContain(id)
   const reference = await service.library.createReference(profile.personal_node_id, id, 'Saved', signal())
-  expect((await service.library.details(reference, signal())).target?.id).toBe(id)
+  expect((await service.library.metadata(reference, signal())).target?.id).toBe(id)
   expect((await service.library.meanings(reference, {}, signal())).senses.map(sense => sense.sense_id)).toEqual([1])
   expect((await service.library.sources(reference, 1, undefined, signal())).decks.map(deck => deck.id)).toEqual([id])
   await expect(service.library.sources(reference, 2, undefined, signal())).rejects.toMatchObject({ status: 404 })
@@ -119,7 +119,7 @@ test('references use the existing create endpoint and enforce publication bounda
   await expect(service.library.createReference(published, 'travel-source', 'Travel', signal())).rejects.toMatchObject({ code: 'publication_confirmation_required' })
   await expect(service.library.createReference(published, 'everyday', 'Private', signal(), true)).rejects.toMatchObject({ code: 'private_reference_cannot_be_published' })
   const id = await service.library.createReference(published, 'travel-source', 'Travel', signal(), true)
-  expect((await service.library.details(id, signal())).target?.id).toBe('travel-source')
+  expect((await service.library.metadata(id, signal())).target?.id).toBe('travel-source')
   const original = globalThis.fetch
   const requests: unknown[] = []
   globalThis.fetch = async (_, options) => {
@@ -134,18 +134,20 @@ test('references use the existing create endpoint and enforce publication bounda
 
 test('Library mock is canonical, scoped, deduplicated and consistent with Home', async () => {
   const service = createMockServices({ latency: 0, now })
-  const root = await service.library.details(database.account.library_node_id, signal())
-  expect(root.summary).toMatchObject(database.summary)
+  const root = await service.library.metadata(database.account.library_node_id, signal())
+  const rootSummary = await service.learning.summary(root.id, signal())
+  expect(rootSummary).toMatchObject(database.summary)
   const home = await service.learning.summary(undefined, signal())
-  expect(home).toMatchObject({ total: root.summary!.total, due: root.summary!.due, new: root.summary!.new, not_due: root.summary!.not_due })
-  const folder = await service.library.details('business', signal())
+  expect(home).toMatchObject({ total: rootSummary.total, due: rootSummary.due, new: rootSummary.new, not_due: rootSummary.not_due })
+  const folder = await service.library.metadata('business', signal())
+  const folderSummary = await service.learning.summary(folder.id, signal())
   const children = await service.library.contents('business', {}, signal())
   expect(children.nodes.map(node => node.name)).toEqual(['Meetings', 'Emails', 'Presentations', 'Business Core', 'Workplace Verbs'])
   const meanings = await service.library.meanings('business', { limit: 100 }, signal())
-  expect(meanings.senses).toHaveLength(folder.summary!.total)
-  expect(new Set(meanings.senses.map(sense => sense.sense_id)).size).toBe(folder.summary!.total)
-  expect(meanings.senses.filter(sense => sense.learning!.state === 'due')).toHaveLength(folder.summary!.due)
-  expect(meanings.senses.filter(sense => sense.learning!.state === 'new')).toHaveLength(folder.summary!.new)
+  expect(meanings.senses).toHaveLength(folderSummary.total)
+  expect(new Set(meanings.senses.map(sense => sense.sense_id)).size).toBe(folderSummary.total)
+  expect(meanings.senses.filter(sense => sense.learning!.state === 'due')).toHaveLength(folderSummary.due)
+  expect(meanings.senses.filter(sense => sense.learning!.state === 'new')).toHaveLength(folderSummary.new)
   const agenda = meanings.senses.find(sense => sense.lemma === 'agenda')!
   expect(agenda.sources.map(source => source.id).sort()).toEqual(['business-core', 'meeting-expressions'])
   expect(folder.breadcrumbs.map(node => node.name)).toEqual(['My Library', 'Personal', 'Business English'])
@@ -174,41 +176,41 @@ test('meaning pagination, search, filters and sort do not leak other scopes', as
 
 test('references preserve placement but resolve readable sources; missing targets expose no contents', async () => {
   const service = createMockServices({ latency: 0, now })
-  const reference = await service.library.details('travel', signal())
-  const source = await service.library.details('travel-source', signal())
+  const reference = await service.library.metadata('travel', signal())
+  const source = await service.library.metadata('travel-source', signal())
   expect(reference.owner_id).toBe(database.account.id)
   expect(source.owner_id).not.toBe(database.account.id)
   expect(reference.target?.id).toBe(source.id)
-  expect(reference.summary!.total).toBe(source.summary!.total)
+  expect((await service.learning.summary(reference.id, signal())).total).toBe((await service.learning.summary(source.id, signal())).total)
   expect(source.breadcrumbs).toEqual([{ id: 'preview-sam-published', name: 'Published' }, { id: 'travel-source', name: 'Travel essentials' }])
   expect((await service.library.meanings('travel', {}, signal())).senses.map(sense => sense.sense_id)).toEqual((await service.library.meanings('travel-source', {}, signal())).senses.map(sense => sense.sense_id))
   expect((await service.library.contents(database.account.personal_node_id, {}, signal())).nodes.find(node => node.id === 'travel')?.target_type).toBe('deck')
-  const savedBusiness = await service.library.details('saved-business', signal())
+  const savedBusiness = await service.library.metadata('saved-business', signal())
   expect(savedBusiness.target).toMatchObject({ id: 'business', type: 'folder' })
-  expect(savedBusiness.summary).toMatchObject(database.nodes.find(node => node.id === 'saved-business')!.counts)
+  expect(await service.learning.summary(savedBusiness.id, signal())).toMatchObject(database.nodes.find(node => node.id === 'saved-business')!.counts)
   expect((await service.library.contents('saved-business', {}, signal())).nodes.map(node => node.id)).toEqual((await service.library.contents('business', {}, signal())).nodes.map(node => node.id))
   expect((await service.library.meanings('saved-business', { limit: 100 }, signal())).senses.map(sense => sense.sense_id)).toEqual((await service.library.meanings('business', { limit: 100 }, signal())).senses.map(sense => sense.sense_id))
   const emails = await service.library.contents('emails', {}, signal())
   const folderReference = emails.nodes.find(node => node.id === 'saved-meetings')!
   expect(libraryNodeKind(folderReference)).toBe('folder')
-  expect((await service.library.details(folderReference.id, signal())).target?.type).toBe('folder')
+  expect((await service.library.metadata(folderReference.id, signal())).target?.type).toBe('folder')
   expect((await service.library.contents(folderReference.id, {}, signal())).nodes.map(node => node.id)).toEqual(['meeting-expressions'])
-  const unavailable = await service.library.details('unavailable-reference', signal())
+  const unavailable = await service.library.metadata('unavailable-reference', signal())
   expect(unavailable.target).toBeNull()
   expect(unavailable.reference_available).toBe(false)
-  expect(unavailable.summary).toBeNull()
+  await expect(service.learning.summary(unavailable.id, signal())).rejects.toMatchObject({ code: 'reference_unavailable' })
   await expect(service.library.meanings(unavailable.id, {}, signal())).rejects.toMatchObject({ code: 'reference_unavailable' })
-  await expect(service.library.details('not-a-node', signal())).rejects.toMatchObject({ status: 404 })
+  await expect(service.library.metadata('not-a-node', signal())).rejects.toMatchObject({ status: 404 })
 })
 
 test('empty decks, cancellation and returned-object isolation preserve seed content', async () => {
   const service = createMockServices({ latency: 0, now })
-  const empty = await service.library.details('empty-deck', signal())
-  expect(empty.summary!.total).toBe(0)
+  const empty = await service.library.metadata('empty-deck', signal())
+  expect((await service.learning.summary(empty.id, signal())).total).toBe(0)
   expect((await service.library.meanings('empty-deck', {}, signal())).senses).toEqual([])
-  const result = await service.library.details('everyday', signal())
+  const result = await service.library.metadata('everyday', signal())
   result.name = 'Changed'
-  expect((await service.library.details('everyday', signal())).name).toBe('Everyday conversation')
+  expect((await service.library.metadata('everyday', signal())).name).toBe('Everyday conversation')
   const controller = new AbortController()
   controller.abort()
   await expect(service.library.meanings('everyday', {}, controller.signal)).rejects.toBeDefined()

@@ -1,8 +1,8 @@
-import { useAccount } from '@/components/application/providers'
+import { useAccount } from '@/features/account/account.client'
 import { createRoot } from 'react-dom/client'
-import { useLibraryContents } from '../../../../src/hooks/use-library'
-import { createHttpServices } from '../../../../src/lib/services/http'
-import { ServicesProvider } from '../../../../src/lib/services/provider'
+import { useLibraryContents } from '../../../../src/features/library/use-library.client'
+import { createHttpServices } from '../../../../src/lib/api/services/http'
+import { ServicesProvider } from '../../../../src/lib/api/services/provider.client'
 
 const services = createHttpServices(async () => 'test-only-bearer')
 function Contents() {

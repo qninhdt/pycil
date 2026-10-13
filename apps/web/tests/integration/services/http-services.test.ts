@@ -1,13 +1,14 @@
 import { expect,test } from 'vitest'
 
-import { ApiError,fetchProfile } from '../../../src/lib/api'
+import { ApiError } from '../../../src/lib/api/error'
 
-import { createMockServices } from '../../../src/lib/services/mock'
+import { createMockServices } from '../../../src/lib/api/services/mock'
 
-import { createHttpServices } from '../../../src/lib/services/http'
+import { createHttpServices } from '../../../src/lib/api/services/http'
 
-import { getApiBaseUrl } from '../../../src/lib/services/config'
-import { homeRequest,homeToken,parseSummary } from '../../../src/lib/home-api'
+import { getApiBaseUrl } from '../../../src/lib/api/services/config'
+import { parseSummary } from '../../../src/lib/api/study'
+import { apiRequest, apiToken } from '../../../src/lib/api/http'
 
 const apiBase = getApiBaseUrl()
 
@@ -19,13 +20,13 @@ test('account adapter sends bearer tokens and distinguishes API failures', async
     return new Response(JSON.stringify({ ...createMockServices().account.initialProfile, id: 'account-1', display_name: 'Learner' }))
   }
   try {
-    expect((await fetchProfile('session-token')).display_name).toBe('Learner')
+    expect((await createHttpServices(async () => 'session-token').account.profile(signal())).display_name).toBe('Learner')
     expect(request?.headers).toEqual({ Authorization: 'Bearer session-token' })
     expect(request?.cache).toBe('no-store')
     globalThis.fetch = async () => new Response(JSON.stringify({ error: 'invalid_credentials' }), { status: 401 })
-    await expect(fetchProfile('expired')).rejects.toMatchObject({ status: 401, code: 'invalid_credentials' })
+    await expect(createHttpServices(async () => 'expired').account.profile(signal())).rejects.toMatchObject({ status: 401, code: 'invalid_credentials' })
     globalThis.fetch = async () => new Response(JSON.stringify({ id: 'account-1', plan: 'invented' }))
-    await expect(fetchProfile('session-token')).rejects.toBeInstanceOf(ApiError)
+    await expect(createHttpServices(async () => 'session-token').account.profile(signal())).rejects.toBeInstanceOf(ApiError)
   } finally { globalThis.fetch = original }
 })
 
@@ -181,14 +182,14 @@ test('Home requests use bearer authentication and tokens can be cancelled while 
   let init: RequestInit | undefined
   globalThis.fetch = async (_url, options) => { init = options; return new Response(JSON.stringify(summary)) }
   try {
-    expect((await homeRequest('study/progress', 'bearer', parseSummary, new AbortController().signal)).due).toBe(12)
+    expect((await apiRequest('study/progress', 'bearer', parseSummary, new AbortController().signal)).due).toBe(12)
     expect(init?.cache).toBe('no-store')
     expect(init?.headers).toEqual({ Authorization: 'Bearer bearer' })
     const controller = new AbortController()
-    const waiting = homeToken(() => new Promise(() => {}), controller.signal)
+    const waiting = apiToken(() => new Promise(() => {}), controller.signal)
     controller.abort(new Error('timed out'))
     await expect(waiting).rejects.toThrow('timed out')
-    await expect(homeToken(async () => null, new AbortController().signal)).rejects.toMatchObject({ status: 401 })
+    await expect(apiToken(async () => null, new AbortController().signal)).rejects.toMatchObject({ status: 401 })
   } finally { globalThis.fetch = original }
 })
 
@@ -223,5 +224,26 @@ test('anonymous published contents omit bearer and private summary while preserv
     expect(calls[0].url.searchParams.get('q')).toBe('bank')
     expect(calls[0].url.pathname).toBe('/v1/nodes/published:search')
     expect(calls[0].url.searchParams.get('limit')).toBe('5')
+  } finally { globalThis.fetch = original }
+})
+
+test('destination navigation requests metadata without depending on private progress', async () => {
+  const metadata = await createMockServices({ latency: 0 }).library.metadata('everyday', signal())
+  const original = globalThis.fetch, calls: URL[] = []
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(String(input))
+    calls.push(url)
+    expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer session-token')
+    if (url.pathname.endsWith('/nodes/everyday')) return Response.json(metadata)
+    if (url.pathname.endsWith('/nodes')) return Response.json({ nodes: [], next_cursor: null })
+    return Response.json({ error: 'progress_unavailable' }, { status: 503 })
+  }
+  try {
+    const services = createHttpServices(async () => 'session-token')
+    expect((await services.library.metadata('everyday', signal())).name).toBe(metadata.name)
+    await services.library.contents('personal', { includeProgress: false }, signal())
+    expect(calls).toHaveLength(2)
+    expect(calls[1].searchParams.has('include')).toBe(false)
+    expect(calls.some(url => url.pathname.includes('/study/'))).toBe(false)
   } finally { globalThis.fetch = original }
 })

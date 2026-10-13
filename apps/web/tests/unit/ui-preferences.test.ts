@@ -1,6 +1,6 @@
 import { runInNewContext } from 'node:vm'
 import { expect,test } from 'vitest'
-import { aiOpenKey,initialUiScript,navigationCollapsedKey } from '../../src/lib/ui-preferences'
+import { aiOpenKey,initialUiScript,navigationCollapsedKey } from '../../src/lib/preferences/browser'
 
 function firstPaint(hour: number, saved: Record<string, string> = {}, blocked = false) {
   const classes = new Set<string>()
@@ -13,11 +13,11 @@ function firstPaint(hour: number, saved: Record<string, string> = {}, blocked = 
   return { ...root, classes }
 }
 
-test('first paint restores supported preferences before hydration', () => {
+test('first paint restores browser preferences without overriding server locale or theme', () => {
   const root = firstPaint(6, { 'bauhaus-theme': 'dark', 'pycil-locale': 'vi', [navigationCollapsedKey]: 'true', [aiOpenKey]: 'true' })
   expect(root.dataset).toEqual({ timeOfDay: 'morning', navigationCollapsed: 'true', aiOpen: 'true' })
-  expect(root.lang).toBe('vi')
-  expect(root.classes.has('dark')).toBe(true)
+  expect(root.lang).toBe('en')
+  expect(root.classes.has('dark')).toBe(false)
   expect(firstPaint(12, { 'pycil-locale': 'en' }).lang).toBe('en')
 })
 

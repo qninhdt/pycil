@@ -5,58 +5,29 @@ Run commands from `apps/web` after installing dependencies and Chromium.
 | Command | Boundary |
 | --- | --- |
 | `pnpm test:unit` | Vitest: isolated functions, schemas, state transitions and static rendering |
-| `pnpm test:integration` | Vitest HTTP/preview/assets contracts, then Playwright components/pages/browser behavior |
-| `pnpm test:e2e` | Production frontend, actual Pycil backend, disposable PostgreSQL/Redis, actual Clerk; controlled LLM boundary |
-| `pnpm test:e2e:live` | Selected `@live-provider` E2E with configured paid inference/decision services |
-| `pnpm test` | All ordinary levels, excluding paid LLM checks |
+| `pnpm test:integration` | Vitest HTTP/preview/assets contracts, then Playwright component/page/browser behavior |
+| `pnpm test` | Both frontend-owned levels |
 
 Files use kebab-case `.test.ts` or `.test.tsx`, named for their subject. Tests live in
-`unit/`, `integration/{services,assets,browser}/`, or `e2e/`. Fixture inputs and helpers
-are ordinary modules, excluded from collection. Stories remain colocated preview
-examples and are not counted as an additional assertion suite.
+`unit/` or `integration/{services,assets,browser}/`. Stories are colocated preview
+examples. They are not another assertion suite.
 
-Integration browser tests can control authentication/context and HTTP responses.
-Preview service tests verify the design preview's own contract; they do not prove
-backend behavior. E2E actions run native validation/generation/grading/tool/persistence
-paths. Only the LLM boundary is controlled in ordinary E2E; paid checks use the same
-application code with real providers. Pure backend invariants belong in API integration.
+Browser integration may control identity/context and HTTP responses to test UI
+contracts and failure handling. Preview tests prove the preview's contract. They
+do not prove production backend behavior. API-only invariants belong to backend
+integration tests with real infrastructure.
 
-For focused checks:
+`vitest.config.ts` owns unit and service/assets integration. `playwright.config.ts`
+owns browser integration only, on port 3100. Its ignored reports are private
+`test-results/browser/` and `playwright-report/`; screenshot output alone is not
+visual regression evidence.
 
 ```sh
 pnpm exec vitest run tests/unit/study-storage.test.ts --project unit
 pnpm exec vitest run tests/integration/services/http-services.test.ts --project integration
 pnpm exec playwright test assistant.test.ts --project=integration
-E2E_GREP='Practice 390px' pnpm test:e2e
 ```
 
-`playwright.config.ts` owns browser integration and E2E projects; `vitest.config.ts`
-owns unit and service/assets integration. Each file is collected exactly once.
-Integration uses owned port 3100. Managed E2E uses frontend localhost:3200 and API 127.0.0.1:8100;
-occupied ports fail rather than reusing another server. User dev on 3000 and API on
-8000 remain separate. The runner uses a source snapshot for its production build.
-
-E2E requires development `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, `CLERK_ISSUER`
-and `CLERK_JWKS_URL`. It reads environment or root `.env`; the publishable key can
-also come from `apps/web/.env.local`. `E2E_CLERK_ENV_FILE` selects another runner-only
-file. Paid checks additionally require `LLM_API_KEY`, `LLM_BASE_URL`,
-`DECISION_API_KEY`, and `DECISION_BASE_URL`. Credentials never appear in
-browser fixtures, test source or reports. Google OAuth requires a dedicated test
-identity; TOTP reports an explicit skip if the development instance disables it.
-
-`tests/e2e/run.py` owns the PostgreSQL/Redis Testcontainers, temporary Clerk users,
-reference import, lexical fixtures, production build and process cleanup.
-`tests/e2e/support/` supplies fixture data and the controlled HTTP provider for
-ordinary E2E. Instructor, agent tools, grading and database writes run unchanged.
-Live E2E uses the configured external providers. Cleanup targets exact test users,
-processes and containers. No application database or broad Redis flush is used.
-
-CI runs unit/integration/build on fork PRs. Trusted changes also require real-stack
-E2E with development secrets; absence fails instead of silently passing. Manual
-`live_provider` selects paid checks. A skipped fork E2E job is missing coverage,
-not an E2E pass. Configure the four Clerk secrets in the repository before relying
-on the trusted E2E job.
-
-Reports in `test-results/` and `playwright-report/` are private, ignored artifacts.
-Auth traces are disabled because they contain tokens. Screenshot output alone is
-not visual regression evidence; assertions must check meaningful behavior/layout.
+Product browser E2E has its own root package, infrastructure, credentials, fixtures,
+profiles and reports. See [Product E2E](../../../e2e/README.md) for default/live,
+mobile/WebKit, external authentication and interrupted-run cleanup commands.
