@@ -1,0 +1,78 @@
+x-api: &api
+  image: pycil-e2e-api:${E2E_RUN_ID}
+  build:
+    context: ../..
+    dockerfile: apps/api/Dockerfile
+  environment: &environment
+    PYTHONPATH: /app/apps/api
+    DB_URL: postgresql+asyncpg://e2e:e2e@postgres:5432/e2e
+    REDIS_URL: redis://redis:6379/0
+    CLERK_SECRET_KEY: ${CLERK_SECRET_KEY}
+    CLERK_ISSUER: ${CLERK_ISSUER}
+    CLERK_JWKS_URL: ${CLERK_JWKS_URL}
+    CLERK_AUDIENCE: ${CLERK_AUDIENCE:-}
+    LLM_API_KEY: ${LLM_API_KEY}
+    LLM_BASE_URL: ${LLM_BASE_URL}
+    DECISION_API_KEY: ${DECISION_API_KEY}
+    DECISION_BASE_URL: ${DECISION_BASE_URL}
+    ALLOWED_ORIGINS: http://localhost:3200
+  volumes:
+    - ./:/e2e:ro
+
+services:
+  postgres:
+    image: postgres:18.6
+    environment:
+      POSTGRES_DB: e2e
+      POSTGRES_USER: e2e
+      POSTGRES_PASSWORD: e2e
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U e2e -d e2e]
+      interval: 1s
+      timeout: 3s
+      retries: 60
+  redis:
+    image: redis:8.10.2-alpine3.23
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 1s
+      timeout: 3s
+      retries: 60
+  provider:
+    image: node:24.21.0-slim
+    profiles: [controlled]
+    working_dir: /e2e
+    command: [node, --experimental-strip-types, model-provider.ts]
+    volumes:
+      - ./:/e2e:ro
+    ports: [127.0.0.1:8110:8110]
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:8110/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 1s
+      timeout: 3s
+      retries: 60
+  migration:
+    <<: *api
+    command: [python, -m, pycil.app.migrate, --reference, /e2e/data/reference.jsonl]
+    depends_on:
+      postgres: {condition: service_healthy}
+  baseline:
+    <<: *api
+    user: ${E2E_UID}:${E2E_GID}
+    command: [python, /e2e/seed.py, baseline, --manifest, /artifacts/vocabulary.json]
+    volumes:
+      - ./:/e2e:ro
+      - ${E2E_ARTIFACTS}:/artifacts
+    depends_on:
+      migration: {condition: service_completed_successfully}
+  api:
+    <<: *api
+    ports: [127.0.0.1:8100:8000]
+    depends_on:
+      baseline: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3)"]
+      interval: 1s
+      timeout: 5s
+      retries: 90

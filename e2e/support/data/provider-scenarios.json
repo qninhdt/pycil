@@ -1,0 +1,6 @@
+{
+  "quay": {
+    "inventory": {"lemma":"quay","type":"word","aliases":[],"related":[],"senses":[{"definition":"a structure beside water where boats stop to load and unload","pos":"noun","references":["a1"]}]},
+    "enrichment": {"senses":[{"sense_id":1,"tier":"common","examples":["The ship stopped beside the [quay].","Workers unloaded cargo on the [quay].","She waited for the ferry on the [quay].","We walked along the [quay] after lunch.","A small boat was tied to the [quay]."],"forms":[],"patterns":[],"collocations":[],"relations":[],"cefr_level":"b2","register":null}]}
+  }
+}

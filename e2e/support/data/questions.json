@@ -1,0 +1,97 @@
+{
+  "bankFinancial": {
+    "word_definition": {
+      "corrects": [
+        "an institution where people keep and borrow money"
+      ],
+      "distractors": [
+        {
+          "word": "orchard",
+          "definition": "land where fruit trees grow"
+        },
+        {
+          "word": "bakery",
+          "definition": "a shop that makes and sells bread"
+        },
+        {
+          "word": "station",
+          "definition": "a place where trains stop"
+        }
+      ]
+    },
+    "word_to_usage": {
+      "corrects": [
+        "She deposited her savings at the [bank]."
+      ],
+      "distractors": [
+        "He planted the [bank] in his vegetable garden.",
+        "They baked the [bank] in the oven.",
+        "She wore a [bank] on her wrist."
+      ]
+    },
+    "context_word_meaning": {
+      "context": "She deposited her savings at the _.",
+      "correct": {
+        "expression": "bank",
+        "meaning": "an institution where people keep and borrow money"
+      },
+      "distractors": [
+        {
+          "expression": "orchard",
+          "meaning": "land where fruit trees grow"
+        },
+        {
+          "expression": "bakery",
+          "meaning": "a shop that makes and sells bread"
+        },
+        {
+          "expression": "station",
+          "meaning": "a place where trains stop"
+        }
+      ]
+    },
+    "context_to_word": {
+      "context": "She needed an institution to keep her savings and borrow money.",
+      "distractors": [
+        "orchard",
+        "bakery",
+        "station"
+      ]
+    },
+    "dialogue_completion": {
+      "conversation": [
+        {
+          "Maya": "Where can I keep my savings safely?"
+        },
+        {
+          "Leo": "You can deposit them at the [bank]."
+        },
+        {
+          "Maya": "Can I borrow money there too?"
+        },
+        {
+          "Leo": "Yes, you can apply for a loan."
+        }
+      ],
+      "completion_points": [
+        {
+          "turn_index": 1,
+          "distractors": [
+            "You can bake them at the [bank].",
+            "You can plant them at the [bank].",
+            "You can wear them at the [bank]."
+          ]
+        }
+      ]
+    },
+    "sentence_rewrite": {
+      "source": "She deposited her savings at the financial institution.",
+      "correct": "She deposited her savings at the [bank].",
+      "distractors": [
+        "She baked her savings at the [bank].",
+        "She planted her savings at the [bank].",
+        "She wore her savings at the [bank]."
+      ]
+    }
+  }
+}

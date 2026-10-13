@@ -1,0 +1,24 @@
+{
+  "name": "@pycil/e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "playwright test --project=default",
+    "test:live": "playwright test --project=live",
+    "test:mobile": "playwright test --project=mobile",
+    "test:webkit": "playwright test --project=webkit",
+    "test:external-auth": "playwright test --project=external-auth",
+    "test:support": "node --experimental-strip-types --test support/*.check.ts",
+    "typecheck": "tsc --noEmit",
+    "clean": "node --experimental-strip-types support/clean.ts",
+    "recover:identities": "node --experimental-strip-types support/recover-identities.ts"
+  },
+  "devDependencies": {
+    "@clerk/backend": "^3.0.0",
+    "@clerk/testing": "^2.2.43",
+    "@playwright/test": "^1.64.0",
+    "@types/node": "^24.13.3",
+    "testcontainers": "^12.2.0",
+    "typescript": "~6.0.2"
+  }
+}

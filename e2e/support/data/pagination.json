@@ -1,0 +1,810 @@
+[
+  {
+    "key": "pagination:a",
+    "lemma": "a",
+    "pos": "noun",
+    "definition": "the first letter of the English alphabet",
+    "reference_word_id": 62,
+    "reference_sense_id": 69
+  },
+  {
+    "key": "pagination:aa",
+    "lemma": "aa",
+    "pos": "noun",
+    "definition": "abbreviation for Associate in Arts : a degree given by an American college to someone after they have finished a two-year course , or a person who has this degree",
+    "reference_word_id": 95,
+    "reference_sense_id": 127
+  },
+  {
+    "key": "pagination:aaa",
+    "lemma": "aaa",
+    "pos": "noun",
+    "definition": "abbreviation for American Automobile Association : an organization in the US that gives help and information to drivers who are members of it",
+    "reference_word_id": 97,
+    "reference_sense_id": 133
+  },
+  {
+    "key": "pagination:aapi",
+    "lemma": "aapi",
+    "pos": "noun",
+    "definition": "abbreviation for Asian American (and) Pacific Islander: a person living in the United States whose family originally comes from the Far East , Southeast Asia , South Asia , or the Pacific Islands",
+    "reference_word_id": 99,
+    "reference_sense_id": 136
+  },
+  {
+    "key": "pagination:aardvark",
+    "lemma": "aardvark",
+    "pos": "noun",
+    "definition": "an African mammal with a long nose and large ears that lives underground and eats insects",
+    "reference_word_id": 101,
+    "reference_sense_id": 138
+  },
+  {
+    "key": "pagination:aarp",
+    "lemma": "aarp",
+    "pos": "noun",
+    "definition": "abbreviation for American Association of Retired Persons: an organization in the US that provides support and advice to people aged 50 and over",
+    "reference_word_id": 102,
+    "reference_sense_id": 139
+  },
+  {
+    "key": "pagination:ab",
+    "lemma": "ab",
+    "pos": "noun",
+    "definition": "written abbreviation for the Canadian province of Alberta: used in addresses",
+    "reference_word_id": 104,
+    "reference_sense_id": 142
+  },
+  {
+    "key": "pagination:abacus",
+    "lemma": "abacus",
+    "pos": "noun",
+    "definition": "a square or rectangular frame holding an arrangement of small balls on metal rods or wires , used for counting or for doing calculations",
+    "reference_word_id": 109,
+    "reference_sense_id": 148
+  },
+  {
+    "key": "pagination:abalone",
+    "lemma": "abalone",
+    "pos": "noun",
+    "definition": "a small sea creature that can be eaten . It lives inside a shell that is the shape of an ear and is white and shiny inside.",
+    "reference_word_id": 111,
+    "reference_sense_id": 152
+  },
+  {
+    "key": "pagination:abandonment",
+    "lemma": "abandonment",
+    "pos": "noun",
+    "definition": "the act of leaving someone or something or of ending or stopping something, usually forever",
+    "reference_word_id": 118,
+    "reference_sense_id": 171
+  },
+  {
+    "key": "pagination:abandonware",
+    "lemma": "abandonware",
+    "pos": "noun",
+    "definition": "software that is no longer produced or supported by the company that originally made it",
+    "reference_word_id": 119,
+    "reference_sense_id": 173
+  },
+  {
+    "key": "pagination:abap",
+    "lemma": "abap",
+    "pos": "noun",
+    "definition": "abbreviation for Advanced Business Application Programming: a computer language used for writing programs used in business",
+    "reference_word_id": 120,
+    "reference_sense_id": 172
+  },
+  {
+    "key": "pagination:abasement",
+    "lemma": "abasement",
+    "pos": "noun",
+    "definition": "the act of causing someone to seem as if they deserve no respect and have no power or importance",
+    "reference_word_id": 123,
+    "reference_sense_id": 188
+  },
+  {
+    "key": "pagination:abatement",
+    "lemma": "abatement",
+    "pos": "noun",
+    "definition": "a reduction in the amount or degree of something",
+    "reference_word_id": 129,
+    "reference_sense_id": 197
+  },
+  {
+    "key": "pagination:abattoir",
+    "lemma": "abattoir",
+    "pos": "noun",
+    "definition": "a place where animals are killed for their meat",
+    "reference_word_id": 132,
+    "reference_sense_id": 205
+  },
+  {
+    "key": "pagination:abaya",
+    "lemma": "abaya",
+    "pos": "noun",
+    "definition": "a long piece of clothing that reaches to the ground , covering the whole of the body except the head , feet , and hands , worn by some Muslim women",
+    "reference_word_id": 134,
+    "reference_sense_id": 201
+  },
+  {
+    "key": "pagination:abbess",
+    "lemma": "abbess",
+    "pos": "noun",
+    "definition": "a woman who is in charge of a convent",
+    "reference_word_id": 135,
+    "reference_sense_id": 204
+  },
+  {
+    "key": "pagination:abbey",
+    "lemma": "abbey",
+    "pos": "noun",
+    "definition": "a building where monks or nuns live or used to live . Some abbeys are now used as churches",
+    "reference_word_id": 136,
+    "reference_sense_id": 208
+  },
+  {
+    "key": "pagination:abbot",
+    "lemma": "abbot",
+    "pos": "noun",
+    "definition": "a man who is in charge of a monastery",
+    "reference_word_id": 138,
+    "reference_sense_id": 207
+  },
+  {
+    "key": "pagination:abbreviation",
+    "lemma": "abbreviation",
+    "pos": "noun",
+    "definition": "a short form of a word or phrase",
+    "reference_word_id": 144,
+    "reference_sense_id": 217
+  },
+  {
+    "key": "pagination:abc",
+    "lemma": "abc",
+    "pos": "noun",
+    "definition": "the alphabet",
+    "reference_word_id": 145,
+    "reference_sense_id": 227
+  },
+  {
+    "key": "pagination:abcs",
+    "lemma": "abcs",
+    "pos": "noun",
+    "definition": "the alphabet",
+    "reference_word_id": 149,
+    "reference_sense_id": 221
+  },
+  {
+    "key": "pagination:abdication",
+    "lemma": "abdication",
+    "pos": "noun",
+    "definition": "the fact of no longer controlling or managing something that you are in charge of",
+    "reference_word_id": 155,
+    "reference_sense_id": 238
+  },
+  {
+    "key": "pagination:abdomen",
+    "lemma": "abdomen",
+    "pos": "noun",
+    "definition": "the lower part of a person's or animal's body , containing the stomach , bowels , and other organs , or the end of an insect's body",
+    "reference_word_id": 156,
+    "reference_sense_id": 242
+  },
+  {
+    "key": "pagination:abdominals",
+    "lemma": "abdominals",
+    "pos": "noun",
+    "definition": "muscles in the abdomen",
+    "reference_word_id": 159,
+    "reference_sense_id": 367
+  },
+  {
+    "key": "pagination:abductee",
+    "lemma": "abductee",
+    "pos": "noun",
+    "definition": "a person who is taken and forced to go somewhere with another person , usually with the use of threats or violence",
+    "reference_word_id": 165,
+    "reference_sense_id": 253
+  },
+  {
+    "key": "pagination:abduction",
+    "lemma": "abduction",
+    "pos": "noun",
+    "definition": "the act of making a person go somewhere with you, especially using threats or violence",
+    "reference_word_id": 167,
+    "reference_sense_id": 256
+  },
+  {
+    "key": "pagination:abductor",
+    "lemma": "abductor",
+    "pos": "noun",
+    "definition": "a person who makes someone go somewhere with them, especially using threats or violence",
+    "reference_word_id": 168,
+    "reference_sense_id": 254
+  },
+  {
+    "key": "pagination:abelia",
+    "lemma": "abelia",
+    "pos": "noun",
+    "definition": "a type of evergreen bush (= one that does not lose its leaves ) often grown in gardens , with dark green leaves and groups of white , red , or pink bell-shaped flowers",
+    "reference_word_id": 170,
+    "reference_sense_id": 258
+  },
+  {
+    "key": "pagination:abenaki",
+    "lemma": "abenaki",
+    "pos": "noun",
+    "definition": "a group of indigenous people (= people whose ancestors were living in North America before Europeans arrived ) whose traditional lands are in the northeastern part of the United States and southeastern parts of Canada",
+    "reference_word_id": 173,
+    "reference_sense_id": 259
+  },
+  {
+    "key": "pagination:aberdeen",
+    "lemma": "aberdeen",
+    "pos": "noun",
+    "definition": "a city in northeastern Scotland",
+    "reference_word_id": 174,
+    "reference_sense_id": 264
+  },
+  {
+    "key": "pagination:aberdeenshire",
+    "lemma": "aberdeenshire",
+    "pos": "noun",
+    "definition": "an area of northeastern Scotland that was a county until 1975 and is now a council area (= an area with its own local government )",
+    "reference_word_id": 177,
+    "reference_sense_id": 266
+  },
+  {
+    "key": "pagination:aberdonian",
+    "lemma": "aberdonian",
+    "pos": "noun",
+    "definition": "a person from Aberdeen, a city in Scotland",
+    "reference_word_id": 178,
+    "reference_sense_id": 268
+  },
+  {
+    "key": "pagination:aberration",
+    "lemma": "aberration",
+    "pos": "noun",
+    "definition": "a temporary change from the typical or usual way of behaving",
+    "reference_word_id": 181,
+    "reference_sense_id": 271
+  },
+  {
+    "key": "pagination:abetment",
+    "lemma": "abetment",
+    "pos": "noun",
+    "definition": "the act of helping or encouraging someone to do something wrong or illegal",
+    "reference_word_id": 183,
+    "reference_sense_id": 275
+  },
+  {
+    "key": "pagination:abettor",
+    "lemma": "abettor",
+    "pos": "noun",
+    "definition": "someone who helps or encourages another person to do something wrong or illegal",
+    "reference_word_id": 184,
+    "reference_sense_id": 276
+  },
+  {
+    "key": "pagination:abeyance",
+    "lemma": "abeyance",
+    "pos": "noun",
+    "definition": "a state of not happening or being used at present",
+    "reference_word_id": 185,
+    "reference_sense_id": 277
+  },
+  {
+    "key": "pagination:abhorrence",
+    "lemma": "abhorrence",
+    "pos": "noun",
+    "definition": "a feeling of hating something or someone",
+    "reference_word_id": 189,
+    "reference_sense_id": 375
+  },
+  {
+    "key": "pagination:abi",
+    "lemma": "abi",
+    "pos": "noun",
+    "definition": "abbreviation for the Association of British Insurers: a professional organization that represents the UK insurance industry",
+    "reference_word_id": 193,
+    "reference_sense_id": 282
+  },
+  {
+    "key": "pagination:abidjan",
+    "lemma": "abidjan",
+    "pos": "noun",
+    "definition": "a large city in the southeastern part of Côte d'Ivoire",
+    "reference_word_id": 200,
+    "reference_sense_id": 294
+  },
+  {
+    "key": "pagination:ability",
+    "lemma": "ability",
+    "pos": "noun",
+    "definition": "the physical or mental power or skill needed to do something",
+    "reference_word_id": 201,
+    "reference_sense_id": 304
+  },
+  {
+    "key": "pagination:abjad",
+    "lemma": "abjad",
+    "pos": "noun",
+    "definition": "a writing system in which each symbol represents a consonant , and vowel sounds are not usually represented",
+    "reference_word_id": 204,
+    "reference_sense_id": 298
+  },
+  {
+    "key": "pagination:abjection",
+    "lemma": "abjection",
+    "pos": "noun",
+    "definition": "the state of being extremely unhappy , poor , unsuccessful , etc.",
+    "reference_word_id": 208,
+    "reference_sense_id": 308
+  },
+  {
+    "key": "pagination:abjuration",
+    "lemma": "abjuration",
+    "pos": "noun",
+    "definition": "a formal or public statement that you no longer agree with a belief or way of behaving",
+    "reference_word_id": 210,
+    "reference_sense_id": 312
+  },
+  {
+    "key": "pagination:abkhaz",
+    "lemma": "abkhaz",
+    "pos": "noun",
+    "definition": "a language spoken in the Black Sea region of Abkhazia",
+    "reference_word_id": 214,
+    "reference_sense_id": 318
+  },
+  {
+    "key": "pagination:ablation",
+    "lemma": "ablation",
+    "pos": "noun",
+    "definition": "the loss of ice or snow from a glacier or iceberg , or the loss of rock or similar material , caused by a process such as melting or erosion (= gradual damage and removing by waves , rain , or wind )",
+    "reference_word_id": 216,
+    "reference_sense_id": 322
+  },
+  {
+    "key": "pagination:ablative",
+    "lemma": "ablative",
+    "pos": "noun",
+    "definition": "the form of a noun , pronoun , or adjective that in some languages , for example Latin , shows by whom or what something is done, or where something comes from",
+    "reference_word_id": 218,
+    "reference_sense_id": 324
+  },
+  {
+    "key": "pagination:ableism",
+    "lemma": "ableism",
+    "pos": "noun",
+    "definition": "policies , behaviours, rules , etc. that result in unfair or harmful treatment of disabled people (= people who have an illness , injury , or condition that makes it difficult for them to do things that most other people can do) and in a continued unfair advantage to people who are not disabled",
+    "reference_word_id": 224,
+    "reference_sense_id": 341
+  },
+  {
+    "key": "pagination:ablution",
+    "lemma": "ablution",
+    "pos": "noun",
+    "definition": "the act of washing yourself",
+    "reference_word_id": 226,
+    "reference_sense_id": 345
+  },
+  {
+    "key": "pagination:ablutophobia",
+    "lemma": "ablutophobia",
+    "pos": "noun",
+    "definition": "a type of anxiety disorder (= a mental illness that makes someone very worried and affects their life ) that involves an extreme fear of washing your body",
+    "reference_word_id": 228,
+    "reference_sense_id": 348
+  },
+  {
+    "key": "pagination:abnegation",
+    "lemma": "abnegation",
+    "pos": "noun",
+    "definition": "the act of not allowing yourself to have something, especially something you like or want",
+    "reference_word_id": 231,
+    "reference_sense_id": 352
+  },
+  {
+    "key": "pagination:abnormality",
+    "lemma": "abnormality",
+    "pos": "noun",
+    "definition": "something abnormal , usually in the body",
+    "reference_word_id": 233,
+    "reference_sense_id": 454
+  },
+  {
+    "key": "pagination:abo",
+    "lemma": "abo",
+    "pos": "noun",
+    "definition": "the system that divides human blood into four main blood groups (= types of blood ) , known as A, B, AB, and O",
+    "reference_word_id": 235,
+    "reference_sense_id": 360
+  },
+  {
+    "key": "pagination:abode",
+    "lemma": "abode",
+    "pos": "noun",
+    "definition": "the place where someone lives",
+    "reference_word_id": 241,
+    "reference_sense_id": 469
+  },
+  {
+    "key": "pagination:abolition",
+    "lemma": "abolition",
+    "pos": "noun",
+    "definition": "the act of ending an activity or custom officially",
+    "reference_word_id": 245,
+    "reference_sense_id": 482
+  },
+  {
+    "key": "pagination:abolitionist",
+    "lemma": "abolitionist",
+    "pos": "noun",
+    "definition": "a person who supports the abolition of something",
+    "reference_word_id": 246,
+    "reference_sense_id": 487
+  },
+  {
+    "key": "pagination:abomination",
+    "lemma": "abomination",
+    "pos": "noun",
+    "definition": "something that you dislike and disapprove of",
+    "reference_word_id": 252,
+    "reference_sense_id": 379
+  },
+  {
+    "key": "pagination:aboriginal",
+    "lemma": "aboriginal",
+    "pos": "noun",
+    "definition": "a member of a race of people who were the first people to live in a country , before any colonists arrived",
+    "reference_word_id": 253,
+    "reference_sense_id": 380
+  },
+  {
+    "key": "pagination:aborigine",
+    "lemma": "aborigine",
+    "pos": "noun",
+    "definition": "a word for a member of one of the groups of people who were the first people to live in Australia , which was used officially in the past, but is now offensive",
+    "reference_word_id": 254,
+    "reference_sense_id": 383
+  },
+  {
+    "key": "pagination:abortifacient",
+    "lemma": "abortifacient",
+    "pos": "noun",
+    "definition": "a drug or other substance that causes a miscarriage (= the ending of a pregnancy by the body before the baby can survive on its own) or an abortion (= the intentional ending of a pregnancy before the baby is fully developed )",
+    "reference_word_id": 257,
+    "reference_sense_id": 396
+  },
+  {
+    "key": "pagination:abortion",
+    "lemma": "abortion",
+    "pos": "noun",
+    "definition": "the intentional ending of a pregnancy",
+    "reference_word_id": 259,
+    "reference_sense_id": 402
+  },
+  {
+    "key": "pagination:abortionist",
+    "lemma": "abortionist",
+    "pos": "noun",
+    "definition": "a person who performs abortions to end unwanted pregnancies , often illegally and for money",
+    "reference_word_id": 261,
+    "reference_sense_id": 406
+  },
+  {
+    "key": "pagination:abrasion",
+    "lemma": "abrasion",
+    "pos": "noun",
+    "definition": "the process of rubbing away the surface of something",
+    "reference_word_id": 289,
+    "reference_sense_id": 494
+  },
+  {
+    "key": "pagination:abrasive",
+    "lemma": "abrasive",
+    "pos": "noun",
+    "definition": "a substance used for rubbing away the surface of something, usually to clean it or make it shiny",
+    "reference_word_id": 291,
+    "reference_sense_id": 507
+  },
+  {
+    "key": "pagination:abrasiveness",
+    "lemma": "abrasiveness",
+    "pos": "noun",
+    "definition": "a rude and unfriendly way of talking or behaving",
+    "reference_word_id": 293,
+    "reference_sense_id": 512
+  },
+  {
+    "key": "pagination:abreaction",
+    "lemma": "abreaction",
+    "pos": "noun",
+    "definition": "the experiencing of emotions that you have tried to forget , usually when working with a psychotherapist (= someone who treats mental illness by discussing someone's problems with them)",
+    "reference_word_id": 295,
+    "reference_sense_id": 511
+  },
+  {
+    "key": "pagination:abridgment",
+    "lemma": "abridgment",
+    "pos": "noun",
+    "definition": "a book , play , or piece of writing that has been made shorter by removing some details or less important information",
+    "reference_word_id": 301,
+    "reference_sense_id": 531
+  },
+  {
+    "key": "pagination:abrogation",
+    "lemma": "abrogation",
+    "pos": "noun",
+    "definition": "the act of formally ending a law , agreement , or custom",
+    "reference_word_id": 306,
+    "reference_sense_id": 615
+  },
+  {
+    "key": "pagination:abruption",
+    "lemma": "abruption",
+    "pos": "noun",
+    "definition": "the separation of the placenta (= the temporary organ that feeds a developing baby before it is born ) from the wall of the uterus (= the organ in which a baby develops )",
+    "reference_word_id": 310,
+    "reference_sense_id": 537
+  },
+  {
+    "key": "pagination:abruptness",
+    "lemma": "abruptness",
+    "pos": "noun",
+    "definition": "the quality of being sudden , unexpected , and sometimes unpleasant",
+    "reference_word_id": 312,
+    "reference_sense_id": 631
+  },
+  {
+    "key": "pagination:abs",
+    "lemma": "abs",
+    "pos": "noun",
+    "definition": "abbreviation for anti-lock braking system : a brake fitted to some road vehicles that prevents skidding (= uncontrolled sliding ) by reducing the effects of stopping suddenly",
+    "reference_word_id": 313,
+    "reference_sense_id": 636
+  },
+  {
+    "key": "pagination:abscess",
+    "lemma": "abscess",
+    "pos": "noun",
+    "definition": "a painful swollen area on or in the body that contains pus (= thick , yellow liquid )",
+    "reference_word_id": 314,
+    "reference_sense_id": 639
+  },
+  {
+    "key": "pagination:abscissa",
+    "lemma": "abscissa",
+    "pos": "noun",
+    "definition": "a number on an X-axis that shows the coordinate of a point",
+    "reference_word_id": 316,
+    "reference_sense_id": 629
+  },
+  {
+    "key": "pagination:abscission",
+    "lemma": "abscission",
+    "pos": "noun",
+    "definition": "the separation or falling off of part of a plant",
+    "reference_word_id": 317,
+    "reference_sense_id": 641
+  },
+  {
+    "key": "pagination:absconder",
+    "lemma": "absconder",
+    "pos": "noun",
+    "definition": "someone who goes away from a place suddenly , especially in order to escape from it",
+    "reference_word_id": 323,
+    "reference_sense_id": 544
+  },
+  {
+    "key": "pagination:abseil",
+    "lemma": "abseil",
+    "pos": "noun",
+    "definition": "the act of going down a very steep slope by holding on to a rope that is fastened to the top of the slope",
+    "reference_word_id": 325,
+    "reference_sense_id": 553
+  },
+  {
+    "key": "pagination:abseiling",
+    "lemma": "abseiling",
+    "pos": "noun",
+    "definition": "the activity of going down a very steep slope while holding on to a rope that is fastened to the top of the slope",
+    "reference_word_id": 328,
+    "reference_sense_id": 556
+  },
+  {
+    "key": "pagination:absence",
+    "lemma": "absence",
+    "pos": "noun",
+    "definition": "the fact of not being where you are usually expected to be",
+    "reference_word_id": 329,
+    "reference_sense_id": 565
+  },
+  {
+    "key": "pagination:absentee",
+    "lemma": "absentee",
+    "pos": "noun",
+    "definition": "someone who is not at school or work when they should be",
+    "reference_word_id": 336,
+    "reference_sense_id": 578
+  },
+  {
+    "key": "pagination:absenteeism",
+    "lemma": "absenteeism",
+    "pos": "noun",
+    "definition": "a situation in which people are not at school or work when they should be",
+    "reference_word_id": 344,
+    "reference_sense_id": 594
+  },
+  {
+    "key": "pagination:absinthe",
+    "lemma": "absinthe",
+    "pos": "noun",
+    "definition": "a strong alcoholic drink that is green and has a bitter taste",
+    "reference_word_id": 346,
+    "reference_sense_id": 597
+  },
+  {
+    "key": "pagination:absolution",
+    "lemma": "absolution",
+    "pos": "noun",
+    "definition": "the act of forgiving someone, especially in the Christian religion , for something bad that they have done or thought",
+    "reference_word_id": 380,
+    "reference_sense_id": 774
+  },
+  {
+    "key": "pagination:absolutism",
+    "lemma": "absolutism",
+    "pos": "noun",
+    "definition": "a political system in which a single ruler , group , or political party has complete power over a country",
+    "reference_word_id": 381,
+    "reference_sense_id": 777
+  },
+  {
+    "key": "pagination:absolutist",
+    "lemma": "absolutist",
+    "pos": "noun",
+    "definition": "someone who believes that there is only one correct opinion , belief , or way to understand something that is true in all cases",
+    "reference_word_id": 382,
+    "reference_sense_id": 783
+  },
+  {
+    "key": "pagination:absorbency",
+    "lemma": "absorbency",
+    "pos": "noun",
+    "definition": "the ability to absorb liquid",
+    "reference_word_id": 391,
+    "reference_sense_id": 678
+  },
+  {
+    "key": "pagination:absorption",
+    "lemma": "absorption",
+    "pos": "noun",
+    "definition": "the process of taking something into another substance",
+    "reference_word_id": 395,
+    "reference_sense_id": 688
+  },
+  {
+    "key": "pagination:absorptivity",
+    "lemma": "absorptivity",
+    "pos": "noun",
+    "definition": "the ability of a material or surface to absorb (= to take in and hold ) a liquid or other substance , or to take in and hold heat or energy",
+    "reference_word_id": 401,
+    "reference_sense_id": 700
+  },
+  {
+    "key": "pagination:abstainer",
+    "lemma": "abstainer",
+    "pos": "noun",
+    "definition": "someone who does not do something, especially something they would like to do",
+    "reference_word_id": 406,
+    "reference_sense_id": 713
+  },
+  {
+    "key": "pagination:abstention",
+    "lemma": "abstention",
+    "pos": "noun",
+    "definition": "the fact of not voting in favour of or against someone or something",
+    "reference_word_id": 410,
+    "reference_sense_id": 721
+  },
+  {
+    "key": "pagination:abstinence",
+    "lemma": "abstinence",
+    "pos": "noun",
+    "definition": "the fact of not doing something, usually something that is considered harmful such as drinking alcohol or using a drug",
+    "reference_word_id": 411,
+    "reference_sense_id": 723
+  },
+  {
+    "key": "pagination:abstract",
+    "lemma": "abstract",
+    "pos": "noun",
+    "definition": "a short form of a speech , article , book , etc., giving only the most important facts or ideas",
+    "reference_word_id": 418,
+    "reference_sense_id": 737
+  },
+  {
+    "key": "pagination:abstraction",
+    "lemma": "abstraction",
+    "pos": "noun",
+    "definition": "the quality of existing as or representing an idea , a feeling , etc. and not a material object , or something that has this quality",
+    "reference_word_id": 424,
+    "reference_sense_id": 767
+  },
+  {
+    "key": "pagination:absurdity",
+    "lemma": "absurdity",
+    "pos": "noun",
+    "definition": "the quality of being stupid and unreasonable , or silly in a humorous way",
+    "reference_word_id": 429,
+    "reference_sense_id": 761
+  },
+  {
+    "key": "pagination:abta",
+    "lemma": "abta",
+    "pos": "noun",
+    "definition": "abbreviation for Association of British Travel Agents: a UK organization that protects travellers and people on holiday if a company that arranges travel fails to do something or goes out of business",
+    "reference_word_id": 431,
+    "reference_sense_id": 771
+  },
+  {
+    "key": "pagination:abugida",
+    "lemma": "abugida",
+    "pos": "noun",
+    "definition": "a writing system in which each symbol represents a particular consonant , written slightly differently according to the vowel sound that follows it",
+    "reference_word_id": 434,
+    "reference_sense_id": 776
+  },
+  {
+    "key": "pagination:abuja",
+    "lemma": "abuja",
+    "pos": "noun",
+    "definition": "the capital city of Nigeria, in the central part of the country",
+    "reference_word_id": 435,
+    "reference_sense_id": 780
+  },
+  {
+    "key": "pagination:abundance",
+    "lemma": "abundance",
+    "pos": "noun",
+    "definition": "the situation in which there is more than enough of something",
+    "reference_word_id": 436,
+    "reference_sense_id": 801
+  },
+  {
+    "key": "pagination:abuse",
+    "lemma": "abuse",
+    "pos": "noun",
+    "definition": "the use of something in a way that is harmful or morally wrong",
+    "reference_word_id": 441,
+    "reference_sense_id": 792
+  },
+  {
+    "key": "pagination:abuser",
+    "lemma": "abuser",
+    "pos": "noun",
+    "definition": "someone who treats another person in a cruel , violent , or unfair way",
+    "reference_word_id": 444,
+    "reference_sense_id": 925
+  },
+  {
+    "key": "pagination:abutilon",
+    "lemma": "abutilon",
+    "pos": "noun",
+    "definition": "a type of evergreen bush (= one that does not lose its leaves ) often grown in gardens , with single bell-shaped flowers",
+    "reference_word_id": 450,
+    "reference_sense_id": 808
+  },
+  {
+    "key": "pagination:abutment",
+    "lemma": "abutment",
+    "pos": "noun",
+    "definition": "a structure that is built to support an arch (= a curved top on two supports , that holds the weight of something above it) , or the end of a bridge",
+    "reference_word_id": 451,
+    "reference_sense_id": 806
+  }
+]

@@ -4,13 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       live_provider:
-        description: Run the selected paid LLM E2E checks
+        description: Also run the fixed paid LLM E2E profile
         type: boolean
         default: false
   pull_request:
     branches: [main, dev]
   push:
-    branches: [main]
+    branches: [main, dev]
 
 permissions:
   contents: read
@@ -38,15 +38,13 @@ jobs:
       - run: pnpm test:integration
       - run: pnpm run build
 
-  frontend-e2e:
+  e2e:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/web
+    timeout-minutes: 30
     env:
       CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
-      CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
       CLERK_ISSUER: ${{ secrets.CLERK_ISSUER }}
       CLERK_JWKS_URL: ${{ secrets.CLERK_JWKS_URL }}
       LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
@@ -60,17 +58,16 @@ jobs:
       - uses: actions/setup-node@v7.1.0
         with:
           node-version: "24.21.0"
-      - uses: astral-sh/setup-uv@v10.2.0
-        with:
-          version: "0.12.22"
-      - run: uv python install 3.14.8
       - run: npm install --global pnpm@12.9.1
-      - run: pnpm install --frozen-lockfile
-      - run: node node_modules/@playwright/test/cli.js install --with-deps chromium
-      - run: pnpm test:e2e
-        if: ${{ !inputs.live_provider }}
-      - run: pnpm test:e2e:live
+      - run: pnpm --dir apps/web install --frozen-lockfile
+      - run: pnpm --dir e2e install --frozen-lockfile
+      - run: pnpm --dir e2e typecheck
+      - run: pnpm --dir e2e test:support
+      - run: pnpm --dir e2e exec playwright install --with-deps chromium
+      - run: pnpm --dir e2e test
+      - run: pnpm --dir e2e test:live
         if: ${{ inputs.live_provider }}
+      # Reports contain authentication data. No public artifact upload is configured.
 
   backend:
     runs-on: ubuntu-latest

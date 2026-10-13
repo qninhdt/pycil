@@ -1,0 +1,50 @@
+[
+  {
+    "key": "bankFinancial",
+    "lemma": "bank",
+    "pos": "noun",
+    "definition": "an institution where people keep and borrow money",
+    "example": "She deposited her savings at the [bank]."
+  },
+  {
+    "key": "bankRiver",
+    "lemma": "bank",
+    "pos": "noun",
+    "definition": "the ground along the side of a river",
+    "example": "They sat on the river [bank]."
+  },
+  {
+    "key": "bankDeposit",
+    "lemma": "bank",
+    "pos": "verb",
+    "definition": "to put money into a bank account",
+    "example": "He [banked] his wages.",
+    "forms": [
+      {
+        "surface": "banked",
+        "inf": "past"
+      },
+      {
+        "surface": "banking",
+        "inf": "ing"
+      }
+    ]
+  },
+  {
+    "key": "archiveCollection",
+    "lemma": "archive",
+    "pos": "noun",
+    "definition": "a collection of historical records",
+    "example": "The letters are kept in the [archive]."
+  },
+  {
+    "key": "colorAppearance",
+    "lemma": "color",
+    "pos": "noun",
+    "definition": "the appearance that results from the light an object reflects",
+    "example": "The walls are a pale blue [color].",
+    "aliases": [
+      "colour"
+    ]
+  }
+]

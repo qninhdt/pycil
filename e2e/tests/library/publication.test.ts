@@ -1,0 +1,82 @@
+import { test, expect } from '../../fixtures/index.ts'
+import { Api } from '../../support/api.ts'
+
+test('publication needs consent and unpublishing revokes guest and saved-reference access', async ({ actor, secondary, data, vocabulary, guest }) => {
+  const deck = await data.create({ name: `Public travel ${actor.subject.slice(-8)}`, type: 'deck', sense_ids: [vocabulary.bankRiver.sense_id] })
+  const guestApi = await Api.create()
+  let referenceId: string | undefined
+  const errors: unknown[] = []
+  try {
+    await actor.page.goto(`/app/personal/${deck.id}`)
+    const actions = actor.page.getByRole('button', { name: `Settings for ${deck.name}` })
+    await actions.click()
+    await actor.page.getByRole('menuitem', { name: 'Publish', exact: true }).click()
+    await actor.page.getByRole('alertdialog').getByRole('button', { name: 'Cancel', exact: true }).click()
+    await guestApi.call(`nodes/${deck.id}`, 'GET', undefined, 404)
+    await actions.click()
+    await actor.page.getByRole('menuitem', { name: 'Publish', exact: true }).click()
+    await actor.page.getByRole('alertdialog').getByRole('button', { name: 'Publish', exact: true }).click()
+    await expect(actor.page).toHaveURL(new RegExp(`/app/published/${deck.id}$`))
+    expect(await guestApi.call<{ name: string }>(`nodes/${deck.id}`)).toMatchObject({ name: deck.name })
+    await guest.goto(`/u/${actor.account.id}/${deck.id}`)
+    await expect(guest.getByRole('heading', { level: 1 })).toContainText(deck.name)
+    const reference = await secondary.api.call<{ id: string }>('nodes', 'POST', { type: 'reference', reference_id: deck.id, parent_id: secondary.account.personal_node_id, name: 'Saved river words' }, 201)
+    referenceId = reference.id
+    await secondary.page.goto(`/app/personal/${reference.id}`)
+    await expect(secondary.page.getByRole('heading', { level: 1 })).toContainText('Saved river words')
+    await actor.page.getByRole('button', { name: `Settings for ${deck.name}` }).click()
+    await actor.page.getByRole('menuitem', { name: 'Move to Personal', exact: true }).click()
+    await actor.page.getByRole('alertdialog').getByRole('button', { name: 'Move to Personal', exact: true }).click()
+    await expect(actor.page).toHaveURL(new RegExp(`/app/personal/${deck.id}$`))
+    await guestApi.call(`nodes/${deck.id}`, 'GET', undefined, 404)
+    await guest.reload()
+    await expect(guest.getByRole('heading', { level: 1 })).not.toContainText(deck.name)
+    await secondary.page.reload()
+    await expect(secondary.page.getByText('Reference unavailable.', { exact: true })).toBeVisible()
+    expect(await secondary.api.call<{ reference_available: boolean }>(`nodes/${reference.id}`)).toMatchObject({ reference_available: false })
+  } catch (error) { errors.push(error) }
+  const results = await Promise.allSettled([guestApi.dispose(), referenceId ? secondary.api.call(`nodes/${referenceId}`, 'DELETE', undefined, [204, 404]) : undefined])
+  errors.push(...results.filter(result => result.status === 'rejected').map(result => result.reason))
+  if (errors.length) throw new AggregateError(errors, 'Publication journey failed')
+})
+
+test('publishing a subtree retains its Personal reference and deleting it revokes descendant guest access', async ({ actor, data, vocabulary, guest }) => {
+  const folder = await data.create({ name: 'Shared finance folder', type: 'folder' })
+  const deck = await data.create({ name: 'Shared finance descendant', type: 'deck', parent_id: folder.id, sense_ids: [vocabulary.bankFinancial.sense_id] })
+  const guestApi = await Api.create()
+  try {
+    await actor.page.goto(`/app/personal/${folder.id}`)
+    const settings = actor.page.getByRole('button', { name: `Settings for ${folder.name}`, exact: true })
+    await settings.click()
+    await actor.page.getByRole('menuitem', { name: 'Publish', exact: true }).click()
+    await actor.page.getByRole('checkbox', { name: 'Keep a reference in Personal', exact: true }).check()
+    await actor.page.getByRole('alertdialog').getByRole('button', { name: 'Cancel', exact: true }).click()
+    await guestApi.call(`nodes/${deck.id}`, 'GET', undefined, 404)
+    await settings.click()
+    await actor.page.getByRole('menuitem', { name: 'Publish', exact: true }).click()
+    await actor.page.getByRole('checkbox', { name: 'Keep a reference in Personal', exact: true }).check()
+    await actor.page.getByRole('alertdialog').getByRole('button', { name: 'Publish', exact: true }).click()
+    await expect(actor.page).toHaveURL(new RegExp(`/app/published/${folder.id}$`))
+    const personal = await actor.api.call<{ nodes: { id: string; reference_id?: string }[] }>(`nodes?parent_id=${actor.account.personal_node_id}`)
+    const retained = personal.nodes.filter(node => node.reference_id === folder.id)
+    expect(retained).toHaveLength(1)
+    data.track(retained[0].id)
+    await guest.goto(`/u/${actor.account.id}/${folder.id}`)
+    await guest.getByRole('link', { name: deck.name, exact: true }).click()
+    await expect(guest.getByRole('heading', { level: 1 })).toContainText(deck.name)
+    await settings.click()
+    await actor.page.getByRole('menuitem', { name: 'Delete', exact: true }).click()
+    await actor.page.getByRole('alertdialog').getByRole('button', { name: 'Cancel', exact: true }).click()
+    await guest.reload()
+    await expect(guest.getByRole('heading', { level: 1 })).toContainText(deck.name)
+    await settings.click()
+    await actor.page.getByRole('menuitem', { name: 'Delete', exact: true }).click()
+    await actor.page.getByRole('alertdialog').getByRole('button', { name: 'Delete', exact: true }).click()
+    await expect.poll(async () => {
+      try { await guestApi.call(`nodes/${deck.id}`, 'GET', undefined, 404); return true } catch { return false }
+    }).toBe(true)
+    await guest.reload()
+    await expect(guest.getByRole('heading', { level: 1 })).not.toContainText(deck.name)
+    expect(await actor.api.call(`nodes/${retained[0].id}`)).toMatchObject({ reference_available: false })
+  } finally { await guestApi.dispose() }
+})

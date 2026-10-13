@@ -1,0 +1,35 @@
+import { test, expect } from '../../fixtures/index.ts'
+import { openAssistant, sendMessage } from '../../support/assistant.ts'
+
+test('a real assistant reads via tools, reopens its checkpoint and writes only after approval', async ({ actor, data, vocabulary }) => {
+  test.setTimeout(300_000)
+  const source = await data.create({ name: 'Live financial vocabulary', type: 'deck', sense_ids: [vocabulary.bankFinancial.sense_id] })
+  await actor.page.goto(`/app/personal/${source.id}`)
+  await openAssistant(actor.page)
+  const readRun = actor.page.waitForResponse(response => response.url().endsWith('/assistant:run') && response.request().method() === 'POST', { timeout: 150_000 })
+  await sendMessage(actor.page, `Use read_library to read deck ${source.id}, then briefly explain the meaning in it. Do not modify anything.`)
+  expect((await readRun).status()).toBe(200)
+  await expect(actor.page.getByRole('button', { name: 'Send message', exact: true })).toBeVisible({ timeout: 150_000 })
+  const history = await actor.api.call<{ conversations: { id: string }[] }>('assistant/conversations')
+  expect(history.conversations).toHaveLength(1)
+  const conversationId = history.conversations[0].id
+  const details = await actor.api.call<{ state: { messages: { role: string; content: unknown }[] } }>(`assistant/conversations/${conversationId}`)
+  const tools = details.state.messages.filter(message => message.role === 'tool')
+  expect(tools.length).toBeGreaterThan(0)
+  expect(JSON.stringify(tools)).toContain('an institution where people keep and borrow money')
+  await sendMessage(actor.page, 'Give one short example using that financial meaning. Do not modify the Library.')
+  await expect(actor.page.getByRole('button', { name: 'Send message', exact: true })).toBeVisible({ timeout: 150_000 })
+  await actor.page.reload()
+  await openAssistant(actor.page)
+  await expect(actor.page.getByRole('complementary', { name: 'PycilAI', exact: true })).toContainText('bank')
+  const name = `Approved finance ${actor.subject.slice(-8)}`
+  await sendMessage(actor.page, `Use create_node to create a deck named "${name}" in Personal (${actor.account.personal_node_id}) with sense_ids [${vocabulary.bankFinancial.sense_id}]. Do not call any other mutation tool.`)
+  await expect(actor.page.getByRole('button', { name: 'Approve changes', exact: true })).toBeVisible({ timeout: 150_000 })
+  expect(await actor.api.call(`nodes/${actor.account.personal_node_id}:search?q=${encodeURIComponent(name)}`)).toMatchObject({ nodes: [] })
+  await actor.page.getByRole('button', { name: 'Approve changes', exact: true }).click()
+  await expect(actor.page.getByRole('button', { name: 'Send message', exact: true })).toBeVisible({ timeout: 150_000 })
+  const found = await actor.api.call<{ nodes: { id: string }[] }>(`nodes/${actor.account.personal_node_id}:search?q=${encodeURIComponent(name)}`)
+  expect(found.nodes).toHaveLength(1)
+  data.track(found.nodes[0].id)
+  expect(await actor.api.call(`study/progress?node_id=${found.nodes[0].id}`)).toMatchObject({ total: 1 })
+})

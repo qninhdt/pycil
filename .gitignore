@@ -106,8 +106,8 @@ worktrees/
 backup-manifest-*.json
 
 # Node.js
-/.pycil-e2e-web-*/
 node_modules/
+/e2e/.artifacts/
 .pnpm-debug.log*
 storybook-static/
 *storybook.log
