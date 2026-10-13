@@ -2,10 +2,10 @@ from enum import StrEnum
 
 
 class Plan(StrEnum):
-    FREE = "FREE"
-    PRO = "PRO"
+    FREE = "free"
+    PRO = "pro"
 
 
 class Feature(StrEnum):
-    ASSISTANT = "ASSISTANT"
-    ADVANCED_GRADING = "ADVANCED_GRADING"
+    ASSISTANT = "assistant"
+    ADVANCED_GRADING = "advanced_grading"

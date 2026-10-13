@@ -24,3 +24,8 @@ node_modules
 **/storybook-static
 **/tsconfig.tsbuildinfo
 **/.turbo
+**/build
+**/*.egg-info
+**/.pytest_cache
+**/.ruff_cache
+apps/api/tests

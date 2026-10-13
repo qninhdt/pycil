@@ -12,10 +12,10 @@ import { useServices } from '@/lib/services/provider'
 import type { AccountProfile } from '@/lib/api'
 import { libraryNodeKind } from '@/lib/library-model'
 
-export type Destination = { id: string; name: string; type: 'DECK' | 'FOLDER'; space?: 'PERSONAL' | 'PUBLISHED' }
+export type Destination = { id: string; name: string; type: 'deck' | 'folder'; space?: 'personal' | 'published' }
 type Props = {
   open: boolean; onOpenChange: (open: boolean) => void; profile: AccountProfile
-  kind: 'DECK' | 'FOLDER'; action: string; onConfirm: (destination: Destination) => Promise<void>
+  kind: 'deck' | 'folder'; action: string; onConfirm: (destination: Destination) => Promise<void>
   excludedIds?: ReadonlySet<string>; onCreateDeck?: (parentId: string, name: string, confirmPublication: boolean) => Promise<void>
   spaceOnly?: 'personal' | 'published'
   requirePublicationConfirmation?: boolean
@@ -29,14 +29,14 @@ export function LibraryDestinationDialog(props: Props) {
   const { services, scope } = useServices()
   const root = spaceOnly === 'personal' ? profile.personal_node_id : spaceOnly === 'published' ? profile.published_node_id : profile.library_node_id
   const [path, setPath] = useState<Destination[]>([])
-  const current = path.at(-1) ?? { id: root, name: spaceOnly === 'personal' ? t('personal') : spaceOnly === 'published' ? t('published') : tNav('myLibrary'), type: 'FOLDER' as const, space: spaceOnly === 'published' ? 'PUBLISHED' as const : 'PERSONAL' as const }
+  const current = path.at(-1) ?? { id: root, name: spaceOnly === 'personal' ? t('personal') : spaceOnly === 'published' ? t('published') : tNav('myLibrary'), type: 'folder' as const, space: spaceOnly === 'published' ? 'published' as const : 'personal' as const }
   const [search, setSearch] = useState(''), q = useDeferredValue(search)
   const [cursors, setCursors] = useState<string[]>([])
   const [selected, setSelected] = useState<Destination | null>(null)
   const [creating, setCreating] = useState(false), [newName, setNewName] = useState('')
   const [busy, setBusy] = useState(false), [error, setError] = useState('')
   const [confirmed, setConfirmed] = useState(false)
-  const needsConfirmation = props.requirePublicationConfirmation || (creating && current.space === 'PUBLISHED')
+  const needsConfirmation = props.requirePublicationConfirmation || (creating && current.space === 'published')
   const query = useQuery({ queryKey: [services.mode, scope, 'destination', current.id, q, cursors.at(-1)],
     queryFn: ({ signal }) => services.library.contents(current.id, { q, cursor: cursors.at(-1), limit: 20 }, signal), enabled: open })
   async function navigate(item: Destination) {
@@ -46,8 +46,8 @@ export function LibraryDestinationDialog(props: Props) {
       const detail = await services.library.details(item.id, new AbortController().signal)
       if (detail.owner_id !== profile.id) throw new Error(t('ownDestinationRequired'))
       const rootIndex = detail.breadcrumbs.findIndex(parent => parent.id === root)
-      const parents = (rootIndex < 0 ? path : detail.breadcrumbs.slice(rootIndex + 1)).filter(parent => parent.id !== item.id).map(parent => ({ ...parent, type: 'FOLDER' as const, space: detail.space === 'PUBLISHED' ? 'PUBLISHED' as const : 'PERSONAL' as const }))
-      setPath([...parents, { ...item, space: detail.space === 'PUBLISHED' ? 'PUBLISHED' : 'PERSONAL' }]); setSearch(''); setCursors([]); setSelected(null); setCreating(false); setConfirmed(false)
+      const parents = (rootIndex < 0 ? path : detail.breadcrumbs.slice(rootIndex + 1)).filter(parent => parent.id !== item.id).map(parent => ({ ...parent, type: 'folder' as const, space: detail.space === 'published' ? 'published' as const : 'personal' as const }))
+      setPath([...parents, { ...item, space: detail.space === 'published' ? 'published' : 'personal' }]); setSearch(''); setCursors([]); setSelected(null); setCreating(false); setConfirmed(false)
     } catch (cause) { setError(cause instanceof Error ? cause.message : t('couldNotLoadFolder')) }
     finally { setBusy(false) }
   }
@@ -57,8 +57,8 @@ export function LibraryDestinationDialog(props: Props) {
     try {
       const detail = await services.library.details(item.id, new AbortController().signal)
       if (detail.owner_id !== profile.id) throw new Error(t('ownDestinationRequired'))
-      if (detail.type !== 'DECK') throw new Error(t('couldNotLoadFolder'))
-      setSelected({ ...item, space: detail.space === 'PUBLISHED' ? 'PUBLISHED' : 'PERSONAL' })
+      if (detail.type !== 'deck') throw new Error(t('couldNotLoadFolder'))
+      setSelected({ ...item, space: detail.space === 'published' ? 'published' : 'personal' })
     } catch (cause) { setError(cause instanceof Error ? cause.message : t('couldNotLoadFolder')) }
     finally { setBusy(false) }
   }
@@ -77,10 +77,10 @@ export function LibraryDestinationDialog(props: Props) {
     catch (cause) { setError(cause instanceof Error ? cause.message : t('couldNotSaveNode', { kind: t('kindDeck') })) }
     finally { setBusy(false) }
   }
-  const items = query.data?.nodes.filter(node => node.type !== 'REFERENCE' || kind === 'DECK' && node.reference_id && libraryNodeKind(node)) ?? []
-  const canSelectCurrent = kind === 'FOLDER' && current.id !== profile.library_node_id && !excludedIds?.has(current.id)
+  const items = query.data?.nodes.filter(node => node.type !== 'reference' || kind === 'deck' && node.reference_id && libraryNodeKind(node)) ?? []
+  const canSelectCurrent = kind === 'folder' && current.id !== profile.library_node_id && !excludedIds?.has(current.id)
   return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="destination-dialog w-[min(560px,calc(100vw-24px))] max-w-none sm:max-w-none max-h-[min(90vh,740px)] flex flex-col gap-0 p-0 bg-background" aria-describedby="destination-description">
-    <DialogHeader className="p-0 text-left border-b border-border px-6 pt-[22px] pb-4"><DialogTitle className="text-2xl font-extrabold tracking-[-.03em]">{t('chooseDestination')}</DialogTitle><DialogDescription id="destination-description" className="text-xs text-muted-foreground mt-1">{kind === 'DECK' ? t('selectDeckDesc') : t('selectFolderDesc')}</DialogDescription></DialogHeader>
+    <DialogHeader className="p-0 text-left border-b border-border px-6 pt-[22px] pb-4"><DialogTitle className="text-2xl font-extrabold tracking-[-.03em]">{t('chooseDestination')}</DialogTitle><DialogDescription id="destination-description" className="text-xs text-muted-foreground mt-1">{kind === 'deck' ? t('selectDeckDesc') : t('selectFolderDesc')}</DialogDescription></DialogHeader>
     <div className="destination-search flex items-center gap-2 border border-border mx-6 mt-4 px-2.5"><Search className="size-[17px] shrink-0 text-muted-foreground" aria-hidden="true" /><Input className="border-0 h-9" aria-label={t('searchFoldersAndDecks')} placeholder={t('searchFoldersAndDecks')} value={search} maxLength={200} onChange={event => { setSearch(event.target.value); setCursors([]); setSelected(null) }} /></div>
     <nav className="destination-breadcrumbs flex items-center flex-wrap gap-0.5 px-6 py-2.5 text-muted-foreground text-[11px]" aria-label={t('destinationPath')}>
       <button type="button" className="hover:underline cursor-pointer" disabled={busy} onClick={() => { setPath([]); setSearch(''); setCursors([]); setSelected(null); setCreating(false); setConfirmed(false); setError('') }}>{spaceOnly === 'personal' ? t('personal') : spaceOnly === 'published' ? t('published') : tNav('myLibrary')}</button>
@@ -90,13 +90,13 @@ export function LibraryDestinationDialog(props: Props) {
       {query.isPending ? <p className="py-6 text-muted-foreground text-xs">{t('loadingDestinations')}</p> : query.isError ? <div className="py-6 text-muted-foreground text-xs"><p>{t('couldNotLoadFolder')}</p><Button variant="link" onClick={() => { void query.refetch() }}>{tCommon('retry')}</Button></div>
         : items.length === 0 ? <p className="py-6 text-muted-foreground text-xs">{q ? t('noMatchingDestinations') : t('noDestinationsHere')}</p>
           : <ul className="divide-y divide-border">{items.map(node => {
-            const item: Destination = { id: node.type === 'REFERENCE' ? node.reference_id! : node.id, name: node.name, type: libraryNodeKind(node)! }
+            const item: Destination = { id: node.type === 'reference' ? node.reference_id! : node.id, name: node.name, type: libraryNodeKind(node)! }
             const eligible = item.type === kind && !excludedIds?.has(item.id) && !excludedIds?.has(node.id) && (!node.owner_id || node.owner_id === profile.id)
             const isSelected = selected?.id === item.id
             const folderIcon = node.name === 'Personal' ? 'folder-personal' : node.name === 'Published' ? 'folder-published' : 'folder'
             return <li key={node.id} className={`flex items-stretch border-b border-border transition-colors ${isSelected ? 'bg-accent' : ''}`} data-selected={isSelected}>
-              <button type="button" className="destination-choice flex-1 min-w-0 flex items-center gap-3 py-2.5 px-2 text-left cursor-pointer disabled:opacity-65 disabled:cursor-default" disabled={busy || item.type === 'DECK' && !eligible} onClick={() => { if (item.type === 'FOLDER' && kind === 'DECK') void navigate(item); else if (eligible) { if (node.type === 'REFERENCE') void selectReference(item); else { setSelected(prev => prev?.id === item.id ? null : item); setError('') } } }} onDoubleClick={() => { if (item.type === 'FOLDER' && kind === 'FOLDER') void navigate(item) }} aria-label={item.type === 'DECK' ? `${node.name} ${t('deck')}` : node.name} aria-pressed={eligible ? isSelected : undefined}>
-                <Icon name={item.type === 'DECK' ? 'collection' : folderIcon} className="size-[30px] shrink-0" /><span className="min-w-0 truncate"><strong className="block text-[13px] font-bold truncate">{node.name}</strong><small className="block text-muted-foreground text-[10px]">{item.type === 'DECK' ? t('deck') : t('folder')}{node.type === 'REFERENCE' && ` · ${t('reference')}`}</small></span>
+              <button type="button" className="destination-choice flex-1 min-w-0 flex items-center gap-3 py-2.5 px-2 text-left cursor-pointer disabled:opacity-65 disabled:cursor-default" disabled={busy || item.type === 'deck' && !eligible} onClick={() => { if (item.type === 'folder' && kind === 'deck') void navigate(item); else if (eligible) { if (node.type === 'reference') void selectReference(item); else { setSelected(prev => prev?.id === item.id ? null : item); setError('') } } }} onDoubleClick={() => { if (item.type === 'folder' && kind === 'folder') void navigate(item) }} aria-label={item.type === 'deck' ? `${node.name} ${t('deck')}` : node.name} aria-pressed={eligible ? isSelected : undefined}>
+                <Icon name={item.type === 'deck' ? 'collection' : folderIcon} className="size-[30px] shrink-0" /><span className="min-w-0 truncate"><strong className="block text-[13px] font-bold truncate">{node.name}</strong><small className="block text-muted-foreground text-[10px]">{item.type === 'deck' ? t('deck') : t('folder')}{node.type === 'reference' && ` · ${t('reference')}`}</small></span>
               </button>
             </li>
           })}</ul>}

@@ -1,0 +1,23 @@
+## Context to Word
+
+- Create a brief, self-contained situation that naturally calls for the selected Word in its intended Sense.
+- Build the situation around concrete circumstances, actions, observations, intentions, or consequences that make the target expression meaningfully applicable.
+- Convey the target meaning implicitly through situational evidence. Do not disguise a dictionary definition as a scenario or mechanically paraphrase a supplied definition or example.
+- Establish sufficient contextual constraints to distinguish the intended expression from plausible lexical alternatives without artificially forcing it into an unnatural situation.
+- Include meaningful diagnostic clues that reflect the target's distinguishing semantic characteristics, including manner, intensity, purpose, conditions, or implications where relevant.
+- Make the situation realistic and internally coherent. Avoid contrived events or unnecessary details introduced solely to eliminate competing answers.
+- Respect the selected Sense's register and conventional usage when constructing the situation, particularly where social context or speaker intention affects lexical appropriateness.
+- Build a situation that accepts the selected Word's standalone citation lemma rather than requiring an inflected replacement.
+- Generate distractors as established English lexical items or expressions that learners could plausibly associate with the situation.
+- Favor distractors that share relevant semantic features with the target but differ in their applicability to the specific circumstances, intended meaning, or conventional usage.
+- Prefer alternatives of comparable grammatical category and lexical function where appropriate, preventing learners from eliminating options through superficial structural differences.
+- Consider the established meanings and usage of every distractor. Reject alternatives that would also accurately describe the situation under a reasonable interpretation.
+- Do not manufacture incorrectness through arbitrary restrictions, implausible assumptions, or distinctions that ordinary English usage does not support.
+- Explore genuinely different situations across the batch, varying the circumstances and applications of the same Sense rather than merely substituting participants, objects, or settings.
+- Do not reveal the target expression, its inflected forms, or aliases in the question content.
+- Do not introduce a missing-word blank or construct a sentence requiring restoration of a specific omitted expression; that belongs to Cloze to Word.
+
+### Output Contract
+
+- Return `batch_size` artifacts with `context` and `distractors: [citation-form expressions]`, containing exactly `distractor_count` distractors per artifact.
+- Do not return the correct answer; the application resolves the target citation lemma through the selected Sense.

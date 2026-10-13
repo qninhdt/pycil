@@ -5,7 +5,7 @@ test('app routes, deck creation dialog, account menu and theme persist', async (
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
   let apiRequests = 0
-  page.on('request', request => { if (request.url().includes('/api/v1/')) apiRequests++ })
+  page.on('request', request => { if (request.url().includes('/v1/')) apiRequests++ })
   await page.goto('/app')
   await expect(page).toHaveURL(/\/app$/)
   await expect(page.getByRole('heading', { name: /Good (morning|afternoon|evening)(, Alex)?/ })).toBeVisible()

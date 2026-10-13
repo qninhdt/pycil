@@ -1,12 +1,18 @@
 """Live authorization from physical system-root paths, never display names."""
 
-from sqlalchemy import and_, or_, select
+from uuid import UUID
 
-from pycil.http import Problem
+from sqlalchemy import and_, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql import ColumnElement
+from sqlalchemy.sql.selectable import Exists, FromClause
+
+from pycil.app.config import ProductConfig
+from pycil.app.http import Problem
 from pycil.library.models import Node, NodePath, NodeRole, NodeType
 
 
-def has_root(node, role):
+def has_root(node: FromClause, role: NodeRole) -> Exists:
     root = Node.__table__.alias()
     path = NodePath.__table__.alias()
     return (
@@ -24,11 +30,11 @@ def has_root(node, role):
     )
 
 
-def published(node):
+def published(node: FromClause) -> ColumnElement[bool]:
     return and_(has_root(node, NodeRole.LIBRARY_ROOT), has_root(node, NodeRole.PUBLISHED_ROOT))
 
 
-def visible(node, viewer_id):
+def visible(node: FromClause, viewer_id: UUID | None) -> ColumnElement[bool]:
     ancestor = Node.__table__.alias()
     path = NodePath.__table__.alias()
     broken = (
@@ -49,7 +55,7 @@ def visible(node, viewer_id):
     )
 
 
-def reference_visible(node, viewer_id):
+def reference_visible(node: FromClause, viewer_id: UUID | None) -> Exists:
     target = Node.__table__.alias()
     return (
         select(target.c.id)
@@ -64,7 +70,9 @@ def reference_visible(node, viewer_id):
     )
 
 
-async def readable(session, node_id, viewer_id, config):
+async def readable(
+    session: AsyncSession, node_id: UUID, viewer_id: UUID | None, config: ProductConfig
+) -> Node:
     node = await session.scalar(
         select(Node).where(Node.id == node_id, visible(Node.__table__, viewer_id))
     )
@@ -79,7 +87,9 @@ async def readable(session, node_id, viewer_id, config):
     return node
 
 
-async def readable_path(session, node_id, viewer_id, config):
+async def readable_path(
+    session: AsyncSession, node_id: UUID, viewer_id: UUID | None, config: ProductConfig
+) -> tuple[Node, list[Node]]:
     node = await readable(session, node_id, viewer_id, config)
     ancestors = list(
         (

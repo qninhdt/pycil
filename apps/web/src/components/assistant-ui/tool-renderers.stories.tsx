@@ -20,21 +20,21 @@ export const DictionarySearchComplete: Story = {
     result: {
       items: [
         {
-          kind: 'WORD',
+          kind: 'word',
           word_id: 1,
           lemma: 'lucid',
-          entry_type: 'WORD',
-          match_kind: 'EXACT',
+          entry_type: 'word',
+          match_kind: 'exact',
           matched_queries: ['lucid'],
-          senses: [{ sense_id: 1, word_id: 1, lemma: 'lucid', definition: 'clear and easy to understand', pos: 'ADJECTIVE' }],
+          senses: [{ sense_id: 1, word_id: 1, lemma: 'lucid', definition: 'clear and easy to understand', pos: 'adjective' }],
           matched_surface: 'lucid',
         },
         {
-          kind: 'REFERENCE',
+          kind: 'reference',
           reference_id: 'ref-1',
           display: 'lucidity',
-          entry_type: 'WORD',
-          match_kind: 'PREFIX',
+          entry_type: 'word',
+          match_kind: 'prefix',
           matched_queries: ['lucid'],
           matched_surface: 'lucidity',
         },
@@ -68,8 +68,8 @@ export const ToolRunningState: Story = {
 export const NodeCreationSuccess: Story = {
   args: {
     toolName: 'create_node',
-    args: { name: 'GRE Vocabulary 2026', type: 'DECK' },
-    result: { node_id: '01900000-0000-7000-8000-000000000003', name: 'GRE Vocabulary 2026', type: 'DECK', summary: { total: 0 } },
+    args: { name: 'GRE Vocabulary 2026', type: 'deck' },
+    result: { node_id: '01900000-0000-7000-8000-000000000003', name: 'GRE Vocabulary 2026', type: 'deck', summary: { total: 0 } },
     status: { type: 'complete' },
     isError: false,
   },

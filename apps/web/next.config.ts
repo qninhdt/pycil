@@ -21,10 +21,6 @@ const config: NextConfig = {
   },
   turbopack: { root: fileURLToPath(new URL('./', import.meta.url)) },
   experimental: { proxyTimeout: 210_000 },
-  async rewrites() {
-    if (mode === 'mock') return []
-    return [{ source: '/api/v1/:path*', destination: `${apiUrl.replace(/\/$/, '')}/v1/:path*` }]
-  },
 }
 
 export default withNextIntl(config)

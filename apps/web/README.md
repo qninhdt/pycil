@@ -17,9 +17,10 @@ For live authentication, set `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` in
 `apps/web/.env.local` for the same Clerk instance used by the API, and use
 `NEXT_PUBLIC_DATA_MODE=live`. The frontend uses `@clerk/nextjs` and Clerk middleware;
 server account loading also requires the matching `CLERK_SECRET_KEY`. Clerk issues the
-session token, which the frontend sends as a bearer token through `/api/v1/*`.
-Next.js only forwards these requests to `PYCIL_API_URL` (default
-`http://127.0.0.1:8000`); the API verifies the token using Clerk's public JWKS.
+session token, which the frontend sends as a bearer token directly to the API at
+`NEXT_PUBLIC_PYCIL_API_URL` (default `http://127.0.0.1:8000`), under `/v1/*`.
+Server account loading uses the configured API address as well. The API verifies
+the token using Clerk's public JWKS; `ALLOWED_ORIGINS` must include the web origin.
 The frontend loads its own environment files and does not load the root `.env`.
 Signed-in visitors to `/login`, `/signup` and `/forgot-password` are redirected to
 their safe `/app` return route, or `/app` by default. Pending Clerk account tasks
@@ -62,7 +63,7 @@ use the [backend Library contracts](../../docs/backend/modules/library.md).
 Public creation/publication requires explicit confirmation. Viewing flashcards does
 not submit reviews. Accepted reviews invalidate progress/reporting queries.
 
-Practice, Learn new and Review enter `/focus/learn` directly from Home or any
+Practice, Learn new and Review enter `/app/learn` directly from Home or any
 Library scope. Signed-out visitors can read Published folders/decks and public
 meanings through the same canonical links, without personal learning details.
 Preparation runs inside focus mode; failures use an accessible popup
@@ -125,8 +126,8 @@ and decision services for generation, typed grading and Assistant streaming:
 pnpm test:e2e:live
 ```
 
-It requires `INFERENCE_API_KEY`, `INFERENCE_BASE_URL`, `LEXI_DECISION_API_KEY` and
-`LEXI_DECISION_BASE_URL` in the runner environment/file. It fails before creating
+It requires `LLM_API_KEY`, `LLM_BASE_URL`, `DECISION_API_KEY` and
+`DECISION_BASE_URL` in the runner environment/file. It fails before creating
 users if configuration is missing. Legacy provider variable names are not silently
 translated. This profile invokes paid services and is separate from routine E2E.
 
@@ -159,7 +160,7 @@ saved conversations. AI allowance/reset dates come from `/me/usage`; history off
 confirmed deletion of owned conversations. Mock mode links to the showcase without making AI requests.
 
 PycilAI uses the [existing AG-UI API](../../docs/backend/modules/assistant.md) through
-the same bearer-token and `/api/v1/*` forwarding route as the rest of the app.
+the same bearer token and direct backend `/v1/*` routes as the rest of the app.
 The server owns conversation history; the client sends only the new user message,
 or an explicit approval resolution. Closing an active panel cancels the client run;
 reopening fetches saved state without replaying an unknown turn.

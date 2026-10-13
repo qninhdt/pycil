@@ -6,6 +6,6 @@ export const metadata: Metadata = {
   description: 'Build a vocabulary library around the meanings that matter to you. Practice in context and return when a review is due.',
 }
 
-export default function Index() {
+export default async function Index() {
   return <LandingPage />
 }

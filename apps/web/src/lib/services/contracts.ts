@@ -30,7 +30,7 @@ export interface FrontendServices {
     review: (input: { results: SubmittedResult[]; key: string }, signal: AbortSignal) => Promise<ReviewBatchResult>
   }
   library: {
-    discovery: (options: ContentsOptions & { type?: 'DECK' | 'FOLDER'; ownerId?: string }, signal: AbortSignal) => Promise<LibraryPage>
+    discovery: (options: ContentsOptions & { type?: 'deck' | 'folder'; ownerId?: string }, signal: AbortSignal) => Promise<LibraryPage>
     sources: (nodeId: string, senseId: number, cursor: string | undefined, signal: AbortSignal) => Promise<SourcesPage>
     createReference: (parentId: string, targetId: string, name: string, signal: AbortSignal, confirmPublication?: boolean) => Promise<string>
     list: (parentId: string, signal: AbortSignal) => Promise<LibraryPage>
@@ -42,7 +42,7 @@ export interface FrontendServices {
     meanings: (nodeId: string, options: MeaningOptions, signal: AbortSignal) => Promise<MeaningPage>
     updateDeckSenses: (deckId: string, change: { add: number[]; remove: number[] }, signal: AbortSignal) => Promise<void>
     createDeck: (parentId: string, name: string, senseIds: number[], signal: AbortSignal, confirmPublication?: boolean) => Promise<string>
-    createNode: (input: { parentId: string; type: 'FOLDER' | 'DECK'; name: string; description: string | null; confirmPublication?: boolean }, signal: AbortSignal) => Promise<string>
+    createNode: (input: { parentId: string; type: 'folder' | 'deck'; name: string; description: string | null; confirmPublication?: boolean }, signal: AbortSignal) => Promise<string>
     updateNode: (nodeId: string, change: { name: string; description: string | null }, signal: AbortSignal) => Promise<void>
     moveNode: (nodeId: string, parentId: string, signal: AbortSignal, publication?: { confirm: boolean; retainReference: boolean }) => Promise<void>
     copyNode: (nodeId: string, parentId: string, signal: AbortSignal, confirmPublication?: boolean) => Promise<string>

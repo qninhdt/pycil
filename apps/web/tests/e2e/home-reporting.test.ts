@@ -10,10 +10,10 @@ function summaryLabel({ due, new: fresh, not_due, total }: StudySummary) {
 }
 
 test('Home reports deduplicated native counts, practice activity, timezone and schedule without reviews on navigation', async ({ page, profile, nodes }) => {
-  const first = await nodes.create({ type: 'DECK', sense_ids: [18, 19] })
+  const first = await nodes.create({ type: 'deck', sense_ids: [18, 19] })
   expect((await api<StudySummary>(page, `study/progress?node_id=${first.id}`)).body.total).toBe(2)
   const beforeDuplicate = (await api<StudySummary>(page, 'study/progress')).body
-  const practiced = await nodes.create({ type: 'DECK', sense_ids: [18] })
+  const practiced = await nodes.create({ type: 'deck', sense_ids: [18] })
   const afterDuplicate = (await api<StudySummary>(page, 'study/progress')).body
   expect(afterDuplicate).toMatchObject({ total: beforeDuplicate.total, new: beforeDuplicate.new,
     studied: beforeDuplicate.studied, due: beforeDuplicate.due, not_due: beforeDuplicate.not_due })
@@ -22,7 +22,7 @@ test('Home reports deduplicated native counts, practice activity, timezone and s
     const date = new Intl.DateTimeFormat('en-CA', { timeZone: 'Pacific/Kiritimati', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
     const before = (await api<StudyActivity>(page, `study/activity?start_date=${date}&end_date=${date}`)).body
     const streak = before.current_streak + (before.days[0].applied_events + before.days[0].practice_events > 0 ? 0 : 1)
-    const prepared = await api<PreparedSession>(page, 'study:prepare', 'POST', { node_id: practiced.id, selection: 'AUTO' })
+    const prepared = await api<PreparedSession>(page, 'study:prepare', 'POST', { node_id: practiced.id, selection: 'auto' })
     expect(prepared.status).toBe(200)
     const question = prepared.body.bundles[0].questions[0]
     const answeredAt = new Date().toISOString()
@@ -52,14 +52,14 @@ test('Home reports deduplicated native counts, practice activity, timezone and s
 })
 
 test('Home API outage shows an error and retry restores backend counts without preview data', async ({ page, profile, nodes }) => {
-  const deck = await nodes.create({ type: 'DECK', sense_ids: [20] })
+  const deck = await nodes.create({ type: 'deck', sense_ids: [20] })
   const summary = (await api<StudySummary>(page, 'study/progress')).body
   expect(profile.id).toBeTruthy(); expect(deck.id).toBeTruthy()
-  await page.route('**/api/v1/study/progress*', route => route.abort('connectionfailed'))
+  await page.route('**/v1/study/progress*', route => route.abort('connectionfailed'))
   await page.goto('/app')
   const today = page.getByRole('region', { name: 'Today', exact: true })
   await expect(today.getByText('Could not load Library counts.', { exact: true })).toBeVisible()
-  await page.unroute('**/api/v1/study/progress*')
+  await page.unroute('**/v1/study/progress*')
   await today.getByRole('button', { name: 'Retry', exact: true }).click()
   await expect(page.getByRole('img', { name: summaryLabel(summary) })).toBeVisible()
 })

@@ -29,7 +29,7 @@ export function FlashcardFocus() {
       const pages: Meaning[] = []
       let cursor: string | undefined
       do {
-        const page = await services.library.meanings(nodeId, { cursor, limit: 100, state: 'ALL', sort: 'LEMMA_ASC' }, controller.signal)
+        const page = await services.library.meanings(nodeId, { cursor, limit: 100, state: 'all', sort: 'lemma_asc' }, controller.signal)
         pages.push(...page.senses); cursor = page.next_cursor ?? undefined
       } while (cursor)
       if (controller.signal.aborted) return

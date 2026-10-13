@@ -1,30 +1,52 @@
 """Compact, batched context for the Assistant's task tools."""
 
-from dataclasses import asdict
+from collections.abc import Mapping, Sequence
+from typing import Any, Protocol, cast
+from uuid import UUID
 
-from lexi_ai.contract import Sense, Word
 from sqlalchemy import or_, select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from pycil.http import Problem
+from pycil.account.auth import ActorContext
+from pycil.account.models import User
+from pycil.app.config import ProductConfig
+from pycil.app.http import Problem
+from pycil.app.projections import viewer_context
 from pycil.library.access import reference_visible, visible
 from pycil.library.models import Node, NodePath, NodeRole, NodeType
 from pycil.library.scope import ScopeBudget
 from pycil.study.progress import summaries
-from pycil.vocabulary.context import viewer_context
+from pycil.vocabulary.models import Sense, Word
+from pycil.vocabulary.words import get_sense_previews, get_senses
 
 
-async def vocabulary(resources, user, config, word_ids=(), sense_ids=(), include=()):
-    word_ids, sense_ids = set(word_ids), set(sense_ids)
+class ProjectionsResources(Protocol):
+    sessions: async_sessionmaker[AsyncSession]
+    content_cache: Any
+
+
+async def vocabulary(
+    resources: ProjectionsResources,
+    user: User | ActorContext,
+    config: ProductConfig,
+    word_ids: Sequence[int] = (),
+    sense_ids: Sequence[int] = (),
+    include: Sequence[str] = (),
+) -> dict[str, list[dict[str, Any]]]:
+    word_ids_set = set(word_ids)
+    sense_ids_set = set(sense_ids)
     async with resources.sessions() as session:
-        if word_ids:
-            found = set((await session.scalars(select(Word.id).where(Word.id.in_(word_ids)))).all())
-            if found != word_ids:
+        if word_ids_set:
+            found = set(
+                (await session.scalars(select(Word.id).where(Word.id.in_(word_ids_set)))).all()
+            )
+            if found != word_ids_set:
                 raise Problem(404, "word_not_found")
         rows = list(
             (
                 await session.execute(
                     select(Sense.id, Sense.word_id)
-                    .where(or_(Sense.word_id.in_(word_ids), Sense.id.in_(sense_ids)))
+                    .where(or_(Sense.word_id.in_(word_ids_set), Sense.id.in_(sense_ids_set)))
                     .order_by(Sense.id)
                     .limit(config.projections.max_word_senses + 1)
                 )
@@ -32,8 +54,8 @@ async def vocabulary(resources, user, config, word_ids=(), sense_ids=(), include
         )
         if len(rows) > config.projections.max_word_senses:
             raise Problem(422, "lexical_batch_too_large")
-        identifiers = [r.id for r in rows]
-        if not sense_ids <= set(identifiers):
+        identifiers: list[int] = [int(r[0]) for r in rows]
+        if not sense_ids_set <= set(identifiers):
             raise Problem(404, "sense_not_found")
         context = (
             {
@@ -52,21 +74,27 @@ async def vocabulary(resources, user, config, word_ids=(), sense_ids=(), include
             if identifiers and set(include) & {"learning", "sources"}
             else {}
         )
-    facts = {
-        s["sense_id"]: dict(s) for s in await resources.lexicon.get_sense_previews(identifiers)
+    facts: dict[int, dict[str, Any]] = {
+        int(s["sense_id"]): dict(s)
+        for s in await get_sense_previews(resources.sessions, identifiers)
     }
     native = (
-        {s.id: s for s in await resources.lexicon.get_senses(identifiers)}
+        {
+            s.id: s
+            for s in await get_senses(
+                resources.sessions, identifiers, cache=resources.content_cache
+            )
+        }
         if set(include) & {"examples", "lexical_details"}
         else {}
     )
-    result = []
+    result: list[dict[str, Any]] = []
     for identifier in identifiers:
         if identifier not in facts or (
             set(include) & {"examples", "lexical_details"} and identifier not in native
         ):
             raise Problem(409, "learning_content_changed")
-        item = {
+        item: dict[str, Any] = {
             k: facts[identifier][k]
             for k in (
                 "sense_id",
@@ -82,7 +110,7 @@ async def vocabulary(resources, user, config, word_ids=(), sense_ids=(), include
         if "examples" in include:
             item["examples"] = [e.content for e in native[identifier].examples[:2]]
         if "lexical_details" in include:
-            details = asdict(native[identifier])
+            details = native[identifier].model_dump(mode="json")
             item |= {
                 k: details[k]
                 for k in ("forms", "patterns", "collocations", "relations", "ipa_uk", "ipa_us")
@@ -99,7 +127,7 @@ async def vocabulary(resources, user, config, word_ids=(), sense_ids=(), include
     return {"senses": result}
 
 
-def node_projection(node, user_id):
+def node_projection(node: Mapping[str, Any], user_id: UUID) -> dict[str, Any]:
     return {
         "node_id": node["id"],
         "name": node["name"],
@@ -112,12 +140,17 @@ def node_projection(node, user_id):
     }
 
 
-async def node_cards(session, user_id, config, rows):
+async def node_cards(
+    session: AsyncSession,
+    user_id: UUID,
+    config: ProductConfig,
+    rows: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
     if not rows:
         return []
-    identifiers = [r["id"] for r in rows]
+    identifiers: list[UUID] = [cast(UUID, r["id"]) for r in rows]
     ancestor = Node.__table__.alias("ancestor")
-    paths = {i: [] for i in identifiers}
+    paths: dict[UUID, list[dict[str, Any]]] = {i: [] for i in identifiers}
     for row in (
         await session.execute(
             select(NodePath.descendant_id, ancestor.c.id, ancestor.c.name)
@@ -126,8 +159,8 @@ async def node_cards(session, user_id, config, rows):
             .order_by(NodePath.descendant_id, NodePath.depth.desc())
         )
     ).all():
-        paths[row.descendant_id].append({"node_id": row.id, "name": row.name})
-    available = dict(
+        paths[row[0]].append({"node_id": row[1], "name": row[2]})
+    available: dict[UUID, bool | None] = dict(
         (
             await session.execute(
                 select(Node.id, reference_visible(Node.__table__, user_id)).where(
@@ -136,7 +169,7 @@ async def node_cards(session, user_id, config, rows):
             )
         ).all()
     )
-    counts = []
+    counts: list[dict[str, Any]] = []
     size = config.learning.limits.max_summary_nodes
     budget = ScopeBudget(user_id)
     for start in range(0, len(identifiers), size):
@@ -148,24 +181,34 @@ async def node_cards(session, user_id, config, rows):
     return [
         node_projection(row, user_id)
         | {
-            "path": paths[row["id"]],
-            "reference_available": available.get(row["id"]),
+            "path": paths[cast(UUID, row["id"])],
+            "reference_available": available.get(cast(UUID, row["id"])),
             "summary": count,
         }
         for row, count in zip(rows, counts, strict=True)
     ]
 
 
-async def saved_node(resources, user_id, config, result):
+async def saved_node(
+    resources: ProjectionsResources,
+    user_id: UUID,
+    config: ProductConfig,
+    result: Mapping[str, Any],
+) -> dict[str, Any]:
     return (await saved_nodes(resources, user_id, config, [result]))[0]
 
 
-async def saved_nodes(resources, user_id, config, results):
-    items = []
+async def saved_nodes(
+    resources: ProjectionsResources,
+    user_id: UUID,
+    config: ProductConfig,
+    results: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
     for result in results:
         item = node_projection(result, user_id)
         if "sense_ids" in result:
-            item["sense_count"] = len(result["sense_ids"])
+            item["sense_count"] = len(cast(Sequence[Any], result["sense_ids"]))
         for key in ("added_count", "removed_count", "retained_reference_id"):
             if key in result:
                 item[key] = result[key]
@@ -173,7 +216,9 @@ async def saved_nodes(resources, user_id, config, results):
     # The write already committed; enrichment failure must not report it as failed.
     async with resources.sessions() as session:
         try:
-            counts = await summaries(session, user_id, config, [r["id"] for r in results])
+            counts = await summaries(
+                session, user_id, config, [cast(UUID, r["id"]) for r in results]
+            )
         except Problem as exc:
             for item in items:
                 item["summary_error"] = exc.code

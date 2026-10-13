@@ -1,0 +1,33 @@
+## Sentence Rewrite
+
+### Source and Correct Rewrite
+
+- Create an original, self-contained source sentence whose meaning can naturally be preserved by using the selected target Sense.
+- Keep the target expression, its aliases, inflected forms, and target markup out of `source`. Convey the situation without merely disguising a dictionary definition.
+- Generate `correct` as an original, grammatical rewrite using the target in the selected Sense. Preserve all material propositions, participant roles, negation, tense and time reference, modality, conditions, degree, and qualifications in the source.
+- Accept natural changes in wording, voice, clause structure, and word order. Do not require word-for-word similarity; preserve the intended meaning and commitments.
+- Ensure the correct rewrite respects the target's semantic scope, argument structure, grammatical behavior, collocations, register, and conventional usage.
+- Choose a source that establishes a meaningful distinction between the correct rewrite and plausible wrong rewrites without requiring obscure background knowledge.
+
+### Distractor Construction
+
+
+- Generate distractors as plausible rewrites containing the same complete target expression or its licensed inflected forms, not synonyms, definitions, or unrelated lexical items.
+- Construct distractors around meaningful errors in either semantic/contextual application or grammatical/collocational usage.
+- For semantic misuse, preserve grammatical correctness while applying the target to an inappropriate referent, situation, intended meaning, or communicative context.
+- A distractor may use another established Sense of the target correctly, provided that usage is clearly incompatible with the intended meaning of the source.
+{% include "study/artifacts/prompts/types/usage-rules.jinja" %}
+
+
+### Meaning Preservation
+
+- A distractor can misuse the target or materially change the source's meaning while using the target fluently. Keep these two failure modes distinct when checking options.
+- Use realistic misunderstandings involving participant roles, negation, time, modality, conditions, degree, or semantic scope; avoid arbitrary changes to unrelated details.
+- Reject any rewrite that remains a valid meaning-preserving alternative under a reasonable reading of the source. A stylistically different or less preferred valid rewrite is not a distractor.
+- Keep every option comparable in register, detail, fluency, and grammatical presentation. Mark the target consistently in all options so that markup does not reveal correctness.
+
+### Output Contract
+
+- Return `batch_size` artifacts with `source`, `correct`, and `distractors: [rewrites]`, containing exactly `distractor_count` distractors per artifact.
+- Do not generate a separate prompt. The application combines `source` and the target Word for Single Choice and Short Answer views.
+- The reference rewrite is one valid answer; Short Answer grading also accepts other valid uses of the target that preserve the source's meaning.

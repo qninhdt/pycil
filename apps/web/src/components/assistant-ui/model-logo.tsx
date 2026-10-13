@@ -1,5 +1,3 @@
-'use client'
-
 import { cn } from '@/lib/utils'
 
 export type ModelProvider = 'openai' | 'google' | 'anthropic' | 'deepseek' | 'meta' | 'default'

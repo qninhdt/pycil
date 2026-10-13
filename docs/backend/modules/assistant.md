@@ -100,9 +100,9 @@ equivalent to review Idempotency-Key.
 | `search_words` | Up to 10 queries; per-query limit 1–10 (default 3); one deduplicated list of existing WORDs with matched/unmatched queries and sense IDs/definitions; no lexical references | No |
 | `read_vocabulary` | Up to 30 Word IDs / 100 sense IDs; deduplicated senses, optional examples, lexical details, personal learning or containing decks | No |
 | `search_nodes` | Multiple names in Library or published Discovery; per-query limit; merged nodes with safe paths, roles, editability, reference availability and summaries | No |
-| `read_library` | Default Library or a known node: CONTENT reads distinct senses with examples/learning; STRUCTURE lists children; bounded cursor pages | No |
+| `read_library` | Default Library or a known node: content reads distinct senses with examples/learning; structure lists children; bounded cursor pages | No |
 | `learning_overview` | Batch exact scope summaries; optional account-wide activity and scoped future schedules with separate date windows | No |
-| `generate_words` | Accept `words`, up to 10 word/expression strings; Lexi selects exact source matches internally and reuses or generates Words; wait up to 30 seconds, then return completed senses or pending task IDs | Yes |
+| `generate_words` | Accept `words`, up to 10 word/expression strings; the vocabulary module selects exact source matches internally and reuses or generates Words; wait up to 30 seconds, then return completed senses or pending task IDs | Yes |
 | `get_generations` | Batch task statuses, with a bounded wait and completed Word/senses | No |
 | `create_node` | Create metadata and initial deck sense IDs in one transaction | Yes |
 | `update_node` | Atomically update metadata and/or membership; null name/description preserves values; `clear_description=true` explicitly clears description; actual added/removed counts | Yes |
@@ -116,10 +116,10 @@ equivalent to review Idempotency-Key.
 sense hydration cap from configuration; they fail explicitly rather than silently omitting
 senses. Search results are merged only after each query's limit is applied.
 
-CONTENT supports query, NEW/DUE/NOT_YET_DUE filters and SQL/keyset ordering, including
-MASTERY_ASC (lowest Elo first; unstudied senses use configured initial Elo). A cursor binds
+content supports query, new/due/not_yet_due filters and SQL/keyset ordering, including
+mastery_asc (lowest Elo first; unstudied senses use configured initial Elo). A cursor binds
 viewer, scope, filters and sort. A page is incomplete while next_cursor is present.
-STRUCTURE never represents a deck's membership. Summary/schedule scope counts must not be
+structure never represents a deck's membership. Summary/schedule scope counts must not be
 summed when scopes overlap; activity is account-wide. Lifetime streaks are aggregated in
 SQL, while only the requested activity date window is loaded into the application.
 
@@ -132,7 +132,7 @@ Tools normalize UUID/date/enum output to JSON-safe values before native serializ
 Validation failures return error ToolMessages with safe field locations/messages; rejected
 inputs and exception context are not echoed. Business error codes remain distinct.
 
-Lexical reference IDs are private to the generation flow used by the Assistant. It sends
+the vocabulary modulecal reference IDs are private to the generation flow used by the Assistant. It sends
 word strings, never reference/target pairs. The Dictionary HTTP API still supports explicit
 reference selection. Missing exact matches fail generation rather than generating a fuzzy
 suggestion. Finished jobs retain their task IDs and can be read through `get_generations`.
@@ -222,6 +222,6 @@ This cleanup spans native/application transactions, not a single all-or-nothing 
 ## Sources and tests
 
 - [Router](../../../apps/api/pycil/assistant/api.py), [turn boundary](../../../apps/api/pycil/assistant/stream.py), [graph/guard](../../../apps/api/pycil/assistant/graph.py)
-- [System prompt](../../../apps/api/pycil/assistant/system_prompt.txt)
+- [System prompt](../../../apps/api/pycil/assistant/prompts/system_prompt.txt)
 - [Tools](../../../apps/api/pycil/assistant/tools.py), [conversation leases/deletion](../../../apps/api/pycil/assistant/conversations.py), [meter](../../../apps/api/pycil/assistant/metering.py), [checkpoint storage](../../../apps/api/pycil/assistant/checkpoints.py)
-- [Assistant integration](../../../apps/api/tests/integration/test_assistant.py), [task-tool integration/query counts](../../../apps/api/tests/integration/test_assistant_tools.py), [process restart](../../../apps/api/tests/system/test_process_restart.py)
+- [Checkpoint restart, lease and owned deletion](../../../apps/api/tests/integration/assistant/test_checkpoints.py)

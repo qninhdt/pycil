@@ -1,6 +1,7 @@
 import { shiftDay } from './home-calendar'
 import { parseDictionarySense, type DictionarySense } from './dictionary-model'
 import type { AnswerFormat, LearningSettings } from './api'
+import { getApiBaseUrl } from './services/config'
 
 export type StudySummary = {
   node_id: string; as_of: string; total: number; new: number; studied: number
@@ -16,24 +17,24 @@ export type ReviewSchedule = {
   days: { day: string; count: number }[]
 }
 export type LibraryNode = {
-  id: string; name: string; type: 'FOLDER' | 'DECK' | 'REFERENCE'
+  id: string; name: string; type: 'folder' | 'deck' | 'reference'
   description: string | null; summary: StudySummary | null
   owner_id?: string
-  reference_id?: string | null; target_type?: 'DECK' | 'FOLDER' | null
+  reference_id?: string | null; target_type?: 'deck' | 'folder' | null
 }
 export type LibraryPage = { nodes: LibraryNode[]; next_cursor: string | null }
-export type SessionSelection = 'DUE' | 'NEW' | 'AUTO'
-export type QuestionType = 'DEFINITION_TO_WORD' | 'CONTEXT_TO_WORD' | 'CLOZE_TO_WORD' | 'WORD_TO_DEFINITION' | 'WORD_TO_USAGE' | 'DIALOGUE_COMPLETION' | 'MEANING_IN_CONTEXT' | 'SENTENCE_REWRITE'
+export type SessionSelection = 'due' | 'new' | 'auto'
+export type QuestionType = 'definition_to_word' | 'context_to_word' | 'cloze_to_word' | 'word_to_definition' | 'word_to_usage' | 'dialogue_completion' | 'meaning_in_context' | 'sentence_rewrite'
 export type QuestionOption = { id: string; content: string }
-export type StudyQuestion = { question_artifact_id: number; sense_id: number; question_type: QuestionType; content: string | { speaker: string; text: string | null }[]; correct: QuestionOption; distractors: QuestionOption[]; target_placement: 'DIALOGUE' | 'OPTIONS' | null }
+export type StudyQuestion = { question_artifact_id: number; sense_id: number; question_type: QuestionType; content: string | { speaker: string; text: string | null }[]; correct: QuestionOption; distractors: QuestionOption[]; target_placement: 'dialogue' | 'options' | null }
 export type PreparedQuestion = { question: StudyQuestion; format: AnswerFormat; level: number; options: QuestionOption[] }
-export type PreparedBundle = { sense: DictionarySense; reason: 'DUE' | 'NEW' | 'NOT_YET_DUE'; questions: PreparedQuestion[] }
+export type PreparedBundle = { sense: DictionarySense; reason: 'due' | 'new' | 'not_yet_due'; questions: PreparedQuestion[] }
 export type PreparedSession = { node_id: string; selection: SessionSelection; max_sense_count: number; actual_sense_count: number; actual_question_count: number; preferences: LearningSettings; bundles: PreparedBundle[] }
 export type QuizDiagnostic = { correct: boolean }
 export type SingleWordDiagnostic = { task_fit: boolean; spelling_error: boolean; sense_id: number | null }
-export type DefinitionDiagnostic = { sense_id: number | null; accuracy: 'ACCURATE' | 'MIXED' | 'INACCURATE' | null; coverage: 'SUFFICIENT' | 'PARTIAL' | 'MINIMAL' | null }
-export type UsageDiagnostic = { used: boolean; meaning: 'CORRECT' | 'APPROXIMATE' | 'WRONG' | null; form: 'CORRECT' | 'SPELLING_ERROR' | 'FORM_ERROR' | null; construction: boolean | null; collocation: boolean | null; appropriacy: boolean | null }
-export type RewriteDiagnostic = UsageDiagnostic & { meaning_preservation: 'PRESERVED' | 'PARTIAL' | 'CHANGED' | null }
+export type DefinitionDiagnostic = { sense_id: number | null; accuracy: 'accurate' | 'mixed' | 'inaccurate' | null; coverage: 'sufficient' | 'partial' | 'minimal' | null }
+export type UsageDiagnostic = { used: boolean; meaning: 'correct' | 'approximate' | 'wrong' | null; form: 'correct' | 'spelling_error' | 'form_error' | null; construction: boolean | null; collocation: boolean | null; appropriacy: boolean | null }
+export type RewriteDiagnostic = UsageDiagnostic & { meaning_preservation: 'preserved' | 'partial' | 'changed' | null }
 export type Diagnostic = QuizDiagnostic | SingleWordDiagnostic | DefinitionDiagnostic | UsageDiagnostic | RewriteDiagnostic
 export type QuestionReference = { question_artifact_id: number; question_type: QuestionType; format: AnswerFormat }
 export type GradeInput = QuestionReference & { answer: string | null }
@@ -41,8 +42,8 @@ export type GradeResult = QuestionReference & { diagnostics: Diagnostic }
 export type SubmittedResult = GradeResult & { answered_at: string }
 export type TrackedEvidence = SubmittedResult & { evaluated_sense_id: number; recall: number | null; performance: number | null; opponent_elo: number; policy_version: number }
 export type ReviewBatchResult = { accepted_at: string; activity_day: string; results: { sense_id: number; applied: boolean; elo: number; level: number; stability: number; difficulty: number; last_exposure_at: string; due_after: string }[]; evidence: TrackedEvidence[] }
-const questionTypes: QuestionType[] = ['DEFINITION_TO_WORD','CONTEXT_TO_WORD','CLOZE_TO_WORD','WORD_TO_DEFINITION','WORD_TO_USAGE','DIALOGUE_COMPLETION','MEANING_IN_CONTEXT','SENTENCE_REWRITE']
-const answerFormats: AnswerFormat[] = ['SINGLE_CHOICE','SINGLE_WORD','SHORT_ANSWER']
+const questionTypes: QuestionType[] = ['definition_to_word','context_to_word','cloze_to_word','word_to_definition','word_to_usage','dialogue_completion','meaning_in_context','sentence_rewrite']
+const answerFormats: AnswerFormat[] = ['single_choice','single_word','short_answer']
 
 export class HomeApiError extends Error {
   constructor(public status: number, public code: string) {
@@ -113,7 +114,7 @@ function preparedQuestion(value: unknown): PreparedQuestion {
     return { speaker: text(turn.speaker), text: turn.text === null ? null : text(turn.text) }
   })
   const placement = question.target_placement === null ? null : text(question.target_placement)
-  if (placement !== null && placement !== 'DIALOGUE' && placement !== 'OPTIONS') throw new HomeApiError(502, 'invalid_response')
+  if (placement !== null && placement !== 'dialogue' && placement !== 'options') throw new HomeApiError(502, 'invalid_response')
   return { question: { question_artifact_id: positive(question.question_artifact_id), sense_id: positive(question.sense_id),
     question_type: kind as QuestionType, content, correct, distractors,
     target_placement: placement }, format: format as AnswerFormat, level: positive(item.level), options }
@@ -169,8 +170,8 @@ export function parseLibrary(value: unknown): LibraryPage {
   const item = record(value)
   return { next_cursor: item.next_cursor === null ? null : text(item.next_cursor), nodes: list(item.nodes).map(value => {
     const node = record(value)
-    if (!['FOLDER', 'DECK', 'REFERENCE'].includes(text(node.type))) throw new HomeApiError(502, 'invalid_response')
-    if (node.target_type != null && !['DECK', 'FOLDER'].includes(text(node.target_type))) throw new HomeApiError(502, 'invalid_response')
+    if (!['folder', 'deck', 'reference'].includes(text(node.type))) throw new HomeApiError(502, 'invalid_response')
+    if (node.target_type != null && !['deck', 'folder'].includes(text(node.target_type))) throw new HomeApiError(502, 'invalid_response')
     return { id: text(node.id), name: text(node.name), type: node.type as LibraryNode['type'], owner_id: node.owner_id == null ? undefined : text(node.owner_id),
       description: node.description === null ? null : text(node.description), summary: node.summary == null ? null : parseSummary(node.summary),
       reference_id: node.reference_id == null ? null : text(node.reference_id), target_type: node.target_type as LibraryNode['target_type'] ?? null }
@@ -179,10 +180,10 @@ export function parseLibrary(value: unknown): LibraryPage {
 
 export function parsePreparation(value: unknown): PreparedSession {
   const item = record(value)
-  if (!['DUE', 'NEW', 'AUTO'].includes(text(item.selection))) throw new HomeApiError(502, 'invalid_response')
+  if (!['due', 'new', 'auto'].includes(text(item.selection))) throw new HomeApiError(502, 'invalid_response')
   const preferences = record(item.preferences), bundles = list(item.bundles).map(value => {
     const bundle = record(value), sense = parseDictionarySense(bundle.sense), reason = text(bundle.reason)
-    if (!['DUE','NEW','NOT_YET_DUE'].includes(reason)) throw new HomeApiError(502, 'invalid_response')
+    if (!['due','new','not_yet_due'].includes(reason)) throw new HomeApiError(502, 'invalid_response')
     const questions = list(bundle.questions).map(preparedQuestion)
     if (questions.some(value => value.question.sense_id !== sense.id)) throw new HomeApiError(502, 'invalid_response')
     return { sense, reason: reason as PreparedBundle['reason'], questions }
@@ -221,19 +222,19 @@ export function parseGrade(value: unknown): GradeResult {
   const item = record(value), kind = text(item.question_type), format = text(item.format), diag = record(item.diagnostics)
   if (!questionTypes.includes(kind as QuestionType) || !answerFormats.includes(format as AnswerFormat)) throw new HomeApiError(502, 'invalid_response')
   let diagnostics: Diagnostic
-  if (format === 'SINGLE_CHOICE') diagnostics = { correct: bool(diag.correct) }
-  else if (format === 'SINGLE_WORD') diagnostics = { task_fit: bool(diag.task_fit), spelling_error: bool(diag.spelling_error), sense_id: nullablePositive(diag.sense_id) }
-  else if (kind === 'WORD_TO_DEFINITION') {
-    const sense_id = nullablePositive(diag.sense_id), accuracy = nullableChoice(diag.accuracy, ['ACCURATE','MIXED','INACCURATE']), coverage = nullableChoice(diag.coverage, ['SUFFICIENT','PARTIAL','MINIMAL'])
+  if (format === 'single_choice') diagnostics = { correct: bool(diag.correct) }
+  else if (format === 'single_word') diagnostics = { task_fit: bool(diag.task_fit), spelling_error: bool(diag.spelling_error), sense_id: nullablePositive(diag.sense_id) }
+  else if (kind === 'word_to_definition') {
+    const sense_id = nullablePositive(diag.sense_id), accuracy = nullableChoice(diag.accuracy, ['accurate','mixed','inaccurate']), coverage = nullableChoice(diag.coverage, ['sufficient','partial','minimal'])
     if (sense_id === null ? accuracy !== null || coverage !== null : accuracy === null || coverage === null) throw new HomeApiError(502, 'invalid_response')
     diagnostics = { sense_id, accuracy, coverage }
   } else {
-    const usage: UsageDiagnostic = { used: bool(diag.used), meaning: nullableChoice(diag.meaning, ['CORRECT','APPROXIMATE','WRONG']), form: nullableChoice(diag.form, ['CORRECT','SPELLING_ERROR','FORM_ERROR']), construction: nullableBool(diag.construction), collocation: nullableBool(diag.collocation), appropriacy: nullableBool(diag.appropriacy) }
+    const usage: UsageDiagnostic = { used: bool(diag.used), meaning: nullableChoice(diag.meaning, ['correct','approximate','wrong']), form: nullableChoice(diag.form, ['correct','spelling_error','form_error']), construction: nullableBool(diag.construction), collocation: nullableBool(diag.collocation), appropriacy: nullableBool(diag.appropriacy) }
     const components = [usage.meaning, usage.form, usage.construction, usage.collocation, usage.appropriacy]
     if (usage.used ? components.some(value => value === null) : components.some(value => value !== null)) throw new HomeApiError(502, 'invalid_response')
     diagnostics = usage
-    if (kind === 'SENTENCE_REWRITE') {
-      const meaning_preservation = nullableChoice(diag.meaning_preservation, ['PRESERVED','PARTIAL','CHANGED'])
+    if (kind === 'sentence_rewrite') {
+      const meaning_preservation = nullableChoice(diag.meaning_preservation, ['preserved','partial','changed'])
       if (usage.used === (meaning_preservation === null)) throw new HomeApiError(502, 'invalid_response')
       diagnostics = { ...usage, meaning_preservation }
     }
@@ -253,7 +254,8 @@ export function parseReviewBatch(value: unknown): ReviewBatchResult {
 }
 
 export async function homeRequest<T>(path: string, token: string | null, parse: (value: unknown) => T, signal: AbortSignal, body?: unknown, method?: 'POST' | 'PATCH' | 'DELETE', extraHeaders?: Record<string, string>): Promise<T> {
-  const response = await fetch(`/api/v1/${path}`, {
+  const url = `${getApiBaseUrl()}/${path.replace(/^\//, '')}`
+  const response = await fetch(url, {
     method: method ?? (body === undefined ? 'GET' : 'POST'), cache: 'no-store', signal,
     headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...extraHeaders },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),

@@ -91,21 +91,21 @@ export function LibraryStudy({
   return (
     <div className="grid grid-cols-3 gap-2 sm:gap-3 py-2.5 sm:py-4" aria-label={t('studyActions')}>
       <StudyAction
-        href={`/focus/flashcards?node=${encodeURIComponent(nodeId)}${owner}`}
+        href={`/app/flashcards?node=${encodeURIComponent(nodeId)}${owner}`}
         label={tLearning('flashcards')}
         count={summary.total}
         unit={tCommon('words')}
         shape="square"
       />
       <StudyAction
-        href={`/focus/learn?node=${encodeURIComponent(nodeId)}&selection=NEW${owner}`}
+        href={`/app/learn?node=${encodeURIComponent(nodeId)}&selection=new${owner}`}
         label={t('learnNew')}
         count={summary.new}
         unit={t('new').toLowerCase()}
         shape="triangle"
       />
       <StudyAction
-        href={`/focus/learn?node=${encodeURIComponent(nodeId)}&selection=AUTO${owner}`}
+        href={`/app/learn?node=${encodeURIComponent(nodeId)}&selection=auto${owner}`}
         label={t('practice')}
         count={summary.due > 0 ? summary.due : summary.total}
         unit={summary.due > 0 ? t('due').toLowerCase() : tCommon('words')}

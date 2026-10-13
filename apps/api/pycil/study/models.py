@@ -1,11 +1,12 @@
 from datetime import UTC, date, datetime
 from uuid import UUID
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Text
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from pycil.database import Base
+from pycil.infrastructure.database import Base, enum_column
+from pycil.study.enums import QuestionArtifactType
 
 
 class UserSense(Base):
@@ -20,7 +21,7 @@ class UserSense(Base):
         ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
     )
     sense_id: Mapped[int] = mapped_column(
-        ForeignKey("lexi.senses.id", ondelete="RESTRICT"), primary_key=True, index=True
+        ForeignKey("senses.id", ondelete="RESTRICT"), primary_key=True, index=True
     )
     stability: Mapped[float] = mapped_column()
     difficulty: Mapped[float] = mapped_column()
@@ -46,7 +47,7 @@ class ReviewReceipt(Base):
     request_hash: Mapped[str] = mapped_column(Text)
     accepted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     activity_day: Mapped[date] = mapped_column()
-    result: Mapped[dict] = mapped_column(JSONB)
+    result: Mapped[dict[str, object]] = mapped_column(JSONB)
 
 
 class DailyActivity(Base):
@@ -60,3 +61,49 @@ class DailyActivity(Base):
     day: Mapped[date] = mapped_column(primary_key=True)
     applied_events: Mapped[int] = mapped_column()
     practice_events: Mapped[int] = mapped_column()
+
+
+class QuestionArtifact(Base):
+    __tablename__ = "question_artifacts"
+    __table_args__ = (
+        CheckConstraint("position >= 0 AND type_position >= 0", name="positions"),
+        Index("ix_question_artifacts_scope", "sense_id", "theme_id", "position"),
+        Index(
+            "ix_question_artifacts_type_scope",
+            "sense_id",
+            "theme_id",
+            "artifact_type",
+            "type_position",
+        ),
+        Index("ix_question_artifacts_list_scope", "sense_id", "theme_id", "id"),
+        Index(
+            "ix_question_artifacts_type_list_scope", "sense_id", "theme_id", "artifact_type", "id"
+        ),
+        Index(
+            "uq_artifact_payload",
+            "sense_id",
+            text("COALESCE(theme_id, 0)"),
+            "artifact_type",
+            "payload_hash",
+            unique=True,
+        ),
+        Index(
+            "uq_singleton_artifact",
+            "sense_id",
+            text("COALESCE(theme_id, 0)"),
+            "artifact_type",
+            unique=True,
+            postgresql_where=text("artifact_type IN ('word_definition','word_to_usage')"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    sense_id: Mapped[int] = mapped_column(ForeignKey("senses.id", ondelete="CASCADE"))
+    theme_id: Mapped[int | None] = mapped_column(
+        ForeignKey("themes.id", ondelete="CASCADE"), index=True
+    )
+    artifact_type: Mapped[QuestionArtifactType] = mapped_column(enum_column(QuestionArtifactType))
+    payload: Mapped[str] = mapped_column(Text)
+    payload_hash: Mapped[str] = mapped_column(String(64))
+    position: Mapped[int] = mapped_column(server_default=text("0"))
+    type_position: Mapped[int] = mapped_column(server_default=text("0"))

@@ -1,0 +1,51 @@
+## Dialogue Completion
+
+### Dialogue Construction
+
+- Create a complete, natural, coherent, medium-length English dialogue between identifiable speakers. Store all original messages; the application hides one selected turn at runtime.
+- Establish a meaningful conversational situation in which understanding or appropriately applying the selected Sense is necessary to complete the exchange.
+- Provide sufficient conversational context to identify the speakers' intentions, relevant circumstances, and expected direction of the missing reply.
+- Maintain consistency in speaker identities, roles, turn order, shared knowledge, and references throughout the dialogue.
+- Account for relevant pragmatic factors, such as speaker intention, interpersonal relationships, politeness, register, and conversational expectations.
+- Use natural spoken English appropriate to the participants and situation. Avoid artificial exchanges constructed solely to accommodate the target expression.
+- Keep the dialogue focused and medium-length. Include turns that provide useful context for interpreting or completing the exchange rather than padding it with greetings or unrelated material.
+- Represent `conversation` as an ordered array of single-key objects mapping a human speaker name to a complete message. Do not introduce blanks, null messages, or missing turns in the stored conversation.
+- Select eligible `completion_points` whose original reply is not repeated or disclosed elsewhere in the visible dialogue. Do not choose trivial greetings or turns answerable without understanding the target Sense.
+- Do not treat mere lexical overlap with the conversation as evidence that a response is appropriate.
+- Preserve the selected Sense and ensure the dialogue tests meaningful vocabulary knowledge rather than general conversational common sense alone.
+
+### Response Construction
+
+- The correct reply for each completion point is the original `conversation[turn_index]` message. It must naturally continue the dialogue and satisfy the selected learning objective; do not duplicate it in the point.
+- Generate `distractor_count` complete distractor messages for each completion point as plausible conversational replies reflecting meaningful semantic, contextual, or pragmatic misunderstandings.
+- Favor distractors that appear reasonable in isolation but fail an important requirement established by the conversation.
+- Distinguish incorrect interpretation, inappropriate communicative intention, speaker-role confusion, and misuse of the target expression where applicable.
+- Avoid obviously irrelevant, incoherent, or absurd replies that can be eliminated without understanding the dialogue.
+- Ensure exactly one saved option is appropriate under the established conversational context.
+- Keep options comparable in conversational register, fluency, and level of detail. Do not reveal the correct answer through superficial differences.
+
+### Target in Dialogue
+
+- Use the complete target expression exactly once in the complete stored conversation, accurately using the selected Sense and applying Target Expression Tagging. A point hiding another turn produces the Target in Dialogue view, with that target occurrence remaining visible.
+- Make the missing reply depend on interpreting the target expression and responding appropriately to the speaker's communicative intention.
+- Construct distractors around plausible misunderstandings of the target's meaning, implications, or role in the conversation.
+- Do not make the correct response identifiable through superficial repetition of the target expression.
+- Answer options are not required to contain the target; prioritize natural conversational responses.
+
+### Target in Options
+
+- A point hiding the original target turn produces the Target in Options view. Establish a dialogue that naturally creates an opportunity to use the selected target expression in that missing reply.
+- Convey the intended meaning through the visible conversation without explicitly using the target expression or its aliases.
+- Include the complete target expression or a licensed inflected form in EVERY option, preserving its lexical identity and fixed components.
+- Apply Target Expression Tagging consistently to the target in both correct and incorrect options. Tagging identifies the lexical target, not correctness.
+- Make the correct reply use the target in its selected Sense while appropriately addressing the preceding conversation and speaker intention.
+- Construct distractors around inappropriate semantic application, conversational intention, speaker roles, or grammatical and collocational misuse of the target.
+- Keep grammatical errors directly related to the target's usage. Do not introduce unrelated language mistakes merely to make an option incorrect.
+- Do not make the correct option identifiable through the presence, absence, or highlighting of the target expression.
+
+
+### Output Contract
+
+- Return `batch_size` artifacts, each with `conversation` and `completion_points: [{turn_index, distractors: [messages]}]`.
+- `turn_index` is zero-indexed across the entire conversation. Points may come from different speakers; select eligible points without a fixed point count or an input target-placement field.
+- Apply the relevant Target in Dialogue or Target in Options rules above separately to each point. The same conversation can support both placements.

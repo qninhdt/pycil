@@ -1,8 +1,8 @@
 # Backend documentation
 
-This documentation describes the backend contract completed on 2026-10-06.
-It is not a deployment announcement. [Implementation status](implementation-status.md)
-records evidence and external gates.
+The backend is being consolidated according to [the redesign](../../redesign.md).
+These pages describe the current rewrite. Local verification is recorded separately
+from deployment and live-provider evidence.
 
 ## Read by task
 
@@ -24,17 +24,16 @@ Final local checks and phase-to-test mapping: [verification record](verification
 | Deploy or diagnose a service | [Deployment](operations/deployment.md) |
 | Upgrade or recover a database | [Migrations](operations/migrations.md) |
 | Verify a change | [Testing](testing.md) |
-| Implement the remaining redesign and FE APIs | [Consolidated implementation plan](implementation-plan.md) |
+| Follow the approved consolidation | [Redesign](../../redesign.md) |
 
 ## Current inventory
 
 - One Python application under `apps/api`, with an API entry point and finite migration gate.
-- Five business modules: account, library, vocabulary, study, and assistant.
-- 41 business API operations; `/health` and `/ready` are operational routes.
-- PostgreSQL schemas `public`, `lexi`, `lexi_reference`, and `checkpoints`, with three DDL owners.
+- Six business domains: account, library, vocabulary, study, themes and assistant.
+- 39 business API operations; `/health` and `/ready` are operational routes.
+- PostgreSQL `public`, one application baseline and native checkpoint setup.
 - Redis for optional cached values and required coordination.
-- A local vendored Lexi wheel, imported project-owned reference data, and
-  configured inference/decision services.
+- Application-owned vocabulary, immutable reference JSONL and configured model/decision services.
 - Node FTS/Discovery, atomic reviews, durable activity and jointly bounded summaries.
 - Product frontend under `apps/web` with live services and a separate full-stack E2E
   profile; live execution remains an external verification gate. No Star/Pin/tag/
@@ -44,7 +43,7 @@ Final local checks and phase-to-test mapping: [verification record](verification
 
 1. Routes and request/response models define the current HTTP contract.
 2. Service functions and tests define current behavior, including failures.
-3. Historical migrations define upgrade transformations; ORM metadata defines current schema.
+3. The single application baseline initializes fresh databases; ORM metadata defines current schema.
 4. `config/config.yaml` defines product policy; deployment environment supplies addresses and secrets.
 5. These pages explain the relationships and operational consequences.
 
@@ -54,11 +53,10 @@ or explicitly illustrative fragments, not an alternative schema specification.
 
 ## Maintaining these pages
 
-Update the relevant module, configuration/data-model page, tests, and implementation
-status together when changing a contract. Do not describe a proposed endpoint as
+Update the owning module or operational page when changing a durable contract. Do not describe a proposed endpoint as
 available. Do not copy old frontend plans into current documentation as evidence.
 Keep product requirements out of implementation explanations and put technical notes here.
 
 Source references are relative links to the repository. Test names are evidence of
-behavior, not promises about production throughput. See [implementation status](implementation-status.md)
+behavior, not promises about production throughput. See [verification](verification.md)
 and [testing](testing.md) for verification scope and limitations.

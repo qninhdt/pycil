@@ -1,11 +1,9 @@
 """Clerk identity verified by configured issuer, never by an email claim."""
 
-import asyncio
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID, uuid7
 
-import jwt
 from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict
@@ -14,43 +12,15 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 
 from pycil.account.handles import generate_handle
-from pycil.account.lifecycle import clerk_user
 from pycil.account.models import User
 from pycil.account.plans import Plan
-from pycil.dependencies import Session
-from pycil.http import Problem
+from pycil.app.dependencies import Session
+from pycil.app.http import Problem
+from pycil.infrastructure.clerk import IdentityServiceUnavailable, InvalidIdentityError, clerk_user
+from pycil.infrastructure.observability import bind_contextvars, get_logger
 from pycil.library.tree import provision_library
-from pycil.logging import bind_contextvars, get_logger
 
 logger = get_logger(__name__)
-
-
-class Identity:
-    def __init__(self, deployment):
-        self.deployment = deployment
-        self.keys = jwt.PyJWKClient(deployment.clerk_jwks_url)
-
-    async def subject(self, token: str) -> str:
-        try:
-            key = await asyncio.to_thread(self.keys.get_signing_key_from_jwt, token)
-            claims = jwt.decode(
-                token,
-                key.key,
-                algorithms=["RS256"],
-                issuer=self.deployment.clerk_issuer,
-                audience=self.deployment.clerk_audience,
-                options={
-                    "require": ["exp", "sub", "iss"],
-                    "verify_aud": self.deployment.clerk_audience is not None,
-                },
-            )
-            subject = claims["sub"]
-            if not isinstance(subject, str) or not subject.strip() or len(subject) > 255:
-                raise jwt.InvalidTokenError("invalid subject")
-            return subject
-        except (jwt.InvalidTokenError, jwt.PyJWKClientError) as exc:
-            logger.warning("auth_token_verification_failed", error_type=type(exc).__name__)
-            raise Problem(401, "invalid_credentials") from exc
 
 
 class ActorContext(BaseModel):
@@ -61,7 +31,7 @@ class ActorContext(BaseModel):
     display_name: str | None
     handle: str | None
     plan: Plan
-    settings: dict
+    settings: dict[str, Any]
     cycle_anchor: datetime
     created_at: datetime
 
@@ -77,7 +47,10 @@ async def actor(request: Request, session: Session, credentials: Credentials) ->
     if credentials is None or not credentials.credentials.strip():
         logger.warning("auth_credentials_missing")
         raise Problem(401, "invalid_credentials")
-    subject = await request.app.state.identity.subject(credentials.credentials)
+    try:
+        subject = await request.app.state.identity.subject(credentials.credentials)
+    except InvalidIdentityError:
+        raise Problem(401, "invalid_credentials") from None
     cache = session.info.get("cache")
     key = f"actor:v3:{subject}"
     if cache and (context := await cache.get(key, ActorContext)) is not None:
@@ -89,7 +62,14 @@ async def actor(request: Request, session: Session, credentials: Credentials) ->
         user = await session.scalar(select(User).where(User.clerk_subject == subject))
     if user is None or user.display_name is None or user.handle is None:
         now = datetime.now(UTC)
-        identity = await clerk_user(request.app.state.http, request.app.state.deployment, subject)
+        try:
+            identity = await clerk_user(
+                request.app.state.http, request.app.state.deployment, subject
+            )
+        except InvalidIdentityError:
+            raise Problem(401, "invalid_credentials") from None
+        except IdentityServiceUnavailable:
+            raise Problem(503, "identity_service_unavailable") from None
         name = " ".join((identity.get(key) or "").strip() for key in ("first_name", "last_name"))
         name = name.strip()[:255].strip() or "Pycil learner"
         identifier = uuid7() if user is None else user.id
@@ -126,11 +106,12 @@ async def actor(request: Request, session: Session, credentials: Credentials) ->
                     logger.warning("account_handle_collision")
             else:
                 raise Problem(503, "handle_generation_failed")
+            assert user is not None, "user must be provisioned"
             await provision_library(session, user.id)
             logger.info("account_provisioned", user_id=str(user.id))
     context = ActorContext.model_validate(user)
     if cache:
-        await cache.put(key, context, cache.policy.actor_ttl_seconds)
+        await cache.put(key, context, request.app.state.product.cache.actor_ttl_seconds)
     bind_contextvars(actor_id=str(context.id))
     return context
 

@@ -1,0 +1,75 @@
+## Shared Context–Word–Meaning Artifact
+
+- Return `batch_size` artifacts with `context`, `correct: {expression, meaning}`, and `distractors: [{expression, meaning}]`. Each artifact has one correct pair and `distractor_count` distractor pairs using the same schema.
+- Use one passage for both public views. Each distractor expression must fail as a replacement, and its paired meaning must fail as an interpretation of the actual target in the completed passage.
+
+## Cloze to Word
+
+- Create an original, natural sentence or short passage containing exactly one `_` placeholder for the complete missing expression.
+- Construct the text around the selected Sense, making the target expression necessary for conveying the intended meaning and appropriate to the surrounding language.
+- Choose a context that requires learners to integrate relevant semantic, grammatical, and collocational knowledge rather than rely on superficial word matching.
+- Provide sufficient evidence before and/or after the blank to infer the intended answer. Use additional sentences when they contribute meaningful contextual constraints, not merely to increase passage length.
+- Avoid generic contexts that admit several equally natural answers or overly restrictive contexts that reveal the answer through trivial cues.
+- Do not reproduce a supplied usage example by simply removing its target expression. Create a fresh application of the same Sense.
+
+### Answer Construction
+
+- Use the complete, contextually appropriate surface realization of the selected lexical item as `correct.expression`, including its required inflection and all fixed lexical components.
+- Ensure inserting the correct option verbatim into the placeholder produces a complete, natural sentence or passage without modifying any surrounding text.
+- For multi-word expressions, place all fixed lexical components inside the single blank. Choose an appropriate licensed construction rather than splitting the missing expression across the sentence.
+- When the lexical item contains variable slots, realize them naturally within the complete answer where necessary; do not leave unresolved placeholders.
+- Preserve the selected Sense's meaning, argument structure, grammatical restrictions, and conventional usage.
+
+### Distractor Construction
+
+- Generate distractors as complete replacement expressions that learners might plausibly consider for the same blank.
+- Favor semantically related alternatives whose meanings, collocations, or usage requirements differ from those established by the surrounding context.
+- Prefer distractors that fit the immediate grammatical environment but fail an important semantic, contextual, or collocational requirement.
+- Keep distractor expressions compatible with the grammatical slot. Make the error semantic or contextual; do not use morphological misuse as an elimination cue for either public view.
+- Evaluate every distractor by inserting it into the original passage without altering the surrounding text.
+- Reject alternatives that produce an acceptable completion under a reasonable interpretation, including established synonyms or licensed expression variants.
+- Avoid distractors that are merely incomplete fragments, malformed expressions, or trivial inflection changes with no educational value.
+
+### Presentation
+
+- Keep exactly one literal `_` in the question content. Do not divide a multi-word answer into multiple blanks.
+- Do not reveal the missing expression elsewhere in the passage, including through aliases, inflected repetitions, target tagging, or explicit definition clues.
+- Do not apply Target Expression Tagging to the blank or the answer options; the lexical target is intentionally hidden until answer disclosure.
+
+## Meaning in Context
+
+### Passage Construction
+
+- Reuse the same original `context` containing one `_`. The application constructs the completed passage by inserting `correct.expression`; do not generate or store a second passage.
+- Use a natural, contextually appropriate surface form of the complete target expression, preserving its grammatical construction and fixed lexical components.
+- The application tags the inserted target expression for the Meaning in Context view. Do not tag the blank or include the target elsewhere in the stored context.
+- Build sufficient semantic and discourse context to establish the intended interpretation through surrounding events, actions, relationships, implications, or consequences.
+- Make the contextual evidence genuinely useful for distinguishing the selected Sense from plausible alternative interpretations, rather than using the passage as decorative material around an otherwise decontextualized definition question.
+- Use preceding and/or following sentences when necessary to establish the intended meaning. Keep the passage concise without sacrificing relevant contextual information.
+- Provide particularly clear disambiguating evidence when the selected Sense is less common than another established meaning of the Word.
+- Convey the target's meaning naturally through the passage. Do not directly define it, append an explanatory paraphrase, or reproduce a supplied dictionary example with superficial modifications.
+- Maintain consistency in narrative perspective, referents, chronology, and causal relationships so that the passage supports one coherent interpretation.
+- Avoid contextual clues that unintentionally support multiple competing Senses or require obscure background knowledge to resolve.
+- Keep the exercise focused on interpreting the tagged lexical target, not testing general reading comprehension, factual recall, or knowledge of the passage's subject matter.
+- Do not include multiple competing target occurrences that leave learners uncertain about which usage they must interpret.
+- Do not introduce artificial ambiguity or distort the selected Sense to make alternative interpretations appear plausible.
+
+### Correct Interpretation
+
+- Generate `correct.meaning` as a clear, learner-friendly interpretation of what `correct.expression` means specifically in the completed passage.
+- Preserve the selected Sense's semantic characteristics while expressing its relevance to the particular context.
+- Distinguish the lexical meaning from additional information supplied by the passage. Do not mistake an incidental event, consequence, or thematic detail for part of the Word's definition.
+- Use an accurate contextual paraphrase rather than mechanically copying a supplied definition when an original interpretation better demonstrates the intended meaning.
+- Keep the interpretation precise enough to distinguish it from plausible alternative meanings without introducing unsupported semantic restrictions.
+
+### Distractor Construction
+
+- The `meaning` field of each distractor pair accurately describes its paired expression, while being a plausible but contextually incorrect interpretation of the actual target in the completed passage. Do not use unrelated statements or general passage-comprehension answers.
+- Preserve the expression–meaning pairing: use meaningful semantic competition whose interpretation is incompatible with the target in the completed passage. Do not substitute an unrelated alternative Sense of the target for the paired expression's actual meaning.
+- Consider both common and less frequent meanings where relevant, allowing learners to distinguish contextual evidence from their familiarity with the Word's dominant meaning.
+- When suitable alternative Senses are insufficient, construct distractors around realistic misunderstandings of the selected meaning, such as differences in semantic scope, manner, intention, function, or implication.
+- Do not invent additional dictionary Senses or misrepresent an established meaning merely to create a plausible distractor.
+- Evaluate every distractor against the complete passage, not just the sentence containing the target.
+- Reject interpretations that remain reasonable under the supplied context, particularly when two related Senses overlap or the passage does not distinguish them adequately.
+- Keep options comparable in semantic specificity and abstraction. Avoid making the correct option identifiable through wording borrowed directly from the passage.
+- Avoid distractors whose only error concerns unrelated narrative details rather than the target expression's contextual meaning.

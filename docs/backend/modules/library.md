@@ -65,7 +65,7 @@ space, owner, and type changes cannot be supplied through metadata edit. Referen
 
 Read requires an active physical path to the owner's Library and either current
 ownership or an active Published-root path. Deleted/detached nodes and paths crossing
-deleted ancestry do not grant read access. `space=PUBLISHED` is an index/derived field,
+deleted ancestry do not grant read access. `space=published` is an index/derived field,
 not the security authority. Normal owner edits also reject corrupted space/path disagreement.
 
 Owners see full private breadcrumbs. Visitors see breadcrumbs starting at Published;
@@ -83,16 +83,16 @@ A reference to a deck is a learning/sense scope, not a folder child list.
 Create an empty Personal folder:
 
 ```json
-{"type": "FOLDER", "name": "Work vocabulary"}
+{"type": "folder", "name": "Work vocabulary"}
 ```
 
 Create a deck using real existing lexical sense IDs:
 
 ```json
-{"type": "DECK", "name": "Meetings", "sense_ids": [1, 2]}
+{"type": "deck", "name": "Meetings", "sense_ids": [1, 2]}
 ```
 
-Create a reference by supplying `type=REFERENCE` and a readable folder/deck's UUID as
+Create a reference by supplying `type=reference` and a readable folder/deck's UUID as
 `reference_id`. Reference-to-reference targets are rejected. Containers cannot contain
 `sense_ids`. Names are nonblank up to 255 characters; description is up to 8,000.
 
@@ -194,7 +194,7 @@ within cursor traversal, not a membership snapshot. Anonymous personal fields ar
 
 Scoped FTS matches node names/descriptions using `simple`, name weight A, description B,
 GIN and `websearch_to_tsquery`/`ts_rank_cd`. A deck is not a node-search container. Discovery
-returns active NORMAL Published nodes with authoritative root-path checks, excludes
+returns active normal Published nodes with authoritative root-path checks, excludes
 unavailable public references, and does not expand the whole global catalog to paginate.
 Catalog without `q` browses newest first; FTS uses rank/ID. No popularity counts, tags,
 autocomplete/fuzzy promise or exact global result count is added. Broad rank queries
@@ -211,4 +211,4 @@ Important codes: `node_not_found`, `system_node_protected`, `invalid_parent`,
 - [Router/schemas](../../../apps/api/pycil/library/api.py), [schemas](../../../apps/api/pycil/library/schemas.py)
 - [Shared mutation service](../../../apps/api/pycil/library/nodes.py), [authorization](../../../apps/api/pycil/library/access.py)
 - [Closure](../../../apps/api/pycil/library/tree.py), [scope](../../../apps/api/pycil/library/scope.py), [sense pages](../../../apps/api/pycil/library/senses.py)
-- [Library integration](../../../apps/api/tests/integration/test_library.py)
+- [Library integration](../../../apps/api/tests/integration/library/test_publication.py)

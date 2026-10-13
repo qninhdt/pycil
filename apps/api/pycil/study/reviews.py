@@ -4,35 +4,53 @@ import hashlib
 import json
 from collections import defaultdict
 from datetime import UTC, datetime
+from typing import Any, cast
+from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from lexi_ai import QUESTION_ARTIFACT_MAP, QuestionType, ResponseFormat
-from lexi_ai.contract import QuestionArtifact, Sense
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from pycil.account.lifecycle import require_user
 from pycil.account.models import User
-from pycil.account.schemas import preferences
-from pycil.database import transaction_lock
-from pycil.http import Problem
-from pycil.logging import get_logger
+from pycil.account.settings import preferences
+from pycil.app.config import ProductConfig
+from pycil.app.http import Problem
+from pycil.infrastructure.database import transaction_lock
+from pycil.infrastructure.observability import get_logger
+from pycil.study.enums import QUESTION_ARTIFACT_MAP, QuestionType, ResponseFormat
 from pycil.study.evidence import evidence, update_elo
 from pycil.study.fsrs import next_state
-from pycil.study.models import DailyActivity, ReviewReceipt, UserSense
-from pycil.study.schemas import BatchResult
+from pycil.study.models import DailyActivity, QuestionArtifact, ReviewReceipt, UserSense
+from pycil.study.schemas import (
+    BatchResult,
+    DefinitionDiagnostic,
+    Review,
+    ReviewBatch,
+    ReviewResult,
+    SingleWordDiagnostic,
+    TrackedEvidence,
+)
+from pycil.vocabulary.models import Sense
 
 logger = get_logger(__name__)
 
 
-def request_hash(data):
+def request_hash(data: ReviewBatch) -> str:
     encoded = json.dumps(
         data.model_dump(mode="json"), sort_keys=True, separators=(",", ":"), ensure_ascii=False
     )
     return hashlib.sha256(encoded.encode()).hexdigest()
 
 
-async def review(session, user_id, data, event_key, config):
+async def review(
+    session: AsyncSession,
+    user_id: UUID,
+    data: ReviewBatch,
+    event_key: UUID,
+    config: ProductConfig,
+) -> dict[str, Any]:
     if len(data.results) > config.learning.limits.max_review_batch:
         raise Problem(422, "review_batch_too_large")
     digest = request_hash(data)
@@ -54,7 +72,7 @@ async def review(session, user_id, data, event_key, config):
                 user_id=str(user_id),
                 event_key=str(event_key),
             )
-            return previous.result
+            return cast(dict[str, Any], previous.result)
         ids = {r.question_artifact_id for r in data.results}
         artifacts = {
             a.id: a
@@ -64,7 +82,10 @@ async def review(session, user_id, data, event_key, config):
         }
         if len(artifacts) != len(ids):
             raise Problem(422, "question_artifact_not_found")
-        groups, tracked = defaultdict(list), []
+        groups: defaultdict[int, list[tuple[Review, float | None, float | None, float]]] = (
+            defaultdict(list)
+        )
+        tracked: list[TrackedEvidence] = []
         now = datetime.now(UTC)
         policy = config.learning.mastery
         for item in data.results:
@@ -78,7 +99,7 @@ async def review(session, user_id, data, event_key, config):
             if item.answered_at > now:
                 raise Problem(422, "invalid_answered_at")
             sense_id, recall, performance = evidence(item, artifact.sense_id)
-            difficulty = policy.opponent_elo[formats[item.format] - 1]
+            difficulty = float(policy.opponent_elo[formats[item.format] - 1])
             record = item.model_dump(mode="json") | dict(
                 evaluated_sense_id=sense_id,
                 recall=recall,
@@ -86,7 +107,7 @@ async def review(session, user_id, data, event_key, config):
                 opponent_elo=difficulty,
                 policy_version=policy.policy_version,
             )
-            tracked.append(record)
+            tracked.append(TrackedEvidence.model_validate(record))
             groups[sense_id].append((item, recall, performance, difficulty))
         sense_ids = (
             set(groups)
@@ -94,22 +115,25 @@ async def review(session, user_id, data, event_key, config):
             | {
                 item.diagnostics.sense_id
                 for item in data.results
-                if hasattr(item.diagnostics, "sense_id") and item.diagnostics.sense_id is not None
+                if isinstance(item.diagnostics, (SingleWordDiagnostic, DefinitionDiagnostic))
+                and item.diagnostics.sense_id is not None
             }
         )
-        words = dict(
-            (
+        words: dict[int, int] = {
+            r[0]: r[1]
+            for r in (
                 await session.execute(
                     select(Sense.id, Sense.word_id).where(Sense.id.in_(sense_ids))
                 )
             ).all()
-        )
+        }
         if set(words) != sense_ids:
             raise Problem(422, "sense_not_found")
         for item in data.results:
             if (
                 item.question_type == QuestionType.WORD_TO_DEFINITION
                 and item.format == ResponseFormat.SHORT_ANSWER
+                and isinstance(item.diagnostics, DefinitionDiagnostic)
                 and item.diagnostics.sense_id is not None
             ):
                 target = artifacts[item.question_artifact_id].sense_id
@@ -128,7 +152,8 @@ async def review(session, user_id, data, event_key, config):
         }
         saved = await session.scalar(select(User.settings).where(User.id == user_id))
         day = now.astimezone(ZoneInfo(preferences(saved, config).timezone)).date()
-        results, states = [], []
+        results: list[ReviewResult] = []
+        states: list[dict[str, Any]] = []
         for sense_id, group in groups.items():
             memory = memories.get(sense_id)
             review_time = max(item.answered_at for item, _, _, _ in group)
@@ -160,7 +185,7 @@ async def review(session, user_id, data, event_key, config):
                     new_difficulty=round(difficulty, 4),
                     due_at=due.isoformat(),
                 )
-                state = dict(
+                state: dict[str, Any] = dict(
                     user_id=user_id,
                     sense_id=sense_id,
                     elo=elo,
@@ -176,20 +201,25 @@ async def review(session, user_id, data, event_key, config):
                 )
                 states.append(state)
             else:
+                assert memory is not None
                 state = {
-                    field: getattr(memory, field)
-                    for field in ("elo", "stability", "difficulty", "last_exposure_at", "due_at")
+                    "elo": memory.elo,
+                    "stability": memory.stability,
+                    "difficulty": memory.difficulty,
+                    "last_exposure_at": memory.last_exposure_at,
+                    "due_at": memory.due_at,
                 }
+            elo_val = float(state["elo"])
             results.append(
-                dict(
+                ReviewResult(
                     sense_id=sense_id,
                     applied=applied,
-                    elo=state["elo"],
-                    level=policy.level(state["elo"]),
-                    stability=state["stability"],
-                    difficulty=state["difficulty"],
-                    last_exposure_at=state["last_exposure_at"],
-                    due_after=state["due_at"],
+                    elo=elo_val,
+                    level=policy.level(elo_val),
+                    stability=float(state["stability"]),
+                    difficulty=float(state["difficulty"]),
+                    last_exposure_at=cast(datetime, state["last_exposure_at"]),
+                    due_after=cast(datetime, state["due_at"]),
                 )
             )
         if states:
@@ -198,13 +228,18 @@ async def review(session, user_id, data, event_key, config):
                 statement.on_conflict_do_update(
                     index_elements=[UserSense.user_id, UserSense.sense_id],
                     set_={
-                        field: getattr(statement.excluded, field)
-                        for field in states[0]
-                        if field not in {"user_id", "sense_id", "created_at"}
+                        "elo": statement.excluded.elo,
+                        "stability": statement.excluded.stability,
+                        "difficulty": statement.excluded.difficulty,
+                        "last_exposure_at": statement.excluded.last_exposure_at,
+                        "due_at": statement.excluded.due_at,
+                        "review_count": statement.excluded.review_count,
+                        "lapse_count": statement.excluded.lapse_count,
+                        "updated_at": statement.excluded.updated_at,
                     },
                 )
             )
-        result = BatchResult(
+        result: dict[str, Any] = BatchResult(
             accepted_at=now, activity_day=day, results=results, evidence=tracked
         ).model_dump(mode="json")
         session.add(
@@ -217,20 +252,20 @@ async def review(session, user_id, data, event_key, config):
                 result=result,
             )
         )
-        statement = insert(DailyActivity).values(
+        act_stmt = insert(DailyActivity).values(
             user_id=user_id,
             day=day,
             applied_events=len(states),
             practice_events=len(groups) - len(states),
         )
         await session.execute(
-            statement.on_conflict_do_update(
+            act_stmt.on_conflict_do_update(
                 index_elements=[DailyActivity.user_id, DailyActivity.day],
                 set_={
                     "applied_events": DailyActivity.applied_events
-                    + statement.excluded.applied_events,
+                    + act_stmt.excluded.applied_events,
                     "practice_events": DailyActivity.practice_events
-                    + statement.excluded.practice_events,
+                    + act_stmt.excluded.practice_events,
                 },
             )
         )

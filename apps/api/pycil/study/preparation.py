@@ -2,27 +2,65 @@
 
 import random
 from collections import Counter, defaultdict
+from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any, Protocol, cast
+from uuid import UUID
 
-from lexi_ai import QUESTION_ARTIFACT_MAP
-from lexi_ai.errors import LexiconError, QuestionArtifactBankChangedError
 from openai import APIError
+from pydantic import BaseModel
 from sqlalchemy import DateTime, Float, literal, select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from pycil.account.auth import Actor
 from pycil.account.models import User
-from pycil.account.schemas import effective_learning
-from pycil.http import Problem
+from pycil.account.settings import effective_learning
+from pycil.app.config import ProductConfig
+from pycil.app.http import Problem
+from pycil.infrastructure.observability import get_logger
+from pycil.infrastructure.retry import ProviderOutputError
 from pycil.library.access import readable
 from pycil.library.senses import member_ids
-from pycil.logging import get_logger
+from pycil.study.artifacts.generation import retrieve_artifacts
+from pycil.study.artifacts.schemas import Artifact
+from pycil.study.config import LearningPreferences
+from pycil.study.enums import (
+    QUESTION_ARTIFACT_MAP,
+    LearningState,
+    QuestionArtifactType,
+    QuestionType,
+    ResponseFormat,
+    Selection,
+)
+from pycil.study.errors import QuestionArtifactBankChangedError
 from pycil.study.models import UserSense
 from pycil.study.questions import build_question
+from pycil.study.schemas import PreparedQuestion
+from pycil.vocabulary.cache import ContentCache
+from pycil.vocabulary.errors import VocabularyError
+from pycil.vocabulary.schemas import Sense
+from pycil.vocabulary.types import SensePreview
+from pycil.vocabulary.words import get_sense_previews, get_senses
 
 logger = get_logger(__name__)
 randomness = random.SystemRandom()
 
 
-def plan_pairs(elo, preferences, config, k):
+class StructuredLLMProtocol(Protocol):
+    async def complete[T: BaseModel](self, instruction: str, data: str, schema: type[T]) -> T: ...
+
+
+@dataclass(frozen=True)
+class PlannedRow:
+    sense_id: int
+    elo: float
+    due_at: datetime | None
+    reason: LearningState
+
+
+def plan_pairs(
+    elo: float, preferences: LearningPreferences, config: ProductConfig, k: int
+) -> list[tuple[QuestionType, ResponseFormat]]:
     level = config.learning.mastery.level(elo)
     pairs = [
         (kind, fmt, config.learning.pair_levels[kind][fmt])
@@ -35,7 +73,7 @@ def plan_pairs(elo, preferences, config, k):
     levels = sorted({entry[2] for entry in pairs if entry[2] <= level})
     if not levels:
         levels = [min(entry[2] for entry in pairs)]
-    result = []
+    result: list[tuple[QuestionType, ResponseFormat]] = []
     for _ in range(k):
         selected = randomness.choices(
             levels, weights=[2 ** (candidate_level - level) for candidate_level in levels], k=1
@@ -46,16 +84,18 @@ def plan_pairs(elo, preferences, config, k):
 
 
 async def prepare(
-    session,
-    lexicon,
-    user,
-    node_id,
-    config,
+    session: AsyncSession,
+    sessions: async_sessionmaker[AsyncSession],
+    structured_llm: StructuredLLMProtocol,
+    artifact_cache: ContentCache | None,
+    user: Actor,
+    node_id: UUID,
+    config: ProductConfig,
     *,
-    selection="AUTO",
-    max_sense_count=None,
-    questions_per_sense=None,
-):
+    selection: Selection = Selection.AUTO,
+    max_sense_count: int | None = None,
+    questions_per_sense: int | None = None,
+) -> dict[str, Any]:
     async with session.begin():
         current = await session.scalar(
             select(User).where(User.id == user.id).execution_options(populate_existing=True)
@@ -68,7 +108,7 @@ async def prepare(
     preferences = preferences.model_copy(
         update={"max_sense_count": target, "questions_per_sense": k}
     )
-    if selection not in {"AUTO", "NEW", "DUE"}:
+    if selection not in {Selection.AUTO, Selection.NEW, Selection.DUE}:
         raise Problem(422, "invalid_preparation")
     try:
         config.learning.validate_preferences(preferences)
@@ -91,7 +131,7 @@ async def prepare(
         )
         fresh = select(
             scope.c.sense_id,
-            literal(config.learning.mastery.initial_elo, type_=Float).label("elo"),
+            literal(config.learning.mastery.initial_elo, type_=Float()).label("elo"),
             literal(None, type_=DateTime(timezone=True)).label("due_at"),
         ).where(
             ~select(UserSense.sense_id)
@@ -100,26 +140,41 @@ async def prepare(
             .exists()
         )
         phases = (
-            learned.add_columns(literal("DUE").label("reason"))
+            learned.add_columns(literal(LearningState.DUE).label("reason"))
             .where(UserSense.due_at <= now)
             .order_by(UserSense.due_at, UserSense.sense_id),
-            fresh.add_columns(literal("NEW").label("reason")).order_by(scope.c.sense_id),
-            learned.add_columns(literal("NOT_YET_DUE").label("reason"))
+            fresh.add_columns(literal(LearningState.NEW).label("reason")).order_by(
+                scope.c.sense_id
+            ),
+            learned.add_columns(literal(LearningState.NOT_YET_DUE).label("reason"))
             .where(UserSense.due_at > now)
             .order_by(UserSense.due_at, UserSense.sense_id),
         )
-        rows = []
-        for index in {"AUTO": (0, 1, 2), "DUE": (0,), "NEW": (1,)}[selection]:
+        rows: list[PlannedRow] = []
+        for index in {Selection.AUTO: (0, 1, 2), Selection.DUE: (0,), Selection.NEW: (1,)}[
+            selection
+        ]:
             if len(rows) == target:
                 break
-            rows.extend((await session.execute(phases[index].limit(target - len(rows)))).all())
+            executed = (await session.execute(phases[index].limit(target - len(rows)))).all()
+            for r in executed:
+                rows.append(
+                    PlannedRow(
+                        sense_id=int(r[0]),
+                        elo=float(r[1]),
+                        due_at=cast(datetime | None, r[2]),
+                        reason=LearningState(str(r[3])),
+                    )
+                )
     plans = {row.sense_id: plan_pairs(row.elo, preferences, config, k) for row in rows}
     demand = Counter((sense_id, kind) for sense_id, pairs in plans.items() for kind, _ in pairs)
     try:
         artifacts = (
-            await lexicon.retrieve_question_artifacts(
+            await retrieve_artifacts(
+                sessions,
+                structured_llm,
+                artifact_cache,
                 [(sense_id, kind, count) for (sense_id, kind), count in demand.items()],
-                generate=True,
                 generation_batch_size=config.generation.question_artifact_batch_size,
                 correct_count=config.generation.correct_count,
                 distractor_count=config.generation.distractor_count,
@@ -135,7 +190,7 @@ async def prepare(
             error_type=type(exc).__name__,
         )
         raise Problem(409, "learning_content_changed") from None
-    except (LexiconError, APIError) as exc:
+    except (VocabularyError, APIError, ProviderOutputError) as exc:
         logger.warning(
             "study_artifact_retrieval_failed",
             user_id=str(user.id),
@@ -143,27 +198,30 @@ async def prepare(
             error_type=type(exc).__name__,
         )
         raise Problem(503, "question_generation_unavailable") from None
-    senses = {s.id: s for s in await lexicon.get_senses(list(plans))}
-    facts = {s["sense_id"]: s for s in await lexicon.get_sense_previews(list(plans))}
+    senses: dict[int, Sense] = {s.id: s for s in await get_senses(sessions, list(plans))}
+    facts: dict[int, SensePreview] = {
+        s["sense_id"]: s for s in await get_sense_previews(sessions, list(plans))
+    }
     if len(senses) != len(plans) or len(facts) != len(plans):
         raise Problem(409, "learning_content_changed")
-    banks = defaultdict(list)
+    banks: dict[tuple[int, QuestionArtifactType], list[Artifact]] = defaultdict(list)
     for artifact in artifacts:
         banks[artifact.sense_id, artifact.artifact_type].append(artifact)
-    bundles = []
+    bundles: list[dict[str, Any]] = []
     for row in rows:
-        questions = []
+        questions: list[PreparedQuestion] = []
         for kind, fmt in plans[row.sense_id]:
             bank = banks[row.sense_id, QUESTION_ARTIFACT_MAP[kind]]
             if not bank:
                 raise Problem(409, "learning_content_changed")
+            lemma_val = facts[row.sense_id]["lemma"]
             questions.append(
                 build_question(
                     randomness.choice(bank),
                     kind,
                     fmt,
                     senses[row.sense_id],
-                    facts[row.sense_id]["lemma"],
+                    lemma_val,
                     config,
                 )
             )

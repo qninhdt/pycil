@@ -18,17 +18,21 @@ test.describe('real LLM providers', { tag: '@live-provider' }, () => {
     test.setTimeout(720000)
     expect(profile.id).toBeTruthy()
     const hits = (await api<{ items: { kind: string; reference_id?: string; display?: string }[] }>(page, 'words:search?query=glistened&include_reference=true')).body.items
-    const reference = hits.find(hit => hit.kind === 'REFERENCE' && hit.display === 'glistened')!
+    const reference = hits.find(hit => hit.kind === 'reference' && hit.display === 'glistened')!
     expect(reference).toBeTruthy()
     const generated = await api<WordGeneration>(page, 'words:generate', 'POST', { reference_id: reference.reference_id, target: 'glistened' })
     expect(generated.status).toBe(202)
-    await expect.poll(async () => (await api<WordGeneration>(page, generated.body.status_url.replace('/v1/', ''))).body.status, { timeout: 600000 }).toBe('SUCCEEDED')
+    await expect.poll(async () => {
+      const status = (await api<WordGeneration>(page, generated.body.status_url.replace('/v1/', ''))).body.status
+      return status === 'succeeded' || status === 'failed'
+    }, { timeout: 600000 }).toBe(true)
     const task = (await api<WordGeneration>(page, `word-tasks/${generated.body.task_id}`)).body
+    expect(task.status, `${task.stage}: ${task.error}`).toBe('succeeded')
     const word = (await api<DictionaryWord>(page, `words/${task.word_id}`)).body
     expect(word.lemma).toBe('glisten')
     expect(word.senses.length).toBeGreaterThan(0)
     const reuse = await api<WordGeneration>(page, 'words:generate', 'POST', { reference_id: reference.reference_id, target: 'glistened' })
-    await expect.poll(async () => (await api<WordGeneration>(page, reuse.body.status_url.replace('/v1/', ''))).body.status, { timeout: 600000 }).toBe('SUCCEEDED')
+    await expect.poll(async () => (await api<WordGeneration>(page, reuse.body.status_url.replace('/v1/', ''))).body.status, { timeout: 600000 }).toBe('succeeded')
     const reusedTask = (await api<WordGeneration>(page, `word-tasks/${reuse.body.task_id}`)).body
     expect(reusedTask.word_id).toBe(word.id)
     expect((await api<DictionaryWord>(page, `words/${word.id}`)).body).toEqual(word)
@@ -38,11 +42,11 @@ test.describe('real LLM providers', { tag: '@live-provider' }, () => {
 
   test('real Assistant reads actual sense IDs and accepts another message', async ({ page, profile, nodes }) => {
     expect(profile.id).toBeTruthy()
-    const bank = await nodes.create({ type: 'DECK', name: 'bank', sense_ids: [16, 17] })
+    const bank = await nodes.create({ type: 'deck', name: 'bank', sense_ids: [16, 17] })
     await openAssistant(page)
     const created = page.waitForResponse(r => r.url().endsWith('/assistant/conversations') && r.request().method() === 'POST')
     const streamed = page.waitForResponse(r => r.url().endsWith('/assistant:run'))
-    await page.getByRole('textbox', { name: 'Message PycilAI' }).fill(`Use search_nodes to find the deck named "${bank.name}" in my Library, then pass its exact node ID to read_library with CONTENT view. Briefly report the returned sense IDs and learning states.`)
+    await page.getByRole('textbox', { name: 'Message PycilAI' }).fill(`Use search_nodes to find the deck named "${bank.name}" in my Library, then pass its exact node ID to read_library with content view. Briefly report the returned sense IDs and learning states.`)
     await page.getByRole('button', { name: 'Send message', exact: true }).click()
     const conversation: Conversation = await (await created).json()
     try {
@@ -63,7 +67,7 @@ test.describe('real LLM providers', { tag: '@live-provider' }, () => {
 
   test('real generation produces native readable senses', async ({ page, profile, nodes }) => {
     test.setTimeout(720000)
-    expect(profile.plan).toBe('PRO')
+    expect(profile.plan).toBe('pro')
     await page.goto('/app/dictionary?q=harbor')
     await expect(page.locator('.shell-desktop').getByRole('button', { name: 'Open account menu' })).toContainText('Pro plan')
     await page.getByRole('button', { name: 'harbor Needs preparation Generate', exact: true }).click()
@@ -75,9 +79,9 @@ test.describe('real LLM providers', { tag: '@live-provider' }, () => {
     let saved = job
     await expect.poll(async () => {
       saved = (await api<WordGeneration>(page, `word-tasks/${job.task_id}`)).body
-      return ['SUCCEEDED', 'FAILED'].includes(saved.status)
+      return ['succeeded', 'failed'].includes(saved.status)
     }, { timeout: 630000 }).toBe(true)
-    expect(saved.status, `${saved.stage}: ${saved.error}`).toBe('SUCCEEDED')
+    expect(saved.status, `${saved.stage}: ${saved.error}`).toBe('succeeded')
     await expect(page.getByRole('heading', { name: 'harbor', exact: true })).toBeVisible()
     const word = await api<DictionaryWord>(page, `words/${saved.word_id}`)
     expect(word.status).toBe(200)
@@ -90,9 +94,9 @@ test.describe('real LLM providers', { tag: '@live-provider' }, () => {
         expect(parsed.valid).toBe(true); expect(parsed.spans.length).toBeGreaterThan(0)
       }
     }
-    const deck = await nodes.create({ type: 'DECK', sense_ids: word.body.senses.map(sense => sense.id) })
+    const deck = await nodes.create({ type: 'deck', sense_ids: word.body.senses.map(sense => sense.id) })
     try {
-      expect((await api(page, 'me/settings', 'PATCH', { learning: { questions_per_sense: 1, max_sense_count: 1, formats: ['SINGLE_CHOICE'] } })).status).toBe(200)
+      expect((await api(page, 'me/settings', 'PATCH', { learning: { questions_per_sense: 1, max_sense_count: 1, formats: ['single_choice'] } })).status).toBe(200)
       await start(page, deck.id)
       await finish(page, profile.id)
       await expect(page.getByRole('heading', { name: 'Session complete' })).toBeVisible()
@@ -101,9 +105,9 @@ test.describe('real LLM providers', { tag: '@live-provider' }, () => {
   })
 
   test('real typed grading completes a native session and persists its review', async ({ page, profile, nodes }) => {
-    const deck = await nodes.create({ type: 'DECK', sense_ids: [16] })
+    const deck = await nodes.create({ type: 'deck', sense_ids: [16] })
     try {
-      expect((await api(page, 'me/settings', 'PATCH', { learning: { question_types: ['WORD_TO_DEFINITION'], formats: ['SHORT_ANSWER'], questions_per_sense: 1, max_sense_count: 1 } })).status).toBe(200)
+      expect((await api(page, 'me/settings', 'PATCH', { learning: { question_types: ['word_to_definition'], formats: ['short_answer'], questions_per_sense: 1, max_sense_count: 1 } })).status).toBe(200)
       await start(page, deck.id)
       const graded = page.waitForResponse(r => r.url().endsWith('/study:grade'), { timeout: 120000 })
       await finish(page, profile.id)

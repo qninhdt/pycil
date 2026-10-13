@@ -1,10 +1,12 @@
+import { getApiBaseUrl } from './services/config'
+
 export type AccountProfile = {
   id: string
   display_name: string | null
   handle: string | null
   bio: string | null
   joined_at: string
-  plan: 'free' | 'pro' | 'FREE' | 'PRO'
+  plan: 'free' | 'pro'
   personal_node_id: string
   published_node_id: string
   library_node_id: string
@@ -18,7 +20,7 @@ export type AccountProfile = {
   learning_restriction: string | null
 }
 
-export type AnswerFormat = 'SINGLE_CHOICE' | 'SINGLE_WORD' | 'SHORT_ANSWER'
+export type AnswerFormat = 'single_choice' | 'single_word' | 'short_answer'
 export type LearningSettings = {
   question_types: string[]; formats: AnswerFormat[]; questions_per_sense: number
   max_sense_count: number
@@ -60,13 +62,13 @@ export function parsePublicProfile(value: unknown): PublicProfile {
 
 export function parseAccountProfile(value: unknown): AccountProfile {
   const item = value as AccountProfile | null
-  if (!item || typeof item.id !== 'string' || !['free', 'pro', 'FREE', 'PRO'].includes(item.plan) ||
+  if (!item || typeof item.id !== 'string' || !['free', 'pro'].includes(item.plan) ||
     !item.settings || !item.settings.learning || typeof item.settings.assistant?.auto_approve !== 'boolean' || !item.learning_options || !Array.isArray(item.learning_options.pairs)) throw new ApiError(502, 'invalid_profile')
   return item
 }
 
 export async function fetchProfile(token: string, signal?: AbortSignal): Promise<AccountProfile> {
-  const response = await fetch('/api/v1/me', {
+  const response = await fetch(`${getApiBaseUrl()}/me`, {
     headers: { Authorization: `Bearer ${token}` }, cache: 'no-store', signal,
   })
   if (!response.ok) {

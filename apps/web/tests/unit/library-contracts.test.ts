@@ -6,7 +6,7 @@ import { parseMeaningPage,parseNodeDetails } from '../../src/lib/library-api'
 
 test('live lexical examples read native content and retain backend target markup', () => {
   const content = 'They [abandoned|p] the car.'
-  const page = parseMeaningPage({ senses: [{ sense_id: 8, lemma: 'abandon', pos: 'VERB', definition: 'to leave permanently', cefr_level: 'B1',
+  const page = parseMeaningPage({ senses: [{ sense_id: 8, lemma: 'abandon', pos: 'verb', definition: 'to leave permanently', cefr_level: 'b1',
     learning: null, examples: [{ id: 91, content, theme_id: null }], sources: [], sources_has_more: false }], next_cursor: null })
   expect(page.senses[0].examples).toEqual([{ text: content }])
 })

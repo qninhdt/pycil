@@ -4,9 +4,9 @@ import { api } from './helpers/api'
 import type { StudySummary } from '../../src/lib/home-api'
 
 test('folder and meaning pagination, search, sorting, state filters and breadcrumbs use real scopes', async ({ page, nodes }) => {
-  const folder = await nodes.create({ type: 'FOLDER' })
+  const folder = await nodes.create({ type: 'folder' })
   const decks = []
-  for (let n = 0; n < 13; n++) decks.push(await nodes.create({ type: 'DECK', parent_id: folder.id, name: `native-${n.toString().padStart(2, '0')}`, sense_ids: [100 + n, 1] }))
+  for (let n = 0; n < 13; n++) decks.push(await nodes.create({ type: 'deck', parent_id: folder.id, name: `native-${n.toString().padStart(2, '0')}`, sense_ids: [100 + n, 1] }))
   await page.goto(`/app/personal/${folder.id}/words`)
   await expect(page.getByRole('heading', { name: folder.name, exact: true })).toBeVisible()
   const first = await api<{ nodes: { id: string }[]; next_cursor: string }>(page, `nodes?parent_id=${folder.id}&limit=12`)
@@ -14,7 +14,7 @@ test('folder and meaning pagination, search, sorting, state filters and breadcru
   const second = await api<{ nodes: { id: string }[] }>(page, `nodes?parent_id=${folder.id}&limit=12&cursor=${encodeURIComponent(first.body.next_cursor)}`)
   expect(second.body.nodes).toHaveLength(1)
   expect(new Set([...first.body.nodes, ...second.body.nodes].map(n => n.id)).size).toBe(13)
-  await nodes.create({ type: 'DECK', name: 'native-00', sense_ids: [1] })
+  await nodes.create({ type: 'deck', name: 'native-00', sense_ids: [1] })
   const scoped = await api<{ nodes: { id: string }[] }>(page, `nodes/${folder.id}:search?q=native-00`)
   expect(scoped.body.nodes.map(node => node.id)).toEqual([decks[0].id])
   expect((await api<StudySummary>(page, `study/progress?node_id=${folder.id}`)).body.total).toBe(14)
@@ -39,7 +39,7 @@ test('folder and meaning pagination, search, sorting, state filters and breadcru
 })
 
 test('Library latest search wins over delayed native reads and tab Back/Forward retains canonical routes', async ({ page, nodes }) => {
-  const deck = await nodes.create({ type: 'DECK', sense_ids: [1, 100] })
+  const deck = await nodes.create({ type: 'deck', sense_ids: [1, 100] })
   await page.goto(`/app/personal/${deck.id}/words`)
   await expect(page.getByRole('tab', { name: 'Words', exact: true })).toHaveAttribute('aria-selected', 'true')
   await page.getByRole('tab', { name: 'Overview', exact: true }).click()
@@ -52,7 +52,7 @@ test('Library latest search wins over delayed native reads and tab Back/Forward 
   let release!: () => void, reached!: () => void
   const gate = new Promise<void>(resolve => { release = resolve })
   const requested = new Promise<void>(resolve => { reached = resolve })
-  await page.route(`**/api/v1/nodes/${deck.id}/senses*`, async route => {
+  await page.route(`**/v1/nodes/${deck.id}/senses*`, async route => {
     if (new URL(route.request().url()).searchParams.get('q') === 'bank') { reached(); await gate }
     await route.continue()
   })

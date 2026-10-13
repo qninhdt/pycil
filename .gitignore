@@ -29,7 +29,7 @@ dist/
 bin/
 
 # production
-/build
+build/
 
 # misc
 .DS_Store
@@ -95,10 +95,6 @@ external/
 
 .kiro
 
-# Only the reviewed, checksummed local Lexi artifact is source-controlled.
-/vendor/*
-!/vendor/lexi-ai/
-
 # Git worktrees (local development only)
 worktrees/
 
@@ -108,9 +104,6 @@ worktrees/
 *.dump
 *.sql.gz
 backup-manifest-*.json
-
-# Local Cambridge snapshot used by the read-only container mount.
-/tmp/cambridge-runtime.db*
 
 # Node.js
 /.pycil-e2e-web-*/

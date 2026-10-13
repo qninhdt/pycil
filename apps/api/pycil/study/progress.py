@@ -1,20 +1,32 @@
 """Exact bounded scope summaries and independent durable activity/schedule reads."""
 
-from datetime import UTC, datetime, timedelta
+from collections.abc import Iterable, Sequence
+from datetime import UTC, date, datetime, timedelta
+from typing import Any, cast
+from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import Integer, Uuid, and_, func, select, text
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from pycil.account.auth import Actor
 from pycil.account.models import User
-from pycil.account.schemas import preferences
-from pycil.http import Problem
+from pycil.account.settings import preferences
+from pycil.app.config import ProductConfig
+from pycil.app.http import Problem
 from pycil.library.models import DeckSense, NodeType
-from pycil.library.scope import ScopeBudget, bounded, resolve_scopes
+from pycil.library.scope import Scope, ScopeBudget, bounded, resolve_scopes
 from pycil.study.models import DailyActivity, UserSense
 
 
-def scope_mapping(scopes, budget, config):
-    groups, group_ids, mapping = {}, {}, []
+def scope_mapping(
+    scopes: Iterable[Scope],
+    budget: ScopeBudget,
+    config: ProductConfig,
+) -> tuple[dict[UUID, int], list[tuple[int, UUID]]]:
+    groups: dict[frozenset[UUID], int] = {}
+    group_ids: dict[UUID, int] = {}
+    mapping: list[tuple[int, UUID]] = []
     for scope in scopes:
         key = frozenset(scope.decks)
         if key not in groups:
@@ -28,7 +40,14 @@ def scope_mapping(scopes, budget, config):
     return group_ids, mapping
 
 
-async def summaries(session, viewer_id, config, node_ids, *, budget=None):
+async def summaries(
+    session: AsyncSession,
+    viewer_id: UUID | None,
+    config: ProductConfig,
+    node_ids: Sequence[UUID | None],
+    *,
+    budget: ScopeBudget | None = None,
+) -> list[dict[str, Any]]:
     if (
         not node_ids
         or len(node_ids) > config.learning.limits.max_summary_nodes
@@ -40,7 +59,7 @@ async def summaries(session, viewer_id, config, node_ids, *, budget=None):
         scopes = await resolve_scopes(session, node_ids, viewer_id, config, budget=budget)
         now = datetime.now(UTC)
         group_ids, mapping = scope_mapping(scopes.values(), budget, config)
-        aggregated = {}
+        aggregated: dict[int, dict[str, Any]] = {}
         if mapping:
             # Arrays avoid PostgreSQL's parameter count limit for a large bounded deck mapping.
             mapped = (
@@ -72,22 +91,26 @@ async def summaries(session, viewer_id, config, node_ids, *, budget=None):
                 )
                 .group_by(unique.c.grp)
             )
-            aggregated = {r["grp"]: dict(r) for r in (await session.execute(query)).mappings()}
-        result = []
+            aggregated = {int(r["grp"]): dict(r) for r in (await session.execute(query)).mappings()}
+        result: list[dict[str, Any]] = []
         for scope in scopes.values():
             row = aggregated.get(
                 group_ids[scope.root.id],
                 {"total": 0, "studied": 0, "due": 0, "last_studied_at": None},
             )
-            parent = (
-                scope.root.reference_id if scope.root.type is NodeType.REFERENCE else scope.root.id
+            parent: UUID = (
+                scope.root.reference_id
+                if scope.root.type is NodeType.REFERENCE and scope.root.reference_id is not None
+                else scope.root.id
             )
             children = [
                 budget.metadata[i].type
-                for i in budget.edges.get(parent, ())
+                for i in budget.edges.get(parent, set())
                 if i in scope.nodes and budget.metadata[i].parent_id == parent
             ]
-            total, studied, due = row["total"], row["studied"], row["due"]
+            total: int = int(row["total"])
+            studied: int = int(row["studied"])
+            due: int = int(row["due"])
             result.append(
                 {
                     "node_id": scope.root.id,
@@ -109,11 +132,23 @@ async def summaries(session, viewer_id, config, node_ids, *, budget=None):
         return result if node_ids == [None] else [by_id[i] for i in node_ids]
 
 
-async def progress(session, user, config, node_id=None):
+async def progress(
+    session: AsyncSession,
+    user: Actor,
+    config: ProductConfig,
+    node_id: UUID | None = None,
+) -> dict[str, Any]:
     return (await summaries(session, user.id, config, [node_id]))[0]
 
 
-def window(start, end, today, maximum, *, future=False):
+def window(
+    start: date | None,
+    end: date | None,
+    today: date,
+    maximum: int,
+    *,
+    future: bool = False,
+) -> tuple[date, date]:
     if (start is None) != (end is None):
         raise Problem(422, "invalid_date_window")
     if start is None:
@@ -122,12 +157,15 @@ def window(start, end, today, maximum, *, future=False):
             if future
             else (today - timedelta(days=maximum - 1), today)
         )
+    assert start is not None and end is not None
     if end < start or (end - start).days >= maximum or (future and start < today):
         raise Problem(422, "invalid_date_window")
     return start, end
 
 
-async def reporting(session, user_id, config):
+async def reporting(
+    session: AsyncSession, user_id: UUID, config: ProductConfig
+) -> tuple[str, datetime, date]:
     saved = await session.scalar(select(User.settings).where(User.id == user_id))
     if saved is None:
         raise Problem(404, "account_not_found")
@@ -136,7 +174,13 @@ async def reporting(session, user_id, config):
     return timezone, now, now.astimezone(ZoneInfo(timezone)).date()
 
 
-async def activity(session, user_id, config, start_date=None, end_date=None):
+async def activity(
+    session: AsyncSession,
+    user_id: UUID,
+    config: ProductConfig,
+    start_date: date | None = None,
+    end_date: date | None = None,
+) -> dict[str, Any]:
     timezone, now, today = await reporting(session, user_id, config)
     start, end = window(start_date, end_date, today, config.learning.limits.max_activity_days)
     rows = list(
@@ -149,7 +193,7 @@ async def activity(session, user_id, config, start_date=None, end_date=None):
         ).all()
     )
     by_day = {r.day: r for r in rows}
-    days = []
+    days: list[dict[str, Any]] = []
     for offset in range((end - start).days + 1):
         day = start + timedelta(days=offset)
         row = by_day.get(day)
@@ -183,7 +227,7 @@ async def activity(session, user_id, config, start_date=None, end_date=None):
         .group_by(active.c.island)
         .cte("activity_runs")
     )
-    current, longest = (
+    current_val, longest_val = (
         await session.execute(
             select(
                 func.coalesce(
@@ -204,18 +248,32 @@ async def activity(session, user_id, config, start_date=None, end_date=None):
         "days": days,
         "applied_events": sum(d["applied_events"] for d in days),
         "practice_events": sum(d["practice_events"] for d in days),
-        "current_streak": current,
-        "longest_streak": longest,
+        "current_streak": int(current_val),
+        "longest_streak": int(longest_val),
     }
 
 
-async def schedule(session, user_id, config, node_id=None, start_date=None, end_date=None):
+async def schedule(
+    session: AsyncSession,
+    user_id: UUID,
+    config: ProductConfig,
+    node_id: UUID | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
+) -> dict[str, Any]:
     return (await schedules(session, user_id, config, [node_id], start_date, end_date))[0]
 
 
 async def schedules(
-    session, user_id, config, node_ids, start_date=None, end_date=None, *, budget=None
-):
+    session: AsyncSession,
+    user_id: UUID,
+    config: ProductConfig,
+    node_ids: Sequence[UUID | None],
+    start_date: date | None = None,
+    end_date: date | None = None,
+    *,
+    budget: ScopeBudget | None = None,
+) -> list[dict[str, Any]]:
     if (
         not node_ids
         or len(node_ids) > config.learning.limits.max_summary_nodes
@@ -229,7 +287,11 @@ async def schedules(
     budget = budget or ScopeBudget(user_id)
     async with bounded(session, config, budget):
         resolved = await resolve_scopes(session, node_ids, user_id, config, budget=budget)
-        scopes = list(resolved.values()) if node_ids == [None] else [resolved[i] for i in node_ids]
+        scopes = (
+            list(resolved.values())
+            if None in node_ids
+            else [resolved[i] for i in node_ids if i is not None]
+        )
         group_ids, mapping = scope_mapping(scopes, budget, config)
         day = func.date(func.timezone(timezone, UserSense.due_at))
         mapped = (
@@ -259,7 +321,9 @@ async def schedules(
                 .group_by(unique.c.grp, day)
             )
         ).all()
-        counts = {(group, date): count for group, date, count in rows}
+        counts: dict[tuple[int, date], int] = {
+            (int(r[0]), cast(date, r[1])): int(r[2]) for r in rows
+        }
     return [
         {
             "node_id": scope.root.id,

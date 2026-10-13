@@ -8,10 +8,10 @@ import type { ReviewBatchResult,StudyActivity,StudySummary } from '../../src/lib
 import { randomUUID } from 'node:crypto'
 
 test('cold question bank exposes a provider rejection in a popup, retries generation and completes learning', async ({ page, profile, nodes }) => {
-  const folder = await nodes.create({ type: 'FOLDER' })
-  await nodes.create({ type: 'DECK', parent_id: folder.id, sense_ids: [32] })
+  const folder = await nodes.create({ type: 'folder' })
+  await nodes.create({ type: 'deck', parent_id: folder.id, sense_ids: [32] })
   try {
-    expect((await api(page, 'me/settings', 'PATCH', { learning: { question_types: ['DEFINITION_TO_WORD'], formats: ['SINGLE_CHOICE'], questions_per_sense: 1, max_sense_count: 1 } })).status).toBe(200)
+    expect((await api(page, 'me/settings', 'PATCH', { learning: { question_types: ['definition_to_word'], formats: ['single_choice'], questions_per_sense: 1, max_sense_count: 1 } })).status).toBe(200)
     await page.goto(`/app/personal/${folder.id}`)
     const prepare = page.waitForResponse(response => response.url().endsWith('/study:prepare'))
     await page.getByRole('link', { name: /^Learn new/ }).click()
@@ -30,33 +30,33 @@ test('cold question bank exposes a provider rejection in a popup, retries genera
 })
 
 test('empty and missing scopes show recoverable popups inside focus rather than a fullscreen error page', async ({ page, profile, nodes }) => {
-  const empty = await nodes.create({ type: 'DECK' })
-  await page.goto(`/focus/learn?node=${empty.id}&selection=NEW`)
+  const empty = await nodes.create({ type: 'deck' })
+  await page.goto(`/app/learn?node=${empty.id}&selection=new`)
   const popup = page.getByRole('alertdialog')
   await expect(popup).toContainText('No eligible questions')
   expect(await session(page, profile.id, empty.id)).toBeNull()
   await popup.getByRole('button', { name: 'Back to My Library' }).click()
   await expect(page).toHaveURL(new RegExp(`/app/personal/${empty.id}$`))
-  await page.goto('/focus/learn?node=00000000-0000-0000-0000-000000000000')
+  await page.goto('/app/learn?node=00000000-0000-0000-0000-000000000000')
   await expect(popup).toContainText('This material could not be found.')
   await expect(page.getByRole('button', { name: 'Exit learning mode', includeHidden: true })).toBeVisible()
 })
 
 test('leaving delayed preparation cannot create a local session or submit a review', async ({ page, profile, nodes }) => {
-  const deck = await nodes.create({ type: 'DECK', sense_ids: [27] })
+  const deck = await nodes.create({ type: 'deck', sense_ids: [27] })
   let release!: () => void, reached!: () => void
   const held = new Promise<void>(resolve => { release = resolve })
   const requested = new Promise<void>(resolve => { reached = resolve })
   const writes: string[] = []
   page.on('request', request => { if (request.url().endsWith('/study:submitResults')) writes.push(request.url()) })
-  await page.route('**/api/v1/study:prepare', async route => {
+  await page.route('**/v1/study:prepare', async route => {
     const response = await route.fetch()
     reached()
     await held
     await route.fulfill({ response }).catch(() => {})
   })
   try {
-    await page.goto(`/focus/learn?node=${deck.id}`)
+    await page.goto(`/app/learn?node=${deck.id}`)
     await requested
     await page.getByRole('button', { name: 'Exit learning mode' }).click()
     await expect(page).toHaveURL(new RegExp(`/app/personal/${deck.id}$`))
@@ -68,18 +68,18 @@ test('leaving delayed preparation cannot create a local session or submit a revi
 })
 
 for (const corrupt of ['broken JSON', 'outdated shape']) test(`${corrupt} in local study storage is replaced by a real prepared session`, async ({ page, profile, nodes }) => {
-  const deck = await nodes.create({ type: 'DECK', sense_ids: [25] })
+  const deck = await nodes.create({ type: 'deck', sense_ids: [25] })
   await page.evaluate(({ id, node, corrupt }) => {
     localStorage.setItem(`pycil:study:${id}:${node}`, corrupt === 'broken JSON' ? '{' : JSON.stringify({ version: 2, accountId: id, prepared: { node_id: node, bundles: [] }, questions: [] }))
   }, { id: profile.id, node: deck.id, corrupt })
-  await page.goto(`/focus/learn?node=${deck.id}`)
+  await page.goto(`/app/learn?node=${deck.id}`)
   await expect(page.getByRole('button', { name: 'I don’t know', exact: true })).toBeVisible()
   await expect(page.getByRole('alertdialog')).toHaveCount(0)
   expect((await session(page, profile.id, deck.id))!.prepared.actual_question_count).toBeGreaterThan(0)
 })
 
 test('blocked study storage shows a popup and cannot silently lose a session', async ({ page, profile, nodes }) => {
-  const deck = await nodes.create({ type: 'DECK', sense_ids: [24] })
+  const deck = await nodes.create({ type: 'deck', sense_ids: [24] })
   await page.addInitScript(() => {
     const native = Storage.prototype.setItem
     Storage.prototype.setItem = function (key, value) {
@@ -87,7 +87,7 @@ test('blocked study storage shows a popup and cannot silently lose a session', a
       return native.call(this, key, value)
     }
   })
-  await page.goto(`/focus/learn?node=${deck.id}`)
+  await page.goto(`/app/learn?node=${deck.id}`)
   const popup = page.getByRole('alertdialog')
   await expect(popup).toContainText('This browser cannot save the session.')
   expect(await session(page, profile.id, deck.id)).toBeNull()
@@ -98,8 +98,8 @@ test('blocked study storage shows a popup and cannot silently lose a session', a
 })
 
 test('pause resumes the same answered question; partial finish saves only attempted evidence once', async ({ page, profile, nodes }) => {
-  const deck = await nodes.create({ type: 'DECK', sense_ids: [22, 23] })
-  await page.goto(`/focus/learn?node=${deck.id}`)
+  const deck = await nodes.create({ type: 'deck', sense_ids: [22, 23] })
+  await page.goto(`/app/learn?node=${deck.id}`)
   await page.getByRole('button', { name: 'I don’t know', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Continue', exact: true })).toBeVisible()
   const before = await session(page, profile.id, deck.id)
@@ -122,10 +122,10 @@ test('pause resumes the same answered question; partial finish saves only attemp
 })
 
 test('unknown answers retry, preserve initial diagnostics and save once per sense', async ({ page, profile, nodes }) => {
-  const deck = await nodes.create({ type: 'DECK', sense_ids: [26] })
+  const deck = await nodes.create({ type: 'deck', sense_ids: [26] })
   try {
     expect((await api(page, 'me/settings', 'PATCH', { learning: { questions_per_sense: 2, max_sense_count: 1 } })).status).toBe(200)
-    await start(page, deck.id, 'NEW')
+    await start(page, deck.id, 'new')
     const before = await session(page, profile.id)
     await page.reload()
     await expect(page.getByRole('button', { name: 'I don’t know', exact: true })).toBeVisible()
@@ -140,8 +140,8 @@ test('unknown answers retry, preserve initial diagnostics and save once per sens
 })
 
 test('each node maintains independent session; competing tabs cannot overwrite an answer', async ({ page, profile, nodes }) => {
-  const first = await nodes.create({ type: 'DECK', sense_ids: [13] })
-  const second = await nodes.create({ type: 'DECK', sense_ids: [14] })
+  const first = await nodes.create({ type: 'deck', sense_ids: [13] })
+  const second = await nodes.create({ type: 'deck', sense_ids: [14] })
   await start(page, first.id)
   await expect(page.getByRole('button', { name: 'I don’t know', exact: true })).toBeVisible()
   const savedFirst = await session(page, profile.id, first.id)
@@ -155,7 +155,7 @@ test('each node maintains independent session; competing tabs cannot overwrite a
   expect(savedSecond!.prepared.node_id).toBe(second.id)
 
   // Returning to first node restores its independent session
-  await page.goto(`/focus/learn?node=${first.id}`)
+  await page.goto(`/app/learn?node=${first.id}`)
   await expect(page.getByRole('button', { name: 'I don’t know', exact: true })).toBeVisible()
   const restoredFirst = await session(page, profile.id, first.id)
   expect(restoredFirst).not.toBeNull()
@@ -173,18 +173,18 @@ test('each node maintains independent session; competing tabs cannot overwrite a
 })
 
 test('accepted review with lost response reloads the frozen batch and replays without duplicate activity', async ({ page, profile, nodes }) => {
-  const deck = await nodes.create({ type: 'DECK', sense_ids: [15] })
+  const deck = await nodes.create({ type: 'deck', sense_ids: [15] })
   const date = new Date().toISOString().slice(0, 10)
   const activityPath = `study/activity?start_date=${date}&end_date=${date}`
   const before = (await api<StudyActivity>(page, activityPath)).body
   let original: { body: string; key: string; receipt: ReviewBatchResult } | undefined
-  await page.route('**/api/v1/study:submitResults', async route => {
+  await page.route('**/v1/study:submitResults', async route => {
     const response = await route.fetch()
     expect(response.status()).toBe(200)
     original = { body: route.request().postData()!, key: route.request().headers()['idempotency-key'], receipt: await response.json() }
     await route.abort('connectionfailed')
   }, { times: 1 })
-  await start(page, deck.id, 'NEW')
+  await start(page, deck.id, 'new')
   await finish(page, profile.id)
   await expect(page.getByRole('button', { name: 'Retry the same submission' })).toBeVisible()
   expect((await session(page, profile.id))!.phase).toBe('submitting')
@@ -209,14 +209,14 @@ test('accepted review with lost response reloads the frozen batch and replays wi
 })
 
 proTest('a stale question rejected by native grading retains the draft and cannot submit a review', async ({ page, profile, nodes }) => {
-  const deck = await nodes.create({ type: 'DECK', sense_ids: [27] })
+  const deck = await nodes.create({ type: 'deck', sense_ids: [27] })
   try {
-    expect((await api(page, 'me/settings', 'PATCH', { learning: { question_types: ['WORD_TO_DEFINITION'], formats: ['SHORT_ANSWER'], questions_per_sense: 1, max_sense_count: 1 } })).status).toBe(200)
+    expect((await api(page, 'me/settings', 'PATCH', { learning: { question_types: ['word_to_definition'], formats: ['short_answer'], questions_per_sense: 1, max_sense_count: 1 } })).status).toBe(200)
     await start(page, deck.id)
     const field = page.getByRole('textbox', { name: 'Your answer', exact: true })
     await field.fill('a place to keep money')
     const before = (await session(page, profile.id))!
-    await page.route('**/api/v1/study:grade', route => route.continue({ postData: JSON.stringify({ ...route.request().postDataJSON(), question_artifact_id: 2147483647 }) }), { times: 1 })
+    await page.route('**/v1/study:grade', route => route.continue({ postData: JSON.stringify({ ...route.request().postDataJSON(), question_artifact_id: 2147483647 }) }), { times: 1 })
     const graded = page.waitForResponse(r => r.url().endsWith('/study:grade'))
     let writes = 0
     page.on('request', r => { if (r.url().endsWith('/study:submitResults')) writes++ })
@@ -235,14 +235,14 @@ proTest('a stale question rejected by native grading retains the draft and canno
 })
 
 proTest('a lost native grading response preserves the locked answer across reload and retry consumes one attempt', async ({ page, profile, nodes }) => {
-  const deck = await nodes.create({ type: 'DECK', sense_ids: [26] })
+  const deck = await nodes.create({ type: 'deck', sense_ids: [26] })
   try {
-    expect((await api(page, 'me/settings', 'PATCH', { learning: { question_types: ['WORD_TO_DEFINITION'], formats: ['SHORT_ANSWER'], questions_per_sense: 1, max_sense_count: 1 } })).status).toBe(200)
+    expect((await api(page, 'me/settings', 'PATCH', { learning: { question_types: ['word_to_definition'], formats: ['short_answer'], questions_per_sense: 1, max_sense_count: 1 } })).status).toBe(200)
     await start(page, deck.id)
     const field = page.getByRole('textbox', { name: 'Your answer', exact: true })
     await field.fill('my answer survives a lost response')
     let firstBody: unknown
-    await page.route('**/api/v1/study:grade', async route => {
+    await page.route('**/v1/study:grade', async route => {
       firstBody = route.request().postDataJSON()
       expect((await route.fetch()).status()).toBe(200)
       await route.abort('connectionfailed')

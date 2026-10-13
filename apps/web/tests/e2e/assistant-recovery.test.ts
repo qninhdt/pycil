@@ -1,3 +1,4 @@
+import { getApiBaseUrl } from '../../src/lib/services/config'
 import type { Page } from '@playwright/test'
 import { api } from './helpers/api'
 import { signIn } from './helpers/auth'
@@ -55,25 +56,30 @@ function turn(id: string, content = 'E2E hello') {
 }
 
 async function run(page: Page, input: ReturnType<typeof turn>) {
-  return page.evaluate(async input => {
+  return page.evaluate(async ({ input, baseUrl }) => {
     const token = await (window as unknown as { Clerk: { session: { getToken: () => Promise<string> } } }).Clerk.session.getToken()
-    const response = await fetch('/api/v1/assistant:run', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(input) })
+    const response = await fetch(`${baseUrl}/assistant:run`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(input) })
     const body = await response.text()
     return { status: response.status, body, events: response.ok ? body.split('\n\n').filter(event => event.startsWith('data: ')).map(event => JSON.parse(event.slice(6))) as { type: string }[] : [] }
-  }, input)
+  }, { input, baseUrl: getApiBaseUrl() })
 }
 
 test('provider error in HTTP 200 is a failed stream; reopening preserves state and supports a new turn', async ({ page, profile }) => {
   expect(profile.id).toBeTruthy()
   await open(page)
   const created = page.waitForResponse(r => r.url().endsWith('/assistant/conversations') && r.request().method() === 'POST')
+  const failedRun = page.waitForResponse(r => r.url().endsWith('/assistant:run'))
   await send(page, 'E2E fail')
   const conversation: Conversation = await (await created).json()
   try {
+    const failedStream = await (await failedRun).text()
+    expect(failedStream).toContain('RUN_ERROR')
     await expect(page.getByRole('alert').filter({ hasText: /failed|interrupted/i }).first()).toBeVisible()
     await expect(page.getByText('E2E response saved through the native checkpoint.', { exact: true })).not.toBeVisible()
     await page.reload(); await open(page)
+    const recoveredRun = page.waitForResponse(r => r.url().endsWith('/assistant:run'))
     await send(page, 'E2E recovery')
+    expect(await (await recoveredRun).text()).toContain('RUN_FINISHED')
     await expect(page.getByText('E2E response saved through the native checkpoint.', { exact: true })).toBeVisible()
   } finally { expect((await api(page, `assistant/conversations/${conversation.id}`, 'DELETE')).status).toBe(204) }
 })
@@ -115,7 +121,7 @@ test('an exhausted real usage period shows zero allowance and rejects the turn w
 
 proTest('native start rate limit rejects a burst and the Assistant UI never replays the rejected turn', async ({ page, profile }) => {
   test.setTimeout(120000)
-  expect(profile.plan).toBe('PRO')
+  expect(profile.plan).toBe('pro')
   const untilMinute = 60000 - Date.now() % 60000
   if (untilMinute < 15000) await new Promise(resolve => setTimeout(resolve, untilMinute + 100))
   const conversation = (await api<Conversation>(page, 'assistant/conversations', 'POST', { title: 'native rate limit' })).body

@@ -4,7 +4,7 @@ from uuid import UUID, uuid7
 from sqlalchemy import DateTime, ForeignKey, Index, String
 from sqlalchemy.orm import Mapped, mapped_column
 
-from pycil.database import Base
+from pycil.infrastructure.database import Base
 
 
 class Conversation(Base):

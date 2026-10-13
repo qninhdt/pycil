@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID, uuid7
 
 from sqlalchemy import (
@@ -14,7 +15,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from pycil.account.plans import Feature, Plan
-from pycil.database import Base, enum_column
+from pycil.infrastructure.database import Base, enum_column
 
 
 class User(Base):
@@ -35,7 +36,7 @@ class User(Base):
     handle: Mapped[str | None] = mapped_column(String(30), unique=True)
     bio: Mapped[str | None] = mapped_column(String(500))
     plan: Mapped[Plan] = mapped_column(enum_column(Plan), default=Plan.FREE)
-    settings: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    settings: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     cycle_anchor: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )

@@ -10,12 +10,12 @@
     "lint": "oxlint",
     "typecheck": "tsc --noEmit",
     "test": "pnpm test:unit && pnpm test:integration && pnpm test:e2e",
-    "test:e2e": "RUN_WEB_E2E=1 python ../../scripts/test_api.py tests/system/test_web_e2e.py -q -s",
+    "test:e2e": "uv run --project ../api python tests/e2e/run.py",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
     "test:unit": "vitest run --project unit",
     "test:integration": "vitest run --project integration && node node_modules/@playwright/test/cli.js test --project integration",
-    "test:e2e:live": "RUN_WEB_E2E=1 E2E_PROVIDER_PROFILE=live python ../../scripts/test_api.py tests/system/test_web_e2e.py -q -s"
+    "test:e2e:live": "uv run --project ../api python tests/e2e/run.py --live"
   },
   "dependencies": {
     "@ag-ui/client": "0.0.59",

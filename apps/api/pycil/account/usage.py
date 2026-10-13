@@ -2,17 +2,19 @@
 
 from calendar import monthrange
 from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from pycil.account.lifecycle import invalidate_actor, require_user
 from pycil.account.models import UsageEvent, UsagePeriod, User
 from pycil.account.plans import Feature, Plan
-from pycil.config import ProductConfig
-from pycil.database import transaction_lock
-from pycil.http import Problem
-from pycil.logging import get_logger
+from pycil.app.config import ProductConfig
+from pycil.app.http import Problem
+from pycil.infrastructure.database import transaction_lock
+from pycil.infrastructure.observability import get_logger
 
 logger = get_logger(__name__)
 
@@ -21,7 +23,7 @@ def period_bounds(anchor: datetime, moment: datetime) -> tuple[datetime, datetim
     anchor, moment = anchor.astimezone(UTC), moment.astimezone(UTC)
     index = (moment.year - anchor.year) * 12 + moment.month - anchor.month
 
-    def boundary(offset):
+    def boundary(offset: int) -> datetime:
         year, month = divmod(anchor.year * 12 + anchor.month - 1 + offset, 12)
         month += 1
         return anchor.replace(
@@ -33,7 +35,9 @@ def period_bounds(anchor: datetime, moment: datetime) -> tuple[datetime, datetim
     return boundary(index), boundary(index + 1)
 
 
-async def allowance(session, user: User, config: ProductConfig, moment: datetime):
+async def allowance(
+    session: AsyncSession, user: User, config: ProductConfig, moment: datetime
+) -> dict[str, Any]:
     start, end = period_bounds(user.cycle_anchor, moment)
     period = await session.scalar(
         select(UsagePeriod).where(
@@ -42,8 +46,8 @@ async def allowance(session, user: User, config: ProductConfig, moment: datetime
         )
     )
     permitted = config.plans[user.plan].monthly_allowance_units
-    used = period.used_units if period else 0
-    budget = max(permitted, period.allowance_units) if period else permitted
+    used = int(period.used_units) if period else 0
+    budget = max(permitted, int(period.allowance_units)) if period else permitted
     return {
         "period_start": start,
         "period_end": end,
@@ -54,7 +58,7 @@ async def allowance(session, user: User, config: ProductConfig, moment: datetime
 
 
 async def settle(
-    session,
+    session: AsyncSession,
     user_id: UUID,
     config: ProductConfig,
     *,
@@ -63,8 +67,8 @@ async def settle(
     units: int,
     unmetered_calls: int,
     moment: datetime,
-):
-    if type(units) is not int or units < 0 or unmetered_calls < 0:
+) -> UsageEvent:
+    if any(type(value) is not int or value < 0 for value in (units, unmetered_calls)):
         raise ValueError("invalid reported units")
     async with session.begin():
         await transaction_lock(session, f"usage-event:{execution_key}")
@@ -75,11 +79,16 @@ async def settle(
         )
         if existing:
             period = await session.get(UsagePeriod, existing.period_id)
-            if period.user_id != user_id or (
-                existing.feature,
-                existing.units,
-                existing.unmetered_calls,
-            ) != (feature, units, unmetered_calls):
+            if (
+                period is None
+                or period.user_id != user_id
+                or (
+                    existing.feature,
+                    existing.units,
+                    existing.unmetered_calls,
+                )
+                != (feature, units, unmetered_calls)
+            ):
                 logger.warning(
                     "quota_settle_conflict",
                     user_id=str(user_id),
@@ -125,7 +134,13 @@ async def settle(
         return event
 
 
-async def change_plan(session, user_id: UUID, plan: Plan, config: ProductConfig, moment: datetime):
+async def change_plan(
+    session: AsyncSession,
+    user_id: UUID,
+    plan: Plan,
+    config: ProductConfig,
+    moment: datetime,
+) -> None:
     async with session.begin():
         await transaction_lock(session, f"usage:{user_id}")
         user = await session.scalar(
@@ -152,7 +167,13 @@ async def change_plan(session, user_id: UUID, plan: Plan, config: ProductConfig,
     await invalidate_actor(session, user)
 
 
-async def admit(session, user_id: UUID, config: ProductConfig, feature: Feature, moment: datetime):
+async def admit(
+    session: AsyncSession,
+    user_id: UUID,
+    config: ProductConfig,
+    feature: Feature,
+    moment: datetime,
+) -> Plan:
     async with session.begin():
         user = await session.scalar(
             select(User).where(User.id == user_id).execution_options(populate_existing=True)
@@ -168,7 +189,8 @@ async def admit(session, user_id: UUID, config: ProductConfig, feature: Feature,
             )
             raise Problem(403, "feature_not_available")
         budget = await allowance(session, user, config, moment)
-        if budget["remaining_units"] <= 0:
+        remaining = int(budget["remaining_units"])
+        if remaining <= 0:
             logger.warning(
                 "quota_allowance_exhausted",
                 user_id=str(user_id),

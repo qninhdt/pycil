@@ -15,11 +15,11 @@ import { Textarea } from '@/components/ui/textarea'
 import { LibraryDestinationDialog, type Destination } from './library-destination-dialog'
 
 type Props = {
-  profile: AccountProfile; kind: 'FOLDER' | 'DECK'; open: boolean; onOpenChange: (open: boolean) => void
-  parent?: { id: string; name: string; space: 'PERSONAL' | 'PUBLISHED' }
+  profile: AccountProfile; kind: 'folder' | 'deck'; open: boolean; onOpenChange: (open: boolean) => void
+  parent?: { id: string; name: string; space: 'personal' | 'published' }
   destinationEnabled?: boolean
   editing?: { id: string; name: string; description: string | null }
-  referenceTarget?: { id: string; name: string; space: 'PERSONAL' | 'PUBLISHED' }
+  referenceTarget?: { id: string; name: string; space: 'personal' | 'published' }
   onCreated?: (id: string) => void
 }
 
@@ -29,14 +29,14 @@ export function LibraryNodeForm({ profile, kind, open, onOpenChange, parent, des
   const router = useRouter(), queryClient = useQueryClient(), { services } = useServices()
   const [name, setName] = useState(editing?.name ?? referenceTarget?.name ?? '')
   const [description, setDescription] = useState(editing?.description ?? '')
-  const [destination, setDestination] = useState<Destination>(parent ? { ...parent, type: 'FOLDER' } : { id: profile.personal_node_id, name: t('personal'), type: 'FOLDER', space: 'PERSONAL' })
+  const [destination, setDestination] = useState<Destination>(parent ? { ...parent, type: 'folder' } : { id: profile.personal_node_id, name: t('personal'), type: 'folder', space: 'personal' })
   const [picking, setPicking] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState('')
   const [confirmed, setConfirmed] = useState(false)
   const submitting = useRef(false)
-  const label = referenceTarget ? t('reference') : kind === 'DECK' ? t('kindDeck') : t('kindFolder')
+  const label = referenceTarget ? t('reference') : kind === 'deck' ? t('kindDeck') : t('kindFolder')
   async function submit(event: React.FormEvent) {
     event.preventDefault()
-    if (!name.trim() || submitting.current || (!editing && destination.space === 'PUBLISHED' && !confirmed)) return
+    if (!name.trim() || submitting.current || (!editing && destination.space === 'published' && !confirmed)) return
     submitting.current = true
     setBusy(true); setError('')
     try {
@@ -51,7 +51,7 @@ export function LibraryNodeForm({ profile, kind, open, onOpenChange, parent, des
           : await services.library.createNode({ parentId: destination.id, type: kind, name: name.trim(), description: description.trim() || null, confirmPublication: confirmed }, new AbortController().signal)
         await queryClient.invalidateQueries({ queryKey: [services.mode] })
         if (onCreated) onCreated(id)
-        else router.push(destination.space === 'PUBLISHED' ? publishedHref(profile.id, id) : libraryHref(id))
+        else router.push(destination.space === 'published' ? publishedHref(profile.id, id) : libraryHref(id))
       }
     } catch (cause) { setError(cause instanceof Error ? cause.message : t('couldNotSaveNode', { kind: label })) }
     finally { submitting.current = false; setBusy(false) }
@@ -60,18 +60,18 @@ export function LibraryNodeForm({ profile, kind, open, onOpenChange, parent, des
     <Dialog open={open && !picking} onOpenChange={onOpenChange}><DialogContent className="w-[min(calc(100%-2rem),480px)] max-w-[480px]">
       <DialogHeader><DialogTitle>{editing ? t('editNodeTitle', { kind: label }) : referenceTarget ? t('createReference') : t('newNodeTitle', { kind: label })}</DialogTitle><DialogDescription>{editing ? t('editNodeDesc') : referenceTarget ? t('referenceDesc', { name: referenceTarget.name }) : t('newNodeDesc', { kind: label })}</DialogDescription></DialogHeader>
       <form className="grid gap-2 [&_label]:text-xs [&_label]:font-bold [&_label]:mt-2 [&_label_span]:font-normal [&_label_span]:text-muted-foreground" onSubmit={event => { void submit(event) }}>
-        <label htmlFor="library-node-name">{t('title')}</label><Input id="library-node-name" value={name} onChange={event => setName(event.target.value)} maxLength={255} required autoFocus placeholder={kind === 'DECK' ? t('placeholderDeckTitle') : t('placeholderFolderTitle')} />
+        <label htmlFor="library-node-name">{t('title')}</label><Input id="library-node-name" value={name} onChange={event => setName(event.target.value)} maxLength={255} required autoFocus placeholder={kind === 'deck' ? t('placeholderDeckTitle') : t('placeholderFolderTitle')} />
         {!referenceTarget && <><label htmlFor="library-node-description">{t('description')} <span>({t('optional')})</span></label><Textarea id="library-node-description" value={description} onChange={event => setDescription(event.target.value)} maxLength={8000} rows={3} placeholder={t('placeholderDesc')} /></>}
         {!editing && <><label>{t('destination')}</label>{destinationEnabled
           ? <button type="button" className="library-destination-field hover:bg-accent flex items-center gap-2.5 min-h-[42px] px-3 py-2 border border-border text-left [&_>_svg]:size-[18px] [&_>_span:last-child:not(:first-of-type)]:ml-auto [&_>_span:last-child:not(:first-of-type)]:text-xs [&_>_span:last-child:not(:first-of-type)]:underline" onClick={() => setPicking(true)}><Icon name="folder" /><span>{destination.name}</span><span>{t('change')}</span></button>
           : <div className="library-destination-field flex items-center gap-2.5 min-h-[42px] px-3 py-2 border border-border text-left [&_>_svg]:size-[18px] [&_>_span:last-child:not(:first-of-type)]:ml-auto [&_>_span:last-child:not(:first-of-type)]:text-xs [&_>_span:last-child:not(:first-of-type)]:underline" aria-label={`${t('destination')}: ${destination.name}`}><Icon name="folder" /><span>{destination.name}</span></div>}</>}
-        {!editing && destination.space === 'PUBLISHED' && <label className="flex items-start gap-2"><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />{t('makePubliclyReadable', { kind: label })}</label>}
+        {!editing && destination.space === 'published' && <label className="flex items-start gap-2"><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />{t('makePubliclyReadable', { kind: label })}</label>}
         {error && <p className="text-destructive text-xs" role="alert">{error}</p>}
-        <div className="flex justify-end gap-2 mt-4"><Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>{tCommon('cancel')}</Button><Button type="submit" disabled={busy || !name.trim() || (!editing && destination.space === 'PUBLISHED' && !confirmed)}>{busy ? tCommon('saving') : editing ? tCommon('saveChanges') : referenceTarget ? t('createReference') : t('createNodeButton', { kind: label })}</Button></div>
+        <div className="flex justify-end gap-2 mt-4"><Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>{tCommon('cancel')}</Button><Button type="submit" disabled={busy || !name.trim() || (!editing && destination.space === 'published' && !confirmed)}>{busy ? tCommon('saving') : editing ? tCommon('saveChanges') : referenceTarget ? t('createReference') : t('createNodeButton', { kind: label })}</Button></div>
       </form>
     </DialogContent></Dialog>
-    {picking && <LibraryDestinationDialog open onOpenChange={next => { if (!next) setPicking(false) }} profile={profile} kind="FOLDER" action={t('useThisFolder')}
-      spaceOnly={referenceTarget?.space === 'PERSONAL' ? 'personal' : undefined} excludedIds={referenceTarget ? new Set([referenceTarget.id]) : undefined}
-      onConfirm={async selected => { const detail = await services.library.details(selected.id, new AbortController().signal); setDestination({ ...selected, space: detail.space === 'PUBLISHED' ? 'PUBLISHED' : 'PERSONAL' }); setConfirmed(false); setPicking(false) }} />}
+    {picking && <LibraryDestinationDialog open onOpenChange={next => { if (!next) setPicking(false) }} profile={profile} kind="folder" action={t('useThisFolder')}
+      spaceOnly={referenceTarget?.space === 'personal' ? 'personal' : undefined} excludedIds={referenceTarget ? new Set([referenceTarget.id]) : undefined}
+      onConfirm={async selected => { const detail = await services.library.details(selected.id, new AbortController().signal); setDestination({ ...selected, space: detail.space === 'published' ? 'published' : 'personal' }); setConfirmed(false); setPicking(false) }} />}
   </>
 }

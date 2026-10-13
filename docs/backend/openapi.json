@@ -1110,9 +1110,9 @@
                   "discriminator": {
                     "propertyName": "type",
                     "mapping": {
-                      "DECK": "#/components/schemas/SavedDeck",
-                      "FOLDER": "#/components/schemas/SavedContainer",
-                      "REFERENCE": "#/components/schemas/SavedContainer"
+                      "deck": "#/components/schemas/SavedDeck",
+                      "folder": "#/components/schemas/SavedContainer",
+                      "reference": "#/components/schemas/SavedContainer"
                     }
                   },
                   "title": "Response Create V1 Nodes Post"
@@ -2270,9 +2270,9 @@
                   "discriminator": {
                     "propertyName": "type",
                     "mapping": {
-                      "DECK": "#/components/schemas/SavedDeck",
-                      "FOLDER": "#/components/schemas/SavedContainer",
-                      "REFERENCE": "#/components/schemas/SavedContainer"
+                      "deck": "#/components/schemas/SavedDeck",
+                      "folder": "#/components/schemas/SavedContainer",
+                      "reference": "#/components/schemas/SavedContainer"
                     }
                   },
                   "title": "Response Copy V1 Nodes  Node Id  Copy Post"
@@ -2475,12 +2475,12 @@
             "required": false,
             "schema": {
               "enum": [
-                "SENSE_ID_ASC",
-                "LEMMA_ASC",
-                "LAST_REVIEWED_DESC"
+                "sense_id_asc",
+                "lemma_asc",
+                "last_reviewed_desc"
               ],
               "type": "string",
-              "default": "SENSE_ID_ASC",
+              "default": "sense_id_asc",
               "title": "Sort"
             }
           },
@@ -2506,13 +2506,13 @@
             "required": false,
             "schema": {
               "enum": [
-                "ALL",
-                "NEW",
-                "DUE",
-                "NOT_YET_DUE"
+                "all",
+                "new",
+                "due",
+                "not_yet_due"
               ],
               "type": "string",
-              "default": "ALL",
+              "default": "all",
               "title": "State"
             }
           }
@@ -6818,12 +6818,12 @@
       "CEFRLevel": {
         "type": "string",
         "enum": [
-          "A1",
-          "A2",
-          "B1",
-          "B2",
-          "C1",
-          "C2"
+          "a1",
+          "a2",
+          "b1",
+          "b2",
+          "c1",
+          "c2"
         ],
         "title": "CEFRLevel"
       },
@@ -7144,6 +7144,7 @@
             "title": "Theme Id"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "id",
@@ -7154,18 +7155,18 @@
       "DefinitionAccuracy": {
         "type": "string",
         "enum": [
-          "ACCURATE",
-          "MIXED",
-          "INACCURATE"
+          "accurate",
+          "mixed",
+          "inaccurate"
         ],
         "title": "DefinitionAccuracy"
       },
       "DefinitionCoverage": {
         "type": "string",
         "enum": [
-          "SUFFICIENT",
-          "PARTIAL",
-          "MINIMAL"
+          "sufficient",
+          "partial",
+          "minimal"
         ],
         "title": "DefinitionCoverage"
       },
@@ -7372,11 +7373,11 @@
       "EntryType": {
         "type": "string",
         "enum": [
-          "WORD",
-          "PHRASAL_VERB",
-          "IDIOM",
-          "PHRASE",
-          "EXPRESSION"
+          "word",
+          "phrasal_verb",
+          "idiom",
+          "phrase",
+          "expression"
         ],
         "title": "EntryType"
       },
@@ -7416,6 +7417,7 @@
             "title": "Theme Id"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "id",
@@ -7476,6 +7478,7 @@
             "$ref": "#/components/schemas/Inflection"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "surface",
@@ -7534,13 +7537,7 @@
             "title": "Task Id"
           },
           "status": {
-            "type": "string",
-            "enum": [
-              "RUNNING",
-              "SUCCEEDED",
-              "FAILED"
-            ],
-            "title": "Status"
+            "$ref": "#/components/schemas/JobState"
           },
           "word_id": {
             "anyOf": [
@@ -7556,13 +7553,12 @@
           "stage": {
             "anyOf": [
               {
-                "type": "string"
+                "$ref": "#/components/schemas/GenerationStage"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Stage"
+            ]
           },
           "error": {
             "anyOf": [
@@ -7592,12 +7588,20 @@
         ],
         "title": "GenerationResult"
       },
+      "GenerationStage": {
+        "type": "string",
+        "enum": [
+          "word",
+          "ready"
+        ],
+        "title": "GenerationStage"
+      },
       "GenerationState": {
         "type": "string",
         "enum": [
-          "PENDING",
-          "DONE",
-          "ERROR"
+          "pending",
+          "done",
+          "error"
         ],
         "title": "GenerationState"
       },
@@ -7743,16 +7747,25 @@
       "Inflection": {
         "type": "string",
         "enum": [
-          "BASE",
-          "PAST",
-          "PAST_PARTICIPLE",
-          "PRESENT_3SG",
-          "ING",
-          "PLURAL",
-          "COMPARATIVE",
-          "SUPERLATIVE"
+          "base",
+          "past",
+          "past_participle",
+          "present_3sg",
+          "ing",
+          "plural",
+          "comparative",
+          "superlative"
         ],
         "title": "Inflection"
+      },
+      "JobState": {
+        "type": "string",
+        "enum": [
+          "running",
+          "succeeded",
+          "failed"
+        ],
+        "title": "JobState"
       },
       "LearningLimits": {
         "properties": {
@@ -7789,7 +7802,7 @@
             "maximum": 60.0,
             "minimum": 1.0,
             "title": "Max Review Batch",
-            "default": 100
+            "default": 60
           },
           "max_summary_nodes": {
             "type": "integer",
@@ -7880,7 +7893,7 @@
             "anyOf": [
               {
                 "items": {
-                  "type": "string"
+                  "$ref": "#/components/schemas/QuestionType"
                 },
                 "type": "array"
               },
@@ -7894,7 +7907,7 @@
             "anyOf": [
               {
                 "items": {
-                  "type": "string"
+                  "$ref": "#/components/schemas/ResponseFormat"
                 },
                 "type": "array"
               },
@@ -7975,9 +7988,9 @@
           "state": {
             "type": "string",
             "enum": [
-              "NEW",
-              "DUE",
-              "NOT_YET_DUE"
+              "new",
+              "due",
+              "not_yet_due"
             ],
             "title": "State"
           },
@@ -8044,19 +8057,19 @@
       "MatchKind": {
         "type": "string",
         "enum": [
-          "EXACT",
-          "PREFIX",
-          "SUBSTRING",
-          "FUZZY"
+          "exact",
+          "prefix",
+          "substring",
+          "fuzzy"
         ],
         "title": "MatchKind"
       },
       "MeaningPreservation": {
         "type": "string",
         "enum": [
-          "PRESERVED",
-          "PARTIAL",
-          "CHANGED"
+          "preserved",
+          "partial",
+          "changed"
         ],
         "title": "MeaningPreservation"
       },
@@ -8375,28 +8388,28 @@
       "NodeRole": {
         "type": "string",
         "enum": [
-          "NORMAL",
-          "LIBRARY_ROOT",
-          "PERSONAL_ROOT",
-          "PUBLISHED_ROOT"
+          "normal",
+          "library_root",
+          "personal_root",
+          "published_root"
         ],
         "title": "NodeRole"
       },
       "NodeSpace": {
         "type": "string",
         "enum": [
-          "LIBRARY",
-          "PERSONAL",
-          "PUBLISHED"
+          "library",
+          "personal",
+          "published"
         ],
         "title": "NodeSpace"
       },
       "NodeType": {
         "type": "string",
         "enum": [
-          "FOLDER",
-          "DECK",
-          "REFERENCE"
+          "folder",
+          "deck",
+          "reference"
         ],
         "title": "NodeType"
       },
@@ -8656,18 +8669,18 @@
       "PartOfSpeech": {
         "type": "string",
         "enum": [
-          "NOUN",
-          "VERB",
-          "ADJECTIVE",
-          "ADVERB",
-          "PRONOUN",
-          "PREPOSITION",
-          "CONJUNCTION",
-          "DETERMINER",
-          "INTERJECTION",
-          "NUMERAL",
-          "ARTICLE",
-          "AUXILIARY"
+          "noun",
+          "verb",
+          "adjective",
+          "adverb",
+          "pronoun",
+          "preposition",
+          "conjunction",
+          "determiner",
+          "interjection",
+          "numeral",
+          "article",
+          "auxiliary"
         ],
         "title": "PartOfSpeech"
       },
@@ -8704,8 +8717,8 @@
       "Plan": {
         "type": "string",
         "enum": [
-          "FREE",
-          "PRO"
+          "free",
+          "pro"
         ],
         "title": "Plan"
       },
@@ -8811,9 +8824,9 @@
           "selection": {
             "type": "string",
             "enum": [
-              "NEW",
-              "DUE",
-              "AUTO"
+              "new",
+              "due",
+              "auto"
             ],
             "title": "Selection"
           },
@@ -8863,12 +8876,12 @@
           "selection": {
             "type": "string",
             "enum": [
-              "NEW",
-              "DUE",
-              "AUTO"
+              "new",
+              "due",
+              "auto"
             ],
             "title": "Selection",
-            "default": "AUTO"
+            "default": "auto"
           },
           "max_sense_count": {
             "anyOf": [
@@ -8912,9 +8925,9 @@
           "reason": {
             "type": "string",
             "enum": [
-              "DUE",
-              "NEW",
-              "NOT_YET_DUE"
+              "due",
+              "new",
+              "not_yet_due"
             ],
             "title": "Reason"
           },
@@ -9245,14 +9258,14 @@
       "QuestionType": {
         "type": "string",
         "enum": [
-          "DEFINITION_TO_WORD",
-          "CONTEXT_TO_WORD",
-          "CLOZE_TO_WORD",
-          "WORD_TO_DEFINITION",
-          "WORD_TO_USAGE",
-          "DIALOGUE_COMPLETION",
-          "MEANING_IN_CONTEXT",
-          "SENTENCE_REWRITE"
+          "definition_to_word",
+          "context_to_word",
+          "cloze_to_word",
+          "word_to_definition",
+          "word_to_usage",
+          "dialogue_completion",
+          "meaning_in_context",
+          "sentence_rewrite"
         ],
         "title": "QuestionType"
       },
@@ -9352,11 +9365,12 @@
           },
           "kind": {
             "type": "string",
-            "const": "REFERENCE",
+            "const": "reference",
             "title": "Kind",
-            "default": "REFERENCE"
+            "default": "reference"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "reference_id",
@@ -9370,31 +9384,31 @@
       "Register": {
         "type": "string",
         "enum": [
-          "FORMAL",
-          "INFORMAL",
-          "SLANG",
-          "LITERARY",
-          "SPECIALIST"
+          "formal",
+          "informal",
+          "slang",
+          "literary",
+          "specialist"
         ],
         "title": "Register"
       },
       "ResolutionState": {
         "type": "string",
         "enum": [
-          "PENDING",
-          "RESOLVED",
-          "UNRESOLVABLE",
-          "NOOP",
-          "ERROR"
+          "pending",
+          "resolved",
+          "unresolvable",
+          "noop",
+          "error"
         ],
         "title": "ResolutionState"
       },
       "ResponseFormat": {
         "type": "string",
         "enum": [
-          "SINGLE_CHOICE",
-          "SINGLE_WORD",
-          "SHORT_ANSWER"
+          "single_choice",
+          "single_word",
+          "short_answer"
         ],
         "title": "ResponseFormat"
       },
@@ -9805,8 +9819,8 @@
           "type": {
             "type": "string",
             "enum": [
-              "FOLDER",
-              "REFERENCE"
+              "folder",
+              "reference"
             ],
             "title": "Type"
           },
@@ -9932,7 +9946,7 @@
           },
           "type": {
             "type": "string",
-            "const": "DECK",
+            "const": "deck",
             "title": "Type"
           },
           "parent_id": {
@@ -10132,8 +10146,8 @@
               "discriminator": {
                 "propertyName": "kind",
                 "mapping": {
-                  "REFERENCE": "#/components/schemas/ReferenceHit",
-                  "WORD": "#/components/schemas/WordHit"
+                  "reference": "#/components/schemas/ReferenceHit",
+                  "word": "#/components/schemas/WordHit"
                 }
               }
             },
@@ -10141,6 +10155,7 @@
             "title": "Items"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "title": "SearchResult"
       },
@@ -10248,6 +10263,7 @@
             "title": "Ipa Us"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "id",
@@ -10563,6 +10579,7 @@
             "title": "To Sense Id"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "rel_type",
@@ -10575,12 +10592,12 @@
       "SenseRelationType": {
         "type": "string",
         "enum": [
-          "SYNONYM",
-          "ANTONYM",
-          "HYPERNYM",
-          "HYPONYM",
-          "MERONYM",
-          "HOLONYM"
+          "synonym",
+          "antonym",
+          "hypernym",
+          "hyponym",
+          "meronym",
+          "holonym"
         ],
         "title": "SenseRelationType"
       },
@@ -10893,8 +10910,8 @@
       "TargetPlacement": {
         "type": "string",
         "enum": [
-          "DIALOGUE",
-          "OPTIONS"
+          "dialogue",
+          "options"
         ],
         "title": "TargetPlacement"
       },
@@ -10942,10 +10959,10 @@
       "Tier": {
         "type": "string",
         "enum": [
-          "CORE",
-          "COMMON",
-          "LESS_COMMON",
-          "RARE"
+          "core",
+          "common",
+          "less_common",
+          "rare"
         ],
         "title": "Tier"
       },
@@ -11346,18 +11363,18 @@
       "UsageForm": {
         "type": "string",
         "enum": [
-          "CORRECT",
-          "SPELLING_ERROR",
-          "FORM_ERROR"
+          "correct",
+          "spelling_error",
+          "form_error"
         ],
         "title": "UsageForm"
       },
       "UsageMeaning": {
         "type": "string",
         "enum": [
-          "CORRECT",
-          "APPROXIMATE",
-          "WRONG"
+          "correct",
+          "approximate",
+          "wrong"
         ],
         "title": "UsageMeaning"
       },
@@ -11565,6 +11582,7 @@
             "title": "Related"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "id",
@@ -11596,11 +11614,12 @@
           },
           "kind": {
             "type": "string",
-            "const": "WORD",
+            "const": "word",
             "title": "Kind",
-            "default": "WORD"
+            "default": "word"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "word_id",
@@ -11676,6 +11695,7 @@
             "title": "To Word Lemma"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "rel_type",
@@ -11687,9 +11707,9 @@
       "WordRelationType": {
         "type": "string",
         "enum": [
-          "WORD_FAMILY",
-          "CONFUSED_WITH",
-          "PART_OF_PHRASAL_FAMILY"
+          "word_family",
+          "confused_with",
+          "part_of_phrasal_family"
         ],
         "title": "WordRelationType"
       }

@@ -1,120 +1,86 @@
 # Data model
 
-This page describes the working-tree schema. Application migration head is
-`20261012_profile`; no production migration is implied.
+## Storage ownership
 
-## Ownership boundaries
+All application and native checkpoint tables reside in PostgreSQL `public`.
+[initial.py](../../apps/api/migrations/versions/initial.py) is the sole application
+baseline. [Shared metadata](../../apps/api/pycil/infrastructure/database.py) registers
+models from their business domains. Native checkpoint setup owns its four tables and
+migration version independently; Alembic excludes them by name.
 
-| Schema / artifact | DDL owner | Purpose |
-| --- | --- | --- |
-| PostgreSQL `public` | Pycil Alembic migrations | Users, Library, learning, usage, conversation metadata |
-| PostgreSQL `lexi` | Vendored Lexi migrations | Shared words, senses, definitions, examples and question artifacts |
-| PostgreSQL `checkpoints` | Native LangGraph checkpoint setup | Conversation state, messages, interrupted approvals |
-| PostgreSQL `lexi_reference` | Vendored Lexi migrations/import | Required project-owned reference entries, read by native Lexi |
+## Domain tables
 
-Pycil imports `lexi.senses` into its metadata to resolve cross-schema FKs. That is not
-permission for Pycil Alembic to manage Lexi tables. Migration filtering excludes externally
-owned tables. The three PostgreSQL version owners and the reference import marker
-are verified at startup.
-Lexi owns both `lexi` and `lexi_reference`; the SQLite artifacts are distribution inputs.
-`lexi.word_references` maps resolved Cambridge entry IDs to canonical Word IDs;
-`lexi.sense_references` records Cambridge sense IDs or WordNet synset keys as evidence.
-Several reference entries can map to one Word, while each entry maps to one Word.
-
-## Application table inventory
-
-| Table | Identity | Responsibility |
-| --- | --- | --- |
-| `users` | UUID PK; unique Clerk subject / optional handle | Plan, sparse settings, cycle anchor, generated handle/editable bio/display name |
-| `nodes` | UUID PK; unique `(owner_id, id)` | Physical folder/deck/reference identity and placement |
-| `node_paths` | `(ancestor_id, descendant_id)` PK | Physical transitive closure with depth |
-| `deck_senses` | `(deck_id, sense_id)` PK | Unordered final deck membership |
-| `user_senses` | `(user_id, sense_id)` PK | Shared personal Memory and Elo |
-| `review_log` | `(user_id, event_key)` PK | Immutable ordered batch hash/result and accepted day |
-| `user_daily_activity` | `(user_id, day)` PK | Durable applied/practice counts, independent of membership |
-| `usage_periods` | UUID PK; unique `(user_id, period_start)` | Anchored allowance and accumulated consumption |
-| `usage_events` | UUID PK; unique execution key | Idempotent assistant usage settlement |
-| `conversations` | UUID PK | Owner, title, creation/update timestamps |
-
-Application UUID defaults use UUIDv7; roots introduced by the SQL data migration use
-database-generated UUIDs. Lexical senses and question artifacts use integer identities. Timestamps
-are timezone-aware; normal event calculations use UTC before reporting conversions.
-
-## Nodes and closure
-
-`NodeType` is FOLDER, DECK, or REFERENCE. `NodeRole` is NORMAL, LIBRARY_ROOT,
-PERSONAL_ROOT, or PUBLISHED_ROOT. `NodeSpace` is LIBRARY, PERSONAL, or PUBLISHED.
-Role and space are server-owned fields, not request-editable visibility.
-
-Structural guarantees include:
-
-- Exactly one role of each system kind per owner via a partial unique owner/role index.
-- System nodes must be folders; only Library roots have null parents.
-- An owner-preserving composite parent FK; parents must additionally be folders by service validation.
-- REFERENCE iff a target is present; self-parent and self-reference are forbidden.
-- References may cross owners; physical parents may not.
-- Library depth is 0, Personal/Published depth is 1, and normal children start at depth 2.
-
-Closure stores only physical paths, including a depth-0 self-path for active nodes. A
-move keeps internal subtree paths, replaces outside ancestor paths, and updates derived
-space in the same transaction. A subtree soft delete marks nodes inactive and explicitly
-removes their effective paths. It does not delete memberships or personal learning state.
-
-Closure and space invariants are maintained by shared services, not a database trigger
-repair system. Do not bypass them with direct application SQL. `space=PUBLISHED` alone
-is not sufficient for public access: authorization verifies active system-root paths.
-
-## Membership and learning
-
-Membership has no per-user copy or position column. Each deck selects global sense IDs.
-Repeated senses in different decks are legal; one deck cannot have duplicate IDs.
-Sense FKs use RESTRICT so removing shared lexical content cannot silently erase learning.
-
-`user_senses` stores stability, difficulty, last exposure, due time, Elo, review
-and lapse counts, and timestamps. Stability/difficulty must be positive; review count
-is positive and lapse count is nonnegative. References and organizational changes do
-not create or delete this state. No state row means New.
-
-`review_log` stores request SHA-256, acceptance timestamp, frozen local day and JSONB
-original batch result with per-question diagnostic evidence and policy version. Retention lasts until account deletion; no source/session data.
-Daily counts commit atomically with accepted batches. Streaks derive from active days,
-not persistent counters. There is no backend learning-session table.
-
-## Usage, conversations, and generation
-
-Usage period counts and units are nonnegative. Settled events point to a period and
-record feature, units, reported-unmetered call count, and occurrence time. Reading an
-allowance does not require creating a period row.
-
-Conversation metadata is application-owned; native messages and approval interrupts
-live in `checkpoints`. Deleting a conversation explicitly cleans the native thread before
-deleting metadata. This is not an atomic cross-schema application transaction.
-
-Generation tasks and their status are process-local memory. No application generation
-table exists. Committed lexical content belongs to Lexi; task loss does not delete it.
-
-## Important access indexes
-
-| Index shape | Consumer |
+| Owner | Tables and purpose |
 | --- | --- |
-| Active nodes `(owner_id, parent_id, created_at, id)` | Child listing and owned placement reads |
-| Nodes `parent_id`, `reference_id` | Physical relationships and target lookup |
-| Active Published normal nodes `(created_at, id)` / `(owner_id, created_at, id)` | Discovery catalog ordering |
-| Generated weighted `search_vector`, GIN | Scoped node FTS and public Discovery |
-| Paths PK plus `(descendant_id, ancestor_id)` | Subtree expansion and ancestor authorization |
-| Membership PK plus sense index | Deck selection and lexical associations |
-| Memory `(user_id, due_at, sense_id)` | Due selection |
-| Activity PK `(user_id, day)` | Private daily grid / lifetime active days |
-| Conversations `(user_id, updated_at, id)` | Owner pagination |
+| `vocabulary` | `words`, `senses`, `definitions`, `examples`, `collocations`, `word_aliases`, `sense_forms`, `sense_patterns`, `word_references`, `sense_references`, `word_relations`, `sense_relations`, `translations` |
+| `vocabulary/references` | Immutable `reference_words` and `reference_senses` |
+| `themes` | `themes`: key, name, voice and diction |
+| `account` | `users`, anchored `usage_periods`, idempotent `usage_events` |
+| `library` | `nodes`, physical closure `node_paths`, unordered memberships `deck_senses` |
+| `study` | `question_artifacts`, shared personal `user_senses`, batch receipts `review_log`, frozen `user_daily_activity` |
+| `assistant` | Owned metadata `conversations` |
+| Native checkpoints | `checkpoints`, `checkpoint_blobs`, `checkpoint_writes`, `checkpoint_migrations` |
 
-FTS vector uses explicit `simple` configuration: name A, nullable description B,
-stored generated transactionally. No copied lexical payloads, user node preferences,
-tags/translation tables, mastery index or raw history index is introduced.
+Application UUID identities use UUIDv7. Lexical identities use integers; source reference
+IDs survive conversion/import. Timestamps are timezone-aware. Controlled enum columns
+persist lowercase `snake_case` values, not Python member names.
 
-## Sources and verification
+## Vocabulary and references
 
-- Models: [account](../../apps/api/pycil/account/models.py), [Library](../../apps/api/pycil/library/models.py), [study](../../apps/api/pycil/study/models.py), [assistant](../../apps/api/pycil/assistant/models.py)
-- Process-local generation tasks: [generation](../../apps/api/pycil/vocabulary/generation.py)
-- [Current baseline](../../apps/api/migrations/versions/20261009_baseline.py)
-- [Fresh schema tests](../../apps/api/tests/integration/test_fresh_schema.py)
-- Upgrade/backup safety: [Migrations](operations/migrations.md)
+A generated word owns its senses and searchable aliases. Sense content includes neutral
+or themed definitions/examples, forms, patterns, collocations, pronunciation and metadata.
+`word_references.source_id` links a reference word to the canonical generated word;
+`sense_references` records retained reference sense IDs or WordNet keys as evidence.
+The reference has exactly two tables: compact word search surfaces and ordered senses.
+It has no crawl, topic, example or entry tables. Import is explicit from JSONL.
+
+Relations can point at pending words. Sense resolution compares ordered neutral definition
+inventories and stores the selected target/hash or an attempted resolution. Statement-level
+triggers invalidate affected resolution after evidence changes. Theme descriptors stay
+separate from generated content; translations reuse input hash plus target language.
+
+## Artifacts
+
+Question artifacts are shared content, not runtime question occurrences. Their namespace
+is sense plus optional theme. Payload validation runs before writes; payload hashes prevent
+duplicate stored content. Singleton banks merge option arrays; contextual banks append.
+Database triggers preserve dense global/type positions after insert/delete/update.
+Runtime preparation samples from those banks and never stores a learning session.
+
+## Library and progress
+
+Nodes carry server-owned role/space. System roots are folders; only the Library root has
+no parent. Composite FKs preserve physical owner boundaries. A reference has a target
+and may cross owners; it grants only live readable access. Services maintain physical
+closure and publication inside serialized owner transactions. Public authorization checks
+active system-root paths rather than trusting `space` alone. Soft deletion removes
+closure reachability while preserving memberships and personal learning history.
+
+Each deck has unique global sense IDs; a sense may occur in multiple decks. Each user
+has one personal state per sense regardless of placement. Restrictive lexical FKs protect
+learning data. Organization changes do not reset that state.
+
+Review submission locks the user, validates the ordered diagnostic batch and atomically
+commits state, the immutable receipt and daily counts. Receipts use `(user_id,event_key)`
+and a canonical request hash. Identical replay returns the original result; changed replay
+fails. Activity dates freeze the user's timezone at acceptance and never regroup later.
+
+## Usage and conversations
+
+Usage events settle once per execution key. Units and reported unmetered-call counts are
+nonnegative integers. Period allowance is anchored to account creation/cycle time;
+admission is not a prepaid reservation.
+
+Conversation deletion checks ownership and takes its Redis lease, deletes the native
+thread, then deletes metadata. Native/application cleanup has separate transaction
+boundaries. Generation jobs have no database table: status is process-local, while
+committed words survive restart.
+
+## Evidence
+
+- [Schema drift](../../apps/api/tests/integration/infrastructure/test_schema.py)
+- [Reference import](../../apps/api/tests/integration/vocabulary/test_reference_import.py)
+- [Artifact banks](../../apps/api/tests/integration/study/test_artifact_banks.py)
+- [Atomic reviews](../../apps/api/tests/integration/study/test_reviews.py)
+- [Checkpoint ownership/restart](../../apps/api/tests/integration/assistant/test_checkpoints.py)
+- [Migration workflow](operations/migrations.md)

@@ -16,19 +16,19 @@
       "assistant": { "auto_approve": false },
       "learning": {
         "question_types": [
-          "DEFINITION_TO_WORD",
-          "CONTEXT_TO_WORD",
-          "CLOZE_TO_WORD",
-          "WORD_TO_DEFINITION",
-          "WORD_TO_USAGE",
-          "DIALOGUE_COMPLETION",
-          "MEANING_IN_CONTEXT",
-          "SENTENCE_REWRITE"
+          "definition_to_word",
+          "context_to_word",
+          "cloze_to_word",
+          "word_to_definition",
+          "word_to_usage",
+          "dialogue_completion",
+          "meaning_in_context",
+          "sentence_rewrite"
         ],
         "formats": [
-          "SINGLE_CHOICE",
-          "SINGLE_WORD",
-          "SHORT_ANSWER"
+          "single_choice",
+          "single_word",
+          "short_answer"
         ],
         "questions_per_sense": 2,
         "max_sense_count": 10
@@ -36,19 +36,19 @@
     },
     "effective_learning": {
       "question_types": [
-        "DEFINITION_TO_WORD",
-        "CONTEXT_TO_WORD",
-        "CLOZE_TO_WORD",
-        "WORD_TO_DEFINITION",
-        "WORD_TO_USAGE",
-        "DIALOGUE_COMPLETION",
-        "MEANING_IN_CONTEXT",
-        "SENTENCE_REWRITE"
+        "definition_to_word",
+        "context_to_word",
+        "cloze_to_word",
+        "word_to_definition",
+        "word_to_usage",
+        "dialogue_completion",
+        "meaning_in_context",
+        "sentence_rewrite"
       ],
       "formats": [
-        "SINGLE_CHOICE",
-        "SINGLE_WORD",
-        "SHORT_ANSWER"
+        "single_choice",
+        "single_word",
+        "short_answer"
       ],
       "questions_per_sense": 2,
       "max_sense_count": 10
@@ -57,73 +57,73 @@
     "learning_options": {
       "pairs": [
         {
-          "question_type": "DEFINITION_TO_WORD",
-          "format": "SINGLE_CHOICE",
+          "question_type": "definition_to_word",
+          "format": "single_choice",
           "level": 1
         },
         {
-          "question_type": "DEFINITION_TO_WORD",
-          "format": "SINGLE_WORD",
+          "question_type": "definition_to_word",
+          "format": "single_word",
           "level": 3
         },
         {
-          "question_type": "CONTEXT_TO_WORD",
-          "format": "SINGLE_CHOICE",
+          "question_type": "context_to_word",
+          "format": "single_choice",
           "level": 2
         },
         {
-          "question_type": "CONTEXT_TO_WORD",
-          "format": "SINGLE_WORD",
+          "question_type": "context_to_word",
+          "format": "single_word",
           "level": 3
         },
         {
-          "question_type": "CLOZE_TO_WORD",
-          "format": "SINGLE_CHOICE",
+          "question_type": "cloze_to_word",
+          "format": "single_choice",
           "level": 2
         },
         {
-          "question_type": "CLOZE_TO_WORD",
-          "format": "SINGLE_WORD",
+          "question_type": "cloze_to_word",
+          "format": "single_word",
           "level": 3
         },
         {
-          "question_type": "WORD_TO_DEFINITION",
-          "format": "SINGLE_CHOICE",
+          "question_type": "word_to_definition",
+          "format": "single_choice",
           "level": 1
         },
         {
-          "question_type": "WORD_TO_DEFINITION",
-          "format": "SHORT_ANSWER",
+          "question_type": "word_to_definition",
+          "format": "short_answer",
           "level": 4
         },
         {
-          "question_type": "WORD_TO_USAGE",
-          "format": "SINGLE_CHOICE",
+          "question_type": "word_to_usage",
+          "format": "single_choice",
           "level": 2
         },
         {
-          "question_type": "WORD_TO_USAGE",
-          "format": "SHORT_ANSWER",
+          "question_type": "word_to_usage",
+          "format": "short_answer",
           "level": 4
         },
         {
-          "question_type": "DIALOGUE_COMPLETION",
-          "format": "SINGLE_CHOICE",
+          "question_type": "dialogue_completion",
+          "format": "single_choice",
           "level": 2
         },
         {
-          "question_type": "MEANING_IN_CONTEXT",
-          "format": "SINGLE_CHOICE",
+          "question_type": "meaning_in_context",
+          "format": "single_choice",
           "level": 2
         },
         {
-          "question_type": "SENTENCE_REWRITE",
-          "format": "SINGLE_CHOICE",
+          "question_type": "sentence_rewrite",
+          "format": "single_choice",
           "level": 2
         },
         {
-          "question_type": "SENTENCE_REWRITE",
-          "format": "SHORT_ANSWER",
+          "question_type": "sentence_rewrite",
+          "format": "short_answer",
           "level": 5
         }
       ],
@@ -158,7 +158,7 @@
       "id": "everyday",
       "parent_id": "preview-personal",
       "name": "Everyday conversation",
-      "type": "DECK",
+      "type": "deck",
       "description": "Small expressions for everyday connections.",
       "counts": {
         "total": 36,
@@ -173,7 +173,7 @@
       "id": "business",
       "parent_id": "preview-personal",
       "name": "Business English",
-      "type": "FOLDER",
+      "type": "folder",
       "description": "Work, communication and office vocabulary.",
       "counts": {
         "total": 36,
@@ -188,7 +188,7 @@
       "id": "travel",
       "parent_id": "preview-personal",
       "name": "Travel essentials",
-      "type": "REFERENCE",
+      "type": "reference",
       "description": "A saved reference to a published deck.",
       "counts": {
         "total": 12,
@@ -203,7 +203,7 @@
       "id": "saved-business",
       "parent_id": "preview-personal",
       "name": "Business collection",
-      "type": "REFERENCE",
+      "type": "reference",
       "description": "A saved reference to the Business English folder.",
       "counts": {
         "total": 36,
@@ -218,7 +218,7 @@
       "id": "published-everyday",
       "parent_id": "preview-published",
       "name": "A few useful expressions",
-      "type": "DECK",
+      "type": "deck",
       "description": "Expressions worth sharing.",
       "counts": {
         "total": 12,
@@ -423,84 +423,84 @@
         "id": "meetings",
         "parent_id": "business",
         "name": "Meetings",
-        "type": "FOLDER",
+        "type": "folder",
         "description": "Make room for every idea."
       },
       {
         "id": "emails",
         "parent_id": "business",
         "name": "Emails",
-        "type": "FOLDER",
+        "type": "folder",
         "description": "Clear, considered correspondence."
       },
       {
         "id": "presentations",
         "parent_id": "business",
         "name": "Presentations",
-        "type": "FOLDER",
+        "type": "folder",
         "description": "Ideas, explained simply."
       },
       {
         "id": "business-core",
         "parent_id": "business",
         "name": "Business Core",
-        "type": "DECK",
+        "type": "deck",
         "description": "The language of decisions, ideas and working together."
       },
       {
         "id": "workplace",
         "parent_id": "business",
         "name": "Workplace Verbs",
-        "type": "DECK",
+        "type": "deck",
         "description": "Useful verbs for getting things done."
       },
       {
         "id": "meeting-expressions",
         "parent_id": "meetings",
         "name": "Meeting expressions",
-        "type": "DECK",
+        "type": "deck",
         "description": "Conversations around the table."
       },
       {
         "id": "email-expressions",
         "parent_id": "emails",
         "name": "Email essentials",
-        "type": "DECK",
+        "type": "deck",
         "description": "Following up and keeping in touch."
       },
       {
         "id": "presentation-expressions",
         "parent_id": "presentations",
         "name": "Present with confidence",
-        "type": "DECK",
+        "type": "deck",
         "description": "Opening, explaining and bringing ideas together."
       },
       {
         "id": "empty-deck",
         "parent_id": "emails",
         "name": "Draft expressions",
-        "type": "DECK",
+        "type": "deck",
         "description": null
       },
       {
         "id": "saved-meetings",
         "parent_id": "emails",
         "name": "Meeting notes",
-        "type": "REFERENCE",
+        "type": "reference",
         "description": "A reference to the Meetings folder."
       },
       {
         "id": "unavailable-reference",
         "parent_id": "emails",
         "name": "Saved correspondence",
-        "type": "REFERENCE",
+        "type": "reference",
         "description": null
       },
       {
         "id": "travel-source",
         "parent_id": "preview-sam-published",
         "name": "Travel essentials",
-        "type": "DECK",
+        "type": "deck",
         "description": "A published collection by Sam. This is the source of your saved reference."
       }
     ]
@@ -629,14 +629,14 @@
       {
         "id": 1001,
         "lemma": "run",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 49,
             "word_id": 1001,
-            "pos": "VERB",
-            "tier": "CORE",
+            "pos": "verb",
+            "tier": "core",
             "definition": {
               "id": 491,
               "content": "to move quickly on foot",
@@ -657,29 +657,29 @@
             "forms": [
               {
                 "surface": "run",
-                "inf": "BASE"
+                "inf": "base"
               },
               {
                 "surface": "ran",
-                "inf": "PAST"
+                "inf": "past"
               },
               {
                 "surface": "run",
-                "inf": "PAST_PARTICIPLE"
+                "inf": "past_participle"
               },
               {
                 "surface": "runs",
-                "inf": "PRESENT_3SG"
+                "inf": "present_3sg"
               },
               {
                 "surface": "running",
-                "inf": "ING"
+                "inf": "ing"
               }
             ],
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "A1",
+            "cefr_level": "a1",
             "register": null,
             "ipa_uk": "/rʌn/",
             "ipa_us": "/rʌn/"
@@ -687,8 +687,8 @@
           {
             "id": 50,
             "word_id": 1001,
-            "pos": "VERB",
-            "tier": "CORE",
+            "pos": "verb",
+            "tier": "core",
             "definition": {
               "id": 501,
               "content": "to operate or function",
@@ -709,29 +709,29 @@
             "forms": [
               {
                 "surface": "run",
-                "inf": "BASE"
+                "inf": "base"
               },
               {
                 "surface": "ran",
-                "inf": "PAST"
+                "inf": "past"
               },
               {
                 "surface": "run",
-                "inf": "PAST_PARTICIPLE"
+                "inf": "past_participle"
               },
               {
                 "surface": "runs",
-                "inf": "PRESENT_3SG"
+                "inf": "present_3sg"
               },
               {
                 "surface": "running",
-                "inf": "ING"
+                "inf": "ing"
               }
             ],
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "A1",
+            "cefr_level": "a1",
             "register": null,
             "ipa_uk": "/rʌn/",
             "ipa_us": "/rʌn/"
@@ -739,8 +739,8 @@
           {
             "id": 51,
             "word_id": 1001,
-            "pos": "NOUN",
-            "tier": "CORE",
+            "pos": "noun",
+            "tier": "core",
             "definition": {
               "id": 511,
               "content": "an occasion when you run",
@@ -761,13 +761,13 @@
             "forms": [
               {
                 "surface": "runs",
-                "inf": "PLURAL"
+                "inf": "plural"
               }
             ],
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "A1",
+            "cefr_level": "a1",
             "register": null,
             "ipa_uk": "/rʌn/",
             "ipa_us": "/rʌn/"
@@ -775,8 +775,8 @@
           {
             "id": 53,
             "word_id": 1001,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 531,
               "content": "to manage or be in charge of an organization or activity",
@@ -797,23 +797,23 @@
             "forms": [
               {
                 "surface": "run",
-                "inf": "BASE"
+                "inf": "base"
               },
               {
                 "surface": "ran",
-                "inf": "PAST"
+                "inf": "past"
               },
               {
                 "surface": "run",
-                "inf": "PAST_PARTICIPLE"
+                "inf": "past_participle"
               },
               {
                 "surface": "runs",
-                "inf": "PRESENT_3SG"
+                "inf": "present_3sg"
               },
               {
                 "surface": "running",
-                "inf": "ING"
+                "inf": "ing"
               }
             ],
             "patterns": [
@@ -824,7 +824,7 @@
               "run a course"
             ],
             "relations": [],
-            "cefr_level": "B1",
+            "cefr_level": "b1",
             "register": null,
             "ipa_uk": "/rʌn/",
             "ipa_us": "/rʌn/"
@@ -832,8 +832,8 @@
           {
             "id": 54,
             "word_id": 1001,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 541,
               "content": "to travel along a particular route or at a particular time",
@@ -854,29 +854,29 @@
             "forms": [
               {
                 "surface": "run",
-                "inf": "BASE"
+                "inf": "base"
               },
               {
                 "surface": "ran",
-                "inf": "PAST"
+                "inf": "past"
               },
               {
                 "surface": "run",
-                "inf": "PAST_PARTICIPLE"
+                "inf": "past_participle"
               },
               {
                 "surface": "runs",
-                "inf": "PRESENT_3SG"
+                "inf": "present_3sg"
               },
               {
                 "surface": "running",
-                "inf": "ING"
+                "inf": "ing"
               }
             ],
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B1",
+            "cefr_level": "b1",
             "register": null,
             "ipa_uk": "/rʌn/",
             "ipa_us": "/rʌn/"
@@ -884,8 +884,8 @@
           {
             "id": 55,
             "word_id": 1001,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 551,
               "content": "to make a machine, program, or process operate",
@@ -906,23 +906,23 @@
             "forms": [
               {
                 "surface": "run",
-                "inf": "BASE"
+                "inf": "base"
               },
               {
                 "surface": "ran",
-                "inf": "PAST"
+                "inf": "past"
               },
               {
                 "surface": "run",
-                "inf": "PAST_PARTICIPLE"
+                "inf": "past_participle"
               },
               {
                 "surface": "runs",
-                "inf": "PRESENT_3SG"
+                "inf": "present_3sg"
               },
               {
                 "surface": "running",
-                "inf": "ING"
+                "inf": "ing"
               }
             ],
             "patterns": [],
@@ -931,7 +931,7 @@
               "run a program"
             ],
             "relations": [],
-            "cefr_level": "B2",
+            "cefr_level": "b2",
             "register": null,
             "ipa_uk": "/rʌn/",
             "ipa_us": "/rʌn/"
@@ -939,8 +939,8 @@
           {
             "id": 56,
             "word_id": 1001,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 561,
               "content": "to flow in a particular direction",
@@ -961,29 +961,29 @@
             "forms": [
               {
                 "surface": "run",
-                "inf": "BASE"
+                "inf": "base"
               },
               {
                 "surface": "ran",
-                "inf": "PAST"
+                "inf": "past"
               },
               {
                 "surface": "run",
-                "inf": "PAST_PARTICIPLE"
+                "inf": "past_participle"
               },
               {
                 "surface": "runs",
-                "inf": "PRESENT_3SG"
+                "inf": "present_3sg"
               },
               {
                 "surface": "running",
-                "inf": "ING"
+                "inf": "ing"
               }
             ],
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B1",
+            "cefr_level": "b1",
             "register": null,
             "ipa_uk": "/rʌn/",
             "ipa_us": "/rʌn/"
@@ -991,8 +991,8 @@
           {
             "id": 57,
             "word_id": 1001,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 571,
               "content": "to continue for a period of time",
@@ -1013,29 +1013,29 @@
             "forms": [
               {
                 "surface": "run",
-                "inf": "BASE"
+                "inf": "base"
               },
               {
                 "surface": "ran",
-                "inf": "PAST"
+                "inf": "past"
               },
               {
                 "surface": "run",
-                "inf": "PAST_PARTICIPLE"
+                "inf": "past_participle"
               },
               {
                 "surface": "runs",
-                "inf": "PRESENT_3SG"
+                "inf": "present_3sg"
               },
               {
                 "surface": "running",
-                "inf": "ING"
+                "inf": "ing"
               }
             ],
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B2",
+            "cefr_level": "b2",
             "register": null,
             "ipa_uk": "/rʌn/",
             "ipa_us": "/rʌn/"
@@ -1043,8 +1043,8 @@
           {
             "id": 58,
             "word_id": 1001,
-            "pos": "NOUN",
-            "tier": "COMMON",
+            "pos": "noun",
+            "tier": "common",
             "definition": {
               "id": 581,
               "content": "a series of similar events or a period of success or failure",
@@ -1065,13 +1065,13 @@
             "forms": [
               {
                 "surface": "runs",
-                "inf": "PLURAL"
+                "inf": "plural"
               }
             ],
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B2",
+            "cefr_level": "b2",
             "register": null,
             "ipa_uk": "/rʌn/",
             "ipa_us": "/rʌn/"
@@ -1079,8 +1079,8 @@
           {
             "id": 59,
             "word_id": 1001,
-            "pos": "NOUN",
-            "tier": "COMMON",
+            "pos": "noun",
+            "tier": "common",
             "definition": {
               "id": 591,
               "content": "a journey made regularly by a vehicle",
@@ -1101,13 +1101,13 @@
             "forms": [
               {
                 "surface": "runs",
-                "inf": "PLURAL"
+                "inf": "plural"
               }
             ],
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B2",
+            "cefr_level": "b2",
             "register": null,
             "ipa_uk": "/rʌn/",
             "ipa_us": "/rʌn/"
@@ -1119,14 +1119,14 @@
       {
         "id": 1003,
         "lemma": "set",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 63,
             "word_id": 1003,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 631,
               "content": "to put something in a particular place",
@@ -1147,29 +1147,29 @@
             "forms": [
               {
                 "surface": "set",
-                "inf": "BASE"
+                "inf": "base"
               },
               {
                 "surface": "set",
-                "inf": "PAST"
+                "inf": "past"
               },
               {
                 "surface": "set",
-                "inf": "PAST_PARTICIPLE"
+                "inf": "past_participle"
               },
               {
                 "surface": "sets",
-                "inf": "PRESENT_3SG"
+                "inf": "present_3sg"
               },
               {
                 "surface": "setting",
-                "inf": "ING"
+                "inf": "ing"
               }
             ],
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "A2",
+            "cefr_level": "a2",
             "register": null,
             "ipa_uk": "/set/",
             "ipa_us": "/set/"
@@ -1177,8 +1177,8 @@
           {
             "id": 64,
             "word_id": 1003,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 641,
               "content": "to decide or establish a rule, goal, or standard",
@@ -1199,23 +1199,23 @@
             "forms": [
               {
                 "surface": "set",
-                "inf": "BASE"
+                "inf": "base"
               },
               {
                 "surface": "set",
-                "inf": "PAST"
+                "inf": "past"
               },
               {
                 "surface": "set",
-                "inf": "PAST_PARTICIPLE"
+                "inf": "past_participle"
               },
               {
                 "surface": "sets",
-                "inf": "PRESENT_3SG"
+                "inf": "present_3sg"
               },
               {
                 "surface": "setting",
-                "inf": "ING"
+                "inf": "ing"
               }
             ],
             "patterns": [],
@@ -1224,7 +1224,7 @@
               "set a limit"
             ],
             "relations": [],
-            "cefr_level": "B1",
+            "cefr_level": "b1",
             "register": null,
             "ipa_uk": "/set/",
             "ipa_us": "/set/"
@@ -1232,8 +1232,8 @@
           {
             "id": 65,
             "word_id": 1003,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 651,
               "content": "to adjust a device to a particular setting",
@@ -1254,29 +1254,29 @@
             "forms": [
               {
                 "surface": "set",
-                "inf": "BASE"
+                "inf": "base"
               },
               {
                 "surface": "set",
-                "inf": "PAST"
+                "inf": "past"
               },
               {
                 "surface": "set",
-                "inf": "PAST_PARTICIPLE"
+                "inf": "past_participle"
               },
               {
                 "surface": "sets",
-                "inf": "PRESENT_3SG"
+                "inf": "present_3sg"
               },
               {
                 "surface": "setting",
-                "inf": "ING"
+                "inf": "ing"
               }
             ],
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "A2",
+            "cefr_level": "a2",
             "register": null,
             "ipa_uk": "/set/",
             "ipa_us": "/set/"
@@ -1284,8 +1284,8 @@
           {
             "id": 66,
             "word_id": 1003,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 661,
               "content": "to become firm or solid",
@@ -1306,29 +1306,29 @@
             "forms": [
               {
                 "surface": "set",
-                "inf": "BASE"
+                "inf": "base"
               },
               {
                 "surface": "set",
-                "inf": "PAST"
+                "inf": "past"
               },
               {
                 "surface": "set",
-                "inf": "PAST_PARTICIPLE"
+                "inf": "past_participle"
               },
               {
                 "surface": "sets",
-                "inf": "PRESENT_3SG"
+                "inf": "present_3sg"
               },
               {
                 "surface": "setting",
-                "inf": "ING"
+                "inf": "ing"
               }
             ],
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B2",
+            "cefr_level": "b2",
             "register": null,
             "ipa_uk": "/set/",
             "ipa_us": "/set/"
@@ -1336,8 +1336,8 @@
           {
             "id": 67,
             "word_id": 1003,
-            "pos": "NOUN",
-            "tier": "COMMON",
+            "pos": "noun",
+            "tier": "common",
             "definition": {
               "id": 671,
               "content": "a group of things that belong together",
@@ -1358,7 +1358,7 @@
             "forms": [
               {
                 "surface": "sets",
-                "inf": "PLURAL"
+                "inf": "plural"
               }
             ],
             "patterns": [
@@ -1366,7 +1366,7 @@
             ],
             "collocations": [],
             "relations": [],
-            "cefr_level": "A2",
+            "cefr_level": "a2",
             "register": null,
             "ipa_uk": "/set/",
             "ipa_us": "/set/"
@@ -1374,8 +1374,8 @@
           {
             "id": 68,
             "word_id": 1003,
-            "pos": "NOUN",
-            "tier": "COMMON",
+            "pos": "noun",
+            "tier": "common",
             "definition": {
               "id": 681,
               "content": "one part of a tennis match",
@@ -1396,13 +1396,13 @@
             "forms": [
               {
                 "surface": "sets",
-                "inf": "PLURAL"
+                "inf": "plural"
               }
             ],
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B1",
+            "cefr_level": "b1",
             "register": null,
             "ipa_uk": "/set/",
             "ipa_us": "/set/"
@@ -1414,14 +1414,14 @@
       {
         "id": 1004,
         "lemma": "light",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 69,
             "word_id": 1004,
-            "pos": "NOUN",
-            "tier": "COMMON",
+            "pos": "noun",
+            "tier": "common",
             "definition": {
               "id": 691,
               "content": "the brightness that makes it possible to see",
@@ -1443,7 +1443,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "A1",
+            "cefr_level": "a1",
             "register": null,
             "ipa_uk": "/laɪt/",
             "ipa_us": "/laɪt/"
@@ -1451,8 +1451,8 @@
           {
             "id": 70,
             "word_id": 1004,
-            "pos": "NOUN",
-            "tier": "COMMON",
+            "pos": "noun",
+            "tier": "common",
             "definition": {
               "id": 701,
               "content": "a lamp or other object that produces light",
@@ -1473,13 +1473,13 @@
             "forms": [
               {
                 "surface": "lights",
-                "inf": "PLURAL"
+                "inf": "plural"
               }
             ],
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "A1",
+            "cefr_level": "a1",
             "register": null,
             "ipa_uk": "/laɪt/",
             "ipa_us": "/laɪt/"
@@ -1487,8 +1487,8 @@
           {
             "id": 71,
             "word_id": 1004,
-            "pos": "ADJECTIVE",
-            "tier": "COMMON",
+            "pos": "adjective",
+            "tier": "common",
             "definition": {
               "id": 711,
               "content": "not heavy in weight",
@@ -1509,25 +1509,25 @@
             "forms": [
               {
                 "surface": "lighter",
-                "inf": "COMPARATIVE"
+                "inf": "comparative"
               },
               {
                 "surface": "lightest",
-                "inf": "SUPERLATIVE"
+                "inf": "superlative"
               }
             ],
             "patterns": [],
             "collocations": [],
             "relations": [
               {
-                "rel_type": "ANTONYM",
+                "rel_type": "antonym",
                 "to_word_id": 1006,
                 "to_word_lemma": "heavy",
-                "resolution_state": "RESOLVED",
+                "resolution_state": "resolved",
                 "to_sense_id": 76
               }
             ],
-            "cefr_level": "A2",
+            "cefr_level": "a2",
             "register": null,
             "ipa_uk": "/laɪt/",
             "ipa_us": "/laɪt/"
@@ -1535,8 +1535,8 @@
           {
             "id": 72,
             "word_id": 1004,
-            "pos": "ADJECTIVE",
-            "tier": "COMMON",
+            "pos": "adjective",
+            "tier": "common",
             "definition": {
               "id": 721,
               "content": "pale in color or shade",
@@ -1557,17 +1557,17 @@
             "forms": [
               {
                 "surface": "lighter",
-                "inf": "COMPARATIVE"
+                "inf": "comparative"
               },
               {
                 "surface": "lightest",
-                "inf": "SUPERLATIVE"
+                "inf": "superlative"
               }
             ],
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "A2",
+            "cefr_level": "a2",
             "register": null,
             "ipa_uk": "/laɪt/",
             "ipa_us": "/laɪt/"
@@ -1575,8 +1575,8 @@
           {
             "id": 73,
             "word_id": 1004,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 731,
               "content": "to make something start burning or give light",
@@ -1597,21 +1597,21 @@
             "forms": [
               {
                 "surface": "lit",
-                "inf": "PAST"
+                "inf": "past"
               },
               {
                 "surface": "lit",
-                "inf": "PAST_PARTICIPLE"
+                "inf": "past_participle"
               },
               {
                 "surface": "lighting",
-                "inf": "ING"
+                "inf": "ing"
               }
             ],
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B1",
+            "cefr_level": "b1",
             "register": null,
             "ipa_uk": "/laɪt/",
             "ipa_us": "/laɪt/"
@@ -1620,7 +1620,7 @@
         "aliases": [],
         "related": [
           {
-            "rel_type": "ANTONYM",
+            "rel_type": "antonym",
             "to_word_id": 1006,
             "to_word_lemma": "heavy"
           }
@@ -1629,14 +1629,14 @@
       {
         "id": 1005,
         "lemma": "color",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 74,
             "word_id": 1005,
-            "pos": "NOUN",
-            "tier": "COMMON",
+            "pos": "noun",
+            "tier": "common",
             "definition": {
               "id": 741,
               "content": "the appearance of something caused by reflected light",
@@ -1657,13 +1657,13 @@
             "forms": [
               {
                 "surface": "colors",
-                "inf": "PLURAL"
+                "inf": "plural"
               }
             ],
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "A1",
+            "cefr_level": "a1",
             "register": null,
             "ipa_uk": "/ˈkʌlə/",
             "ipa_us": "/ˈkʌlər/"
@@ -1671,8 +1671,8 @@
           {
             "id": 75,
             "word_id": 1005,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 751,
               "content": "to add color to a drawing or surface",
@@ -1693,17 +1693,17 @@
             "forms": [
               {
                 "surface": "colored",
-                "inf": "PAST"
+                "inf": "past"
               },
               {
                 "surface": "coloring",
-                "inf": "ING"
+                "inf": "ing"
               }
             ],
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "A2",
+            "cefr_level": "a2",
             "register": null,
             "ipa_uk": "/ˈkʌlə/",
             "ipa_us": "/ˈkʌlər/"
@@ -1717,14 +1717,14 @@
       {
         "id": 1006,
         "lemma": "heavy",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 76,
             "word_id": 1006,
-            "pos": "ADJECTIVE",
-            "tier": "COMMON",
+            "pos": "adjective",
+            "tier": "common",
             "definition": {
               "id": 761,
               "content": "weighing a lot",
@@ -1745,25 +1745,25 @@
             "forms": [
               {
                 "surface": "heavier",
-                "inf": "COMPARATIVE"
+                "inf": "comparative"
               },
               {
                 "surface": "heaviest",
-                "inf": "SUPERLATIVE"
+                "inf": "superlative"
               }
             ],
             "patterns": [],
             "collocations": [],
             "relations": [
               {
-                "rel_type": "ANTONYM",
+                "rel_type": "antonym",
                 "to_word_id": 1004,
                 "to_word_lemma": "light",
-                "resolution_state": "RESOLVED",
+                "resolution_state": "resolved",
                 "to_sense_id": 71
               }
             ],
-            "cefr_level": "A2",
+            "cefr_level": "a2",
             "register": null,
             "ipa_uk": "/ˈhevi/",
             "ipa_us": "/ˈhevi/"
@@ -1772,7 +1772,7 @@
         "aliases": [],
         "related": [
           {
-            "rel_type": "ANTONYM",
+            "rel_type": "antonym",
             "to_word_id": 1004,
             "to_word_lemma": "light"
           }
@@ -1781,14 +1781,14 @@
       {
         "id": 2001,
         "lemma": "agenda",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 1,
             "word_id": 2001,
-            "pos": "NOUN",
-            "tier": "COMMON",
+            "pos": "noun",
+            "tier": "common",
             "definition": {
               "id": 11,
               "content": "a list of matters to discuss at a meeting",
@@ -1805,7 +1805,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B1",
+            "cefr_level": "b1",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -1817,14 +1817,14 @@
       {
         "id": 2002,
         "lemma": "allocate",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 2,
             "word_id": 2002,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 21,
               "content": "to give something to a person or purpose",
@@ -1841,7 +1841,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B2",
+            "cefr_level": "b2",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -1853,14 +1853,14 @@
       {
         "id": 2003,
         "lemma": "approach",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 3,
             "word_id": 2003,
-            "pos": "NOUN",
-            "tier": "COMMON",
+            "pos": "noun",
+            "tier": "common",
             "definition": {
               "id": 31,
               "content": "a way of dealing with a situation or problem",
@@ -1877,7 +1877,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B1",
+            "cefr_level": "b1",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -1885,8 +1885,8 @@
           {
             "id": 77,
             "word_id": 2003,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 771,
               "content": "to move closer to someone or something",
@@ -1908,7 +1908,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B1",
+            "cefr_level": "b1",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -1920,14 +1920,14 @@
       {
         "id": 2004,
         "lemma": "collaborate",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 4,
             "word_id": 2004,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 41,
               "content": "to work together to achieve something",
@@ -1944,7 +1944,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B2",
+            "cefr_level": "b2",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -1956,14 +1956,14 @@
       {
         "id": 2005,
         "lemma": "constraint",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 5,
             "word_id": 2005,
-            "pos": "NOUN",
-            "tier": "COMMON",
+            "pos": "noun",
+            "tier": "common",
             "definition": {
               "id": 51,
               "content": "something that limits what you can do",
@@ -1980,7 +1980,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "C1",
+            "cefr_level": "c1",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -1992,14 +1992,14 @@
       {
         "id": 2006,
         "lemma": "delegate",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 6,
             "word_id": 2006,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 61,
               "content": "to give a task or responsibility to someone else",
@@ -2016,7 +2016,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B2",
+            "cefr_level": "b2",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -2028,14 +2028,14 @@
       {
         "id": 2007,
         "lemma": "feedback",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 7,
             "word_id": 2007,
-            "pos": "NOUN",
-            "tier": "COMMON",
+            "pos": "noun",
+            "tier": "common",
             "definition": {
               "id": 71,
               "content": "information about how well someone has done something",
@@ -2052,7 +2052,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B1",
+            "cefr_level": "b1",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -2064,14 +2064,14 @@
       {
         "id": 2008,
         "lemma": "negotiate",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 8,
             "word_id": 2008,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 81,
               "content": "to discuss something in order to reach an agreement",
@@ -2088,7 +2088,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B2",
+            "cefr_level": "b2",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -2100,14 +2100,14 @@
       {
         "id": 2009,
         "lemma": "objective",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 9,
             "word_id": 2009,
-            "pos": "NOUN",
-            "tier": "COMMON",
+            "pos": "noun",
+            "tier": "common",
             "definition": {
               "id": 91,
               "content": "something you are trying to achieve",
@@ -2124,7 +2124,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B2",
+            "cefr_level": "b2",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -2136,14 +2136,14 @@
       {
         "id": 2010,
         "lemma": "proposal",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 10,
             "word_id": 2010,
-            "pos": "NOUN",
-            "tier": "COMMON",
+            "pos": "noun",
+            "tier": "common",
             "definition": {
               "id": 101,
               "content": "a suggested plan for others to consider",
@@ -2160,7 +2160,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B2",
+            "cefr_level": "b2",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -2172,14 +2172,14 @@
       {
         "id": 2011,
         "lemma": "deadline",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 11,
             "word_id": 2011,
-            "pos": "NOUN",
-            "tier": "COMMON",
+            "pos": "noun",
+            "tier": "common",
             "definition": {
               "id": 111,
               "content": "the latest time by which something must be completed",
@@ -2196,7 +2196,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B1",
+            "cefr_level": "b1",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -2208,14 +2208,14 @@
       {
         "id": 2012,
         "lemma": "consensus",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 12,
             "word_id": 2012,
-            "pos": "NOUN",
-            "tier": "COMMON",
+            "pos": "noun",
+            "tier": "common",
             "definition": {
               "id": 121,
               "content": "an opinion or decision that everyone in a group agrees with",
@@ -2232,7 +2232,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "C1",
+            "cefr_level": "c1",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -2244,14 +2244,14 @@
       {
         "id": 2013,
         "lemma": "acknowledge",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 13,
             "word_id": 2013,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 131,
               "content": "to show that you have received or noticed something",
@@ -2268,7 +2268,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B2",
+            "cefr_level": "b2",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -2280,14 +2280,14 @@
       {
         "id": 2014,
         "lemma": "clarify",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 14,
             "word_id": 2014,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 141,
               "content": "to make something easier to understand",
@@ -2304,7 +2304,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B2",
+            "cefr_level": "b2",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -2316,14 +2316,14 @@
       {
         "id": 2015,
         "lemma": "confirm",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 15,
             "word_id": 2015,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 151,
               "content": "to state that something is correct or definite",
@@ -2340,7 +2340,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B1",
+            "cefr_level": "b1",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -2352,14 +2352,14 @@
       {
         "id": 2016,
         "lemma": "correspondence",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 16,
             "word_id": 2016,
-            "pos": "NOUN",
-            "tier": "COMMON",
+            "pos": "noun",
+            "tier": "common",
             "definition": {
               "id": 161,
               "content": "letters or messages exchanged between people",
@@ -2376,7 +2376,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "C1",
+            "cefr_level": "c1",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -2388,14 +2388,14 @@
       {
         "id": 2017,
         "lemma": "enquiry",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 17,
             "word_id": 2017,
-            "pos": "NOUN",
-            "tier": "COMMON",
+            "pos": "noun",
+            "tier": "common",
             "definition": {
               "id": 171,
               "content": "a request for information",
@@ -2412,7 +2412,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B2",
+            "cefr_level": "b2",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -2424,14 +2424,14 @@
       {
         "id": 2018,
         "lemma": "forward",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 18,
             "word_id": 2018,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 181,
               "content": "to send a message you received to another person",
@@ -2448,7 +2448,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B1",
+            "cefr_level": "b1",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -2456,8 +2456,8 @@
           {
             "id": 81,
             "word_id": 2018,
-            "pos": "ADVERB",
-            "tier": "COMMON",
+            "pos": "adverb",
+            "tier": "common",
             "definition": {
               "id": 811,
               "content": "toward a position in front",
@@ -2479,7 +2479,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "A2",
+            "cefr_level": "a2",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -2491,14 +2491,14 @@
       {
         "id": 2019,
         "lemma": "regarding",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 19,
             "word_id": 2019,
-            "pos": "PREPOSITION",
-            "tier": "COMMON",
+            "pos": "preposition",
+            "tier": "common",
             "definition": {
               "id": 191,
               "content": "about a particular subject",
@@ -2515,7 +2515,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B1",
+            "cefr_level": "b1",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -2527,14 +2527,14 @@
       {
         "id": 2020,
         "lemma": "recipient",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 20,
             "word_id": 2020,
-            "pos": "NOUN",
-            "tier": "COMMON",
+            "pos": "noun",
+            "tier": "common",
             "definition": {
               "id": 201,
               "content": "a person who receives something",
@@ -2551,7 +2551,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B2",
+            "cefr_level": "b2",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -2563,14 +2563,14 @@
       {
         "id": 2021,
         "lemma": "request",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 21,
             "word_id": 2021,
-            "pos": "NOUN",
-            "tier": "COMMON",
+            "pos": "noun",
+            "tier": "common",
             "definition": {
               "id": 211,
               "content": "an act of asking for something",
@@ -2587,7 +2587,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B1",
+            "cefr_level": "b1",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -2595,8 +2595,8 @@
           {
             "id": 78,
             "word_id": 2021,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 781,
               "content": "to ask formally for something",
@@ -2618,8 +2618,8 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B1",
-            "register": "FORMAL",
+            "cefr_level": "b1",
+            "register": "formal",
             "ipa_uk": null,
             "ipa_us": null
           }
@@ -2636,14 +2636,14 @@
       {
         "id": 2022,
         "lemma": "respond",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 22,
             "word_id": 2022,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 221,
               "content": "to give an answer or react to something",
@@ -2660,7 +2660,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B1",
+            "cefr_level": "b1",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -2672,14 +2672,14 @@
       {
         "id": 2023,
         "lemma": "attach",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 23,
             "word_id": 2023,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 231,
               "content": "to include a file with an electronic message",
@@ -2696,7 +2696,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B1",
+            "cefr_level": "b1",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -2708,14 +2708,14 @@
       {
         "id": 2024,
         "lemma": "follow up",
-        "type": "PHRASAL_VERB",
-        "generation_state": "DONE",
+        "type": "phrasal_verb",
+        "generation_state": "done",
         "senses": [
           {
             "id": 24,
             "word_id": 2024,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 241,
               "content": "to take further action after an earlier event",
@@ -2732,7 +2732,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B2",
+            "cefr_level": "b2",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -2744,14 +2744,14 @@
       {
         "id": 2025,
         "lemma": "demonstrate",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 25,
             "word_id": 2025,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 251,
               "content": "to show how something works or is done",
@@ -2768,7 +2768,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B2",
+            "cefr_level": "b2",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -2780,14 +2780,14 @@
       {
         "id": 2026,
         "lemma": "emphasize",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 26,
             "word_id": 2026,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 261,
               "content": "to give special importance to something",
@@ -2804,7 +2804,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B2",
+            "cefr_level": "b2",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -2816,14 +2816,14 @@
       {
         "id": 2027,
         "lemma": "illustrate",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 27,
             "word_id": 2027,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 271,
               "content": "to make an idea clear by giving an example",
@@ -2840,7 +2840,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B2",
+            "cefr_level": "b2",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -2852,14 +2852,14 @@
       {
         "id": 2028,
         "lemma": "outline",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 28,
             "word_id": 2028,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 281,
               "content": "to describe the main facts or ideas of something",
@@ -2876,7 +2876,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B2",
+            "cefr_level": "b2",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -2884,8 +2884,8 @@
           {
             "id": 80,
             "word_id": 2028,
-            "pos": "NOUN",
-            "tier": "COMMON",
+            "pos": "noun",
+            "tier": "common",
             "definition": {
               "id": 801,
               "content": "a brief description of the main points",
@@ -2907,7 +2907,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B2",
+            "cefr_level": "b2",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -2919,14 +2919,14 @@
       {
         "id": 2029,
         "lemma": "summarize",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 29,
             "word_id": 2029,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 291,
               "content": "to express the most important facts in a short form",
@@ -2943,7 +2943,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B2",
+            "cefr_level": "b2",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -2955,14 +2955,14 @@
       {
         "id": 2030,
         "lemma": "implement",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 30,
             "word_id": 2030,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 301,
               "content": "to put a plan or decision into effect",
@@ -2979,7 +2979,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B2",
+            "cefr_level": "b2",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -2991,14 +2991,14 @@
       {
         "id": 2031,
         "lemma": "evaluate",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 31,
             "word_id": 2031,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 311,
               "content": "to judge the quality or value of something",
@@ -3015,7 +3015,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B2",
+            "cefr_level": "b2",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -3027,14 +3027,14 @@
       {
         "id": 2032,
         "lemma": "coordinate",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 32,
             "word_id": 2032,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 321,
               "content": "to organize people or activities so they work well together",
@@ -3051,7 +3051,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B2",
+            "cefr_level": "b2",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -3063,14 +3063,14 @@
       {
         "id": 2033,
         "lemma": "resolve",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 33,
             "word_id": 2033,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 331,
               "content": "to find a solution to a problem or disagreement",
@@ -3087,7 +3087,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B2",
+            "cefr_level": "b2",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -3099,14 +3099,14 @@
       {
         "id": 2034,
         "lemma": "prioritize",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 34,
             "word_id": 2034,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 341,
               "content": "to decide which tasks are most important",
@@ -3123,7 +3123,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B2",
+            "cefr_level": "b2",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -3135,14 +3135,14 @@
       {
         "id": 2035,
         "lemma": "maintain",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 35,
             "word_id": 2035,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 351,
               "content": "to keep something in good condition or at the same level",
@@ -3159,7 +3159,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B1",
+            "cefr_level": "b1",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -3171,14 +3171,14 @@
       {
         "id": 2036,
         "lemma": "contribute",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 36,
             "word_id": 2036,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 361,
               "content": "to give something to help achieve a shared purpose",
@@ -3195,7 +3195,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B2",
+            "cefr_level": "b2",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -3207,14 +3207,14 @@
       {
         "id": 2037,
         "lemma": "consider",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 37,
             "word_id": 2037,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 371,
               "content": "to think carefully about something",
@@ -3231,7 +3231,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B1",
+            "cefr_level": "b1",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -3243,14 +3243,14 @@
       {
         "id": 2038,
         "lemma": "appreciate",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 38,
             "word_id": 2038,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 381,
               "content": "to be grateful for something",
@@ -3267,7 +3267,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B1",
+            "cefr_level": "b1",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -3279,14 +3279,14 @@
       {
         "id": 2039,
         "lemma": "suggest",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 39,
             "word_id": 2039,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 391,
               "content": "to offer an idea for someone to consider",
@@ -3303,7 +3303,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B1",
+            "cefr_level": "b1",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -3321,14 +3321,14 @@
       {
         "id": 2040,
         "lemma": "arrange",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 40,
             "word_id": 2040,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 401,
               "content": "to make plans for something to happen",
@@ -3345,7 +3345,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B1",
+            "cefr_level": "b1",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -3357,14 +3357,14 @@
       {
         "id": 2041,
         "lemma": "notice",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 41,
             "word_id": 2041,
-            "pos": "VERB",
-            "tier": "CORE",
+            "pos": "verb",
+            "tier": "core",
             "definition": {
               "id": 411,
               "content": "to become aware of something",
@@ -3381,7 +3381,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "A2",
+            "cefr_level": "a2",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -3389,8 +3389,8 @@
           {
             "id": 79,
             "word_id": 2041,
-            "pos": "NOUN",
-            "tier": "COMMON",
+            "pos": "noun",
+            "tier": "common",
             "definition": {
               "id": 791,
               "content": "a written announcement or warning",
@@ -3412,7 +3412,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B1",
+            "cefr_level": "b1",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -3424,14 +3424,14 @@
       {
         "id": 2042,
         "lemma": "prefer",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 42,
             "word_id": 2042,
-            "pos": "VERB",
-            "tier": "CORE",
+            "pos": "verb",
+            "tier": "core",
             "definition": {
               "id": 421,
               "content": "to like one thing more than another",
@@ -3448,7 +3448,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "A2",
+            "cefr_level": "a2",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -3460,14 +3460,14 @@
       {
         "id": 2043,
         "lemma": "recommend",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 43,
             "word_id": 2043,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 431,
               "content": "to say that something is good or useful",
@@ -3484,7 +3484,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B1",
+            "cefr_level": "b1",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -3502,14 +3502,14 @@
       {
         "id": 2044,
         "lemma": "realize",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 44,
             "word_id": 2044,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 441,
               "content": "to understand something that you did not understand before",
@@ -3526,7 +3526,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B1",
+            "cefr_level": "b1",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -3538,14 +3538,14 @@
       {
         "id": 2045,
         "lemma": "wonder",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 45,
             "word_id": 2045,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 451,
               "content": "to think about something because you want to know more",
@@ -3562,7 +3562,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B1",
+            "cefr_level": "b1",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -3574,14 +3574,14 @@
       {
         "id": 2046,
         "lemma": "expect",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 46,
             "word_id": 2046,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 461,
               "content": "to think that something is likely to happen",
@@ -3598,7 +3598,7 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B1",
+            "cefr_level": "b1",
             "register": null,
             "ipa_uk": null,
             "ipa_us": null
@@ -3610,14 +3610,14 @@
       {
         "id": 2047,
         "lemma": "bank",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 47,
             "word_id": 2047,
-            "pos": "NOUN",
-            "tier": "CORE",
+            "pos": "noun",
+            "tier": "core",
             "definition": {
               "id": 471,
               "content": "an organization where people keep or borrow money",
@@ -3638,7 +3638,7 @@
             "forms": [
               {
                 "surface": "banks",
-                "inf": "PLURAL"
+                "inf": "plural"
               }
             ],
             "patterns": [],
@@ -3647,7 +3647,7 @@
               "bank loan"
             ],
             "relations": [],
-            "cefr_level": "A2",
+            "cefr_level": "a2",
             "register": null,
             "ipa_uk": "/bæŋk/",
             "ipa_us": "/bæŋk/"
@@ -3655,8 +3655,8 @@
           {
             "id": 48,
             "word_id": 2047,
-            "pos": "NOUN",
-            "tier": "CORE",
+            "pos": "noun",
+            "tier": "core",
             "definition": {
               "id": 481,
               "content": "the land along the side of a river",
@@ -3677,13 +3677,13 @@
             "forms": [
               {
                 "surface": "banks",
-                "inf": "PLURAL"
+                "inf": "plural"
               }
             ],
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "A2",
+            "cefr_level": "a2",
             "register": null,
             "ipa_uk": "/bæŋk/",
             "ipa_us": "/bæŋk/"
@@ -3691,8 +3691,8 @@
           {
             "id": 60,
             "word_id": 2047,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 601,
               "content": "to put money into a bank account",
@@ -3713,17 +3713,17 @@
             "forms": [
               {
                 "surface": "banked",
-                "inf": "PAST"
+                "inf": "past"
               },
               {
                 "surface": "banking",
-                "inf": "ING"
+                "inf": "ing"
               }
             ],
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B2",
+            "cefr_level": "b2",
             "register": null,
             "ipa_uk": "/bæŋk/",
             "ipa_us": "/bæŋk/"
@@ -3731,8 +3731,8 @@
           {
             "id": 61,
             "word_id": 2047,
-            "pos": "NOUN",
-            "tier": "COMMON",
+            "pos": "noun",
+            "tier": "common",
             "definition": {
               "id": 611,
               "content": "a supply or collection kept for future use",
@@ -3753,13 +3753,13 @@
             "forms": [
               {
                 "surface": "banks",
-                "inf": "PLURAL"
+                "inf": "plural"
               }
             ],
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B2",
+            "cefr_level": "b2",
             "register": null,
             "ipa_uk": "/bæŋk/",
             "ipa_us": "/bæŋk/"
@@ -3767,8 +3767,8 @@
           {
             "id": 62,
             "word_id": 2047,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 621,
               "content": "to rely on something happening",
@@ -3789,11 +3789,11 @@
             "forms": [
               {
                 "surface": "banked",
-                "inf": "PAST"
+                "inf": "past"
               },
               {
                 "surface": "banking",
-                "inf": "ING"
+                "inf": "ing"
               }
             ],
             "patterns": [
@@ -3801,7 +3801,7 @@
             ],
             "collocations": [],
             "relations": [],
-            "cefr_level": "C1",
+            "cefr_level": "c1",
             "register": null,
             "ipa_uk": "/bæŋk/",
             "ipa_us": "/bæŋk/"
@@ -3815,21 +3815,21 @@
       {
         "reference_id": "preview-orbit",
         "display": "orbit",
-        "entry_type": "WORD"
+        "entry_type": "word"
       }
     ],
     "pending_words": [
       {
         "id": 1002,
         "lemma": "orbit",
-        "type": "WORD",
-        "generation_state": "DONE",
+        "type": "word",
+        "generation_state": "done",
         "senses": [
           {
             "id": 52,
             "word_id": 1002,
-            "pos": "NOUN",
-            "tier": "COMMON",
+            "pos": "noun",
+            "tier": "common",
             "definition": {
               "id": 521,
               "content": "the curved path of an object around a planet or star",
@@ -3850,13 +3850,13 @@
             "forms": [
               {
                 "surface": "orbits",
-                "inf": "PLURAL"
+                "inf": "plural"
               }
             ],
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B2",
+            "cefr_level": "b2",
             "register": null,
             "ipa_uk": "/ˈɔːbɪt/",
             "ipa_us": "/ˈɔːrbɪt/"
@@ -3864,8 +3864,8 @@
           {
             "id": 82,
             "word_id": 1002,
-            "pos": "VERB",
-            "tier": "COMMON",
+            "pos": "verb",
+            "tier": "common",
             "definition": {
               "id": 821,
               "content": "to travel around a planet, star, or other object",
@@ -3886,17 +3886,17 @@
             "forms": [
               {
                 "surface": "orbited",
-                "inf": "PAST"
+                "inf": "past"
               },
               {
                 "surface": "orbiting",
-                "inf": "ING"
+                "inf": "ing"
               }
             ],
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "B2",
+            "cefr_level": "b2",
             "register": null,
             "ipa_uk": "/ˈɔːbɪt/",
             "ipa_us": "/ˈɔːrbɪt/"
@@ -3904,8 +3904,8 @@
           {
             "id": 83,
             "word_id": 1002,
-            "pos": "NOUN",
-            "tier": "LESS_COMMON",
+            "pos": "noun",
+            "tier": "less_common",
             "definition": {
               "id": 831,
               "content": "the usual area or range of influence",
@@ -3927,8 +3927,8 @@
             "patterns": [],
             "collocations": [],
             "relations": [],
-            "cefr_level": "C1",
-            "register": "FORMAL",
+            "cefr_level": "c1",
+            "register": "formal",
             "ipa_uk": "/ˈɔːbɪt/",
             "ipa_us": "/ˈɔːrbɪt/"
           }

@@ -23,10 +23,10 @@ async function openFixture(page: Page, query = '') {
 type MockOptions = { summary?: object; fail?: string; empty?: boolean; delay?: number }
 
 async function mockHome(page: Page, options: MockOptions = {}) {
-  await page.route('**/api/v1/**', async route => {
+  await page.route('**/*v1/**', async route => {
     const url = new URL(route.request().url())
     if (options.delay) await new Promise(resolve => setTimeout(resolve, options.delay))
-    if (url.pathname === options.fail) return route.fulfill({ status: 503, json: { error: 'not_ready' } })
+    if (options.fail && url.pathname.endsWith(options.fail.replace(/^.*\/v1/, '/v1'))) return route.fulfill({ status: 503, json: { error: 'not_ready' } })
     expect(route.request().headers().authorization).toBe('Bearer test-only-bearer')
     if (url.pathname.endsWith('/progress')) return route.fulfill({ json: options.summary ?? (options.empty ? { ...summary, total: 0, new: 0, studied: 0, due: 0, not_due: 0, reachable_decks: 0 } : summary) })
     if (url.pathname.endsWith('/activity')) {
@@ -47,7 +47,7 @@ async function mockHome(page: Page, options: MockOptions = {}) {
     if (url.pathname.endsWith('/nodes')) {
       const published = url.searchParams.get('parent_id') === 'published-root'
       const nodes = options.empty || published ? [] : ['Everyday conversation', 'Business English', 'Travel essentials'].map((name, index) => ({
-        id: `node-${index}`, name, type: ['DECK', 'FOLDER', 'REFERENCE'][index], description: null, summary: { ...summary, node_id: `node-${index}`, total: 50, new: 20, studied: 30, due: 4, not_due: 26 },
+        id: `node-${index}`, name, type: ['deck', 'folder', 'reference'][index], description: null, summary: { ...summary, node_id: `node-${index}`, total: 50, new: 20, studied: 30, due: 4, not_due: 26 },
       }))
       return route.fulfill({ json: { nodes, next_cursor: null } })
     }
@@ -60,14 +60,14 @@ test('mock-mode Home reads the shared sample database without backend or Clerk r
   page.on('request', request => {
     const url = new URL(request.url())
     // Local JS chunks may contain the SDK's name; they are not Clerk-service requests.
-    if (url.pathname.startsWith('/api/v1/') || url.origin !== new URL(test.info().project.use.baseURL!).origin) requests.push(request.url())
+    if (url.pathname.includes('/v1/') || url.origin !== new URL(test.info().project.use.baseURL!).origin) requests.push(request.url())
   })
   await page.goto('/app')
   await expect(page.getByRole('heading', { name: /Good (morning|afternoon|evening), Alex/ })).toBeVisible()
   await expect(page.locator('.home-count-due dd')).toHaveText('12')
   await expect(page.getByText('Design preview · Sample data · Nothing is saved to your account')).toBeVisible()
   await expect(page.getByRole('link', { name: 'Start review', exact: true }))
-    .toHaveAttribute('href', '/focus/learn?node=preview-library&selection=DUE')
+    .toHaveAttribute('href', '/app/learn?node=preview-library&selection=due')
   await page.getByRole('tab', { name: 'Published' }).click()
   await expect(page.getByRole('link', { name: /A few useful expressions/ })).toBeVisible()
   await expect(page.getByText('This page is a placeholder')).toHaveCount(0)
@@ -109,7 +109,7 @@ test('Home starts Due-only focus mode without preparing or submitting on the Hom
   page.on('request', request => { if (request.method() === 'POST') posts.push(new URL(request.url()).pathname) })
   await mockHome(page)
   await openFixture(page)
-  await expect(page.getByRole('link', { name: 'Start review', exact: true })).toHaveAttribute('href', '/focus/learn?node=library-root&selection=DUE')
+  await expect(page.getByRole('link', { name: 'Start review', exact: true })).toHaveAttribute('href', '/app/learn?node=library-root&selection=due')
   await expect(page.getByRole('region', { name: 'Start learning session' })).toHaveCount(0)
   expect(posts).toEqual([])
 })
@@ -121,7 +121,7 @@ test('empty Library, no Due and no activity have distinct honest states', async 
   await expect(page.getByRole('link', { name: 'Start review' })).toHaveCount(0)
   await expect(page.getByText('No activity recorded this month.', { exact: false })).toBeVisible()
   await expect(page.getByText('No future reviews scheduled in this window.')).toBeVisible()
-  await page.unroute('**/api/v1/**')
+  await page.unroute('**/*v1/**')
   await mockHome(page, { summary: { ...summary, due: 0, not_due: 96 } })
   await page.getByRole('button', { name: 'Refresh Library counts' }).click()
   await expect(page.getByRole('link', { name: 'Learn new', exact: true })).toBeVisible()
@@ -129,14 +129,14 @@ test('empty Library, no Due and no activity have distinct honest states', async 
 })
 
 test('independent errors never masquerade as zero and recover without hiding other sections', async ({ page }) => {
-  await mockHome(page, { fail: '/api/v1/study/progress' })
+  await mockHome(page, { fail: '/v1/study/progress' })
   await openFixture(page)
   const today = page.getByRole('region', { name: 'Today', exact: true })
   await expect(today.getByRole('alert')).toContainText('Could not load Library counts.')
   await expect(today.locator('dd')).toHaveCount(0)
   await expect(page.getByRole('link', { name: /Everyday conversation/ })).toBeVisible()
   await expect(page.locator('.home-streak-number strong')).toHaveText('6')
-  await page.unroute('**/api/v1/**')
+  await page.unroute('**/*v1/**')
   await mockHome(page)
   await today.getByRole('button', { name: 'Retry', exact: true }).click()
   await expect(page.locator('.home-count-due dd')).toHaveText('12')

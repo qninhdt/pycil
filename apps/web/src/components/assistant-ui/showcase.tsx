@@ -16,7 +16,7 @@ const models: AssistantModel[] = [
 const personalId = '01900000-0000-7000-8000-000000000001'
 const deckId = '01900000-0000-7000-8000-000000000002'
 const previewSummary = { node_id: personalId, as_of: '2026-10-10T08:15:00Z', total: 132, new: 4, studied: 128, due: 16, not_due: 112, reachable_decks: 5, last_studied_at: '2026-10-09T18:40:00Z' }
-const previewNode = { node_id: deckId, name: 'Executive & Board Discourse', type: 'DECK', parent_id: personalId, space: 'PERSONAL', editable: true, path: [{ node_id: personalId, name: 'Personal' }, { node_id: deckId, name: 'Executive & Board Discourse' }] }
+const previewNode = { node_id: deckId, name: 'Executive & Board Discourse', type: 'deck', parent_id: personalId, space: 'personal', editable: true, path: [{ node_id: personalId, name: 'Personal' }, { node_id: deckId, name: 'Executive & Board Discourse' }] }
 
 export const MASTER_CONVERSATION: ThreadMessageLike[] = [
   // Turn 1: Daily Diagnostic & Spaced-Repetition Backlog Check
@@ -67,24 +67,24 @@ export const MASTER_CONVERSATION: ThreadMessageLike[] = [
         result: {
           items: [
             {
-              kind: 'WORD',
+              kind: 'word',
               word_id: 1042,
               lemma: 'pragmatic',
-              entry_type: 'WORD',
-              match_kind: 'EXACT',
+              entry_type: 'word',
+              match_kind: 'exact',
               matched_surface: 'pragmatic',
               matched_queries: ['pragmatic'],
-              senses: [{ sense_id: 2042, word_id: 1042, lemma: 'pragmatic', pos: 'ADJECTIVE', definition: 'Dealing with things sensibly and realistically.' }],
+              senses: [{ sense_id: 2042, word_id: 1042, lemma: 'pragmatic', pos: 'adjective', definition: 'Dealing with things sensibly and realistically.' }],
             },
             {
-              kind: 'WORD',
+              kind: 'word',
               word_id: 1043,
               lemma: 'dogmatic',
-              entry_type: 'WORD',
-              match_kind: 'EXACT',
+              entry_type: 'word',
+              match_kind: 'exact',
               matched_surface: 'dogmatic',
               matched_queries: ['dogmatic'],
-              senses: [{ sense_id: 2043, word_id: 1043, lemma: 'dogmatic', pos: 'ADJECTIVE', definition: 'Insisting that your beliefs are right without considering evidence.' }],
+              senses: [{ sense_id: 2043, word_id: 1043, lemma: 'dogmatic', pos: 'adjective', definition: 'Insisting that your beliefs are right without considering evidence.' }],
             },
           ],
           unmatched_queries: [],
@@ -113,16 +113,16 @@ export const MASTER_CONVERSATION: ThreadMessageLike[] = [
         type: 'tool-call',
         toolCallId: 'preview-tool-list-nodes',
         toolName: 'read_library',
-        args: { node_id: personalId, view: 'STRUCTURE' },
-        argsText: JSON.stringify({ node_id: personalId, view: 'STRUCTURE' }),
+        args: { node_id: personalId, view: 'structure' },
+        argsText: JSON.stringify({ node_id: personalId, view: 'structure' }),
         result: {
-          node: { node_id: personalId, name: 'Personal', type: 'FOLDER' },
+          node: { node_id: personalId, name: 'Personal', type: 'folder' },
           summary: previewSummary,
           nodes: [
-            { name: 'Strategic Negotiations', type: 'DECK', summary: { total: 24 } },
-            { name: 'Technical Architecture', type: 'DECK', summary: { total: 38 } },
-            { name: 'Product Discovery', type: 'FOLDER', summary: { total: 4 } },
-            { name: 'Meeting Idioms', type: 'DECK', summary: { total: 19 } },
+            { name: 'Strategic Negotiations', type: 'deck', summary: { total: 24 } },
+            { name: 'Technical Architecture', type: 'deck', summary: { total: 38 } },
+            { name: 'Product Discovery', type: 'folder', summary: { total: 4 } },
+            { name: 'Meeting Idioms', type: 'deck', summary: { total: 19 } },
           ],
           next_cursor: null,
         },
@@ -131,8 +131,8 @@ export const MASTER_CONVERSATION: ThreadMessageLike[] = [
         type: 'tool-call',
         toolCallId: 'preview-tool-create-node',
         toolName: 'create_node',
-        args: { name: 'Executive & Board Discourse', type: 'DECK', parent_id: personalId },
-        argsText: JSON.stringify({ name: 'Executive & Board Discourse', type: 'DECK', parent_id: personalId }),
+        args: { name: 'Executive & Board Discourse', type: 'deck', parent_id: personalId },
+        argsText: JSON.stringify({ name: 'Executive & Board Discourse', type: 'deck', parent_id: personalId }),
         result: { ...previewNode, sense_count: 0, summary: { total: 0 } },
       },
       {
@@ -150,7 +150,7 @@ export const MASTER_CONVERSATION: ThreadMessageLike[] = [
       },
       {
         type: 'text',
-        text: 'Done! Here is what was completed in your Library:\n\n1. **Workspace Audited**: Found 3 existing decks (*Strategic Negotiations*, *Technical Architecture*, *Meeting Idioms*) and 1 folder (*Product Discovery*) in `Personal`. No collisions detected.\n2. **Deck Created**: Successfully initialized **Executive & Board Discourse** (`DECK`).\n3. **Verified**: Verified deck state—ready with parent link to `Personal Library`.\n\nWould you like me to commit **pragmatic** and **dogmatic** into this deck and generate an interactive recall exercise?',
+        text: 'Done! Here is what was completed in your Library:\n\n1. **Workspace Audited**: Found 3 existing decks (*Strategic Negotiations*, *Technical Architecture*, *Meeting Idioms*) and 1 folder (*Product Discovery*) in `Personal`. No collisions detected.\n2. **Deck Created**: Successfully initialized **Executive & Board Discourse** (`deck`).\n3. **Verified**: Verified deck state—ready with parent link to `Personal Library`.\n\nWould you like me to commit **pragmatic** and **dogmatic** into this deck and generate an interactive recall exercise?',
       },
     ],
   },

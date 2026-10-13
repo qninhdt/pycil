@@ -1,26 +1,25 @@
-"""Native checkpoint persistence; schema setup belongs only to the migration gate."""
-
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from psycopg import AsyncConnection
-from psycopg.rows import dict_row
+from psycopg.rows import DictRow, dict_row
 from psycopg_pool import AsyncConnectionPool
 from sqlalchemy.engine import make_url
 
-CHECKPOINT_SCHEMA = "checkpoints"
 
-
-def checkpoint_dsn(url: str):
+def checkpoint_dsn(url: str) -> str:
     parsed = make_url(url)
     if parsed.drivername != "postgresql+asyncpg":
         raise ValueError("Checkpoint storage requires the application PostgreSQL URL")
-    return parsed.set(drivername="postgresql").render_as_string(hide_password=False)
+    return str(parsed.set(drivername="postgresql").render_as_string(hide_password=False))
 
 
 @asynccontextmanager
-async def checkpoint_pool(url: str):
-    async with AsyncConnectionPool(
+async def checkpoint_pool(
+    url: str,
+) -> AsyncGenerator[AsyncConnectionPool[AsyncConnection[DictRow]]]:
+    async with AsyncConnectionPool[AsyncConnection[DictRow]](
         checkpoint_dsn(url),
         min_size=1,
         max_size=5,
@@ -29,7 +28,7 @@ async def checkpoint_pool(url: str):
             "autocommit": True,
             "prepare_threshold": 0,
             "row_factory": dict_row,
-            "options": f"-c search_path={CHECKPOINT_SCHEMA}",
+            "options": "-c search_path=public",
         },
     ) as pool:
         await pool.wait()
@@ -37,21 +36,22 @@ async def checkpoint_pool(url: str):
 
 
 @asynccontextmanager
-async def checkpoint_connection(url: str):
-    connection = await AsyncConnection.connect(
+async def checkpoint_connection(
+    url: str,
+) -> AsyncGenerator[AsyncConnection[DictRow]]:
+    connection = await AsyncConnection[DictRow].connect(
         checkpoint_dsn(url),
         autocommit=True,
         prepare_threshold=0,
         row_factory=dict_row,
-        options=f"-c search_path={CHECKPOINT_SCHEMA}",
+        options="-c search_path=public",
     )
     async with connection:
         yield connection
 
 
-async def setup_checkpoints(url: str):
+async def setup_checkpoints(url: str) -> None:
     # Native setup uses autocommit (including CREATE INDEX CONCURRENTLY).
     # No DDL or local substitute checkpoint tables appear in Pycil's Alembic history.
     async with checkpoint_connection(url) as connection:
-        await connection.execute(f"CREATE SCHEMA IF NOT EXISTS {CHECKPOINT_SCHEMA}")
         await AsyncPostgresSaver(connection).setup()

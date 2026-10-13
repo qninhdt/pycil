@@ -1,199 +1,104 @@
-# Testing and verification
+# Backend testing
 
-Run the current suites below. Dated verification records describe earlier revisions
-and do not establish current migration or API behavior.
+The backend suite was rebuilt for the consolidation described in
+[the redesign](../../redesign.md). Historical verification records describe earlier
+revisions and are not evidence for the current implementation.
 
-The browser suite is a separate opt-in profile; ordinary API tests skip it.
-See [web execution instructions](../../apps/web/README.md#live-integration-and-e2e)
-and the [2026-10-12 coverage review](../../plans/261012-focus-e2e-hardening/reports/verification.md)
-for historical execution evidence. Current ownership and commands are in
-[frontend testing](../../apps/web/tests/README.md).
+## Structure and boundaries
 
-## Safety boundary
-
-Tests use explicit disposable stores, not application data. Do not derive a test URL
-from production `DB_URL`, weaken the fixture's guard, call a paid model to satisfy a
-fixture, or use broad Redis FLUSH/SCAN cleanup against a shared server.
-
-The default local workflow needs Python, uv, and a running local Docker daemon with
-Docker Compose. **No test URLs or application `.env` are needed.** From repository root:
-
-```sh
-make test-api
+```text
+apps/api/tests/
+├── unit/
+├── integration/
+├── support/
+└── conftest.py
 ```
 
-`scripts/test_api.py` starts only PostgreSQL and Redis from `docker-compose.test.yml`,
-using a unique project per run, dynamically allocated loopback ports, and temporary
-in-memory storage. It waits for health, supplies the test URLs to pytest, and removes
-that exact project's containers/network/volumes afterward, including failed tests,
-startup failures, Ctrl-C, and SIGTERM. Concurrent runs use separate projects and ports.
-An uncatchable SIGKILL or machine/daemon crash can still leave resources: clean only
-the reported project with this test manifest, never with a broad Docker prune.
+Unit and integration tests use domain directories when there are tests for that domain.
+Application lifecycle tests belong in `integration/app`; infrastructure contracts belong
+in `integration/infrastructure`. There is no backend system, performance or E2E suite.
 
-The runner does not load `.env`, use runtime `DB_URL`/`REDIS_URL`, or honor inherited
-test endpoints. It disables uv dotenv loading and clears Compose overrides. It uses
-repository product policy and forwards explicit pytest arguments, not inherited
-`PYTEST_ADDOPTS`. It does not start API, Caddy, or paid generation jobs.
-Docker may download the pinned store images the first time; subsequent runs reuse images.
-
-Direct uv commands below run from `apps/api` unless stated otherwise. Native Lexi
-reads/storage remain real; providers are replaced at inference boundaries, not by
-replacing the entire dictionary with synthetic DTOs.
-
-## Test layers
-
-| Layer | Main coverage | Requirements |
+| Layer | What runs | External services |
 | --- | --- | --- |
-| `tests/unit` | Strict policy/preferences, identity, FSRS wrapper, configuration, pure boundaries | Locked environment; no disposable DB fixture for ordinary unit-only run |
-| `tests/integration` | Actual schema/migrations, memberships, concurrency, native questions, approvals, usage | Dedicated PostgreSQL; Redis where requested; SQLite reference artifacts imported into PostgreSQL |
-| `tests/system` | HTTP errors/auth/body/CORS, preferences contract, resource/process restart | Depends on selected tests; full run needs disposable stores |
+| Unit | An isolated component or pure contract; dependencies may be replaced. | No PostgreSQL, Redis, Docker or paid provider calls. |
+| Integration | Real collaborating services, validation, transactions and persistence. | PostgreSQL and Redis from Testcontainers when requested; real Tantivy where relevant. |
 
-The names are repository test directories, not separate invented test runners. HTTP
-ASGI tests do not require starting a real external API port unless a test explicitly does so.
+Controlled completion/decision responses replace the external provider boundary only.
+Internal business services, SQL constraints, artifact validation, search publication and
+native checkpoint persistence remain real. ASGI transports can exercise real HTTP routes
+without a separate server process.
 
-## Disposable PostgreSQL
+Browser E2E belongs to `apps/web`. Its setup must use disposable infrastructure and the
+current backend resources, rather than importing a backend system test.
 
-The runner supplies `TEST_DB_URL` automatically. For advanced direct pytest or
-CI usage only, set it to an explicitly selected `postgresql+asyncpg://` server whose
-administrative database is named **`rewrite_test`**. The fixture rejects another database
-name and never falls back to runtime `DB_URL`. Use a dedicated test server even though
-the name guard exists: it is not proof that a host is safe.
+## Infrastructure ownership
 
-The test role must be allowed to create/drop databases. Each fixture creates a
-`pycil_test_<UUID>` database, runs the full current setup gate, disposes connections, and drops only that exact
-database. Historical upgrade fixtures and tests have been removed.
+[Container fixtures](../../apps/api/tests/support/containers.py) lazily start pinned
+PostgreSQL and Redis containers. Selecting only unit tests starts neither container.
+The same fixtures run locally and in CI; CI does not provision duplicate services.
 
-On interrupted tests, inspect leftover test resources by exact identity before cleanup.
-Do not drop a broadly matched set of databases or delete application volumes.
+Each PostgreSQL test creates a unique database, applies the single application baseline
+and native checkpoint setup, disposes its engine and drops that database. Redis fixtures
+use unique key namespaces and remove only their own keys. Clients and pools close before
+their stores are stopped. Testcontainers cleanup support stays enabled.
 
-## Disposable Redis and reference fixtures
+No application `.env`, `DB_URL`, `REDIS_URL`, manually supplied test endpoints or Compose
+manifest is needed. Tests do not infer a test target from deployment credentials, use
+SQLite as a substitute for PostgreSQL, or flush a shared Redis server.
 
-The runner supplies `TEST_REDIS_URL` automatically. A manually supplied URL
-must use `redis://`, host `127.0.0.1`, and database **15**. It
-must point at a dedicated test Redis instance, not production's logical DB 15. Exact
-fixture keys and isolated application cache namespaces are used; no shared flush is needed.
-
-Reference fixtures create native SQLite tables in test temporary directories and import
-them into PostgreSQL through the migration gate. Lexical
-fixtures insert real rows into `lexi`, with real sense FKs and question storage. They
-are not production evidence artifacts and should not be reused as a production reference dataset.
-
-`no_inference` forbids paid completion/decision calls. Learning/assistant tests that
-exercise generation use deterministic external completion models while preserving native
-validation, retrieval, storage, and checkpoint behavior. Do not remove the provider guard
-to "fix" a test that is accidentally reaching an external service.
+Reference fixtures construct small valid JSONL artifacts. They exercise the real
+transactional importer and preserve source IDs. The full reference artifact is validated
+separately; normal tests do not import its entire contents for every case.
 
 ## Commands
 
-From repository root, unit-only checks do not need Docker:
+From the repository root:
 
 ```sh
 make test-unit
-```
-
-Managed full suite or individual layers, from repository root:
-
-```sh
-make test-api
 make test-integration
-make test-system
+make test-api
+make lint
+make openapi
 ```
 
-Each invocation manages its own fresh stores. To run a targeted selection, pass pytest
-arguments to the runner from repository root:
+Integration tests require a running Docker daemon. For focused checks, run from `apps/api`:
 
 ```sh
-python scripts/test_api.py tests/integration/test_library.py -q
-python scripts/test_api.py tests/integration/test_nodes_migration.py -q
-python scripts/test_api.py tests/integration/test_learning_pipeline.py -q
-python scripts/test_api.py tests/integration/test_assistant.py -q
-python scripts/test_api.py tests/integration/test_query_timeout.py -q
+uv run --locked pytest tests/integration/study -q
+uv run --locked pytest tests/integration/assistant -q
+uv run --locked pytest tests/unit/infrastructure -q
 ```
 
-Arguments are resolved relative to `apps/api`, regardless of the runner's launch directory.
-The pytest exit status is preserved. Failed cleanup is reported and cannot turn into success.
+`pytest` owns fixture setup and cleanup directly. There is no custom Compose test runner.
 
-CI already provisions isolated services through GitHub Actions, so it continues to use
-direct pytest with explicit test URLs rather than provisioning a second Docker project.
-If deliberately using independently managed disposable stores, export both test URLs
-and run `uv run --locked pytest tests -q` from `apps/api`; keep these variables out of
-the application's `.env`. Missing variables give a hint to use `make test-api`.
-
-Static and packaging checks:
+To build the wheel from `apps/api`:
 
 ```sh
-uv run --locked ruff check pycil tests migrations ../../scripts/test_api.py
-uv run --locked ruff format --check pycil tests migrations ../../scripts/test_api.py
-uv build --wheel --out-dir /tmp/opencode/pycil-docs-build
+uv build --wheel --out-dir /tmp/pycil-wheel
 ```
 
-Use an existing approved output directory appropriate to your environment. Inspect
-the wheel for `pycil/assistant/system_prompt.txt`; ignored old `prompt.md` must not be
-included as the canonical prompt. A wheel build is not a complete deployment artifact
-verification; the Docker image carries migration/config/reference-runtime assumptions.
+Inspect the actual wheel when changing prompt packaging. Prompts live in the owning
+modules, including `assistant/prompts/system_prompt.txt`; building a wheel alone does
+not verify deployment startup or a live model provider.
 
-From repository root, `make lint` wraps lint/format checks. `make test` aliases the
-automatically managed full `make test-api` workflow.
+## Meaningful assertions
 
-## Evidence map
+Tests protect source import atomicity/idempotency, evidence validation, incremental
+search, artifact bank integrity, grading without writes, review and usage replay,
+concurrent preference updates, publication revocation, checkpoint persistence and
+resource cleanup. See the current test files for exact assertions.
 
-| File | Behaviors to preserve |
-| --- | --- |
-| `test_library.py` | Roles/paths, public-private boundaries, retained references, cycle termination, depth, membership deltas, quota races |
-| `test_fresh_schema.py` | Repeatable migration gate, schema comparison, real lexical FKs, idempotent usage |
-| `test_learning_pipeline.py` | Ready native questions, read-only preparation, exact applied/practice rule, replay/concurrent reviews, HTTP contracts |
-| `test_progress.py` | Unique scope and current reporting semantics |
-| `test_completion.py` | Atomic batches, source/context/search revocation, opaque paging, profile races, 5/50-card query parity |
-| `test_completion_contracts.py` | Strict request bounds, hashes/cursors, handle normalization, streak/window boundaries |
-| `tests/performance/test_read_matrix.py` | Opt-in isolated EXPLAIN and smoke-load artifacts; skipped unless tier selected |
-| `test_assistant.py` | Approved/rejected tools, live reauthorization, persisted interrupt recovery, cancellation and leases |
-| `test_account_lifecycle.py` | Identity cache, current entitlement, anchored usage, plan changes |
-| `test_query_timeout.py` | Retryable SQL cancellation and fresh request transaction recovery |
-| `test_bootstrap.py` | Resource ownership, schema refusal, partial startup cleanup, separate schema owners |
-| `test_test_runner.py` | Managed endpoint isolation, unique projects, cleanup on failures/interruption, exit statuses, safe port bindings |
-| System HTTP/preferences/restart tests | Safe errors, CORS, bounded bodies, auth alternatives, lifecycle and public contracts |
+Do not add tests solely for coverage, directory names or the absence of retired names.
+Keep batching or query-bound assertions with the behavior they protect. Use controlled
+provider output without bypassing the application's validation.
 
-## Baseline result and what it does not prove
-
-The last implementation-stage run recorded **158 passing tests**, plus 11 upstream
-LangGraph deprecation warnings. Ruff checks and wheel inspection passed. Those results
-describe the foundation commit; they are not tests of unimplemented batch/activity/search
-features or a claim that this documentation task executed the full database suite again.
-
-Documentation-task verification on 2026-10-06 ran the unit suite (**50 passed**), checked
-local links and balanced fences across all 16 Markdown files, schema-validated all 8
-JSON request/error examples, and confirmed that the module route tables cover all 26
-generated business operations. Schema inspection did not start the runtime lifespan,
-run migrations, or call providers. These checks are distinct from the earlier full suite.
-
-After adding the managed runner and renaming environment variables, `make test-api`
-passed **181 tests** with the same 11 upstream warnings on automatically created stores.
-Lint/format, deployment Compose validation, and deployment shell syntax passed. Separate
-real runner checks verified cleanup after a pytest selection error (exit 4) and SIGTERM
-during a running test (exit 130). The interruption check ran concurrently with the full
-suite in a separate project without affecting that suite's stores.
-
-The CI workflow uses PostgreSQL 18.6/Redis 8.10.2 and tests wheel integrity, lint/format,
-the suite, Docker build, safe Compose config, and Caddy config. Trigger coverage is
-PRs to main/dev and pushes to main, not every dev push.
-
-The final working-tree suite adds actual batch/activity/search/context/profile and
-opaque-cursor coverage. Historical counts above describe their own checkpoints, not
-the final run. Current evidence lives in [implementation status](implementation-status.md).
-[Performance procedure](operations/performance.md) distinguishes local query/smoke-load
-artifacts from an approved production capacity gate. Production restore rehearsals,
-live FE/provider-host acceptance and long-duration scale signoff remain external gates.
-
-## Documentation checks
-
-When updating these pages, validate local Markdown links, route names against generated
-OpenAPI, shell command working directories, and examples against current request schemas.
-Keep future contracts explicitly separate. Product acceptance criteria describe intended
-behavior and should never be mistaken for evidence of a passing backend test.
+Live identity/model calls, browser E2E, image builds and deployment restore rehearsals
+are separate checks. A passing local backend suite does not establish those outcomes.
 
 ## Sources
 
-- [Fixtures](../../apps/api/tests/conftest.py), [test directory](../../apps/api/tests/)
-- [Make targets](../../Makefile), [CI](../../.github/workflows/test.yml)
-- [Managed test runner](../../scripts/test_api.py), [isolated Compose stores](../../docker-compose.test.yml)
-- [Project tools](../../apps/api/pyproject.toml), [implementation status](implementation-status.md)
+- [Test registration](../../apps/api/tests/conftest.py)
+- [Shared test support](../../apps/api/tests/support/)
+- [Build and test configuration](../../apps/api/pyproject.toml)
+- [Commands](../../Makefile), [CI workflow](../../.github/workflows/test.yml)

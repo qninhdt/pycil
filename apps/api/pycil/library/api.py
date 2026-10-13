@@ -4,7 +4,8 @@ from uuid import UUID
 from fastapi import APIRouter, Path, Query, Request, Response
 
 from pycil.account.auth import Actor, Viewer
-from pycil.dependencies import Dictionary, Product, Session
+from pycil.app.dependencies import Product, Runtime, Session
+from pycil.app.pagination import strict_query
 from pycil.library import nodes
 from pycil.library.access import readable
 from pycil.library.models import NodeType
@@ -21,11 +22,12 @@ from pycil.library.schemas import (
     SavedNode,
     SenseDelta,
     SensePage,
+    SenseSort,
     Sources,
 )
 from pycil.library.search import search_nodes
 from pycil.library.senses import sense_page, sources_page
-from pycil.pagination import strict_query
+from pycil.study.enums import LearningState
 
 router = APIRouter(prefix="/v1/nodes", tags=["nodes"])
 
@@ -131,13 +133,17 @@ async def senses(
     viewer: Viewer,
     session: Session,
     config: Product,
-    lexicon: Dictionary,
+    resources: Runtime,
     cursor: str | None = Query(default=None, max_length=2048),
     limit: int | None = Query(default=None, ge=1, le=100),
     q: str | None = Query(default=None, max_length=200),
-    sort: Literal["SENSE_ID_ASC", "LEMMA_ASC", "LAST_REVIEWED_DESC"] = "SENSE_ID_ASC",
+    sort: Literal[
+        SenseSort.SENSE_ID_ASC, SenseSort.LEMMA_ASC, SenseSort.LAST_REVIEWED_DESC
+    ] = SenseSort.SENSE_ID_ASC,
     include: str | None = None,
-    state: Literal["ALL", "NEW", "DUE", "NOT_YET_DUE"] = "ALL",
+    state: Literal[
+        LearningState.ALL, LearningState.NEW, LearningState.DUE, LearningState.NOT_YET_DUE
+    ] = LearningState.ALL,
 ):
     strict_query(request, {"cursor", "limit", "q", "sort", "include", "state"})
     viewer_id = viewer.id if viewer else None
@@ -147,7 +153,7 @@ async def senses(
         node,
         viewer_id,
         config,
-        lexicon,
+        resources.sessions,
         cursor,
         state=state,
         q=q,

@@ -9,7 +9,7 @@ type Node = { id: string; name: string; sense_ids?: number[]; parent_id: string;
 type Fixtures = {
   browserErrors: void
   profile: AccountProfile
-  nodes: { create: (input: { type: 'FOLDER' | 'DECK'; name?: string; parent_id?: string; sense_ids?: number[] }) => Promise<Node>; track: (id: string) => void }
+  nodes: { create: (input: { type: 'folder' | 'deck'; name?: string; parent_id?: string; sense_ids?: number[] }) => Promise<Node>; track: (id: string) => void }
 }
 
 export const test = base.extend<Fixtures>({
@@ -27,7 +27,7 @@ export const test = base.extend<Fixtures>({
     try { await provide({
       track: id => { owned.add(id) },
       create: async input => {
-        const response = await api<Node>(page, 'nodes', 'POST', { ...input, name: input.name ?? `e2e-${randomUUID()}`, parent_id: input.parent_id ?? profile.personal_node_id, ...(input.type === 'DECK' ? { sense_ids: input.sense_ids ?? [] } : {}) })
+        const response = await api<Node>(page, 'nodes', 'POST', { ...input, name: input.name ?? `e2e-${randomUUID()}`, parent_id: input.parent_id ?? profile.personal_node_id, ...(input.type === 'deck' ? { sense_ids: input.sense_ids ?? [] } : {}) })
         expect(response.status).toBe(201)
         owned.add(response.body.id)
         return response.body

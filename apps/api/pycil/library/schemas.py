@@ -1,13 +1,27 @@
 from datetime import datetime
-from typing import Annotated, Literal
+from enum import StrEnum
+from typing import Annotated, Literal, Self
 from uuid import UUID
 
-from lexi_ai import CEFRLevel, EntryType, PartOfSpeech, Register, Tier
-from lexi_ai.models import Example
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from pycil.library.models import NodeRole, NodeSpace, NodeType
+from pycil.study.enums import LearningState
 from pycil.study.schemas import Summary
+from pycil.vocabulary.enums import CEFRLevel, EntryType, PartOfSpeech, Register, Tier
+from pycil.vocabulary.schemas import Example
+
+
+class SenseSort(StrEnum):
+    SENSE_ID_ASC = "sense_id_asc"
+    LEMMA_ASC = "lemma_asc"
+    LAST_REVIEWED_DESC = "last_reviewed_desc"
+    MASTERY_ASC = "mastery_asc"
+
+
+class LibraryView(StrEnum):
+    CONTENT = "content"
+    STRUCTURE = "structure"
 
 
 class Strict(BaseModel):
@@ -51,14 +65,14 @@ class NodePatch(Strict):
 
 class SenseDelta(Strict):
     add: list[Annotated[int, Field(strict=True, gt=0)]] = Field(
-        default_factory=list, max_length=1000
+        default_factory=lambda: [], max_length=1000
     )
     remove: list[Annotated[int, Field(strict=True, gt=0)]] = Field(
-        default_factory=list, max_length=1000
+        default_factory=lambda: [], max_length=1000
     )
 
     @model_validator(mode="after")
-    def distinct_ids(self):
+    def distinct_ids(self) -> Self:
         if len(set(self.add)) != len(self.add) or len(set(self.remove)) != len(self.remove):
             raise ValueError("Sense IDs must be unique")
         if set(self.add) & set(self.remove):
@@ -76,7 +90,7 @@ class NodeMove(NodeDestination):
 
 
 class LearningPreview(Strict):
-    state: Literal["NEW", "DUE", "NOT_YET_DUE"]
+    state: Literal[LearningState.NEW, LearningState.DUE, LearningState.NOT_YET_DUE]
     due_at: datetime | None
     elo: float | None
     level: Annotated[int, Field(ge=1, le=5)] | None
@@ -121,10 +135,10 @@ class SensePage(Strict):
     as_of: datetime
 
 
-class NodeView(Strict):
+class NodeView[T: NodeType = NodeType](Strict):
     id: UUID
     owner_id: UUID
-    type: NodeType
+    type: T
     parent_id: UUID | None
     reference_id: UUID | None
     name: str
@@ -146,12 +160,11 @@ class NodeViewWithReference(NodeView):
     retained_reference_id: UUID | None = None
 
 
-class ContainerNode(NodeView):
-    type: Literal[NodeType.FOLDER, NodeType.REFERENCE]
+class ContainerNode(NodeView[Literal[NodeType.FOLDER, NodeType.REFERENCE]]):
+    pass
 
 
-class SavedDeck(NodeView):
-    type: Literal[NodeType.DECK]
+class SavedDeck(NodeView[Literal[NodeType.DECK]]):
     sense_ids: list[int]
     retained_reference_id: UUID | None = None
 

@@ -53,16 +53,16 @@ function events(runId: string, text = 'A streamed answer.', reasoning = '**Consi
 
 async function mockApi(page: Page, options: { pending?: boolean; error?: boolean; answer?: string; reasoning?: string; history?: RunAgentInput['messages'] } = {}) {
   const requests: RunAgentInput[] = []
-  await page.route('**/api/v1/me', route => route.fulfill({ json: database.account }))
-  await page.route('**/api/v1/me/usage', route => route.fulfill({ json: { period_start: '2026-10-01T00:00:00Z', period_end: '2026-11-01T00:00:00Z', allowance_units: 1000, used_units: 0, remaining_units: 1000 } }))
-  await page.route('**/api/v1/assistant**', async route => {
+  await page.route('**/*v1/me', route => route.fulfill({ json: database.account }))
+  await page.route('**/*v1/me/usage', route => route.fulfill({ json: { period_start: '2026-10-01T00:00:00Z', period_end: '2026-11-01T00:00:00Z', allowance_units: 1000, used_units: 0, remaining_units: 1000 } }))
+  await page.route('**/*v1/assistant**', async route => {
     const request = route.request(), url = new URL(request.url())
     expect(request.headers().authorization).toBe('Bearer test-only-bearer')
     if (url.pathname.endsWith('/models')) return route.fulfill({ json: [model, { ...model, id: 'text-model', name: 'Text model', vision: false }] })
     if (url.pathname.endsWith('/conversations') && request.method() === 'GET') return route.fulfill({ json: { conversations: [metadata], next_cursor: url.searchParams.has('cursor') ? null : 'older-page' } })
     if (url.pathname.endsWith('/conversations') && request.method() === 'POST') return route.fulfill({ status: 201, json: { ...metadata, id: secondId, title: request.postDataJSON().title } })
     if (url.pathname.includes('/conversations/')) return route.fulfill({ json: { ...metadata, id: url.pathname.split('/').at(-1), state: options.pending ? { messages: [...state.messages, { id: 'pending-assistant', role: 'assistant', content: '', toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'create_node', arguments: '{"name":"New deck"}' } }] }], pending_approvals: [{ interrupt_id: 'interrupt-1', action_requests: [{ name: 'create_node', args: { name: 'New deck' } }] }] } : { ...state, messages: options.history ?? state.messages } } })
-    expect(url.pathname).toBe('/api/v1/assistant:run')
+    expect(url.pathname.endsWith('/assistant:run')).toBe(true)
     expect(request.method()).toBe('POST')
     const input = request.postDataJSON() as RunAgentInput
     requests.push(input)
@@ -77,8 +77,8 @@ test('Assistant auto approval persists through API and failed writes keep the sa
   const profile = structuredClone(database.account)
   let failed = false
   const patches: unknown[] = []
-  await page.route('**/api/v1/me', route => route.fulfill({ json: profile }))
-  await page.route('**/api/v1/me/settings', route => {
+  await page.route('**/*v1/me', route => route.fulfill({ json: profile }))
+  await page.route('**/*v1/me/settings', route => {
     expect(route.request().method()).toBe('PATCH')
     const patch = route.request().postDataJSON()
     patches.push(patch)
@@ -173,7 +173,7 @@ test('a missing remembered conversation opens a new chat and clears its stale id
   await page.addInitScript(value => localStorage.setItem('pycil:assistant:assistant-test', value), id)
   const requests = await mockApi(page)
   let reads = 0
-  await page.route(`**/api/v1/assistant/conversations/${id}`, route => {
+  await page.route(`**/*v1/assistant/conversations/${id}`, route => {
     reads++
     return route.fulfill({ status: 404, json: { error: 'not_found' } })
   })
@@ -190,7 +190,7 @@ test('a missing remembered conversation opens a new chat and clears its stale id
 test('a temporary conversation failure preserves its remembered id', async ({ page }) => {
   await page.addInitScript(value => localStorage.setItem('pycil:assistant:assistant-test', value), id)
   await mockApi(page)
-  await page.route(`**/api/v1/assistant/conversations/${id}`, route => route.fulfill({ status: 503, json: { error: 'unavailable' } }))
+  await page.route(`**/*v1/assistant/conversations/${id}`, route => route.fulfill({ status: 503, json: { error: 'unavailable' } }))
   await fixture(page)
   await openAssistant(page)
   await expect(page.getByRole('alert')).toContainText('Couldn’t open PycilAI.', { timeout: 15000 })
@@ -263,7 +263,7 @@ for (const earlyReasoning of [true, false]) test(`one thought per turn survives 
   await page.evaluate(() => {
     const originalFetch = window.fetch.bind(window)
     window.fetch = async (input, init) => {
-      if (String(input) !== '/api/v1/assistant:run') return originalFetch(input, init)
+      if (!String(input).endsWith('/assistant:run')) return originalFetch(input, init)
       const request = JSON.parse(String(init?.body))
       const encoder = new TextEncoder()
       const stream = new ReadableStream({ start(controller) {
@@ -374,8 +374,8 @@ test('multi-step tools and reasoning use the available width without empty copy 
   const history: RunAgentInput['messages'] = [{ id: 'request', role: 'user', content: 'Read my library before writing the essay.' }, { id: 'thinking', role: 'reasoning', content: 'First inspect the available folders.' }]
   for (const [index, name] of ['search_nodes', 'read_library', 'read_library'].entries()) {
     history.push(
-      { id: `step-${index}`, role: 'assistant', content: '', toolCalls: [{ id: `call-${index}`, type: 'function', function: { name, arguments: index === 0 ? '{"queries":["Messi vs Ronaldo"]}' : '{"view":"STRUCTURE"}' } }] },
-      { id: `result-${index}`, role: 'tool', toolCallId: `call-${index}`, content: JSON.stringify(index === 0 ? { nodes: [] } : { node: { name: 'Library', type: 'FOLDER' }, nodes: [], next_cursor: null }) },
+      { id: `step-${index}`, role: 'assistant', content: '', toolCalls: [{ id: `call-${index}`, type: 'function', function: { name, arguments: index === 0 ? '{"queries":["Messi vs Ronaldo"]}' : '{"view":"structure"}' } }] },
+      { id: `result-${index}`, role: 'tool', toolCallId: `call-${index}`, content: JSON.stringify(index === 0 ? { nodes: [] } : { node: { name: 'Library', type: 'folder' }, nodes: [], next_cursor: null }) },
     )
   }
   history.push({ id: 'answer', role: 'assistant', content: 'The folder is empty. I can write the essay here.' })

@@ -39,21 +39,21 @@ test('assistant settings are independent of learning settings and start disabled
 
 test('Free quiz selection preserves saved Pro formats and prepares the effective pair', async () => {
   const seed = structuredClone(database)
-  seed.account.plan = 'FREE'
+  seed.account.plan = 'free'
   seed.account.learning_options.advanced_grading = false
-  seed.account.settings.learning.question_types = ['DEFINITION_TO_WORD']
-  seed.account.settings.learning.formats = ['SINGLE_WORD']
+  seed.account.settings.learning.question_types = ['definition_to_word']
+  seed.account.settings.learning.formats = ['single_word']
   const services = createMockServices({ database: seed, latency: 0 })
-  const profile = await services.account.updateSettings({ learning: { question_types: ['MEANING_IN_CONTEXT'] } }, signal())
-  expect(profile.settings.learning.formats).toEqual(['SINGLE_WORD'])
-  expect(profile.effective_learning?.formats).toEqual(['SINGLE_CHOICE'])
-  const prepared = await services.learning.prepare({ node_id: 'everyday', selection: 'NEW', max_sense_count: 1 }, signal())
+  const profile = await services.account.updateSettings({ learning: { question_types: ['meaning_in_context'] } }, signal())
+  expect(profile.settings.learning.formats).toEqual(['single_word'])
+  expect(profile.effective_learning?.formats).toEqual(['single_choice'])
+  const prepared = await services.learning.prepare({ node_id: 'everyday', selection: 'new', max_sense_count: 1 }, signal())
   expect(prepared.bundles).toHaveLength(1)
-  expect(prepared.bundles[0].questions.every(item => item.question.question_type === 'MEANING_IN_CONTEXT' && item.format === 'SINGLE_CHOICE')).toBe(true)
-  seed.account.plan = 'PRO'
+  expect(prepared.bundles[0].questions.every(item => item.question.question_type === 'meaning_in_context' && item.format === 'single_choice')).toBe(true)
+  seed.account.plan = 'pro'
   seed.account.learning_options.advanced_grading = true
   const pro = createMockServices({ database: seed, latency: 0 })
-  await expect(pro.account.updateSettings({ learning: { question_types: ['MEANING_IN_CONTEXT'] } }, signal())).rejects.toMatchObject({ status: 422 })
+  await expect(pro.account.updateSettings({ learning: { question_types: ['meaning_in_context'] } }, signal())).rejects.toMatchObject({ status: 422 })
 })
 
 test('JSON adapter implements the shared contract entirely offline and protects the seed', async () => {
@@ -75,8 +75,8 @@ test('JSON adapter implements the shared contract entirely offline and protects 
     expect(schedule.days.map(day => day.count)).toEqual(database.schedule.map(day => day.count))
     const library = await service.library.list(profile.personal_node_id, signal())
     expect(library.nodes).toHaveLength(4)
-    expect(library.nodes.find(node => node.id === 'saved-business')).toMatchObject({ type: 'REFERENCE', target_type: 'FOLDER' })
-    expect((await service.learning.prepare({ node_id: profile.library_node_id, selection: 'DUE' }, signal())).actual_sense_count).toBe(10)
+    expect(library.nodes.find(node => node.id === 'saved-business')).toMatchObject({ type: 'reference', target_type: 'folder' })
+    expect((await service.learning.prepare({ node_id: profile.library_node_id, selection: 'due' }, signal())).actual_sense_count).toBe(10)
     profile.display_name = 'Mutated'
     library.nodes[0].name = 'Mutated'
     expect((await service.account.profile(signal())).display_name).toBe('Alex')
@@ -95,8 +95,8 @@ test('mock cancellation, invalid scopes and selection modes behave like a servic
   const db = structuredClone(database)
   db.summary.due = 0; db.summary.not_due = db.summary.studied; db.library.due_sense_ids = []
   const noDue = createMockServices({ database: db, now, latency: 0 })
-  expect((await noDue.learning.prepare({ node_id: db.account.library_node_id, selection: 'DUE' }, signal())).actual_sense_count).toBe(0)
-  expect((await noDue.learning.prepare({ node_id: db.account.library_node_id, selection: 'NEW', max_sense_count: 3 }, signal())).actual_sense_count).toBe(3)
+  expect((await noDue.learning.prepare({ node_id: db.account.library_node_id, selection: 'due' }, signal())).actual_sense_count).toBe(0)
+  expect((await noDue.learning.prepare({ node_id: db.account.library_node_id, selection: 'new', max_sense_count: 3 }, signal())).actual_sense_count).toBe(3)
 })
 
 test('preview Discovery, references and publication use the shared Library state', async () => {
@@ -128,7 +128,7 @@ test('references use the existing create endpoint and enforce publication bounda
   }
   try {
     await createHttpServices(async () => 'test-only-bearer').library.createReference(published, 'travel-source', 'Travel', signal(), true)
-    expect(requests).toEqual([{ type: 'REFERENCE', name: 'Travel', parent_id: published, reference_id: 'travel-source', confirm_publication: true }])
+    expect(requests).toEqual([{ type: 'reference', name: 'Travel', parent_id: published, reference_id: 'travel-source', confirm_publication: true }])
   } finally { globalThis.fetch = original }
 })
 
@@ -144,8 +144,8 @@ test('Library mock is canonical, scoped, deduplicated and consistent with Home',
   const meanings = await service.library.meanings('business', { limit: 100 }, signal())
   expect(meanings.senses).toHaveLength(folder.summary!.total)
   expect(new Set(meanings.senses.map(sense => sense.sense_id)).size).toBe(folder.summary!.total)
-  expect(meanings.senses.filter(sense => sense.learning!.state === 'DUE')).toHaveLength(folder.summary!.due)
-  expect(meanings.senses.filter(sense => sense.learning!.state === 'NEW')).toHaveLength(folder.summary!.new)
+  expect(meanings.senses.filter(sense => sense.learning!.state === 'due')).toHaveLength(folder.summary!.due)
+  expect(meanings.senses.filter(sense => sense.learning!.state === 'new')).toHaveLength(folder.summary!.new)
   const agenda = meanings.senses.find(sense => sense.lemma === 'agenda')!
   expect(agenda.sources.map(source => source.id).sort()).toEqual(['business-core', 'meeting-expressions'])
   expect(folder.breadcrumbs.map(node => node.name)).toEqual(['My Library', 'Personal', 'Business English'])
@@ -162,9 +162,9 @@ test('meaning pagination, search, filters and sort do not leak other scopes', as
   const banks = await service.library.meanings('everyday', { q: 'bank' }, signal())
   expect(banks.senses.map(sense => sense.definition)).toEqual(['an organization where people keep or borrow money', 'the land along the side of a river'])
   expect((await service.library.meanings('business-core', { q: 'bank' }, signal())).senses).toEqual([])
-  const due = await service.library.meanings('everyday', { state: 'DUE' }, signal())
-  expect(due.senses.every(sense => sense.learning!.state === 'DUE')).toBe(true)
-  const reviewed = await service.library.meanings('everyday', { sort: 'LAST_REVIEWED_DESC', limit: 100 }, signal())
+  const due = await service.library.meanings('everyday', { state: 'due' }, signal())
+  expect(due.senses.every(sense => sense.learning!.state === 'due')).toBe(true)
+  const reviewed = await service.library.meanings('everyday', { sort: 'last_reviewed_desc', limit: 100 }, signal())
   const dates = reviewed.senses.map(sense => sense.learning!.last_reviewed_at ?? '')
   expect(dates).toEqual([...dates].sort().reverse())
   const search = await service.library.contents('business', { q: 'Email' }, signal())
@@ -182,16 +182,16 @@ test('references preserve placement but resolve readable sources; missing target
   expect(reference.summary!.total).toBe(source.summary!.total)
   expect(source.breadcrumbs).toEqual([{ id: 'preview-sam-published', name: 'Published' }, { id: 'travel-source', name: 'Travel essentials' }])
   expect((await service.library.meanings('travel', {}, signal())).senses.map(sense => sense.sense_id)).toEqual((await service.library.meanings('travel-source', {}, signal())).senses.map(sense => sense.sense_id))
-  expect((await service.library.contents(database.account.personal_node_id, {}, signal())).nodes.find(node => node.id === 'travel')?.target_type).toBe('DECK')
+  expect((await service.library.contents(database.account.personal_node_id, {}, signal())).nodes.find(node => node.id === 'travel')?.target_type).toBe('deck')
   const savedBusiness = await service.library.details('saved-business', signal())
-  expect(savedBusiness.target).toMatchObject({ id: 'business', type: 'FOLDER' })
+  expect(savedBusiness.target).toMatchObject({ id: 'business', type: 'folder' })
   expect(savedBusiness.summary).toMatchObject(database.nodes.find(node => node.id === 'saved-business')!.counts)
   expect((await service.library.contents('saved-business', {}, signal())).nodes.map(node => node.id)).toEqual((await service.library.contents('business', {}, signal())).nodes.map(node => node.id))
   expect((await service.library.meanings('saved-business', { limit: 100 }, signal())).senses.map(sense => sense.sense_id)).toEqual((await service.library.meanings('business', { limit: 100 }, signal())).senses.map(sense => sense.sense_id))
   const emails = await service.library.contents('emails', {}, signal())
   const folderReference = emails.nodes.find(node => node.id === 'saved-meetings')!
-  expect(libraryNodeKind(folderReference)).toBe('FOLDER')
-  expect((await service.library.details(folderReference.id, signal())).target?.type).toBe('FOLDER')
+  expect(libraryNodeKind(folderReference)).toBe('folder')
+  expect((await service.library.details(folderReference.id, signal())).target?.type).toBe('folder')
   expect((await service.library.contents(folderReference.id, {}, signal())).nodes.map(node => node.id)).toEqual(['meeting-expressions'])
   const unavailable = await service.library.details('unavailable-reference', signal())
   expect(unavailable.target).toBeNull()
@@ -221,15 +221,15 @@ test('mock search keeps surface origin priority for every supported match class'
     { ...structuredClone(template), id: 1, lemma: 'running', aliases: [], senses: [] },
     { ...structuredClone(template), id: 2, lemma: 'z-alias', aliases: ['running'], senses: [] },
     { ...structuredClone(template), id: 3, lemma: 'a-form', aliases: [], senses: [
-      { ...structuredClone(template.senses[0]), word_id: 3, forms: [{ surface: 'running', inf: 'ING' }] },
+      { ...structuredClone(template.senses[0]), word_id: 3, forms: [{ surface: 'running', inf: 'ing' }] },
     ] },
     { ...structuredClone(template), id: 4, lemma: 'b-alias', aliases: ['running'], senses: [] },
   ] as typeof fixture.dictionary.words
   fixture.dictionary.references = []
   const services = createMockServices({ database: fixture, latency: 0 })
-  for (const [query, kind] of [['RUNNING', MatchKind.EXACT], ['runn', MatchKind.PREFIX], ['unning', MatchKind.SUBSTRING]]) {
+  for (const [query, kind] of [['running', MatchKind.EXACT], ['runn', MatchKind.PREFIX], ['unning', MatchKind.SUBSTRING]]) {
     const hits = (await services.dictionary.search(query, signal())).items
-    expect(hits.map(hit => hit.kind === 'WORD' ? hit.word_id : null)).toEqual([1, 4, 2, 3])
+    expect(hits.map(hit => hit.kind === 'word' ? hit.word_id : null)).toEqual([1, 4, 2, 3])
     expect(hits.every(hit => hit.match_kind === kind && hit.matched_surface === 'running')).toBe(true)
   }
 })
@@ -237,7 +237,7 @@ test('mock search keeps surface origin priority for every supported match class'
 test('membership deltas and preparation are consistent in the mock contract', async () => {
   const services = createMockServices({ latency: 0 })
   const run = await services.dictionary.search('run', signal())
-  expect(run.items[0]).toMatchObject({ kind: 'WORD', word_id: 1001, match_kind: 'EXACT' })
+  expect(run.items[0]).toMatchObject({ kind: 'word', word_id: 1001, match_kind: 'exact' })
   const [preview] = await services.dictionary.previews([1001], signal())
   expect(preview.senses).toHaveLength(10)
   expect(preview.senses.slice(0, 3).map(sense => sense.id)).toEqual([49, 50, 51])
@@ -245,14 +245,14 @@ test('membership deltas and preparation are consistent in the mock contract', as
   await services.library.updateDeckSenses('everyday', { add: [49], remove: [50] }, signal())
   expect((await services.library.meanings('everyday', { q: 'run' }, signal())).senses.map(sense => sense.sense_id)).toEqual([49])
   const created = await services.library.createDeck('preview-personal', 'Verbs', [51], signal())
-  expect((await services.dictionary.context(1001, signal())).senses.find(sense => sense.sense_id === 51)?.decks).toContainEqual({ id: created, name: 'Verbs', owner_id: 'preview-alex', space: 'PERSONAL' })
+  expect((await services.dictionary.context(1001, signal())).senses.find(sense => sense.sense_id === 51)?.decks).toContainEqual({ id: created, name: 'Verbs', owner_id: 'preview-alex', space: 'personal' })
   const orbit = (await services.dictionary.search('orbit', signal())).items[0]
-  expect(orbit.kind).toBe('REFERENCE')
-  if (orbit.kind !== 'REFERENCE') throw new Error('Expected an ungenerated reference')
+  expect(orbit.kind).toBe('reference')
+  if (orbit.kind !== 'reference') throw new Error('Expected an ungenerated reference')
   const job = await services.dictionary.prepare(orbit.reference_id, orbit.display, signal())
   await services.dictionary.generation(job.task_id, signal())
-  expect((await services.dictionary.generation(job.task_id, signal())).status).toBe('SUCCEEDED')
-  expect((await services.dictionary.search('orbit', signal())).items[0]).toMatchObject({ kind: 'WORD', word_id: 1002, match_kind: 'EXACT' })
+  expect((await services.dictionary.generation(job.task_id, signal())).status).toBe('succeeded')
+  expect((await services.dictionary.search('orbit', signal())).items[0]).toMatchObject({ kind: 'word', word_id: 1002, match_kind: 'exact' })
 })
 
 test('invented lexical fixture follows Word and Sense DTOs', () => {
@@ -261,7 +261,7 @@ test('invented lexical fixture follows Word and Sense DTOs', () => {
   expect(words).toHaveLength(52)
   expect(words.find(word => word.lemma === 'run')?.senses).toHaveLength(10)
   expect(words.find(word => word.lemma === 'bank')?.senses).toHaveLength(5)
-  expect(words.find(word => word.lemma === 'light')?.senses.map(sense => sense.pos)).toContain('ADJECTIVE')
+  expect(words.find(word => word.lemma === 'light')?.senses.map(sense => sense.pos)).toContain('adjective')
   expect(pending.find(word => word.lemma === 'orbit')?.senses).toHaveLength(3)
   const senses = [...words, ...pending].flatMap(word => word.senses)
   expect([...database.dictionary.words, ...database.dictionary.pending_words].every(word => word.senses.every(sense => !('usage_note' in sense)))).toBe(true)
@@ -276,8 +276,8 @@ test('preparation supports every selected public type, one format and K up to th
   const services = createMockServices({ latency: 0 })
   const types = services.account.initialProfile!.settings.learning.question_types
   for (const type of types) {
-    await services.account.updateSettings({ learning: { question_types: [type], formats: ['SINGLE_CHOICE'], questions_per_sense: 3, max_sense_count: 1 } }, focusSignal)
-    const prepared = await services.learning.prepare({ node_id: 'everyday', selection: 'NEW' }, focusSignal)
+    await services.account.updateSettings({ learning: { question_types: [type], formats: ['single_choice'], questions_per_sense: 3, max_sense_count: 1 } }, focusSignal)
+    const prepared = await services.learning.prepare({ node_id: 'everyday', selection: 'new' }, focusSignal)
     expect(prepared.actual_question_count).toBe(3)
     for (const item of prepared.bundles[0].questions) {
       expect(item.question.question_type).toBe(type)
@@ -285,7 +285,7 @@ test('preparation supports every selected public type, one format and K up to th
       expect(new Set(item.options.map(option => option.id)).size).toBe(4)
     }
   }
-  await expect(services.learning.prepare({ node_id: 'everyday', selection: 'NEW', max_sense_count: 21 }, focusSignal)).rejects.toMatchObject({ status: 422 })
+  await expect(services.learning.prepare({ node_id: 'everyday', selection: 'new', max_sense_count: 21 }, focusSignal)).rejects.toMatchObject({ status: 422 })
 })
 
 test('public account contract omits private settings and supports bio before a handle', async () => {

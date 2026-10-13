@@ -1,11 +1,11 @@
 # Product policy, never credentials. Units preserve the previous integer scale.
 plans:
-  FREE:
+  free:
     monthly_allowance_units: 1000000
-    features: [ASSISTANT]
-  PRO:
+    features: [assistant]
+  pro:
     monthly_allowance_units: 10000000
-    features: [ASSISTANT, ADVANCED_GRADING]
+    features: [assistant, advanced_grading]
 account:
   defaults:
     locale: en
@@ -19,16 +19,16 @@ learning:
   defaults:
     question_types:
       [
-        DEFINITION_TO_WORD,
-        CONTEXT_TO_WORD,
-        CLOZE_TO_WORD,
-        WORD_TO_DEFINITION,
-        WORD_TO_USAGE,
-        DIALOGUE_COMPLETION,
-        MEANING_IN_CONTEXT,
-        SENTENCE_REWRITE,
+        definition_to_word,
+        context_to_word,
+        cloze_to_word,
+        word_to_definition,
+        word_to_usage,
+        dialogue_completion,
+        meaning_in_context,
+        sentence_rewrite,
       ]
-    formats: [SINGLE_CHOICE]
+    formats: [single_choice]
     questions_per_sense: 2
     max_sense_count: 10
   limits:
@@ -42,14 +42,14 @@ learning:
     max_activity_days: 366
     max_schedule_days: 30
   pair_levels:
-    DEFINITION_TO_WORD: { SINGLE_CHOICE: 1, SINGLE_WORD: 3 }
-    CONTEXT_TO_WORD: { SINGLE_CHOICE: 2, SINGLE_WORD: 3 }
-    CLOZE_TO_WORD: { SINGLE_CHOICE: 2, SINGLE_WORD: 3 }
-    WORD_TO_DEFINITION: { SINGLE_CHOICE: 1, SHORT_ANSWER: 4 }
-    WORD_TO_USAGE: { SINGLE_CHOICE: 2, SHORT_ANSWER: 4 }
-    DIALOGUE_COMPLETION: { SINGLE_CHOICE: 2 }
-    MEANING_IN_CONTEXT: { SINGLE_CHOICE: 2 }
-    SENTENCE_REWRITE: { SINGLE_CHOICE: 2, SHORT_ANSWER: 5 }
+    definition_to_word: { single_choice: 1, single_word: 3 }
+    context_to_word: { single_choice: 2, single_word: 3 }
+    cloze_to_word: { single_choice: 2, single_word: 3 }
+    word_to_definition: { single_choice: 1, short_answer: 4 }
+    word_to_usage: { single_choice: 2, short_answer: 4 }
+    dialogue_completion: { single_choice: 2 }
+    meaning_in_context: { single_choice: 2 }
+    sentence_rewrite: { single_choice: 2, short_answer: 5 }
   mastery:
     initial_elo: 600
     k_elo: 32
@@ -108,7 +108,7 @@ models:
     cached_read_units_per_token: "0.075"
     cache_write_units_per_token: "0.0416666666666667"
 providers:
-  lexi:
+  vocabulary:
     model: openai/gpt-6.1-sol
     timeout_seconds: 120
     max_completion_tokens: 16384
@@ -117,9 +117,6 @@ providers:
     reasoning_effort: medium
     temperature: null
     decision_model: typesafe/jev-1.13
-    decision_fallback_model: openai/gpt-6-luna
-    decision_threshold: 0.8
-    decision_mode: LLM_FALLBACK
 library:
   max_depth: 20
   page_size: 50
@@ -133,8 +130,6 @@ library:
   scope_timeout_seconds: 5
 cache:
   actor_ttl_seconds: 60
-  max_entries: 1000
-  max_value_bytes: 65536
 projections:
   max_page_size: 100
   max_summary_memberships: 200000

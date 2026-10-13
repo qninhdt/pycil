@@ -4,11 +4,11 @@ import { api } from './helpers/api'
 import type { StudySummary } from '../../src/lib/home-api'
 
 test('flashcards traverse native pagination, keep account-scoped position and never submit reviews', async ({ page, profile, nodes }) => {
-  const deck = await nodes.create({ type: 'DECK', sense_ids: Array.from({ length: 101 }, (_, n) => n + 100) })
+  const deck = await nodes.create({ type: 'deck', sense_ids: Array.from({ length: 101 }, (_, n) => n + 100) })
   const before = (await api<StudySummary>(page, `study/progress?node_id=${deck.id}`)).body
   const writes: string[] = []
   page.on('request', request => { if (request.url().includes('/study:grade') || request.url().includes('/study:submitResults')) writes.push(request.url()) })
-  await page.goto(`/focus/flashcards?node=${deck.id}`)
+  await page.goto(`/app/flashcards?node=${deck.id}`)
   await expect(page.getByText('1 / 101', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Previous flashcard' })).toBeDisabled()
   await page.keyboard.press('ArrowRight')
@@ -23,17 +23,17 @@ test('flashcards traverse native pagination, keep account-scoped position and ne
   const after = (await api<StudySummary>(page, `study/progress?node_id=${deck.id}`)).body
   expect(after).toEqual({ ...before, as_of: expect.any(String) })
   expect(writes).toEqual([])
-  const empty = await nodes.create({ type: 'DECK' })
-  await page.goto(`/focus/flashcards?node=${empty.id}`)
+  const empty = await nodes.create({ type: 'deck' })
+  await page.goto(`/app/flashcards?node=${empty.id}`)
   await expect(page.getByRole('heading', { name: 'No flashcards here yet.' })).toBeVisible()
 })
 
 test('native meanings persist and browsing flashcards does not change learning progress', async ({ page, nodes }) => {
-  const deck = await nodes.create({ type: 'DECK' })
+  const deck = await nodes.create({ type: 'deck' })
   await page.goto(`/app/personal/${deck.id}/words`)
   await page.getByRole('button', { name: 'Add words', exact: true }).click()
   const picker = page.getByRole('dialog', { name: 'Add words to deck' })
-  await picker.getByRole('searchbox', { name: 'Search words' }).fill(process.env.E2E_WORD_QUERY || 'run')
+  await picker.getByRole('searchbox', { name: 'Search words' }).fill(process.env.E2E_WORD_QUERY || 'bank')
   await expect(picker.getByRole('checkbox').first()).toBeVisible()
   await picker.getByRole('checkbox').first().check()
   const saved = page.waitForResponse(response => response.url().endsWith(`/nodes/${deck.id}:modifySenses`) && response.request().method() === 'POST')
@@ -47,7 +47,7 @@ test('native meanings persist and browsing flashcards does not change learning p
   await expect(page.getByRole('button', { name: /^View .+:/ })).toHaveCount(1)
   const before = await api<StudySummary>(page, `study/progress?node_id=${deck.id}`)
   expect(before.status).toBe(200)
-  await page.goto(`/focus/flashcards?node=${deck.id}`)
+  await page.goto(`/app/flashcards?node=${deck.id}`)
   await page.getByRole('button', { name: /^Reveal meaning of / }).click()
   await expect(page.getByRole('button', { name: /^Flip back to word / })).toBeVisible()
   await page.reload()

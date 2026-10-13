@@ -1,16 +1,21 @@
 import { randomUUID } from 'node:crypto'
 import { api } from './helpers/api'
+import { signIn } from './helpers/auth'
 
 import { expect,test } from './fixtures'
 
-test('guest search/detail uses native markup, has honest misses and keeps private context unavailable', async ({ page }) => {
+test('public dictionary data remains readable to guests while private context and workspace UI require sign-in', async ({ page }) => {
+  await page.goto('/')
+  expect((await api(page, 'words/1', 'GET', undefined, false)).status).toBe(200)
+  expect((await api(page, 'me/words/1', 'GET', undefined, false)).status).toBe(401)
+  await page.goto('/app/dictionary?q=bank')
+  await expect(page.getByRole('heading', { name: 'Sign in to Pycil' })).toBeVisible()
+  await signIn(page)
   await page.goto('/app/dictionary?q=bank')
   await page.getByRole('button', { name: 'bank Ready', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'bank', exact: true })).toBeVisible()
   await expect(page.getByText('I visited the bank.', { exact: true }).first()).toBeVisible()
   expect(await page.locator('t').count()).toBe(0)
-  expect((await api(page, 'words/1', 'GET', undefined, false)).status).toBe(200)
-  expect((await api(page, 'me/words/1', 'GET', undefined, false)).status).toBe(401)
   await page.getByRole('searchbox', { name: 'Search word or expression' }).fill('zzznoentry')
   await expect(page.getByText('No entries found. Try another spelling or expression.')).toBeVisible()
   await page.getByRole('button', { name: 'Clear search' }).click()
@@ -18,10 +23,11 @@ test('guest search/detail uses native markup, has honest misses and keeps privat
 })
 
 test('a delayed older native Dictionary query cannot replace the latest search', async ({ page }) => {
+  await signIn(page)
   let release!: () => void, reached!: () => void
   const gate = new Promise<void>(resolve => { release = resolve })
   const requested = new Promise<void>(resolve => { reached = resolve })
-  await page.route('**/api/v1/words:search*', async route => {
+  await page.route('**/v1/words:search*', async route => {
     if (new URL(route.request().url()).searchParams.get('query') === 'bank') { reached(); await gate }
     await route.continue()
   })
@@ -37,7 +43,7 @@ test('a delayed older native Dictionary query cannot replace the latest search',
 })
 
 test('picker keeps selected meanings across searches, sends batched native reads and preserves concurrent membership', async ({ page, nodes }) => {
-  const deck = await nodes.create({ type: 'DECK', sense_ids: [32] })
+  const deck = await nodes.create({ type: 'deck', sense_ids: [32] })
   await page.goto(`/app/personal/${deck.id}/words`)
   await page.getByRole('button', { name: 'Add words', exact: true }).click()
   const picker = page.getByRole('dialog', { name: 'Add words to deck' })
@@ -59,7 +65,7 @@ test('picker keeps selected meanings across searches, sends batched native reads
 })
 
 test('Dictionary creates a real deck in a nested destination with the selected sense', async ({ page, nodes }) => {
-  const folder = await nodes.create({ type: 'FOLDER' })
+  const folder = await nodes.create({ type: 'folder' })
   const name = 'dictionary-' + randomUUID()
   await page.goto('/app/dictionary?q=bank')
   await expect(page.locator('.shell-desktop').getByRole('button', { name: 'Open account menu' })).toContainText('Free plan')
@@ -70,7 +76,7 @@ test('Dictionary creates a real deck in a nested destination with the selected s
   await destination.getByRole('button', { name: folder.name, exact: true }).dblclick()
   await destination.getByRole('button', { name: `Create a deck in ${folder.name}`, exact: true }).click()
   await destination.getByRole('textbox', { name: 'New deck name' }).fill(name)
-  const created = page.waitForResponse(r => r.url().endsWith('/api/v1/nodes') && r.request().method() === 'POST')
+  const created = page.waitForResponse(r => r.url().endsWith('/v1/nodes') && r.request().method() === 'POST')
   await destination.getByRole('button', { name: 'Create and add', exact: true }).click()
   const response = await created
   expect(response.status()).toBe(201)
@@ -82,6 +88,7 @@ test('Dictionary creates a real deck in a nested destination with the selected s
 })
 
 test('Dictionary native aliases and inflections reveal POS tabs, lexical detail and related navigation', async ({ page }) => {
+  await signIn(page)
   await page.goto('/app/dictionary?q=bank-alt')
   await page.getByRole('button', { name: /bank.*Ready/ }).click()
   await expect(page.getByText(/Also spelled.*bank-alt/i)).toBeVisible()

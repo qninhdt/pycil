@@ -1,13 +1,15 @@
 """Bounded task inputs, independent of HTTP response shapes."""
 
 from datetime import date, datetime
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, Self
 from uuid import UUID
 
 from ag_ui.core import Message
 from pydantic import Field, StringConstraints, model_validator
 
-from pycil.library.schemas import SenseDelta, Strict
+from pycil.library.models import NodeSpace, NodeType
+from pycil.library.schemas import LibraryView, SenseDelta, SenseSort, Strict
+from pycil.study.enums import LearningState
 
 PositiveID = Annotated[int, Field(strict=True, gt=0)]
 Query = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
@@ -21,7 +23,7 @@ class CurrentView(Strict):
     word_id: PositiveID | None = None
 
     @model_validator(mode="after")
-    def one_target(self):
+    def one_target(self) -> Self:
         if self.node_id is not None and self.word_id is not None:
             raise ValueError("Supply a node or a Word, not both")
         return self
@@ -30,16 +32,16 @@ class CurrentView(Strict):
 class WordSearch(Strict):
     queries: Queries
     limit: Annotated[int, Field(strict=True, ge=1, le=10)] = 3
-    include: list[VocabularyInclude] = Field(default_factory=list)
+    include: list[VocabularyInclude] = Field(default_factory=list[VocabularyInclude])
 
 
 class VocabularyRead(Strict):
-    word_ids: list[PositiveID] = Field(default_factory=list, max_length=30)
-    sense_ids: list[PositiveID] = Field(default_factory=list, max_length=100)
-    include: list[VocabularyInclude] = Field(default_factory=list)
+    word_ids: list[PositiveID] = Field(default_factory=list[PositiveID], max_length=30)
+    sense_ids: list[PositiveID] = Field(default_factory=list[PositiveID], max_length=100)
+    include: list[VocabularyInclude] = Field(default_factory=list[VocabularyInclude])
 
     @model_validator(mode="after")
-    def nonempty(self):
+    def nonempty(self) -> Self:
         if not self.word_ids and not self.sense_ids:
             raise ValueError("Supply Word or sense IDs")
         return self
@@ -47,31 +49,40 @@ class VocabularyRead(Strict):
 
 class NodeSearch(Strict):
     queries: Queries
-    scope: Literal["LIBRARY", "PUBLISHED"] = "LIBRARY"
+    scope: Literal[NodeSpace.LIBRARY, NodeSpace.PUBLISHED] = NodeSpace.LIBRARY
     node_id: UUID | None = None
-    type: Literal["DECK", "FOLDER", "REFERENCE"] | None = None
+    type: Literal[NodeType.DECK, NodeType.FOLDER, NodeType.REFERENCE] | None = None
     limit: Annotated[int, Field(strict=True, ge=1, le=10)] = 3
 
     @model_validator(mode="after")
     def scope_shape(self):
-        if self.scope == "PUBLISHED" and self.node_id is not None:
+        if self.scope == NodeSpace.PUBLISHED and self.node_id is not None:
             raise ValueError("Use LIBRARY for a specific readable node")
         return self
 
 
 class LibraryRead(Strict):
     node_id: UUID | None = None
-    view: Literal["CONTENT", "STRUCTURE"] = "CONTENT"
+    view: Literal[LibraryView.CONTENT, LibraryView.STRUCTURE] = LibraryView.CONTENT
     query: Query | None = None
-    state: Literal["ALL", "NEW", "DUE", "NOT_YET_DUE"] = "ALL"
-    sort: Literal["SENSE_ID_ASC", "LEMMA_ASC", "LAST_REVIEWED_DESC", "MASTERY_ASC"] = "SENSE_ID_ASC"
+    state: Literal[
+        LearningState.ALL, LearningState.NEW, LearningState.DUE, LearningState.NOT_YET_DUE
+    ] = LearningState.ALL
+    sort: Literal[
+        SenseSort.SENSE_ID_ASC,
+        SenseSort.LEMMA_ASC,
+        SenseSort.LAST_REVIEWED_DESC,
+        SenseSort.MASTERY_ASC,
+    ] = SenseSort.SENSE_ID_ASC
     limit: Annotated[int, Field(strict=True, ge=1, le=100)] = 20
     cursor: str | None = Field(default=None, max_length=2048)
 
     @model_validator(mode="after")
     def structure_filters(self):
-        if self.view == "STRUCTURE" and (
-            self.query is not None or self.state != "ALL" or self.sort != "SENSE_ID_ASC"
+        if self.view == LibraryView.STRUCTURE and (
+            self.query is not None
+            or self.state != LearningState.ALL
+            or self.sort != SenseSort.SENSE_ID_ASC
         ):
             raise ValueError("Content filters require CONTENT view")
         return self
@@ -82,11 +93,11 @@ class NodeUpdate(Strict):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=8000)
     clear_description: bool = False
-    add_sense_ids: list[PositiveID] = Field(default_factory=list, max_length=1000)
-    remove_sense_ids: list[PositiveID] = Field(default_factory=list, max_length=1000)
+    add_sense_ids: list[PositiveID] = Field(default_factory=list[PositiveID], max_length=1000)
+    remove_sense_ids: list[PositiveID] = Field(default_factory=list[PositiveID], max_length=1000)
 
     @model_validator(mode="after")
-    def update_shape(self):
+    def update_shape(self) -> Self:
         if self.name is not None and not self.name.strip():
             raise ValueError("name must not be blank")
         if self.clear_description and self.description is not None:
@@ -137,13 +148,15 @@ class DateWindow(Strict):
 
 
 class LearningOverview(Strict):
-    node_ids: list[UUID] = Field(default_factory=list, max_length=20)
-    include: list[Literal["activity", "schedule"]] = Field(default_factory=list)
+    node_ids: list[UUID] = Field(default_factory=list[UUID], max_length=20)
+    include: list[Literal["activity", "schedule"]] = Field(
+        default_factory=list[Literal["activity", "schedule"]]
+    )
     activity_window: DateWindow | None = None
     schedule_window: DateWindow | None = None
 
     @model_validator(mode="after")
-    def requested_windows(self):
+    def requested_windows(self) -> Self:
         if self.activity_window is not None and "activity" not in self.include:
             raise ValueError("Activity window requires activity")
         if self.schedule_window is not None and "schedule" not in self.include:

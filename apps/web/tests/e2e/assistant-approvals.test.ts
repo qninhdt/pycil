@@ -24,7 +24,7 @@ test('Assistant auto-approval setting persists; a rejected write keeps the saved
     await expect(page.getByRole('complementary', { name: 'PycilAI', exact: true })).toBeVisible()
     await page.getByRole('button', { name: 'AI settings' }).click()
     await expect(toggle).toBeChecked()
-    await page.route('**/api/v1/me/settings', route => route.abort('connectionfailed'), { times: 1 })
+    await page.route('**/v1/me/settings', route => route.abort('connectionfailed'), { times: 1 })
     await toggle.click()
     await expect(toggle).toBeChecked()
     expect((await api<AccountProfile>(page, 'me')).body.settings.assistant.auto_approve).toBe(true)

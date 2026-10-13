@@ -20,7 +20,7 @@ export function LibraryHeader({ node, profile, editable }: { node: LibraryDetail
   const t = useTranslations('library')
   const router = useRouter()
   const { services, scope } = useServices()
-  const published = node.space === 'PUBLISHED'
+  const published = node.space === 'published'
   const mine = node.owner_id === profile?.id
   const authorQuery = useQuery({
     queryKey: [services.mode, scope, 'public-author', node.owner_id],
@@ -49,13 +49,13 @@ export function LibraryHeader({ node, profile, editable }: { node: LibraryDetail
       </BreadcrumbList></Breadcrumb>
       <div className="flex items-center gap-3 flex-wrap">
         <h1 className="text-[clamp(1.75rem,2.4vw,3rem)] font-extrabold leading-[1.15] tracking-[-.03em] max-[767px]:text-2xl max-[767px]:leading-tight overflow-wrap-anywhere text-balance">{title}<span className="text-art-red" aria-hidden="true">.</span></h1>
-        {node.space !== 'LIBRARY' && <LibraryNodeActions node={node} space={node.space}
+        {node.space !== 'library' && <LibraryNodeActions node={node} space={node.space}
           allowEdit={editable} onCopyLink={() => { void copyLink() }} onDeleted={editable ? () => router.push(parents.at(-1) ? published ? publishedHref(node.owner_id, parents.at(-1)!.id) : libraryHref(parents.at(-1)!.id) : rootHref) : undefined} className="relative top-auto right-auto" />}
       </div>
       {node.description && <p className="text-muted-foreground leading-relaxed text-sm max-w-[58ch] mt-1">{node.description}</p>}
-      <div className={`${node.role !== 'NORMAL' ? 'hidden' : 'flex'} flex-wrap items-center gap-3 mt-2 [&_a]:inline-flex [&_a]:items-center [&_a]:gap-1.5 [&_a]:text-xs [&_a]:underline [&_a]:underline-offset-4 [&_a_svg]:size-3.5`}><Badge variant="outline">{node.space === 'PUBLISHED' ? <Globe aria-hidden="true" /> : <Lock aria-hidden="true" />}{node.space === 'PUBLISHED' ? t('published') : t('personal')}</Badge>
-        {node.type === 'REFERENCE' && <Badge variant="secondary">{t('reference')}</Badge>}
-        {node.role === 'NORMAL' && <LibraryAuthor ownerId={node.owner_id} />}
+      <div className={`${node.role !== 'normal' ? 'hidden' : 'flex'} flex-wrap items-center gap-3 mt-2 [&_a]:inline-flex [&_a]:items-center [&_a]:gap-1.5 [&_a]:text-xs [&_a]:underline [&_a]:underline-offset-4 [&_a_svg]:size-3.5`}><Badge variant="outline">{node.space === 'published' ? <Globe aria-hidden="true" /> : <Lock aria-hidden="true" />}{node.space === 'published' ? t('published') : t('personal')}</Badge>
+        {node.type === 'reference' && <Badge variant="secondary">{t('reference')}</Badge>}
+        {node.role === 'normal' && <LibraryAuthor ownerId={node.owner_id} />}
         {node.target && <Link href={nodeHref(node.target)}>{t('openSource')}<ArrowUpLeft aria-hidden="true" /></Link>}
       </div>
     </div>

@@ -1,15 +1,17 @@
 """Physical tree writes, called inside the owner's serialized transaction."""
 
 from datetime import UTC, datetime
-from uuid import uuid7
+from uuid import UUID, uuid7
 
 from sqlalchemy import delete, insert, literal, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql import Select
 
-from pycil.database import transaction_lock
+from pycil.infrastructure.database import transaction_lock
 from pycil.library.models import Node, NodePath, NodeRole, NodeSpace, NodeType
 
 
-async def roots(session, owner_id):
+async def roots(session: AsyncSession, owner_id: UUID) -> dict[NodeRole, Node]:
     return {
         node.role: node
         for node in (
@@ -20,7 +22,7 @@ async def roots(session, owner_id):
     }
 
 
-async def provision_library(session, owner_id):
+async def provision_library(session: AsyncSession, owner_id: UUID) -> dict[NodeRole, Node]:
     """No commit: identity and all three roots are provisioned atomically."""
     await transaction_lock(session, f"library:{owner_id}")
     existing = await roots(session, owner_id)
@@ -62,7 +64,7 @@ async def provision_library(session, owner_id):
     return await roots(session, owner_id)
 
 
-async def add_paths(session, node):
+async def add_paths(session: AsyncSession, node: Node) -> None:
     session.add(NodePath(ancestor_id=node.id, descendant_id=node.id, depth=0))
     await session.flush()
     if node.parent_id is not None:
@@ -76,11 +78,11 @@ async def add_paths(session, node):
         )
 
 
-def subtree(node_id):
+def subtree(node_id: UUID) -> Select[UUID]:
     return select(NodePath.descendant_id).where(NodePath.ancestor_id == node_id)
 
 
-async def move_paths(session, node, parent):
+async def move_paths(session: AsyncSession, node: Node, parent: Node) -> None:
     descendants = subtree(node.id)
     await session.execute(
         delete(NodePath)
@@ -107,7 +109,7 @@ async def move_paths(session, node, parent):
     await session.flush()
 
 
-async def delete_subtree(session, node):
+async def delete_subtree(session: AsyncSession, node: Node) -> None:
     # Materialize bounded owned IDs before deleting the closure that selects them.
     identifiers = list((await session.scalars(subtree(node.id))).all())
     now = datetime.now(UTC)

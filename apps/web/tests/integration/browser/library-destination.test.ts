@@ -11,14 +11,14 @@ async function openPicker(page: Page) {
   page.on('console', message => { if (message.type() === 'error') messages.push(message.text()) })
   page.on('pageerror', error => messages.push(error.message))
   const nodes = {
-    library: { id: 'library', name: 'My Library', type: 'FOLDER', parent: null, space: 'LIBRARY' },
-    personal: { id: 'personal', name: 'Personal', type: 'FOLDER', parent: 'library', space: 'PERSONAL' },
-    published: { id: 'published', name: 'Published', type: 'FOLDER', parent: 'library', space: 'PUBLISHED' },
-    reference: { id: 'reference', name: 'hello', type: 'REFERENCE', parent: 'personal', space: 'PERSONAL', reference_id: 'hello' },
-    foreignReference: { id: 'foreignReference', name: 'Saved foreign deck', type: 'REFERENCE', parent: 'personal', space: 'PERSONAL', reference_id: 'foreign' },
-    nested: { id: 'nested', name: 'Nested folder', type: 'FOLDER', parent: 'published', space: 'PUBLISHED' },
-    hello: { id: 'hello', name: 'hello', type: 'DECK', parent: 'nested', space: 'PUBLISHED' },
-    foreign: { id: 'foreign', name: 'Foreign deck', type: 'DECK', parent: null, space: 'PUBLISHED', owner_id: 'other-account' },
+    library: { id: 'library', name: 'My Library', type: 'folder', parent: null, space: 'library' },
+    personal: { id: 'personal', name: 'Personal', type: 'folder', parent: 'library', space: 'personal' },
+    published: { id: 'published', name: 'Published', type: 'folder', parent: 'library', space: 'published' },
+    reference: { id: 'reference', name: 'hello', type: 'reference', parent: 'personal', space: 'personal', reference_id: 'hello' },
+    foreignReference: { id: 'foreignReference', name: 'Saved foreign deck', type: 'reference', parent: 'personal', space: 'personal', reference_id: 'foreign' },
+    nested: { id: 'nested', name: 'Nested folder', type: 'folder', parent: 'published', space: 'published' },
+    hello: { id: 'hello', name: 'hello', type: 'deck', parent: 'nested', space: 'published' },
+    foreign: { id: 'foreign', name: 'Foreign deck', type: 'deck', parent: null, space: 'published', owner_id: 'other-account' },
   } satisfies Record<string, { id: string; name: string; type: string; parent: string | null; space: string; reference_id?: string; owner_id?: string }>
   const entries: Record<string, typeof nodes[keyof typeof nodes] & { owner_id?: string; reference_id?: string }> = nodes
   const metadata = (id: string) => {
@@ -26,11 +26,11 @@ async function openPicker(page: Page) {
     for (let current: typeof node | undefined = node; current; current = current.parent ? entries[current.parent] : undefined) {
       breadcrumbs.unshift({ id: current.id, name: current.name })
     }
-    return { ...node, owner_id: node.owner_id ?? 'test-account', description: null, role: 'NORMAL', breadcrumbs,
+    return { ...node, owner_id: node.owner_id ?? 'test-account', description: null, role: 'normal', breadcrumbs,
       created_at: '2026-10-12T00:00:00Z', updated_at: '2026-10-12T00:00:00Z', reference_id: node.reference_id ?? null,
-      reference_available: node.type === 'REFERENCE' ? true : null }
+      reference_available: node.type === 'reference' ? true : null }
   }
-  await page.route('**/api/v1/**', route => {
+  await page.route('**/*v1/**', route => {
     const url = new URL(route.request().url())
     expect(route.request().headers().authorization).toBe('Bearer test-only-bearer')
     if (url.pathname.endsWith(':modifySenses')) {
@@ -38,12 +38,12 @@ async function openPicker(page: Page) {
       expect(route.request().postDataJSON()).toEqual({ add: [49], remove: [] })
       return route.fulfill({ json: { ok: true } })
     }
-    if (url.pathname === '/api/v1/nodes' || url.pathname.endsWith(':search')) {
+    if (url.pathname.endsWith('/nodes') || url.pathname.endsWith(':search')) {
       const children = url.pathname.endsWith(':search') ? [entries.nested] : Object.values(entries).filter(node => node.parent === url.searchParams.get('parent_id'))
       return route.fulfill({ json: { nodes: children.map(node => ({ ...metadata(node.id), summary: null,
-        target_type: node.type === 'REFERENCE' ? 'DECK' : null })), next_cursor: null } })
+        target_type: node.type === 'reference' ? 'deck' : null })), next_cursor: null } })
     }
-    if (url.pathname === '/api/v1/study/progress') return route.fulfill({ json: {
+    if (url.pathname.endsWith('/study/progress')) return route.fulfill({ json: {
       node_id: url.searchParams.get('node_id'), as_of: '2026-10-12T00:00:00Z', total: 0, new: 0,
       studied: 0, due: 0, not_due: 0, reachable_decks: 0, last_studied_at: null,
     } })
@@ -79,7 +79,7 @@ test('an owned deck reference adds the sense to its canonical deck ID', async ({
   await expect(picker.getByText('Selected: hello', { exact: true })).toBeVisible()
   await picker.getByRole('button', { name: 'Add to deck', exact: true }).click()
   await expect(page.locator('output')).toHaveText('hello')
-  expect(saved).toEqual(['/api/v1/nodes/hello:modifySenses'])
+  expect(saved[0].endsWith('/nodes/hello:modifySenses')).toBe(true)
 })
 
 test('a saved foreign deck is readable but cannot become an editing destination', async ({ page }) => {

@@ -12,7 +12,7 @@ test('public profiles use /u and expose only published material', async ({ page 
   await expect(page.getByText('Current streak')).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Edit profile' })).toHaveCount(0)
   await page.getByRole('link', { name: /Travel essentials/ }).click()
-  await expect(page).toHaveURL(/\/app\/u\/preview-sam\/published\/travel-source$/)
+  await expect(page).toHaveURL(/\/u\/sam\/travel-source$/)
   await expect(page.getByRole('heading', { name: 'Travel essentials' })).toBeVisible()
   await expect(page.getByText('Due', { exact: true })).toHaveCount(0)
 })
@@ -49,8 +49,8 @@ test('settings show all three response formats and persist supported choices', a
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible()
   await page.getByRole('button', { name: 'Learning' }).click()
   expect(await page.locator('[data-learning-icon]').evaluateAll(nodes => nodes.map(node => node.getAttribute('data-learning-icon')))).toEqual([
-    'DEFINITION_TO_WORD', 'WORD_TO_DEFINITION', 'CONTEXT_TO_WORD', 'CLOZE_TO_WORD', 'DIALOGUE_COMPLETION', 'WORD_TO_USAGE', 'MEANING_IN_CONTEXT',
-    'SINGLE_CHOICE', 'SINGLE_WORD', 'SHORT_ANSWER',
+    'definition_to_word', 'word_to_definition', 'context_to_word', 'cloze_to_word', 'dialogue_completion', 'word_to_usage', 'meaning_in_context',
+    'single_choice', 'single_word', 'short_answer',
   ])
   await page.evaluate(() => document.documentElement.classList.add('dark'))
   await page.evaluate(() => document.documentElement.classList.remove('dark'))
@@ -75,8 +75,8 @@ test('settings show all three response formats and persist supported choices', a
 test('HTTP settings keep the draft after a rejected save and send only the changed native fields', async ({ page }) => {
   const bundle = await buildFixture('account', { '@/components/application/providers': accountPlatform, 'next/navigation': navigationPlatform })
   const patches: unknown[] = []
-  await page.route('**/api/v1/**', route => {
-    expect(new URL(route.request().url()).pathname).toBe('/api/v1/me/settings')
+  await page.route('**/*v1/**', route => {
+    expect(new URL(route.request().url()).pathname.endsWith('/me/settings')).toBe(true)
     expect(route.request().method()).toBe('PATCH')
     expect(route.request().headers().authorization).toBe('Bearer test-only-bearer')
     patches.push(route.request().postDataJSON())

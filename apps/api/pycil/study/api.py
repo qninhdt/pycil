@@ -1,26 +1,23 @@
-from dataclasses import asdict
 from datetime import date
 from typing import Annotated
 from uuid import UUID
 
+import httpx
 from fastapi import APIRouter, Header, Request
-from lexi_ai import ResponseFormat
-from lexi_ai.errors import (
-    LexiconError,
-    QuestionArtifactNotFoundError,
-    UnsupportedQuestionFormatError,
-)
 from openai import APIError
 from sqlalchemy import select
-from typesafe_sdk import TypeSafeAPIError
 
 from pycil.account.auth import Actor, Viewer
 from pycil.account.models import User
 from pycil.account.plans import Feature
-from pycil.dependencies import Dictionary, Product, Session
-from pycil.http import Problem
-from pycil.logging import get_logger
-from pycil.pagination import strict_query
+from pycil.app.dependencies import Product, Runtime, Session
+from pycil.app.http import Problem
+from pycil.app.pagination import strict_query
+from pycil.infrastructure.observability import get_logger
+from pycil.infrastructure.retry import ProviderOutputError
+from pycil.study.enums import ResponseFormat
+from pycil.study.errors import QuestionArtifactNotFoundError, UnsupportedQuestionFormatError
+from pycil.study.grading import grade_answer
 from pycil.study.preparation import prepare
 from pycil.study.progress import activity, progress, schedule, summaries
 from pycil.study.reviews import review
@@ -36,6 +33,7 @@ from pycil.study.schemas import (
     Summary,
     SummaryBatch,
 )
+from pycil.vocabulary.errors import VocabularyError
 
 logger = get_logger(__name__)
 
@@ -44,11 +42,13 @@ router = APIRouter(prefix="/v1/study", tags=["study"])
 
 @router.post(":prepare", response_model=Preparation)
 async def preparation(
-    data: Prepare, user: Actor, session: Session, config: Product, lexicon: Dictionary
+    data: Prepare, user: Actor, session: Session, config: Product, resources: Runtime
 ):
     return await prepare(
         session,
-        lexicon,
+        resources.sessions,
+        resources.structured_llm,
+        resources.artifact_cache,
         user,
         data.node_id,
         config,
@@ -59,7 +59,7 @@ async def preparation(
 
 
 @router.post(":grade", response_model=GradeResult)
-async def grade(data: Grade, user: Actor, config: Product, lexicon: Dictionary, session: Session):
+async def grade(data: Grade, user: Actor, config: Product, resources: Runtime, session: Session):
     async with session.begin():
         plan = await session.scalar(select(User.plan).where(User.id == user.id))
     if plan is None:
@@ -73,24 +73,30 @@ async def grade(data: Grade, user: Actor, config: Product, lexicon: Dictionary, 
     ):
         raise Problem(422, "invalid_grade_request")
     try:
-        diagnostics = await lexicon.grade_answer(
+        diagnostics = await grade_answer(
+            resources.sessions,
+            resources.search,
+            resources.decision_llm,
+            resources.artifact_cache,
             data.question_artifact_id,
             data.question_type,
             data.format,
             data.answer,
-            mode=config.providers.lexi.decision_mode,
+            policy=config.providers.vocabulary,
             allowed_pairs={
                 (kind, fmt)
                 for kind, formats in config.learning.pair_levels.items()
                 for fmt in formats
             },
         )
-        return data.model_dump(exclude={"answer"}) | {"diagnostics": asdict(diagnostics)}
+        return data.model_dump(exclude={"answer"}) | {
+            "diagnostics": diagnostics.model_dump(mode="json")
+        }
     except QuestionArtifactNotFoundError:
         raise Problem(404, "question_artifact_not_found") from None
     except UnsupportedQuestionFormatError:
         raise Problem(422, "unsupported_question_format") from None
-    except LexiconError, APIError, TypeSafeAPIError:
+    except VocabularyError, ProviderOutputError, APIError, httpx.HTTPError:
         logger.error(
             "study_grading_failed",
             user_id=str(user.id),

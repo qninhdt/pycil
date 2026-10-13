@@ -1,5 +1,6 @@
 import { MessageSchema, type Message, type RunAgentInput } from '@ag-ui/core'
 import { HomeApiError, homeRequest, homeToken } from './home-api'
+import { getApiBaseUrl } from './services/config'
 
 export type ReasoningEffort = 'low' | 'medium' | 'high'
 export const REASONING_EFFORTS: readonly ReasoningEffort[] = ['low', 'medium', 'high'] as const
@@ -106,7 +107,7 @@ export function createAssistantService(getToken: () => Promise<string | null>) {
     },
     details: (id: string, signal: AbortSignal) => request(`conversations/${encodeURIComponent(id)}`, parseConversationDetails, signal),
     run: async (input: RunAgentInput, signal: AbortSignal) => {
-      const response = await fetch('/api/v1/assistant:run', { method: 'POST', headers: { Authorization: `Bearer ${await homeToken(getToken, signal)}`, 'Content-Type': 'application/json', Accept: 'text/event-stream' }, body: JSON.stringify(input), signal })
+      const response = await fetch(`${getApiBaseUrl()}/assistant:run`, { method: 'POST', headers: { Authorization: `Bearer ${await homeToken(getToken, signal)}`, 'Content-Type': 'application/json', Accept: 'text/event-stream' }, body: JSON.stringify(input), signal })
       if (!response.ok) {
         const body = await response.json().catch(() => null)
         throw new AssistantError(response.status, typeof body?.error === 'string' ? body.error : 'request_failed')

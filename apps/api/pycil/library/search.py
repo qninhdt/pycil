@@ -1,37 +1,40 @@
 """Live-authorized PostgreSQL FTS and public catalog, with bounded optional cards."""
 
+from typing import Any, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Query, Request
 from sqlalchemy import and_, func, or_, select, tuple_
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from pycil.account.auth import Viewer
 from pycil.account.lifecycle import row_data
-from pycil.dependencies import Product, Session
-from pycil.http import Problem
+from pycil.app.config import ProductConfig
+from pycil.app.dependencies import Product, Session
+from pycil.app.http import Problem
+from pycil.app.pagination import decode, encode, includes, page_limit, strict_query
 from pycil.library.access import reference_visible, visible
 from pycil.library.models import Node, NodeRole, NodeSpace, NodeType
 from pycil.library.schemas import NodePage
 from pycil.library.scope import ScopeBudget, bounded, resolve_scopes
-from pycil.pagination import decode, encode, includes, page_limit, strict_query
 
 router = APIRouter(prefix="/v1/discovery", tags=["discovery"])
 
 
 async def search_nodes(
-    session,
-    viewer_id,
-    config,
+    session: AsyncSession,
+    viewer_id: UUID | None,
+    config: ProductConfig,
     *,
-    node_id=None,
-    q=None,
-    type=None,
-    owner_id=None,
-    cursor=None,
-    limit=None,
-    include=None,
-    budget=None,
-):
+    node_id: UUID | None = None,
+    q: str | None = None,
+    type: NodeType | None = None,
+    owner_id: UUID | None = None,
+    cursor: str | None = None,
+    limit: int | None = None,
+    include: str | None = None,
+    budget: ScopeBudget | None = None,
+) -> dict[str, Any]:
     limit = page_limit(limit, config)
     enrichment = includes(include, {"summary"})
     if q is not None:
@@ -90,7 +93,7 @@ async def search_nodes(
             ordering = [rank.desc(), Node.id]
         else:
             ordering = [Node.created_at.desc(), Node.id.desc()]
-        rows = []
+        rows: list[tuple[Node, Any]] = []
         batch_size = max(50, 2 * (limit + 1))
         candidate_seek = seek
         while len(rows) <= limit:
@@ -142,9 +145,11 @@ async def search_nodes(
             last_id, last_rank = candidates[-1]
             candidate_seek = (last_rank, last_id)
         page = rows[:limit]
-        items = [row_data(row[0]) for row in page]
-        parents = {item["parent_id"] for item in items if item["parent_id"] is not None}
-        readable_parents = (
+        items: list[dict[str, Any]] = [row_data(row[0]) for row in page]
+        parents: set[UUID] = {
+            cast(UUID, item["parent_id"]) for item in items if item.get("parent_id") is not None
+        }
+        readable_parents: set[UUID] = (
             set(
                 (
                     await session.scalars(
@@ -188,7 +193,7 @@ async def discovery(
     cursor: str | None = Query(default=None, max_length=2048),
     limit: int | None = Query(default=None, ge=1, le=100),
     include: str | None = None,
-):
+) -> dict[str, Any]:
     strict_query(request, {"q", "type", "owner_id", "cursor", "limit", "include"})
     return await search_nodes(
         session,

@@ -1,0 +1,22 @@
+## Word to Usage
+
+### Question Construction
+
+- The application constructs the fixed runtime prompt from the exact target Word and definition. Do not generate or store this prompt.
+- Generate `correct_count` original, natural sentences in `corrects`, each demonstrating appropriate usage of the target expression in the selected Sense.
+- Ensure the correct sentence respects the target's semantic scope, grammatical behavior, argument structure, collocations, register, and conventional usage.
+- Use a context that demonstrates how the expression functions in actual communication rather than merely repeating or lightly modifying a supplied example.
+
+### Distractor Construction
+
+- Generate distractors as plausible usage sentences containing the same complete target expression or its licensed inflected forms, not synonyms, definitions, or unrelated lexical items.
+- Construct distractors around meaningful errors in either semantic/contextual application or grammatical/collocational usage.
+- For semantic misuse, preserve grammatical correctness while applying the target to an inappropriate referent, situation, intended meaning, or communicative context.
+- A distractor may use another established Sense of the target correctly, provided that usage is clearly incompatible with the displayed meaning.
+{% include "study/artifacts/prompts/types/usage-rules.jinja" %}
+
+
+### Output Contract
+
+- Return exactly one artifact with `corrects: [sentences]` and `distractors: [sentences]`. Request counts specify NEW entries, not a replacement bank or a number of questions.
+- Return `distractor_count` wrong sentences. A zero count means an empty increment for that array. The application selects one correct sentence and distractors for each runtime question.

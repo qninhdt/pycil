@@ -49,12 +49,14 @@ jobs:
       CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
       CLERK_ISSUER: ${{ secrets.CLERK_ISSUER }}
       CLERK_JWKS_URL: ${{ secrets.CLERK_JWKS_URL }}
-      INFERENCE_API_KEY: ${{ secrets.INFERENCE_API_KEY }}
-      INFERENCE_BASE_URL: ${{ secrets.INFERENCE_BASE_URL }}
-      LEXI_DECISION_API_KEY: ${{ secrets.LEXI_DECISION_API_KEY }}
-      LEXI_DECISION_BASE_URL: ${{ secrets.LEXI_DECISION_BASE_URL }}
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+      LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
+      DECISION_API_KEY: ${{ secrets.DECISION_API_KEY }}
+      DECISION_BASE_URL: ${{ secrets.DECISION_BASE_URL }}
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          lfs: true
       - uses: actions/setup-node@v7.1.0
         with:
           node-version: "24.21.0"
@@ -72,26 +74,6 @@ jobs:
 
   backend:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:18.6-alpine3.24
-        env:
-          POSTGRES_USER: test
-          POSTGRES_PASSWORD: test
-          POSTGRES_DB: rewrite_test
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U test -d rewrite_test"
-          --health-interval 5s --health-timeout 3s --health-retries 10
-      redis:
-        image: redis:8.10.2-alpine3.23
-        ports: ["6379:6379"]
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s --health-timeout 3s --health-retries 10
-    env:
-      TEST_DB_URL: postgresql+asyncpg://test:test@127.0.0.1:5432/rewrite_test
-      TEST_REDIS_URL: redis://127.0.0.1:6379/15
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: astral-sh/setup-uv@v10.2.0
@@ -99,17 +81,14 @@ jobs:
           version: "0.12.22"
           enable-cache: true
       - run: uv python install 3.14.8
-      - name: Verify packaged Lexi bytes
-        run: sha256sum --check SHA256SUMS
-        working-directory: vendor/lexi-ai
       - run: uv sync --locked
         working-directory: apps/api
-      - run: uv run --locked ruff check pycil tests migrations ../../scripts/test_api.py ../../scripts/export_openapi.py
+      - run: uv run --locked ruff check pycil tests migrations ../../scripts/export_openapi.py
         working-directory: apps/api
-      - run: uv run --locked ruff format --check pycil tests migrations ../../scripts/test_api.py ../../scripts/export_openapi.py
+      - run: uv run --locked ruff format --check pycil tests migrations ../../scripts/export_openapi.py
         working-directory: apps/api
       # Each test creates/drops only its own database; providers are deterministic.
-      # Reference fixtures are newly written native SQLite records, not evidence.
+      # Testcontainers owns the real PostgreSQL/Redis services.
       - run: uv run --locked pytest tests -q --tb=short
         working-directory: apps/api
 
@@ -125,10 +104,10 @@ jobs:
           CLERK_JWKS_URL: https://identity.invalid/jwks
           CLERK_ISSUER: https://identity.invalid
           CLERK_SECRET_KEY: test-only
-          INFERENCE_API_KEY: test-only
-          INFERENCE_BASE_URL: https://inference.invalid/v1
-          LEXI_DECISION_API_KEY: test-only
-          LEXI_DECISION_BASE_URL: https://decision.invalid
+          LLM_API_KEY: test-only
+          LLM_BASE_URL: https://inference.invalid/v1
+          DECISION_API_KEY: test-only
+          DECISION_BASE_URL: https://decision.invalid
         run: python scripts/compose.py --env-file /dev/null config -q
       - name: Validate Caddy routes
         run: >-

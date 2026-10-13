@@ -4,7 +4,7 @@ test('Words route supports filters, pagination and node actions without personal
   const external: string[] = []
   page.on('request', request => {
     const url = new URL(request.url())
-    if (url.pathname.startsWith('/api/v1/') || url.origin !== new URL(test.info().project.use.baseURL!).origin) external.push(request.url())
+    if (url.pathname.startsWith('/v1/') || url.origin !== new URL(test.info().project.use.baseURL!).origin) external.push(request.url())
   })
   await page.goto('/app/personal/everyday/words')
   await expect(page.getByRole('heading', { name: 'Everyday conversation', exact: true })).toBeVisible()

@@ -32,22 +32,24 @@ E2E_GREP='Practice 390px' pnpm test:e2e
 
 `playwright.config.ts` owns browser integration and E2E projects; `vitest.config.ts`
 owns unit and service/assets integration. Each file is collected exactly once.
-Integration uses owned port 3100. Managed E2E uses owned frontend 3200 and API 8100;
+Integration uses owned port 3100. Managed E2E uses frontend localhost:3200 and API 127.0.0.1:8100;
 occupied ports fail rather than reusing another server. User dev on 3000 and API on
 8000 remain separate. The runner uses a source snapshot for its production build.
 
 E2E requires development `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, `CLERK_ISSUER`
 and `CLERK_JWKS_URL`. It reads environment or root `.env`; the publishable key can
 also come from `apps/web/.env.local`. `E2E_CLERK_ENV_FILE` selects another runner-only
-file. Paid checks additionally require `INFERENCE_API_KEY`, `INFERENCE_BASE_URL`,
-`LEXI_DECISION_API_KEY`, and `LEXI_DECISION_BASE_URL`. Credentials never appear in
+file. Paid checks additionally require `LLM_API_KEY`, `LLM_BASE_URL`,
+`DECISION_API_KEY`, and `DECISION_BASE_URL`. Credentials never appear in
 browser fixtures, test source or reports. Google OAuth requires a dedicated test
 identity; TOTP reports an explicit skip if the development instance disables it.
 
-The existing `scripts/test_api.py` owns disposable stores. Backend test support owns
-lexical data, inference fixtures, provisioning and process cleanup; the system test
-is only the orchestration entry. Cleanup targets exact test users/nodes/processes and
-Docker project IDs. No application database or broad Redis flush is used.
+`tests/e2e/run.py` owns the PostgreSQL/Redis Testcontainers, temporary Clerk users,
+reference import, lexical fixtures, production build and process cleanup.
+`tests/e2e/support/` supplies fixture data and the controlled HTTP provider for
+ordinary E2E. Instructor, agent tools, grading and database writes run unchanged.
+Live E2E uses the configured external providers. Cleanup targets exact test users,
+processes and containers. No application database or broad Redis flush is used.
 
 CI runs unit/integration/build on fork PRs. Trusted changes also require real-stack
 E2E with development secrets; absence fails instead of silently passing. Manual

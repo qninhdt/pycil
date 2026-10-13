@@ -1,123 +1,81 @@
 # Architecture
 
-## Scope and shape
+Pycil is one private backend organized by business domain. The API process owns HTTP,
+process-local generation jobs and a Tantivy search projection. PostgreSQL stores all
+application and native checkpoint tables in `public`; Redis supplies bounded caching
+and coordination. The migration command is a separate finite process.
 
-Pycil is a modular Python backend, not a collection of independently deployed business
-microservices. Its single API process owns HTTP handling, generation tasks, and search, and uses
-PostgreSQL, and Redis:
+## Ownership
 
-```text
-HTTP client -> Caddy -> API
-                       |-- account identity and preferences
-                       |-- Library hierarchy and live scope reads
-                       |-- study preparation, grading, and reviews
-                       |-- dictionary reads and generation submission
-                       `-- assistant SSE and approved tools
+| Package | Owns |
+| --- | --- |
+| `account` | Identity mapping, preferences, profiles, plans, allowances and usage settlement. |
+| `vocabulary` | Words, senses, lexical content, immutable references, relations, translation, generation and search. |
+| `library` | Nodes, deck memberships, physical paths, publication and authorized scopes. |
+| `study` | Artifact banks, exercise generation, preparation, grading, reviews and personal progress. |
+| `themes` | Theme identity, descriptors, namespaces and lifecycle. |
+| `assistant` | Conversations, agent execution, tools, approvals, streaming and checkpoint usage. |
+| `app` | HTTP adapters, resource assembly, deployment/product configuration and response composition. |
+| `infrastructure` | PostgreSQL, Redis, identity/provider transports, prompt rendering and observations. |
 
-API background task -> Lexi word inventory + enrichment
+Theme descriptors belong to `themes`; themed lexical content belongs to `vocabulary`
+and themed exercises to `study`. Vocabulary does not call study services. There is no
+external vocabulary facade or duplicate ORM metadata. Models stay with their owning
+domain and share one application metadata registry.
 
-API          -> PostgreSQL: public | lexi | lexi_reference | checkpoints
-             -> Redis: bounded cache | conversation leases | start counters
-             -> configured inference / decision services
-API          -> Clerk identity verification
-```
+Routers parse contracts and call business functions. Assistant tools call those same
+functions, including live authorization and transaction rules. Resource ownership is
+explicit; business functions do not need a FastAPI request or application state.
 
-The migration process is separate and finite. It upgrades Lexi, Pycil, and native
-checkpoint storage and imports the required reference and bundled generated content before API startup.
-No business route creates schema.
+## Lifecycle
 
-## Module boundaries
+[The factory](../../apps/api/pycil/app/factory.py) constructs the application without
+opening stores, calling providers or changing schema. Lifespan loads policy/deployment
+configuration and enters [process resources](../../apps/api/pycil/app/resources.py).
 
-| Module | Owns | Delegates |
-| --- | --- | --- |
-| `account` | User mapping, JSON preferences, plan gates, anchored usage accounting | JWT key verification and missing-identity lookup to Clerk |
-| `library` | Nodes, memberships, physical closure, publication, authorized scopes | Lexical preview enrichment to Lexi; state lookup to study models |
-| `vocabulary` | Process-local singleflight generation and task status | Word content, lexical search, question banks and generation to Lexi |
-| `study` | Per-user scheduling state, current review receipts, selection and progress queries | Question retrieval/grading to Lexi; scheduling to native FSRS |
-| `assistant` | Conversation metadata, leases, input boundary, tool approval and metering | Agent execution/checkpoints to LangChain/LangGraph; content changes to shared services |
+Resources verify the application/native setup and required reference data, ping Redis,
+create scoped caching, open HTTP/provider clients and the native checkpoint pool, then
+build the Tantivy projection. An exit stack closes acquired resources after startup
+failure and shutdown; jobs close before the resources they use. Closed resources are
+removed from application state.
 
-HTTP routers are thin adapters, not a second implementation of business rules. Assistant
-tools call the same Library mutation/read functions as HTTP. Ownership and publication
-must therefore remain in the shared service rather than only at a route boundary.
+`/health` reports process liveness. `/ready` checks PostgreSQL, Redis and the published
+search snapshot within a bounded deadline; failures return a sanitized 503 response.
+Startup never runs migrations or downloads reference data.
 
-## Process lifecycle
+## Main flows
 
-`main.create_app()` is import-safe: constructing the application does not open a database,
-contact a provider, or migrate. The lifespan loads strict policy and deployment values
-and acquires resources through `dependencies.process_resources()`.
+- First authenticated access verifies identity and atomically provisions the account
+  and three library roots. Cached actor data is not an authorization grant.
+- Library writes take an owner transaction lock, check current paths/permissions and
+  quotas, and commit the operation atomically. Reference access is resolved live.
+- Preparation reads current preferences/plan, selects authorized senses in a consistent
+  SQL snapshot, retrieves or fills exercise banks, and builds public questions.
+- Grading reads lexical facts and returns diagnostics. Review submission owns progress,
+  scheduler updates, idempotency receipts and daily activity.
+- Generation performs inventory and enrichment, validates evidence, publishes content
+  atomically, then incrementally updates Tantivy before reporting `ready`. Database
+  content stays committed if its derived index publication fails.
+- Assistant turns use an owned conversation, renewable Redis lease, persisted approval
+  state, current allowance admission, graph execution/SSE and usage settlement.
+  Checkpoints are native library storage in `public`, separate from learning state.
 
-Initialization connects application SQLAlchemy sessions,
-verifies schema versions, required tables and the imported reference marker, pings Redis,
-creates a namespaced cache,
-opens an HTTP client and native checkpoint pool, and starts Lexi. Resources belong to
-one process and are released through an exit stack, including partial-startup failures.
-Shutdown removes them from application state so closed clients are not reused on restart.
+## Consistency and limits
 
-API requests receive an `AsyncSession`, product policy, and/or Lexicon through explicit
-dependencies. Closing a request session discards uncommitted transactions. Services
-use explicit transaction boundaries for writes. An SQL cancellation with PostgreSQL
-code `57014` becomes a retryable `query_timeout` response at the request dependency.
+Library writes serialize per owner; reviews serialize per learner; usage settlement
+serializes per execution key and user. These transactions are separate from checkpoint
+persistence and Redis leases. Admission is not a quota reservation.
 
-## Representative paths
+Generation jobs and search snapshots belong to one process. Restart loses unfinished
+jobs/status, while committed vocabulary and checkpoint data remain. Search builds once
+at startup and publishes one-word updates with a serialized native writer; concurrent
+readers may finish against their old immutable snapshot.
 
-### First authenticated access
+Provider attempts share bounded concurrency, explicit timeouts/retries, validated output
+schemas and normalized token measurements. Structured observations bind correlation
+context and record operation outcome, duration and sanitized error category. Actual
+OpenTelemetry and Langfuse setup remains deferred.
 
-JWT verification -> map Clerk subject -> verify a missing user with Clerk -> insert user
-and three system roots atomically -> return detached actor context -> optionally cache.
-Existing migrated accounts already have roots. User insertion handles concurrent first access.
-
-### Library mutations
-
-Actor -> owner-scoped transaction lock -> live authorization -> validate the requested
-metadata, membership delta or move -> commit that operation atomically. Membership
-changes preserve unrelated senses; moves preserve memberships.
-
-### Study preparation
-
-Actor -> current plan lookup -> effective preferences -> repeatable-read selection ->
-authorized scope expansion -> bounded SQL membership selection -> level-priority public pairs -> native artifact retrieval/refill -> runtime bundles. Preparation fills missing banks without writing personal progress or a backend session.
-
-### Generation
-
-Authenticated submission -> process-local singleflight -> native word publication ->
-incremental search update -> READY in-memory task status.
-There is one API process, no queue worker or automatic task recovery. A restart loses
-active tasks/status while retaining committed word/question data.
-
-### Assistant turn
-
-Owned conversation -> validated input -> renewable Redis lease -> persisted approval
-validation -> current allowance admission -> agent execution and SSE -> usage settlement
-and conversation timestamp update. Rejection resolves the pending tools without a new
-model invocation. Conversation checkpoints are distinct from learning sessions.
-
-## Concurrency and consistency boundaries
-
-- Library changes serialize per owner with transaction advisory locks; quotas are checked inside the lock.
-- Review batches lock the user's event key and sorted sense resources, committing
-  scheduler writes, immutable receipt and daily activity together.
-- Usage settlement serializes by execution key and user; admission is not a reservation.
-- Conversation leases coordinate across API processes and must not silently fail open.
-- Generation shares one API process and Lexicon; singleflight spans Word inventory and enrichment.
-- Lexi and checkpoint persistence use native connections and transactions; one application
-  transaction does not imply a global transaction across every resource.
-- Scope reference permissions are resolved live. There is no background permission fan-out.
-
-## Caches and work limits
-
-Detached actor values have bounded optional Redis caching. Cached values
-are not access grants. Scopes, preparation, and personal summaries read current data;
-there is no default personal-statistics cache or `library_senses` projection.
-
-Scope expansion limits metadata and raw membership work before sense deduplication,
-then keeps the unique sense relation in PostgreSQL. Statement/expansion deadlines are
-safety limits, not demonstrated response-time targets. Lexi search is a separate path:
-startup builds the full process-local Tantivy projection; queries read memory and
-publication updates individual words. Readers retain an immutable Tantivy snapshot.
-
-## Sources
-
-- [Application](../../apps/api/pycil/main.py), [resources](../../apps/api/pycil/dependencies.py), [database](../../apps/api/pycil/database.py)
-- [Generation tasks](../../apps/api/pycil/vocabulary/generation.py), [migration gate](../../apps/api/pycil/migrate.py)
-- [Compose](../../docker-compose.yml), [Caddy](../../Caddyfile)
-- Detailed transaction and failure contracts: [Library](modules/library.md), [Study](modules/study.md), [Assistant](modules/assistant.md)
+See [the redesign](../../redesign.md) for accepted constraints, [testing](testing.md)
+for current verification boundaries and [database setup](operations/migrations.md)
+for the explicit migration/import command.

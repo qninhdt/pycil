@@ -15,9 +15,9 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { LibraryDestinationDialog } from './library-destination-dialog'
 import { LibraryNodeForm } from './library-node-form'
 
-type Node = { id: string; name: string; description: string | null; type: 'FOLDER' | 'DECK' | 'REFERENCE'; owner_id?: string; reference_id?: string | null; target?: { id: string } | null }
+type Node = { id: string; name: string; description: string | null; type: 'folder' | 'deck' | 'reference'; owner_id?: string; reference_id?: string | null; target?: { id: string } | null }
 
-export function LibraryNodeActions({ node, space, parentId, onDeleted, onCopyLink, allowEdit = true, className }: { node: Node; space: 'PERSONAL' | 'PUBLISHED'; parentId?: string; onDeleted?: () => void; onCopyLink?: () => void; allowEdit?: boolean; className?: string }) {
+export function LibraryNodeActions({ node, space, parentId, onDeleted, onCopyLink, allowEdit = true, className }: { node: Node; space: 'personal' | 'published'; parentId?: string; onDeleted?: () => void; onCopyLink?: () => void; allowEdit?: boolean; className?: string }) {
   const t = useTranslations('library')
   const tCommon = useTranslations('common')
   const account = useAccount(), { services } = useServices(), queryClient = useQueryClient(), router = useRouter()
@@ -26,19 +26,19 @@ export function LibraryNodeActions({ node, space, parentId, onDeleted, onCopyLin
   const [busy, setBusy] = useState(false), [error, setError] = useState('')
   const profile = account.profile
   const canEdit = allowEdit && !!profile && node.owner_id === profile.id
-  const referenceId = node.type === 'REFERENCE' ? space === 'PUBLISHED' ? node.reference_id ?? node.target?.id : null : node.id
-  const canReference = !!profile && !!referenceId && (canEdit || space === 'PUBLISHED')
+  const referenceId = node.type === 'reference' ? space === 'published' ? node.reference_id ?? node.target?.id : null : node.id
+  const canReference = !!profile && !!referenceId && (canEdit || space === 'published')
   if (!canEdit && !onCopyLink && !canReference) return null
-  const kind = node.type === 'DECK' ? 'DECK' : 'FOLDER'
+  const kind = node.type === 'deck' ? 'deck' : 'folder'
   async function destination(id: string) {
     setBusy(true); setError('')
     try {
       if (action === 'move') await services.library.moveNode(node.id, id, new AbortController().signal)
-      else await services.library.copyNode(node.id, id, new AbortController().signal, space === 'PUBLISHED')
+      else await services.library.copyNode(node.id, id, new AbortController().signal, space === 'published')
       await queryClient.invalidateQueries({ queryKey: [services.mode] })
       toast.success(action === 'move' ? t('moved') : t('copied'))
       setAction(null)
-      if (action === 'move' && !parentId) router.push(space === 'PUBLISHED' ? publishedHref(profile!.id, id) : libraryHref(id))
+      if (action === 'move' && !parentId) router.push(space === 'published' ? publishedHref(profile!.id, id) : libraryHref(id))
     } catch (cause) { const message = cause instanceof Error ? cause.message : t('couldNotCompleteAction'); setError(message); throw cause }
     finally { setBusy(false) }
   }
@@ -47,7 +47,7 @@ export function LibraryNodeActions({ node, space, parentId, onDeleted, onCopyLin
     try {
       await services.library.deleteNode(node.id, new AbortController().signal)
       await queryClient.invalidateQueries({ queryKey: [services.mode] })
-      setAction(null); toast.success(kind === 'DECK' ? t('deckDeleted') : t('folderDeleted'))
+      setAction(null); toast.success(kind === 'deck' ? t('deckDeleted') : t('folderDeleted'))
       if (onDeleted) onDeleted()
       else if (parentId) router.refresh()
     } catch (cause) { setError(cause instanceof Error ? cause.message : t('couldNotDeleteItem')) }
@@ -74,22 +74,22 @@ export function LibraryNodeActions({ node, space, parentId, onDeleted, onCopyLin
         <DropdownMenuItem onSelect={() => { setError(''); setAction('copy') }}><Copy aria-hidden="true" />{t('copy')}</DropdownMenuItem></>}
         {canReference && <DropdownMenuItem onSelect={() => { setError(''); setAction('reference') }}><ArrowUpLeft aria-hidden="true" />{t('createReference')}</DropdownMenuItem>}
         {canEdit && <><DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={() => { setError(''); setRetainReference(false); setAction(space === 'PUBLISHED' ? 'unpublish' : 'publish') }}><Share2 aria-hidden="true" />{space === 'PUBLISHED' ? t('moveToPersonal') : t('publish')}</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => { setError(''); setRetainReference(false); setAction(space === 'published' ? 'unpublish' : 'publish') }}><Share2 aria-hidden="true" />{space === 'published' ? t('moveToPersonal') : t('publish')}</DropdownMenuItem>
         <DropdownMenuSeparator /><DropdownMenuItem variant="destructive" onSelect={() => { setError(''); setAction('delete') }}><Trash2 aria-hidden="true" />{tCommon('delete')}</DropdownMenuItem></>}
       </DropdownMenuContent></DropdownMenu>
     {action === 'edit' && profile && <LibraryNodeForm key={node.id} profile={profile} kind={kind} open onOpenChange={open => { if (!open) setAction(null) }} editing={node} />}
     {action === 'reference' && profile && referenceId && <LibraryNodeForm profile={profile} kind={kind} open destinationEnabled
       referenceTarget={{ id: referenceId, name: node.name, space }} onOpenChange={open => { if (!open) setAction(null) }}
       onCreated={() => { setAction(null); toast.success(t('referenceCreated')) }} />}
-    {(action === 'move' || action === 'copy') && profile && <LibraryDestinationDialog open onOpenChange={open => { if (!open) setAction(null) }} profile={profile} kind="FOLDER" action={action === 'move' ? t('moveHere') : t('copyHere')}
-      spaceOnly={space === 'PUBLISHED' ? 'published' : 'personal'} requirePublicationConfirmation={action === 'copy' && space === 'PUBLISHED'} excludedIds={new Set([node.id, ...(action === 'move' && parentId ? [parentId] : [])])} onConfirm={selected => destination(selected.id)} />}
+    {(action === 'move' || action === 'copy') && profile && <LibraryDestinationDialog open onOpenChange={open => { if (!open) setAction(null) }} profile={profile} kind="folder" action={action === 'move' ? t('moveHere') : t('copyHere')}
+      spaceOnly={space === 'published' ? 'published' : 'personal'} requirePublicationConfirmation={action === 'copy' && space === 'published'} excludedIds={new Set([node.id, ...(action === 'move' && parentId ? [parentId] : [])])} onConfirm={selected => destination(selected.id)} />}
     <AlertDialog open={action === 'publish' || action === 'unpublish'} onOpenChange={open => { if (!open && !busy) setAction(null) }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>{action === 'publish' ? t('publishPromptTitle', { name: node.name }) : t('unpublishPromptTitle', { name: node.name })}</AlertDialogTitle><AlertDialogDescription>{action === 'publish' ? t('publishPromptDesc') : t('unpublishPromptDesc')}</AlertDialogDescription></AlertDialogHeader>
       {action === 'publish' && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={retainReference} onChange={event => setRetainReference(event.target.checked)} />{t('keepReferenceInPersonal')}</label>}
       {error && <p role="alert" className="text-destructive text-xs">{error}</p>}
       <AlertDialogFooter><AlertDialogCancel disabled={busy}>{tCommon('cancel')}</AlertDialogCancel><AlertDialogAction disabled={busy} onClick={event => { event.preventDefault(); void changePublication() }}>{busy ? tCommon('saving') : action === 'publish' ? t('publish') : t('moveToPersonal')}</AlertDialogAction></AlertDialogFooter>
     </AlertDialogContent></AlertDialog>
     <AlertDialog open={action === 'delete'} onOpenChange={open => { if (!open) setAction(null) }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>{t('deletePromptTitle', { name: node.name })}</AlertDialogTitle>
-      <AlertDialogDescription>{kind === 'FOLDER' ? t('deleteFolderDesc') : t('deleteDeckDesc')}</AlertDialogDescription></AlertDialogHeader>
+      <AlertDialogDescription>{kind === 'folder' ? t('deleteFolderDesc') : t('deleteDeckDesc')}</AlertDialogDescription></AlertDialogHeader>
       {error && <p className="text-destructive text-xs" role="alert">{error}</p>}
       <AlertDialogFooter><AlertDialogCancel disabled={busy}>{tCommon('cancel')}</AlertDialogCancel><AlertDialogAction variant="destructive" disabled={busy} onClick={event => { event.preventDefault(); void remove() }}>{busy ? tCommon('deleting') : tCommon('delete')}</AlertDialogAction></AlertDialogFooter>
     </AlertDialogContent></AlertDialog>

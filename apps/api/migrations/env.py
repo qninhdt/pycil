@@ -1,4 +1,4 @@
-"""Pycil migrations exclude every externally owned schema."""
+"""Application DDL; native checkpoint tables retain their own setup history."""
 
 import asyncio
 
@@ -6,7 +6,7 @@ from alembic import context
 from sqlalchemy import pool, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from pycil.database import Base, register_models
+from pycil.infrastructure.database import Base, register_models
 
 register_models()
 config = context.config
@@ -14,7 +14,13 @@ config = context.config
 
 def include_object(obj, name, type_, reflected, compare_to):
     if type_ == "table":
-        return obj.schema in (None, "public") and name != "alembic_version"
+        return obj.schema in (None, "public") and name not in {
+            "alembic_version",
+            "checkpoints",
+            "checkpoint_blobs",
+            "checkpoint_writes",
+            "checkpoint_migrations",
+        }
     return True
 
 

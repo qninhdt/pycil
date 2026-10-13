@@ -93,8 +93,7 @@ test('Word detail is keyboard accessible, closes back to its trigger and does no
   await page.goto('/app/personal/everyday/words')
   await page.getByRole('searchbox', { name: 'Search words' }).fill('bank')
   const bank = page.getByRole('button', { name: /^View bank: an organization/ })
-  await bank.focus()
-  await page.keyboard.press('Enter')
+  await bank.press('Enter')
   const detail = page.getByRole('dialog')
   await expect(detail.getByRole('heading', { name: 'bank', exact: true })).toBeVisible()
   await expect(detail).toContainText('She deposited the money at the bank.')
@@ -289,11 +288,11 @@ for (const source of [{ id: 'everyday', name: 'Everyday conversation', width: 14
 test('loading identity waits; guest resolution reads public contents without private auth or summaries', async ({ page }) => {
   const bundle = await buildFixture('library', { '@/components/application/providers': accountFixture })
   const calls: { authorization?: string; include: string | null }[] = []
-  await page.route('**/api/v1/**', route => {
+  await page.route('**/*v1/**', route => {
     const request = route.request()
-    expect(new URL(request.url()).pathname).toBe('/api/v1/nodes')
+    expect(new URL(request.url()).pathname.endsWith('/nodes')).toBe(true)
     calls.push({ authorization: request.headers().authorization, include: new URL(request.url()).searchParams.get('include') })
-    return route.fulfill({ json: { nodes: [{ id: 'public', name: 'Published contents', type: 'DECK', description: null, summary: null }], next_cursor: null } })
+    return route.fulfill({ json: { nodes: [{ id: 'public', name: 'Published contents', type: 'deck', description: null, summary: null }], next_cursor: null } })
   })
   await renderFixture(page, bundle, 'library')
   await expect(page.getByLabel('Query status')).toHaveText('pending')
@@ -312,12 +311,12 @@ test('changing accounts removes pending private contents and late responses cann
   let completed!: () => void
   const responded = new Promise<void>(resolve => { completed = resolve })
   let count = 0
-  await page.route('**/api/v1/**', async route => {
+  await page.route('**/*v1/**', async route => {
     expect(route.request().headers().authorization).toBe('Bearer test-only-bearer')
     expect(new URL(route.request().url()).searchParams.get('include')).toBe('summary')
     const old = count++ === 0
     if (old) { first(); await delayed }
-    await route.fulfill({ json: { nodes: [{ id: old ? 'a' : 'b', name: old ? 'Private account A' : 'Private account B', type: 'DECK', description: null, summary: null }], next_cursor: null } }).catch(error => {
+    await route.fulfill({ json: { nodes: [{ id: old ? 'a' : 'b', name: old ? 'Private account A' : 'Private account B', type: 'deck', description: null, summary: null }], next_cursor: null } }).catch(error => {
       if (!route.request().failure()) throw error
     })
     if (old) completed()

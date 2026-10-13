@@ -11,7 +11,7 @@ const meta = {
   args: {
     nodeId: 'preview-personal',
     name: 'Personal Root',
-    space: 'PERSONAL',
+    space: 'personal',
     canCreate: true,
   },
 } satisfies Meta<typeof LibraryFolder>;
@@ -23,7 +23,7 @@ export const PersonalWorkspaceFolder: Story = {
   args: {
     nodeId: 'preview-personal',
     name: 'Personal Workspace',
-    space: 'PERSONAL',
+    space: 'personal',
     canCreate: true,
   },
 };
@@ -32,7 +32,7 @@ export const MeetingsFolder: Story = {
   args: {
     nodeId: 'meetings',
     name: 'Meetings & Discussions',
-    space: 'PERSONAL',
+    space: 'personal',
     canCreate: true,
   },
 };
@@ -41,7 +41,7 @@ export const PublishedPublicFolder: Story = {
   args: {
     nodeId: 'preview-published',
     name: 'Public Decks',
-    space: 'PUBLISHED',
+    space: 'published',
     canCreate: false,
   },
 };

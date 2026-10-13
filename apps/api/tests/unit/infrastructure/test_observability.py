@@ -1,0 +1,46 @@
+import asyncio
+
+import pytest
+import structlog
+
+from pycil.infrastructure.observability import (
+    OperationOutcome,
+    bound_contextvars,
+    get_logger,
+    observe_operation,
+)
+
+
+@pytest.mark.parametrize(
+    "error, outcome",
+    [
+        (None, OperationOutcome.SUCCEEDED),
+        (ValueError("private payload"), OperationOutcome.FAILED),
+        (asyncio.CancelledError(), OperationOutcome.CANCELLED),
+    ],
+)
+def test_operation_preserves_failure_and_restores_correlation(error, outcome):
+    logger = get_logger(__name__)
+    with structlog.testing.capture_logs(
+        processors=[structlog.contextvars.merge_contextvars]
+    ) as logs:
+        with bound_contextvars(request_id="request", operation="parent"):
+            try:
+                with observe_operation(logger, "generation", word_id=7):
+                    assert structlog.contextvars.get_contextvars()["request_id"] == "request"
+                    if error is not None:
+                        raise error
+            except BaseException as caught:
+                assert caught is error
+            else:
+                assert error is None
+            assert structlog.contextvars.get_contextvars()["operation"] == "parent"
+            assert "word_id" not in structlog.contextvars.get_contextvars()
+    assert [event["event"] for event in logs] == ["operation_started", "operation_completed"]
+    completed = logs[-1]
+    assert completed["outcome"] == outcome
+    assert completed["duration_ms"] >= 0
+    assert completed["error_type"] == (type(error).__name__ if error is not None else None)
+    assert completed["request_id"] == "request"
+    assert completed["word_id"] == 7
+    assert "private payload" not in str(logs)

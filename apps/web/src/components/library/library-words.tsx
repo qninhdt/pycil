@@ -27,15 +27,15 @@ export function LibraryWords({ nodeId, folder, editable, summary, timezone }: { 
   const { services } = useServices(), queryClient = useQueryClient()
   const [pickerOpen, setPickerOpen] = useState(false)
   const [search, setSearch] = useState(''), q = useDeferredValue(search)
-  const [state, setState] = useState<MeaningFilter>('ALL'), [sort, setSort] = useState<MeaningSort>('LEMMA_ASC')
+  const [state, setState] = useState<MeaningFilter>('all'), [sort, setSort] = useState<MeaningSort>('lemma_asc')
   const [cursors, setCursors] = useState<string[]>([])
   const [selected, setSelected] = useState<Meaning | null>(null)
   const [removing, setRemoving] = useState(false), [removeError, setRemoveError] = useState('')
   const trigger = useRef<HTMLButtonElement | null>(null)
   const query = useLibraryMeanings(nodeId, { q, state, sort, cursor: cursors.at(-1), limit: 12 })
-  const filtered = Boolean(q || state !== 'ALL')
+  const filtered = Boolean(q || state !== 'all')
   const searchChange = (value: string) => { setSearch(value); setCursors([]) }
-  const clear = () => { searchChange(''); setState('ALL') }
+  const clear = () => { searchChange(''); setState('all') }
   async function removeSense() {
     if (!selected) return
     setRemoving(true); setRemoveError('')
@@ -50,12 +50,12 @@ export function LibraryWords({ nodeId, folder, editable, summary, timezone }: { 
   return <section className="library-meanings" aria-label={t('wordsInScope')} aria-busy={query.isFetching || q !== search}>
     <div className="flex flex-wrap items-center gap-3 mb-3"><LibrarySearch value={search} onChange={searchChange} label={t('searchWords')} />
       <ToggleGroup type="single" value={state} onValueChange={value => { if (value) { setState(value as MeaningFilter); setCursors([]) } }} aria-label={t('learningState')} className="library-state-filters flex-wrap [&_[data-slot=toggle-group-item]]:gap-1.5 [&_[data-slot=toggle-group-item]_>_span]:text-muted-foreground [&_[data-slot=toggle-group-item]_>_span]:text-[11px] [&_[data-slot=toggle-group-item]_>_span]:tabular-nums [&_[data-state=on]_>_span]:text-inherit [&_.home-status-shape]:size-3 max-[767px]:w-full">
-        <ToggleGroupItem value="ALL" aria-label={t('allWordsWithCount', { count: summary.total })}>{t('allWords')} <span>{summary.total}</span></ToggleGroupItem>
-        {([['DUE', t('due'), 'due', summary.due, t('dueWithCount', { count: summary.due })], ['NEW', t('new'), 'new', summary.new, t('newWithCount', { count: summary.new })], ['NOT_YET_DUE', t('notDue'), 'not-due', summary.not_due, t('notDueWithCount', { count: summary.not_due })]] as const).map(([value, label, shape, count, aria]) =>
+        <ToggleGroupItem value="all" aria-label={t('allWordsWithCount', { count: summary.total })}>{t('allWords')} <span>{summary.total}</span></ToggleGroupItem>
+        {([['due', t('due'), 'due', summary.due, t('dueWithCount', { count: summary.due })], ['new', t('new'), 'new', summary.new, t('newWithCount', { count: summary.new })], ['not_yet_due', t('notDue'), 'not-due', summary.not_due, t('notDueWithCount', { count: summary.not_due })]] as const).map(([value, label, shape, count, aria]) =>
           <ToggleGroupItem key={value} value={value} aria-label={aria}><StatusShape state={shape} />{label}<span>{count}</span></ToggleGroupItem>)}
       </ToggleGroup>
       <Select value={sort} onValueChange={value => { setSort(value as MeaningSort); setCursors([]) }}><SelectTrigger aria-label={t('sortWords')} className="w-[168px]"><SelectValue /></SelectTrigger>
-        <SelectContent><SelectGroup><SelectItem value="LEMMA_ASC">{t('wordAz')}</SelectItem><SelectItem value="LAST_REVIEWED_DESC">{t('lastReviewed')}</SelectItem></SelectGroup></SelectContent>
+        <SelectContent><SelectGroup><SelectItem value="lemma_asc">{t('wordAz')}</SelectItem><SelectItem value="last_reviewed_desc">{t('lastReviewed')}</SelectItem></SelectGroup></SelectContent>
       </Select>
       {editable && !folder && <Button variant="outline" onClick={() => setPickerOpen(true)}><Plus data-icon="inline-start" aria-hidden="true" />{t('addWords')}</Button>}
     </div>

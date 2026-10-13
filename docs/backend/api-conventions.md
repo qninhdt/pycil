@@ -2,11 +2,11 @@
 
 ## Contract discovery
 
-Business routes use `/v1`. The working tree has 41 business operations.
+Business routes use `/v1`. The working tree has 39 business operations.
 `/health` and `/ready` are excluded from OpenAPI; generated `/docs`, `/redoc`,
 and `/openapi.json` remain available with FastAPI defaults.
 
-Use the generated schema for required fields and native Lexi/AG-UI types. The declared
+Use the generated schema for required fields and native vocabulary/AG-UI types. The declared
 application version remains `1.0.0`; it is not proof that two checked-out revisions have
 identical contracts. The node redesign is deliberately breaking under the current namespace.
 
@@ -117,7 +117,7 @@ Sources seek canonical deck ID. Discovery without a query orders creation time/I
 descending; FTS orders rank descending then ID ascending. Sense orders are ID, lower
 lemma/ID, or applied review time descending with never-reviewed last and ID ties.
 
-Sense pages bind state ALL/NEW/DUE/NOT_YET_DUE, literal lemma `q`, and sort. Non-ALL
+Sense pages bind state all/new/due/not_yet_due, literal lemma `q`, and sort. Non-all
 state or personal review order requires sign-in. Tokens freeze `as_of` for state
 classification, not cross-request membership/progress snapshots. Refresh after edits
 or reviews. Anonymous senses have `learning=null`. No exact global search count is
@@ -129,10 +129,9 @@ The application enforces 15,000,000 bytes for JSON and assistant request bodies.
 checks both declared size and streamed chunks before dispatch; chunked transfer does
 not bypass the limit. Responses, including SSE, are not fully buffered by this guard.
 
-CORS uses explicit configured origins, credentials, GET/POST/PUT/PATCH/DELETE, and
-Authorization, Content-Type, Idempotency-Key, and X-Request-ID headers. X-Request-ID
-is exposed to browser clients. CORS surrounds error middleware, so allowed-origin
-clients can inspect safe error responses. Caddy has a matching byte cap.
+CORS includes the localhost development origins and configured deployment origins,
+allows credentialed requests, and exposes response headers including X-Request-ID.
+It surrounds the error boundary. Caddy has a matching request byte cap.
 
 ## Assistant streaming
 
@@ -147,6 +146,6 @@ Do not replay an uncertain assistant turn as though it had review idempotency.
 
 ## Sources
 
-- [Application router assembly](../../apps/api/pycil/main.py), [HTTP boundary](../../apps/api/pycil/http.py)
-- [Identity dependencies](../../apps/api/pycil/account/auth.py), [request SQL timeout handling](../../apps/api/pycil/dependencies.py)
-- [HTTP boundary tests](../../apps/api/tests/system/test_http_boundary.py)
+- [Application router assembly](../../apps/api/pycil/main.py), [HTTP boundary](../../apps/api/pycil/app/http.py)
+- [Identity dependencies](../../apps/api/pycil/account/auth.py), [request SQL timeout handling](../../apps/api/pycil/app/dependencies.py)
+- [Lifecycle and readiness](../../apps/api/tests/integration/app/test_lifespan.py)

@@ -15,28 +15,28 @@ import type { StudySummary } from '../../src/lib/home-api'
 test('Discovery filters and pages public records; guessed private IDs and mutation routes remain hidden', async ({ page, profile, nodes }) => {
   const marker = 'public ' + randomUUID()
   for (let n = 0; n < 13; n++) {
-    const deck = await nodes.create({ type: 'DECK', name: `${marker} ${n}` })
+    const deck = await nodes.create({ type: 'deck', name: `${marker} ${n}` })
     expect((await api(page, `nodes/${deck.id}:move`, 'POST', { parent_id: profile.published_node_id, confirm_publication: true })).status).toBe(200)
     expect((await api(page, `nodes/${deck.id}`, 'PATCH', { name: 'denied' }, false)).status).toBe(401)
   }
-  const privateDeck = await nodes.create({ type: 'DECK', name: marker + ' secret' })
+  const privateDeck = await nodes.create({ type: 'deck', name: marker + ' secret' })
   await page.goto('/app/discovery')
   await page.getByRole('searchbox', { name: 'Search published material' }).fill(marker)
   const cards = page.getByRole('list', { name: 'Published material' }).getByRole('listitem')
   await expect(cards).toHaveCount(12)
   await page.getByRole('button', { name: 'Next page', exact: true }).click()
   await expect(cards).toHaveCount(1)
-  await page.getByRole('combobox', { name: 'Material type' }).selectOption('FOLDER')
+  await page.getByRole('combobox', { name: 'Material type' }).selectOption('folder')
   await expect(page.getByText('No matching material.', { exact: true })).toBeVisible()
-  await page.getByRole('combobox', { name: 'Material type' }).selectOption('DECK')
+  await page.getByRole('combobox', { name: 'Material type' }).selectOption('deck')
   await expect(page.getByText('Page 1', { exact: true })).toBeVisible()
   expect((await api(page, `nodes/${privateDeck.id}/senses`, 'GET', undefined, false)).status).toBe(404)
   expect((await api(page, `nodes/${privateDeck.id}`, 'GET', undefined, false)).status).toBe(404)
 })
 
 test('guests can read published decks and folders without exposing personal learning', async ({ page, profile, nodes, browser, baseURL }) => {
-  const folder = await nodes.create({ type: 'FOLDER' })
-  const deck = await nodes.create({ type: 'DECK', parent_id: folder.id, sense_ids: [21] })
+  const folder = await nodes.create({ type: 'folder' })
+  const deck = await nodes.create({ type: 'deck', parent_id: folder.id, sense_ids: [21] })
   expect((await api(page, `nodes/${folder.id}:move`, 'POST', { parent_id: profile.published_node_id, confirm_publication: true })).status).toBe(200)
   const context = await browser.newContext({ baseURL })
   try {
@@ -55,7 +55,7 @@ test('guests can read published decks and folders without exposing personal lear
 })
 
 test('public direct learning completes without saving foreign content into personal Library', async ({ page, profile, nodes, browser, baseURL }) => {
-  const deck = await nodes.create({ type: 'DECK', sense_ids: [21] })
+  const deck = await nodes.create({ type: 'deck', sense_ids: [21] })
   expect((await api(page, `nodes/${deck.id}:move`, 'POST', { parent_id: profile.published_node_id, confirm_publication: true })).status).toBe(200)
   const context = await browser.newContext({ baseURL })
   try {
@@ -76,8 +76,8 @@ test('public direct learning completes without saving foreign content into perso
 })
 
 test('cancelled publication keeps a private subtree private and does not create retained references', async ({ page, profile, nodes }) => {
-  const folder = await nodes.create({ type: 'FOLDER' })
-  const deck = await nodes.create({ type: 'DECK', parent_id: folder.id, sense_ids: [1] })
+  const folder = await nodes.create({ type: 'folder' })
+  const deck = await nodes.create({ type: 'deck', parent_id: folder.id, sense_ids: [1] })
   const before = (await api<{ nodes: unknown[] }>(page, `nodes?parent_id=${profile.personal_node_id}`)).body.nodes.length
   await page.goto(`/app/personal/${folder.id}`)
   await page.getByRole('button', { name: `Settings for ${folder.name}` }).click()
@@ -90,19 +90,20 @@ test('cancelled publication keeps a private subtree private and does not create 
   expect((await api<{ nodes: unknown[] }>(page, `nodes?parent_id=${profile.personal_node_id}`)).body.nodes).toHaveLength(before)
 })
 
-test('guest reads public routes and cannot access a private account', async ({ page }) => {
-  await page.goto('/app/discovery')
-  await expect(page.getByRole('heading', { name: 'Discovery' })).toBeVisible()
+test('guest reads public APIs while workspace pages require sign-in', async ({ page }) => {
+  await page.goto('/')
   const catalog = await api(page, 'discovery/nodes?limit=12', 'GET', undefined, false)
   expect(catalog.status).toBe(200)
   expect(() => parseLibrary(catalog.body)).not.toThrow()
   expect((await api(page, 'me', 'GET', undefined, false)).status).toBe(401)
+  await page.goto('/app/discovery')
+  await expect(page.getByRole('heading', { name: 'Sign in to Pycil' })).toBeVisible()
   await page.goto('/app/dictionary')
-  await expect(page.getByRole('searchbox', { name: 'Search word or expression' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Sign in to Pycil' })).toBeVisible()
 })
 
 test('publication grants guest reads and unpublication revokes them', async ({ page, nodes }) => {
-  const deck = await nodes.create({ type: 'DECK' })
+  const deck = await nodes.create({ type: 'deck' })
   await page.goto(`/app/personal/${deck.id}`)
   expect((await api(page, `nodes/${deck.id}`, 'GET', undefined, false)).status).toBe(404)
   await page.getByRole('button', { name: `Settings for ${deck.name}` }).click()

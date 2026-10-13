@@ -1,20 +1,14 @@
-from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Query, Request
-from lexi_ai.errors import InvalidResourceError
-from lexi_ai.models import SearchResult, Word
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
 from pycil.account.auth import Actor, Viewer
-from pycil.dependencies import Dictionary, Product, Session
-from pycil.http import Problem
-from pycil.library.models import Node, NodeRole
-from pycil.library.schemas import Sources
-from pycil.library.senses import sources_page
-from pycil.pagination import strict_query
-from pycil.vocabulary.context import (
+from pycil.app.dependencies import Product, Runtime, Session
+from pycil.app.http import Problem
+from pycil.app.pagination import strict_query
+from pycil.app.projections import (
     Context,
     SenseIDs,
     WordIDs,
@@ -23,6 +17,13 @@ from pycil.vocabulary.context import (
     word_context,
     word_previews,
 )
+from pycil.library.models import Node, NodeRole
+from pycil.library.schemas import Sources
+from pycil.library.senses import sources_page
+from pycil.vocabulary.enums import GenerationStage, JobState
+from pycil.vocabulary.errors import InvalidResourceError
+from pycil.vocabulary.schemas import SearchResult, Word
+from pycil.vocabulary.words import get_word
 
 router = APIRouter(prefix="/v1", tags=["vocabulary"])
 
@@ -36,24 +37,24 @@ class GenerationRequest(BaseModel):
 class GenerationResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
     task_id: UUID
-    status: Literal["RUNNING", "SUCCEEDED", "FAILED"]
+    status: JobState
     word_id: int | None
-    stage: str | None
+    stage: GenerationStage | None
     error: str | None
     status_url: str
 
 
 @router.get("/words:search", response_model=SearchResult, openapi_extra={"security": [{}]})
-async def search(query: str, viewer: Viewer, lexicon: Dictionary, include_reference: bool = False):
+async def search(query: str, viewer: Viewer, resources: Runtime, include_reference: bool = False):
     try:
-        return await lexicon.search(query, include_reference=include_reference)
+        return await resources.search.search(query, include_reference=include_reference)
     except InvalidResourceError:
         raise Problem(422, "invalid_lexical_query") from None
 
 
 @router.get("/words/{word_id}", response_model=Word, openapi_extra={"security": [{}]})
-async def word(word_id: int, viewer: Viewer, lexicon: Dictionary):
-    value = await lexicon.get_word(word_id)
+async def word(word_id: int, viewer: Viewer, resources: Runtime):
+    value = await get_word(resources.sessions, word_id, cache=resources.content_cache)
     if value is None:
         raise Problem(404, "word_not_found")
     return value
@@ -63,9 +64,9 @@ async def word(word_id: int, viewer: Viewer, lexicon: Dictionary):
     "/words:batchPreview", response_model=list[WordPreview], openapi_extra={"security": [{}]}
 )
 async def previews(
-    data: WordIDs, viewer: Viewer, session: Session, lexicon: Dictionary, config: Product
+    data: WordIDs, viewer: Viewer, session: Session, resources: Runtime, config: Product
 ):
-    return await word_previews(session, lexicon, data.word_ids, config)
+    return await word_previews(session, resources.sessions, data.word_ids, config)
 
 
 @router.get("/me/words/{word_id}", response_model=Context)

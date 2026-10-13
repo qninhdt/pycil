@@ -86,8 +86,8 @@ test('Dictionary selection stays on one page and reveals native sense detail', a
 test('HTTP Dictionary distinguishes an unavailable search from an honest empty result and retries', async ({ page }) => {
   const bundle = await buildFixture('dictionary', { '@/components/application/providers': accountPlatform, 'next/navigation': navigationPlatform })
   let unavailable = true
-  await page.route('**/api/v1/**', route => {
-    expect(new URL(route.request().url()).pathname).toBe('/api/v1/words:search')
+  await page.route('**/*v1/**', route => {
+    expect(new URL(route.request().url()).pathname.endsWith('/words:search')).toBe(true)
     return route.fulfill(unavailable ? { status: 503, json: { error: 'search_unavailable' } } : { json: { items: [] } })
   })
   await renderFixture(page, bundle, 'dictionary')

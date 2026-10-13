@@ -1,21 +1,23 @@
 from datetime import date, datetime
-from typing import Annotated, Literal
+from typing import Annotated, Literal, cast
 from uuid import UUID
 
-from lexi_ai import (
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StrictBool, model_validator
+
+from pycil.study.config import LearningPreferences
+from pycil.study.enums import (
     DefinitionAccuracy,
     DefinitionCoverage,
+    LearningState,
     MeaningPreservation,
     QuestionType,
     ResponseFormat,
+    Selection,
     TargetPlacement,
     UsageForm,
     UsageMeaning,
 )
-from lexi_ai.models import Sense
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StrictBool, model_validator
-
-from pycil.config import LearningPreferences
+from pycil.vocabulary.schemas import Sense
 
 
 class Strict(BaseModel):
@@ -27,7 +29,7 @@ PositiveID = Annotated[int, Field(strict=True, gt=0)]
 
 class Prepare(Strict):
     node_id: UUID
-    selection: Literal["NEW", "DUE", "AUTO"] = "AUTO"
+    selection: Literal[Selection.NEW, Selection.DUE, Selection.AUTO] = Selection.AUTO
     max_sense_count: Annotated[int, Field(strict=True, ge=1, le=20)] | None = None
     questions_per_sense: Annotated[int, Field(strict=True, ge=1, le=3)] | None = None
 
@@ -111,21 +113,28 @@ class GradeResult(QuestionReference):
 
     @model_validator(mode="before")
     @classmethod
-    def diagnostic_shape(cls, value):
-        if isinstance(value, dict) and {"diagnostics", "format", "question_type"} <= value.keys():
-            fmt, kind = ResponseFormat(value["format"]), QuestionType(value["question_type"])
-            schema = (
-                QuizDiagnostic
-                if fmt == ResponseFormat.SINGLE_CHOICE
-                else SingleWordDiagnostic
-                if fmt == ResponseFormat.SINGLE_WORD
-                else DefinitionDiagnostic
-                if kind == QuestionType.WORD_TO_DEFINITION
-                else RewriteDiagnostic
-                if kind == QuestionType.SENTENCE_REWRITE
-                else UsageDiagnostic
-            )
-            value = value | {"diagnostics": schema.model_validate(value["diagnostics"])}
+    def diagnostic_shape(cls, value: object) -> object:
+        if isinstance(value, dict):
+            raw: dict[str, object] = cast(dict[str, object], value)
+            if {"diagnostics", "format", "question_type"} <= raw.keys():
+                fmt = ResponseFormat(cast(str, raw["format"]))
+                kind = QuestionType(cast(str, raw["question_type"]))
+                schema = (
+                    QuizDiagnostic
+                    if fmt == ResponseFormat.SINGLE_CHOICE
+                    else SingleWordDiagnostic
+                    if fmt == ResponseFormat.SINGLE_WORD
+                    else DefinitionDiagnostic
+                    if kind == QuestionType.WORD_TO_DEFINITION
+                    else RewriteDiagnostic
+                    if kind == QuestionType.SENTENCE_REWRITE
+                    else UsageDiagnostic
+                )
+                diagnostics_val = schema.model_validate(raw["diagnostics"])
+                updated: dict[str, object] = dict(raw)
+                updated["diagnostics"] = diagnostics_val
+                return updated
+            return raw
         return value
 
 
@@ -166,13 +175,13 @@ class PreparedQuestion(Strict):
 
 class PreparedBundle(Strict):
     sense: Sense
-    reason: Literal["DUE", "NEW", "NOT_YET_DUE"]
+    reason: Literal[LearningState.DUE, LearningState.NEW, LearningState.NOT_YET_DUE]
     questions: list[PreparedQuestion]
 
 
 class Preparation(Strict):
     node_id: UUID
-    selection: Literal["NEW", "DUE", "AUTO"]
+    selection: Literal[Selection.NEW, Selection.DUE, Selection.AUTO]
     max_sense_count: int
     actual_sense_count: int
     actual_question_count: int

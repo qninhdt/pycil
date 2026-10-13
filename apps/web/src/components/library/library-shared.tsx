@@ -10,7 +10,7 @@ import { StatusShape } from '@/components/home/home-state'
 import { learningLabel, type LearningState } from '@/lib/library-model'
 
 export function LearningBadge({ state }: { state: LearningState }) {
-  return <Badge variant="outline"><StatusShape state={state === 'DUE' ? 'due' : state === 'NEW' ? 'new' : 'not-due'} />{learningLabel(state)}</Badge>
+  return <Badge variant="outline"><StatusShape state={state === 'due' ? 'due' : state === 'new' ? 'new' : 'not-due'} />{learningLabel(state)}</Badge>
 }
 
 export function LibrarySearch({ value, onChange, label }: { value: string; onChange: (value: string) => void; label: string }) {

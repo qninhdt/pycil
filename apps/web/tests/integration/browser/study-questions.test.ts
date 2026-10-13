@@ -13,8 +13,8 @@ const focusSignal = new AbortController().signal
 test('HTTP study renders native single word and short answer question formats', async ({ page }) => {
   const bundle = await buildFixture('study', { '@/components/application/providers': accountPlatform, 'next/navigation': navigationPlatform })
   for (const [type, format, label] of [
-    ['DEFINITION_TO_WORD', 'SINGLE_WORD', 'Your word'],
-    ['WORD_TO_DEFINITION', 'SHORT_ANSWER', 'Your answer'],
+    ['definition_to_word', 'single_word', 'Your word'],
+    ['word_to_definition', 'short_answer', 'Your answer'],
   ] as const) {
     const prepared = preparation(1, format)
     prepared.bundles[0].questions[0].question.question_type = type
@@ -22,25 +22,25 @@ test('HTTP study renders native single word and short answer question formats', 
     let calls = 0
     await page.goto('/app')
     await page.evaluate(() => localStorage.clear())
-    await page.route('**/api/v1/**', route => {
+    await page.route('**/*v1/**', route => {
       const path = new URL(route.request().url()).pathname
-      if (path === '/api/v1/study:prepare') { calls++; return route.fulfill({ json: prepared }) }
-      if (path === '/api/v1/words:batchPreview') return route.fulfill({ json: [{ word_id: 1, lemma: 'bank', entry_type: 'WORD', senses: [prepared.bundles[0].sense] }] })
+      if (path.endsWith('/study:prepare')) { calls++; return route.fulfill({ json: prepared }) }
+      if (path.endsWith('/words:batchPreview')) return route.fulfill({ json: [{ word_id: 1, lemma: 'bank', entry_type: 'word', senses: [prepared.bundles[0].sense] }] })
       throw new Error(`Unexpected native study request: ${path}`)
     })
-    await renderFixture(page, bundle, 'study', '?node=deck&selection=NEW')
+    await renderFixture(page, bundle, 'study', '?node=deck&selection=new')
     await expect(page.getByRole('textbox', { name: label })).toBeVisible()
     await page.reload()
     await expect(page.getByRole('textbox', { name: label })).toBeVisible()
     expect(calls).toBe(1)
-    await page.unroute('**/api/v1/**')
+    await page.unroute('**/*v1/**')
   }
 })
 
 test('round recap preserves the initial miss in the completed fullscreen quiz', async ({ page }) => {
   const services = createMockServices({ latency: 0 })
   await services.account.updateSettings({ learning: { questions_per_sense: 1, max_sense_count: 1 } }, focusSignal)
-  const prepared = await services.learning.prepare({ node_id: 'everyday', selection: 'NEW' }, focusSignal)
+  const prepared = await services.learning.prepare({ node_id: 'everyday', selection: 'new' }, focusSignal)
   const first = createStudySession('preview-alex', prepared)
   const recap = advanceSession(recordAttempt(beginAttempt(first, null), { correct: false }))
   const correct = currentQuestion(first)!
@@ -48,7 +48,7 @@ test('round recap preserves the initial miss in the completed fullscreen quiz', 
     if (sessionStorage.getItem('focus-test-seeded')) return
     localStorage.setItem(key, JSON.stringify(value)); sessionStorage.setItem('focus-test-seeded', '1')
   }, { key: sessionKey('preview-alex', 'everyday'), value: recap })
-  await page.goto('/focus/learn?node=everyday&selection=NEW')
+  await page.goto('/app/learn?node=everyday&selection=new')
   await expect(page.getByText('Ready for another pass.')).toBeVisible()
   await expect(page.getByText('1', { exact: true }).first()).toBeVisible()
   await page.getByRole('button', { name: 'Continue to round 2' }).click()
@@ -66,7 +66,7 @@ test('round recap preserves the initial miss in the completed fullscreen quiz', 
 test('quiz keeps the same question after reload and flashcards open without the sidebar', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
-  await page.goto('/focus/learn?node=everyday&selection=NEW')
+  await page.goto('/app/learn?node=everyday&selection=new')
   await expect(page.locator('.focus-card')).toBeVisible()
   const prompt = await page.locator('.focus-card h1').textContent()
   await page.reload()
@@ -78,11 +78,11 @@ test('quiz keeps the same question after reload and flashcards open without the 
   await expect(page.locator('.focus-feedback')).toBeVisible()
   await page.reload()
   await expect(page.locator('.focus-feedback')).toBeVisible()
-  await page.goto('/focus/flashcards?node=everyday')
+  await page.goto('/app/flashcards?node=everyday')
   await expect(page.getByRole('article', { name: /Flashcard for/ })).toBeVisible()
   await expect(page.locator('.shell-desktop')).toHaveCount(0)
   await page.setViewportSize({ width: 390, height: 844 })
-  await page.goto('/focus/learn?node=everyday&selection=NEW')
+  await page.goto('/app/learn?node=everyday&selection=new')
   await expect(page.locator('.focus-card')).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
   const verticalGap = await page.locator('.focus-card-body').evaluate(node => node.getBoundingClientRect().top - node.parentElement!.getBoundingClientRect().top)
@@ -94,15 +94,15 @@ test('quiz keeps the same question after reload and flashcards open without the 
 
 test('Study actions route to fullscreen focus mode without preparing questions on Library', async ({ page }) => {
   const studyRequests: string[] = []
-  page.on('request', request => { if (request.url().includes('/api/v1/study')) studyRequests.push(request.url()) })
+  page.on('request', request => { if (request.url().includes('/v1/study')) studyRequests.push(request.url()) })
   await page.goto('/app/personal/business-core')
   await expect(page.getByRole('heading', { name: 'Deck details' })).toBeVisible()
   const preview = page.getByRole('region', { name: 'Flashcard preview' })
   await expect(preview.locator('article[data-face=front]')).toBeVisible()
-  await expect(page.getByRole('link', { name: /^Flashcards,/ })).toHaveAttribute('href', '/focus/flashcards?node=business-core')
-  await expect(page.getByRole('link', { name: /^Learn new,/ })).toHaveAttribute('href', '/focus/learn?node=business-core&selection=NEW')
+  await expect(page.getByRole('link', { name: /^Flashcards,/ })).toHaveAttribute('href', '/app/flashcards?node=business-core')
+  await expect(page.getByRole('link', { name: /^Learn new,/ })).toHaveAttribute('href', '/app/learn?node=business-core&selection=new')
   await page.getByRole('link', { name: /^Practice,/ }).click()
-  await expect(page).toHaveURL(/\/focus\/learn\?node=business-core&selection=AUTO$/)
+  await expect(page).toHaveURL(/\/app\/learn\?node=business-core&selection=auto$/)
   await expect(page.getByRole('button', { name: 'Exit learning mode' })).toBeVisible()
   await expect(page.locator('.shell-desktop, .library-inline-preview, .home-session')).toHaveCount(0)
   expect(studyRequests).toEqual([])
@@ -111,15 +111,15 @@ test('Study actions route to fullscreen focus mode without preparing questions o
 test('HTTP study preparation failure stays in focus and exposes an accessible retry popup', async ({ page }) => {
   const bundle = await buildFixture('study', { '@/components/application/providers': accountPlatform, 'next/navigation': navigationPlatform })
   let preparations = 0
-  await page.route('**/api/v1/**', route => {
-    expect(new URL(route.request().url()).pathname).toBe('/api/v1/study:prepare')
+  await page.route('**/*v1/**', route => {
+    expect(new URL(route.request().url()).pathname.endsWith('/study:prepare')).toBe(true)
     expect(route.request().method()).toBe('POST')
     expect(route.request().headers().authorization).toBe('Bearer test-only-bearer')
     expect(route.request().postDataJSON().node_id).toBe('http-deck')
     preparations++
     return route.fulfill({ status: 503, json: { error: 'question_generation_unavailable' } })
   })
-  await renderFixture(page, bundle, 'study', '?node=http-deck&selection=NEW')
+  await renderFixture(page, bundle, 'study', '?node=http-deck&selection=new')
   const popup = page.getByRole('alertdialog')
   await expect(popup).toBeVisible()
   await expect(popup).toContainText('Questions could not be generated')

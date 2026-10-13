@@ -8,6 +8,7 @@ export default isMock || !publishableKey
   ? () => NextResponse.next()
   : clerkMiddleware()
 
+
 export const config = {
   matcher: [
     // Skip Next.js internals and all static files, unless found in search params

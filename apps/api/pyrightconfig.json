@@ -1,0 +1,9 @@
+{
+  "include": ["pycil"],
+  "exclude": ["**/__pycache__", ".venv", "tests"],
+  "venvPath": ".",
+  "venv": ".venv",
+  "pythonVersion": "3.14",
+  "typeCheckingMode": "strict",
+  "reportMissingTypeStubs": false
+}

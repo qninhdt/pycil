@@ -1,0 +1,10 @@
+## Target Expression Tagging
+
+- Mark each target surface as `[surface]` for a base/invariant form, or `[surface|code]` for an inflected form. Tag only the intended lexical identity, not unrelated words or coincidental matches; preserve the actual surface.
+- Choose the code by grammatical function: `p` simple past; `pp` past participle; `3` third-person singular present; `ing` -ing form; `pl` plural noun; `c` comparative; `s` superlative. Base forms have no code. Square brackets are reserved for target tags.
+- Tag each fixed component of a multi-word target separately, even across intervening words; leave variable arguments outside tags. Never wrap the whole expression in one tag.
+{% if examples_per_sense is not defined %}
+- Never introduce the target just to satisfy tagging. When intentionally hidden, as in a cloze blank, leave the placeholder untagged and do not reveal the missing expression.
+{% endif %}
+
+Example for "bring up": `She [brought|p] the issue [up] during the meeting.`

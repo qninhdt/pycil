@@ -1,6 +1,7 @@
 """Joint viewer-local graph expansion; no permission or scope cache survives a request."""
 
 import asyncio
+from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from time import monotonic
@@ -8,11 +9,14 @@ from uuid import UUID
 
 from sqlalchemy import case, func, or_, select, text
 from sqlalchemy.exc import DBAPIError
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql import Select
 
-from pycil.http import Problem
+from pycil.app.config import ProductConfig
+from pycil.app.http import Problem
+from pycil.infrastructure.observability import get_logger
 from pycil.library.access import reference_visible, visible
 from pycil.library.models import DeckSense, Node, NodePath, NodeRole, NodeType
-from pycil.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -20,28 +24,30 @@ logger = get_logger(__name__)
 @dataclass
 class ScopeBudget:
     viewer_id: UUID | None
-    nodes: set[UUID] = field(default_factory=set)
-    decks: set[UUID] = field(default_factory=set)
+    nodes: set[UUID] = field(default_factory=lambda: set())
+    decks: set[UUID] = field(default_factory=lambda: set())
     memberships: int = 0
-    types: dict = field(default_factory=dict)
-    edges: dict = field(default_factory=dict)
-    metadata: dict = field(default_factory=dict)
-    membership_counts: dict = field(default_factory=dict)
+    types: dict[UUID, NodeType] = field(default_factory=lambda: {})
+    edges: dict[UUID, set[UUID]] = field(default_factory=lambda: {})
+    metadata: dict[UUID, Node] = field(default_factory=lambda: {})
+    membership_counts: dict[UUID, int] = field(default_factory=lambda: {})
     started_at: float = field(default_factory=monotonic)
 
 
 @dataclass
 class Scope:
     root: Node
-    nodes: set
-    decks: set
+    nodes: set[UUID]
+    decks: set[UUID]
 
-    def senses(self):
+    def senses(self) -> Select[int]:
         return select(DeckSense.sense_id).where(DeckSense.deck_id.in_(self.decks)).distinct()
 
 
 @asynccontextmanager
-async def bounded(session, config, budget):
+async def bounded(
+    session: AsyncSession, config: ProductConfig, budget: ScopeBudget
+) -> AsyncGenerator[None]:
     remaining = config.library.scope_timeout_seconds - (monotonic() - budget.started_at)
     if remaining <= 0:
         logger.warning(
@@ -73,15 +79,15 @@ async def bounded(session, config, budget):
 
 
 async def resolve_scopes(
-    session,
-    identifiers,
-    viewer_id,
-    config,
+    session: AsyncSession,
+    identifiers: Sequence[UUID | None],
+    viewer_id: UUID | None,
+    config: ProductConfig,
     *,
-    budget=None,
-    include_memberships=True,
-    materialize_candidates=False,
-):
+    budget: ScopeBudget | None = None,
+    include_memberships: bool = True,
+    materialize_candidates: bool = False,
+) -> dict[UUID, Scope]:
     budget = budget or ScopeBudget(viewer_id)
     if viewer_id != budget.viewer_id:
         raise ValueError("scope_budget_viewer_mismatch")
@@ -89,12 +95,18 @@ async def resolve_scopes(
         root = await session.scalar(
             select(Node.id).where(Node.owner_id == viewer_id, Node.role == NodeRole.LIBRARY_ROOT)
         )
-        identifiers = [root if identifier is None else identifier for identifier in identifiers]
+        if root is None:
+            raise Problem(404, "node_not_found")
+        target_ids: list[UUID] = [
+            root if identifier is None else identifier for identifier in identifiers
+        ]
+    else:
+        target_ids = [identifier for identifier in identifiers if identifier is not None]
     roots = list(
         (
             await session.scalars(
                 select(Node).where(
-                    Node.id.in_(identifiers),
+                    Node.id.in_(target_ids),
                     visible(Node.__table__, viewer_id),
                     or_(
                         Node.owner_id == viewer_id,
@@ -105,9 +117,9 @@ async def resolve_scopes(
             )
         ).all()
     )
-    if {r.id for r in roots} != set(identifiers):
+    if {r.id for r in roots} != set(target_ids):
         raise Problem(404, "node_not_found")
-    frontier = set(identifiers) - budget.nodes
+    frontier: set[UUID] = set(target_ids) - budget.nodes
     while frontier:
         paths = select(NodePath.descendant_id).where(NodePath.ancestor_id.in_(frontier))
         if materialize_candidates:
@@ -143,15 +155,15 @@ async def resolve_scopes(
         )
         if len(rows) > remaining:
             raise Problem(422, "scope_too_large")
-        decks = set()
-        targets = set()
+        decks: set[UUID] = set()
+        targets: set[UUID] = set()
         for node, target_visible in rows:
             budget.nodes.add(node.id)
             budget.metadata[node.id] = node
             budget.types[node.id] = node.type
             if node.parent_id is not None:
                 budget.edges.setdefault(node.parent_id, set()).add(node.id)
-            if target_visible:
+            if target_visible and node.reference_id is not None:
                 budget.edges.setdefault(node.id, set()).add(node.reference_id)
                 targets.add(node.reference_id)
             if node.type is NodeType.DECK:
@@ -164,20 +176,24 @@ async def resolve_scopes(
                 .limit(config.library.max_scope_memberships - budget.memberships + 1)
                 .subquery()
             )
-            counts = (
-                await session.execute(
-                    select(guard.c.deck_id, func.count()).group_by(guard.c.deck_id)
-                )
-            ).all()
+            counts: list[tuple[UUID, int]] = [
+                (row[0], int(row[1]))
+                for row in (
+                    await session.execute(
+                        select(guard.c.deck_id, func.count()).group_by(guard.c.deck_id)
+                    )
+                ).all()
+            ]
             budget.membership_counts.update(dict(counts))
             budget.memberships += sum(count for _, count in counts)
             if budget.memberships > config.library.max_scope_memberships:
                 raise Problem(422, "scope_too_large")
             budget.decks.update(decks)
         frontier = targets - budget.nodes
-    result = {}
+    result: dict[UUID, Scope] = {}
     for root in roots:
-        pending, visited = {root.id}, set()
+        pending: set[UUID] = {root.id}
+        visited: set[UUID] = set()
         while pending:
             identifier = pending.pop()
             if identifier in visited or identifier not in budget.nodes:
@@ -188,7 +204,14 @@ async def resolve_scopes(
     return result
 
 
-async def scope_ids(session, node_id, viewer_id, config, *, budget=None):
+async def scope_ids(
+    session: AsyncSession,
+    node_id: UUID | None,
+    viewer_id: UUID | None,
+    config: ProductConfig,
+    *,
+    budget: ScopeBudget | None = None,
+) -> Select[int]:
     budget = budget or ScopeBudget(viewer_id)
     async with bounded(session, config, budget):
         scopes = await resolve_scopes(session, [node_id], viewer_id, config, budget=budget)

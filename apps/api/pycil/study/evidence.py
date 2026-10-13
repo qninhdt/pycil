@@ -1,44 +1,89 @@
 """Accepted diagnostic rubrics and one time-weighted Elo update per Sense."""
 
+from collections.abc import Sequence
+from datetime import datetime
 from statistics import mean
 
-from lexi_ai import QuestionType, ResponseFormat
+from pycil.study.config import MasteryPolicy
+from pycil.study.enums import (
+    DefinitionAccuracy,
+    DefinitionCoverage,
+    MeaningPreservation,
+    QuestionType,
+    ResponseFormat,
+    UsageForm,
+    UsageMeaning,
+)
+from pycil.study.schemas import (
+    DefinitionDiagnostic,
+    GradeResult,
+    QuizDiagnostic,
+    RewriteDiagnostic,
+    SingleWordDiagnostic,
+    UsageDiagnostic,
+)
 
 
-def evidence(item, target_sense_id):
+def evidence(item: GradeResult, target_sense_id: int) -> tuple[int, float | None, float | None]:
     kind, fmt, d = item.question_type, item.format, item.diagnostics
     if fmt == ResponseFormat.SINGLE_CHOICE:
+        assert isinstance(d, QuizDiagnostic)
         score = float(d.correct)
         return target_sense_id, None if kind == QuestionType.WORD_TO_USAGE else score, score
     if fmt == ResponseFormat.SINGLE_WORD:
+        assert isinstance(d, SingleWordDiagnostic)
         if d.sense_id is not None and d.task_fit:
             return d.sense_id, 1.0, 0.8 if d.spelling_error else 1.0
         return target_sense_id, 0.0, 0.0
     if kind == QuestionType.WORD_TO_DEFINITION:
-        if d.sense_id is not None and d.accuracy != "INACCURATE" and d.coverage != "MINIMAL":
-            a = {"ACCURATE": 1.0, "MIXED": 0.5}[d.accuracy]
-            c = {"SUFFICIENT": 1.0, "PARTIAL": 0.5}[d.coverage]
+        assert isinstance(d, DefinitionDiagnostic)
+        if (
+            d.sense_id is not None
+            and d.accuracy != DefinitionAccuracy.INACCURATE
+            and d.coverage != DefinitionCoverage.MINIMAL
+        ):
+            assert d.accuracy is not None and d.coverage is not None
+            a = {DefinitionAccuracy.ACCURATE: 1.0, DefinitionAccuracy.MIXED: 0.5}[d.accuracy]
+            c = {DefinitionCoverage.SUFFICIENT: 1.0, DefinitionCoverage.PARTIAL: 0.5}[d.coverage]
             return d.sense_id, 1.0, a * c
         return target_sense_id, 0.0, 0.0
+    assert isinstance(d, (RewriteDiagnostic, UsageDiagnostic))
     if not d.used:
         return (
             target_sense_id,
             (0.0 if kind == QuestionType.SENTENCE_REWRITE else None),
             (None if kind == QuestionType.SENTENCE_REWRITE else 0.0),
         )
-    m = {"CORRECT": 1.0, "APPROXIMATE": 0.5, "WRONG": 0.0}[d.meaning]
-    f = {"CORRECT": 1.0, "SPELLING_ERROR": 0.8, "FORM_ERROR": 0.5}[d.form]
+    assert d.meaning is not None and d.form is not None
+    assert d.construction is not None and d.collocation is not None and d.appropriacy is not None
+    m = {UsageMeaning.CORRECT: 1.0, UsageMeaning.APPROXIMATE: 0.5, UsageMeaning.WRONG: 0.0}[
+        d.meaning
+    ]
+    f = {UsageForm.CORRECT: 1.0, UsageForm.SPELLING_ERROR: 0.8, UsageForm.FORM_ERROR: 0.5}[d.form]
     usage = m * mean([f, float(d.construction), float(d.collocation), float(d.appropriacy)])
     if kind == QuestionType.WORD_TO_USAGE:
         return target_sense_id, None, usage
     if m == 0:
         return target_sense_id, 0.0, None
-    preservation = {"PRESERVED": 1.0, "PARTIAL": 0.5, "CHANGED": 0.0}[d.meaning_preservation]
+    assert isinstance(d, RewriteDiagnostic) and d.meaning_preservation is not None
+    preservation = {
+        MeaningPreservation.PRESERVED: 1.0,
+        MeaningPreservation.PARTIAL: 0.5,
+        MeaningPreservation.CHANGED: 0.0,
+    }[d.meaning_preservation]
     return target_sense_id, 1.0, usage * preservation
 
 
-def update_elo(elo, performances, last_exposure_at, review_time, policy):
-    observed = [(score, opponent) for score, opponent in performances if score is not None]
+def update_elo(
+    elo: float,
+    performances: Sequence[tuple[float | None, float]],
+    last_exposure_at: datetime | None,
+    review_time: datetime,
+    policy: MasteryPolicy,
+) -> float:
+    observed: list[tuple[float, float]] = [
+        (score, opponent) for score, opponent in performances if score is not None
+    ]
     if not observed:
         return elo
     weight = (
@@ -52,9 +97,9 @@ def update_elo(elo, performances, last_exposure_at, review_time, policy):
         if last_exposure_at
         else 1.0
     )
-    residuals = []
+    residuals: list[float] = []
     for score, opponent in observed:
         ratio = 10 ** (-abs((opponent - elo) / 400))
         expected = ratio / (1 + ratio) if opponent >= elo else 1 / (1 + ratio)
         residuals.append(score - expected)
-    return elo + policy.k_elo * weight * mean(residuals)
+    return float(elo + policy.k_elo * weight * mean(residuals))

@@ -83,7 +83,7 @@ export function AssistantContextTab() {
   if (!node) return null
 
   const deck = isDeck(node)
-  const badgeType = deck ? 'DECK' : 'FOLDER'
+  const badgeType = deck ? 'deck' : 'folder'
   const iconName = deck ? ('collection' as const) : ('folder' as const)
   const stats = deck
     ? node.summary

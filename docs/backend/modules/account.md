@@ -78,7 +78,7 @@ are rejected. Types/formats must be legal native values and allowed by product p
 The Assistant panel owns its toggle; the Settings page shows only General and Learning.
 The value persists per account through the same PATCH endpoint.
 
-Users without ADVANCED_GRADING cannot newly request typed formats. Free preparation effectively uses SINGLE_CHOICE while preserving saved typed preferences. Pro filters unsupported type/format pairs; if no supported pair remains, it returns
+Users without advanced_grading cannot newly request typed formats. Free preparation effectively uses single_choice while preserving saved typed preferences. Pro filters unsupported type/format pairs; if no supported pair remains, it returns
 `infeasible_learning_preferences`. `/me` instead reports `effective_learning=null`
 and a restriction so the client can render settings and explain the issue.
 
@@ -137,4 +137,4 @@ exposing that helper or an automatic billing integration in this source.
 
 - [Router](../../../apps/api/pycil/account/api.py), [auth](../../../apps/api/pycil/account/auth.py), [schemas](../../../apps/api/pycil/account/schemas.py)
 - [Usage](../../../apps/api/pycil/account/usage.py), [lifecycle](../../../apps/api/pycil/account/lifecycle.py)
-- [Account integration](../../../apps/api/tests/integration/test_account_lifecycle.py), [preferences HTTP tests](../../../apps/api/tests/system/test_preferences_api.py), [identity unit tests](../../../apps/api/tests/unit/test_identity.py)
+- [Identity/provisioning](../../../apps/api/tests/integration/account/test_identity.py), [preferences](../../../apps/api/tests/integration/account/test_settings.py), [usage settlement](../../../apps/api/tests/integration/account/test_usage.py)

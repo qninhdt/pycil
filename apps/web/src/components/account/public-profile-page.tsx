@@ -175,8 +175,9 @@ export function PublicProfilePage({ identifier, publishedBase }: { identifier: s
         <LibraryFolder
           nodeId={profile.published_node_id}
           name={profile.display_name || profile.handle || t('publishedCollections')}
-          space="PUBLISHED"
+          space="published"
           canCreate={own}
+          publishedBase={publishedBase}
         />
       </section>
     </div>

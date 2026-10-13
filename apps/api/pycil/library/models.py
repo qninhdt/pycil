@@ -17,26 +17,26 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column
 
-from pycil.database import Base, enum_column
+from pycil.infrastructure.database import Base, enum_column
 
 
 class NodeType(StrEnum):
-    FOLDER = "FOLDER"
-    DECK = "DECK"
-    REFERENCE = "REFERENCE"
+    FOLDER = "folder"
+    DECK = "deck"
+    REFERENCE = "reference"
 
 
 class NodeRole(StrEnum):
-    NORMAL = "NORMAL"
-    LIBRARY_ROOT = "LIBRARY_ROOT"
-    PERSONAL_ROOT = "PERSONAL_ROOT"
-    PUBLISHED_ROOT = "PUBLISHED_ROOT"
+    NORMAL = "normal"
+    LIBRARY_ROOT = "library_root"
+    PERSONAL_ROOT = "personal_root"
+    PUBLISHED_ROOT = "published_root"
 
 
 class NodeSpace(StrEnum):
-    LIBRARY = "LIBRARY"
-    PERSONAL = "PERSONAL"
-    PUBLISHED = "PUBLISHED"
+    LIBRARY = "library"
+    PERSONAL = "personal"
+    PUBLISHED = "published"
 
 
 class Node(Base):
@@ -48,15 +48,15 @@ class Node(Base):
             "owner_id",
             "created_at",
             "id",
-            postgresql_where=text("deleted_at IS NULL AND space = 'PUBLISHED' AND role = 'NORMAL'"),
+            postgresql_where=text("deleted_at IS NULL AND space = 'published' AND role = 'normal'"),
         ),
         CheckConstraint("parent_id IS NULL OR parent_id != id", name="not_own_parent"),
         CheckConstraint("reference_id IS NULL OR reference_id != id", name="not_own_reference"),
         CheckConstraint(
-            "(type = 'REFERENCE') = (reference_id IS NOT NULL)", name="reference_shape"
+            "(type = 'reference') = (reference_id IS NOT NULL)", name="reference_shape"
         ),
-        CheckConstraint("(role = 'LIBRARY_ROOT') = (parent_id IS NULL)", name="root_shape"),
-        CheckConstraint("role = 'NORMAL' OR type = 'FOLDER'", name="system_folder"),
+        CheckConstraint("(role = 'library_root') = (parent_id IS NULL)", name="root_shape"),
+        CheckConstraint("role = 'normal' OR type = 'folder'", name="system_folder"),
         UniqueConstraint("owner_id", "id"),
         ForeignKeyConstraint(
             ["owner_id", "parent_id"], ["nodes.owner_id", "nodes.id"], ondelete="CASCADE"
@@ -66,7 +66,7 @@ class Node(Base):
             "owner_id",
             "role",
             unique=True,
-            postgresql_where=text("role != 'NORMAL'"),
+            postgresql_where=text("role != 'normal'"),
         ),
         Index(
             "ix_nodes_owner_parent_order",
@@ -80,7 +80,7 @@ class Node(Base):
             "ix_nodes_published_order",
             "created_at",
             "id",
-            postgresql_where=text("deleted_at IS NULL AND space = 'PUBLISHED' AND role = 'NORMAL'"),
+            postgresql_where=text("deleted_at IS NULL AND space = 'published' AND role = 'normal'"),
         ),
     )
 
@@ -119,7 +119,7 @@ class DeckSense(Base):
         ForeignKey("nodes.id", ondelete="CASCADE"), primary_key=True
     )
     sense_id: Mapped[int] = mapped_column(
-        ForeignKey("lexi.senses.id", ondelete="RESTRICT"), primary_key=True, index=True
+        ForeignKey("senses.id", ondelete="RESTRICT"), primary_key=True, index=True
     )
 
 

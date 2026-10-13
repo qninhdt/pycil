@@ -1,7 +1,10 @@
+from collections.abc import AsyncGenerator, Awaitable, Callable, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any, cast
 
-from langchain.agents import create_agent
+import langchain.agents as lc_agents
+import langchain_core.messages as lc_messages
 from langchain.agents.middleware import (
     AgentMiddleware,
     HumanInTheLoopMiddleware,
@@ -9,52 +12,69 @@ from langchain.agents.middleware import (
     ToolCallLimitMiddleware,
     hook_config,
 )
-from langchain_core.messages import HumanMessage, ToolMessage, trim_messages
+from langchain.agents.middleware.human_in_the_loop import InterruptOnConfig
+from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
 from langchain_openrouter import ChatOpenRouter
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.config import get_config
 from pydantic import ValidationError
 
+from pycil.account.auth import ActorContext
+from pycil.account.models import User
+from pycil.app.config import ProductConfig
+from pycil.app.http import Problem
+from pycil.app.settings import Deployment
+from pycil.assistant.config import ModelPolicy
 from pycil.assistant.tools import MUTATION_TOOLS, tools, validation_message
-from pycil.http import Problem
-from pycil.logging import get_logger
+from pycil.infrastructure.observability import get_logger
+
+create_agent: Callable[..., Any] = cast(Any, lc_agents).create_agent
+trim_messages: Callable[..., list[BaseMessage]] = cast(Any, lc_messages).trim_messages
 
 logger = get_logger(__name__)
 
 
-class Boundary(AgentMiddleware):
-    def __init__(self, config, turn_context=None):
+class Boundary(AgentMiddleware[Any, Any, Any]):
+    config: ProductConfig
+    turn_context: str | None
+
+    def __init__(self, config: ProductConfig, turn_context: str | None = None) -> None:
+        super().__init__()
         self.config = config
         self.turn_context = turn_context
 
     @hook_config(can_jump_to=["end"])
-    async def aafter_model(self, state, runtime):
-        if get_config()["configurable"].get("reject_all"):
+    async def aafter_model(self, state: Any, runtime: Any) -> dict[str, str] | None:
+        if get_config().get("configurable", {}).get("reject_all"):
             return {"jump_to": "end"}
+        return None
 
-    async def awrap_model_call(self, request, handler):
-        position = max(i for i, message in enumerate(request.messages) if message.type == "human")
-        current = request.messages[position:]
+    async def awrap_model_call(self, request: Any, handler: Callable[[Any], Awaitable[Any]]) -> Any:
+        req_messages = cast(list[BaseMessage], request.messages)
+        human_indices = [
+            i for i, message in enumerate(req_messages) if getattr(message, "type", None) == "human"
+        ]
+        position = max(human_indices)
+        current = req_messages[position:]
         # Retain this turn's whole tool chain; trim only older conversation turns.
-        messages = (
-            trim_messages(
-                request.messages[:position],
-                max_tokens=max(0, self.config.assistant.max_context_messages - len(current)),
-                token_counter=len,
-                strategy="last",
-                start_on="human",
-            )
-            + current
+        trimmed: list[BaseMessage] = trim_messages(
+            req_messages[:position],
+            max_tokens=max(0, self.config.assistant.max_context_messages - len(current)),
+            token_counter=len,
+            strategy="last",
+            start_on="human",
         )
+        messages: list[BaseMessage] = trimmed + current
         # A failed/disconnected tool run can leave a call without its result in history.
-        history, pending = [], {}
+        history: list[BaseMessage] = []
+        pending: dict[str, Any] = {}
         for message in [*messages, None]:
-            if message is None or message.type != "tool":
+            if message is None or getattr(message, "type", None) != "tool":
                 history.extend(
                     ToolMessage(
                         content="tool_result_unavailable",
-                        tool_call_id=call["id"],
-                        name=call["name"],
+                        tool_call_id=str(call["id"]),
+                        name=str(call["name"]),
                         status="error",
                     )
                     for call in pending.values()
@@ -63,23 +83,26 @@ class Boundary(AgentMiddleware):
             if message is None:
                 break
             history.append(message)
-            if message.type == "ai":
-                pending.update((call["id"], call) for call in message.tool_calls)
-            elif message.type == "tool":
-                pending.pop(message.tool_call_id, None)
+            msg_type = getattr(message, "type", None)
+            if msg_type == "ai":
+                pending.update((call["id"], call) for call in getattr(message, "tool_calls", []))
+            elif msg_type == "tool":
+                pending.pop(getattr(message, "tool_call_id", ""), None)
         if self.turn_context is not None:
-            position = max(i for i, message in enumerate(history) if message.type == "human")
-            history.insert(position + 1, HumanMessage(content=self.turn_context))
+            human_pos = max(
+                i for i, message in enumerate(history) if getattr(message, "type", None) == "human"
+            )
+            history.insert(human_pos + 1, HumanMessage(content=self.turn_context))
         logger.debug("assistant_llm_call_started")
         try:
             return await handler(request.override(messages=history))
         except Exception as exc:
-            logger.exception("assistant_llm_call_failed", error_type=type(exc).__name__)
+            logger.error("assistant_llm_call_failed", error_type=type(exc).__name__)
             raise RuntimeError("assistant_provider_unavailable") from None
 
-    async def awrap_tool_call(self, request, handler):
-        tool_name = request.tool_call["name"]
-        tool_call_id = request.tool_call["id"]
+    async def awrap_tool_call(self, request: Any, handler: Callable[[Any], Awaitable[Any]]) -> Any:
+        tool_name = str(request.tool_call["name"])
+        tool_call_id = str(request.tool_call["id"])
         logger.info(
             "assistant_tool_call_started",
             tool_name=tool_name,
@@ -111,20 +134,23 @@ class Boundary(AgentMiddleware):
                 name=tool_name,
                 status="error",
             )
-        except Exception:
-            logger.exception(
+        except Exception as error:
+            logger.error(
                 "assistant_tool_call_failed",
                 tool_name=tool_name,
+                error_type=type(error).__name__,
             )
             raise RuntimeError("assistant_tool_failed") from None
 
 
 @asynccontextmanager
-async def model(deployment, policy, effort, timeout_seconds):
+async def model(
+    deployment: Deployment, policy: ModelPolicy, effort: str, timeout_seconds: int
+) -> AsyncGenerator[ChatOpenRouter]:
     selected = ChatOpenRouter(
         model=policy.id,
-        api_key=deployment.inference_api_key.get_secret_value(),
-        base_url=deployment.inference_base_url,
+        api_key=deployment.llm_api_key,
+        base_url=deployment.llm_base_url,
         timeout=timeout_seconds * 1000,
         app_url=None,
         app_title=None,
@@ -139,26 +165,34 @@ async def model(deployment, policy, effort, timeout_seconds):
         yield selected
 
 
-def graph(resources, user, config, selected_model, *, auto_approve=False, turn_context=None):
+def graph(
+    resources: Any,
+    user: User | ActorContext,
+    config: ProductConfig,
+    selected_model: ChatOpenRouter,
+    *,
+    auto_approve: bool = False,
+    turn_context: str | None = None,
+) -> Any:
     surface = tools(resources, user, config)
-    protected = {
+    protected_map: dict[str, bool | InterruptOnConfig] = {
         t.name: {"allowed_decisions": ["approve", "reject"]}
         for t in surface
         if t.name in MUTATION_TOOLS
     }
+    interrupt_on: dict[str, bool | InterruptOnConfig] = {} if auto_approve else protected_map
+    middleware_chain: Sequence[AgentMiddleware[Any, Any, Any]] = [
+        Boundary(config, turn_context),
+        HumanInTheLoopMiddleware(interrupt_on=interrupt_on),
+        ToolCallLimitMiddleware(run_limit=config.assistant.max_tool_calls, exit_behavior="error"),
+        ModelCallLimitMiddleware(
+            run_limit=config.assistant.max_tool_calls + 1, exit_behavior="error"
+        ),
+    ]
     return create_agent(
         selected_model,
         tools=surface,
-        system_prompt=Path(__file__).with_name("system_prompt.txt").read_text(),
-        middleware=[
-            Boundary(config, turn_context),
-            HumanInTheLoopMiddleware(interrupt_on={} if auto_approve else protected),
-            ToolCallLimitMiddleware(
-                run_limit=config.assistant.max_tool_calls, exit_behavior="error"
-            ),
-            ModelCallLimitMiddleware(
-                run_limit=config.assistant.max_tool_calls + 1, exit_behavior="error"
-            ),
-        ],
+        system_prompt=(Path(__file__).parent / "prompts/system_prompt.txt").read_text(),
+        middleware=middleware_chain,
         checkpointer=AsyncPostgresSaver(resources.checkpoint_pool),
     )

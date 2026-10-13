@@ -7,7 +7,7 @@ const sampleContent = {
   pos: 'adjective',
   definition: 'Clearly expressed and easy to understand, or able to think clearly.',
   pronunciation: '/ˈluː.sɪd/',
-  cefr_level: 'C1',
+  cefr_level: 'c1',
   examples: [
     { text: 'She gave a clear and [lucid] explanation of the whole complex affair.' },
     { text: 'The patient has become more [lucid] this morning.' },
@@ -67,7 +67,7 @@ export const LongWordCard: Story = {
           pos: 'adjective',
           definition: 'Something that does not happen in the way you would expect it to.',
           pronunciation: '/ˌkaʊn.tər.ɪnˈtʃuː.ɪ.tɪv/',
-          cefr_level: 'C2',
+          cefr_level: 'c2',
           examples: [
             { text: 'Steering into a skid is [counterintuitive], but it helps regain traction.' },
           ],

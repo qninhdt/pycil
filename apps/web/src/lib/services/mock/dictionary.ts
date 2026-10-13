@@ -22,22 +22,22 @@ export function createMockDictionary(db: MockDatabase, now: () => Date, details:
       const match = surfaces.find(surface => normalize(surface.content) === key)
         ?? surfaces.find(surface => normalize(surface.content).startsWith(key))
         ?? surfaces.find(surface => normalize(surface.content).includes(key))
-      return match ? [{ surfaceRank: match.rank, hit: { kind: 'WORD', word_id: word.id, lemma: word.lemma, entry_type: word.type,
+      return match ? [{ surfaceRank: match.rank, hit: { kind: 'word', word_id: word.id, lemma: word.lemma, entry_type: word.type,
         match_kind: normalize(match.content) === key ? MatchKind.EXACT : normalize(match.content).startsWith(key) ? MatchKind.PREFIX : MatchKind.SUBSTRING,
         matched_surface: match.content } }] : []
     })
     const references = db.dictionary.references.filter(hit =>
       normalize(hit.display).includes(key) && !words.has(pending.get(hit.display)?.id ?? -1)).map(hit => ({ surfaceRank: 0, hit: {
-        ...hit, kind: 'REFERENCE' as const, matched_surface: hit.display,
+        ...hit, kind: 'reference' as const, matched_surface: hit.display,
         match_kind: normalize(hit.display) === key ? MatchKind.EXACT : normalize(hit.display).startsWith(key) ? MatchKind.PREFIX : MatchKind.SUBSTRING,
       } }))
     const ranks = Object.values(MatchKind)
     return { items: [...hits, ...references].sort(({ hit: a, surfaceRank: ar }, { hit: b, surfaceRank: br }) =>
       ranks.indexOf(a.match_kind) - ranks.indexOf(b.match_kind)
-      || Number(a.kind === 'REFERENCE') - Number(b.kind === 'REFERENCE')
+      || Number(a.kind === 'reference') - Number(b.kind === 'reference')
       || ar - br
-      || normalize(a.kind === 'WORD' ? a.lemma : a.display).localeCompare(normalize(b.kind === 'WORD' ? b.lemma : b.display))
-      || (a.kind === 'WORD' && b.kind === 'WORD' ? a.word_id - b.word_id : a.kind === 'REFERENCE' && b.kind === 'REFERENCE' ? a.reference_id.localeCompare(b.reference_id) : 0))
+      || normalize(a.kind === 'word' ? a.lemma : a.display).localeCompare(normalize(b.kind === 'word' ? b.lemma : b.display))
+      || (a.kind === 'word' && b.kind === 'word' ? a.word_id - b.word_id : a.kind === 'reference' && b.kind === 'reference' ? a.reference_id.localeCompare(b.reference_id) : 0))
       .slice(0, 30).map(item => item.hit) }
   }
   function word(id: number) {
@@ -59,13 +59,13 @@ export function createMockDictionary(db: MockDatabase, now: () => Date, details:
     const names = new Map([...db.nodes, ...db.library.nodes].map(node => [node.id, node.name]))
     const memberships = db.library.membership as Record<string, number[]>
     const senses = value.senses.map(sense => {
-      const decks = Object.entries(memberships).filter(([, ids]) => ids.includes(sense.id)).map(([deckId]) => ({ id: deckId, name: names.get(deckId) ?? deckId, owner_id: details(deckId).owner_id, space: details(deckId).space as 'PERSONAL' | 'PUBLISHED' }))
-      const state = due.has(sense.id) ? 'DUE' : fresh.has(sense.id) || sense.id > 48 ? 'NEW' : 'NOT_YET_DUE'
-      return { sense_id: sense.id, learning: { state: state as 'DUE' | 'NEW' | 'NOT_YET_DUE', due_at: null, last_reviewed_at: null },
+      const decks = Object.entries(memberships).filter(([, ids]) => ids.includes(sense.id)).map(([deckId]) => ({ id: deckId, name: names.get(deckId) ?? deckId, owner_id: details(deckId).owner_id, space: details(deckId).space as 'personal' | 'published' }))
+      const state = due.has(sense.id) ? 'due' : fresh.has(sense.id) || sense.id > 48 ? 'new' : 'not_yet_due'
+      return { sense_id: sense.id, learning: { state: state as 'due' | 'new' | 'not_yet_due', due_at: null, last_reviewed_at: null },
         decks, deck_count: decks.length, decks_has_more: false }
     })
-    const dueCount = senses.filter(sense => sense.learning.state === 'DUE').length
-    const newCount = senses.filter(sense => sense.learning.state === 'NEW').length
+    const dueCount = senses.filter(sense => sense.learning.state === 'due').length
+    const newCount = senses.filter(sense => sense.learning.state === 'new').length
     return { as_of: now().toISOString(), senses, total: senses.length, studied: senses.length - newCount,
       new: newCount, due: dueCount, not_due: senses.length - newCount - dueCount }
   }
@@ -76,21 +76,21 @@ export function createMockDictionary(db: MockDatabase, now: () => Date, details:
     const existing = [...jobs.values()].find(job => job.word.id === candidate.id)
     if (existing) return existing.result
     const generationId = crypto.randomUUID()
-    const result: WordGeneration = { task_id: generationId, status: 'RUNNING', word_id: null,
-      stage: null, error: null, status_url: `/api/v1/word-tasks/${generationId}` }
+    const result: WordGeneration = { task_id: generationId, status: 'running', word_id: null,
+      stage: null, error: null, status_url: `/v1/word-tasks/${generationId}` }
     jobs.set(generationId, { result, polls: 0, word: candidate })
     return result
   }
   function generation(id: string): WordGeneration {
     const job = jobs.get(id)
     if (!job) throw new HomeApiError(404, 'generation_not_found')
-    if (job.result.status === 'SUCCEEDED') return job.result
+    if (job.result.status === 'succeeded') return job.result
     job.polls++
-    if (job.polls === 1) job.result = { ...job.result, status: 'RUNNING', stage: 'Preparing entry' }
+    if (job.polls === 1) job.result = { ...job.result, status: 'running', stage: 'Preparing entry' }
     else {
       words.set(job.word.id, job.word)
       readyWords.push(job.word)
-      job.result = { ...job.result, status: 'SUCCEEDED', word_id: job.word.id, stage: null }
+      job.result = { ...job.result, status: 'succeeded', word_id: job.word.id, stage: null }
     }
     return job.result
   }

@@ -27,14 +27,14 @@ function makeSense(id: number, wordId: number, definition: string, lemma = 'fost
     definition: { id, content: definition, theme_id: null },
     examples: [{ id, content: `They [${lemma}] cooperation.`, theme_id: null }],
     pos: 'verb',
-    tier: 'A2',
+    tier: 'a2',
     forms: lemma === 'rule out'
-      ? [{ surface: 'rule out', inf: 'BASE' }, { surface: 'ruled out', inf: 'PAST' }, { surface: 'ruling out', inf: 'ING' }]
-      : [{ surface: lemma, inf: 'BASE' }],
+      ? [{ surface: 'rule out', inf: 'base' }, { surface: 'ruled out', inf: 'past' }, { surface: 'ruling out', inf: 'ing' }]
+      : [{ surface: lemma, inf: 'base' }],
     patterns: [`${lemma} something`],
     collocations: [],
     relations: [],
-    cefr_level: 'B2',
+    cefr_level: 'b2',
     register: null,
     ipa_uk: '/ˈfɒstə(r)/',
     ipa_us: '/ˈfɑːstər/',
@@ -43,7 +43,7 @@ function makeSense(id: number, wordId: number, definition: string, lemma = 'fost
 
 function createSession({
   question,
-  format = 'SINGLE_CHOICE',
+  format = 'single_choice',
   phase = 'question',
   round = 1,
   position = 0,
@@ -53,7 +53,7 @@ function createSession({
   retry = [],
 }: {
   question: StudyQuestion
-  format?: 'SINGLE_CHOICE' | 'SINGLE_WORD' | 'SHORT_ANSWER'
+  format?: 'single_choice' | 'single_word' | 'short_answer'
   phase?: 'question' | 'feedback' | 'recap' | 'submitting' | 'complete'
   round?: number
   position?: number
@@ -72,8 +72,8 @@ function createSession({
   const sense = makeSense(
     question.sense_id,
     1,
-    question.question_type === 'SENTENCE_REWRITE' ? 'exclude someone or something as a possibility' : 'encouraging or promoting development',
-    question.question_type === 'SENTENCE_REWRITE' ? 'rule out' : 'foster'
+    question.question_type === 'sentence_rewrite' ? 'exclude someone or something as a possibility' : 'encouraging or promoting development',
+    question.question_type === 'sentence_rewrite' ? 'rule out' : 'foster'
   )
 
   return {
@@ -83,7 +83,7 @@ function createSession({
     seed: 'story-seed-abc',
     prepared: {
       node_id: 'preview-library',
-      selection: 'AUTO',
+      selection: 'auto',
       max_sense_count: 10,
       actual_sense_count: 1,
       actual_question_count: 1,
@@ -96,7 +96,7 @@ function createSession({
       bundles: [
         {
           sense,
-          reason: 'DUE',
+          reason: 'due',
           questions: [preparedQuestion],
         },
       ],
@@ -115,7 +115,7 @@ function createSession({
               answer: 'user answer',
               answered_at: new Date().toISOString(),
               complete: outcome === 'clear',
-              diagnostics: grade ?? (format === 'SINGLE_CHOICE' ? { correct: outcome === 'clear' } : format === 'SINGLE_WORD' ? { task_fit: outcome === 'clear', spelling_error: false, sense_id: outcome === 'clear' ? question.sense_id : null } : question.question_type === 'WORD_TO_DEFINITION' ? { sense_id: null, accuracy: null, coverage: null } : { used: false, meaning: null, form: null, construction: null, collocation: null, appropriacy: null, ...(question.question_type === 'SENTENCE_REWRITE' ? { meaning_preservation: null } : {}) }),
+              diagnostics: grade ?? (format === 'single_choice' ? { correct: outcome === 'clear' } : format === 'single_word' ? { task_fit: outcome === 'clear', spelling_error: false, sense_id: outcome === 'clear' ? question.sense_id : null } : question.question_type === 'word_to_definition' ? { sense_id: null, accuracy: null, coverage: null } : { used: false, meaning: null, form: null, construction: null, collocation: null, appropriacy: null, ...(question.question_type === 'sentence_rewrite' ? { meaning_preservation: null } : {}) }),
             },
           ],
         }
@@ -130,7 +130,7 @@ function createSession({
 const clozeQuestion: StudyQuestion = {
   question_artifact_id: 101,
   sense_id: 1,
-  question_type: 'CLOZE_TO_WORD',
+  question_type: 'cloze_to_word',
   content: 'The mentor wanted to _ a welcoming environment for the entire cohort.',
   correct: makeOption('c1', 'foster'),
   distractors: [
@@ -145,7 +145,7 @@ const clozeQuestion: StudyQuestion = {
 const dialogueQuestion: StudyQuestion = {
   question_artifact_id: 102,
   sense_id: 2,
-  question_type: 'DIALOGUE_COMPLETION',
+  question_type: 'dialogue_completion',
   content: [
     { speaker: 'Maya', text: 'Both client leads submitted completely contradictory requirements for the Q3 release.' },
     { speaker: 'Sam', text: null },
@@ -158,14 +158,14 @@ const dialogueQuestion: StudyQuestion = {
     makeOption('d2_2', 'I will [reconcile] our team budget rather than addressing their schedules.'),
     makeOption('d2_3', 'Let’s [reconcile] all future communications and cancel the project immediately.'),
   ],
-  target_placement: 'OPTIONS',
+  target_placement: 'options',
 }
 
 // 2b. DIALOGUE_COMPLETION with SINGLE_CHOICE format (Target in Dialogue placement)
 const dialogueInDialogueQuestion: StudyQuestion = {
   question_artifact_id: 1022,
   sense_id: 2,
-  question_type: 'DIALOGUE_COMPLETION',
+  question_type: 'dialogue_completion',
   content: [
     { speaker: 'Dr. Aris', text: 'The preliminary clinical trials demonstrated unusual variance in drug absorption rates.' },
     { speaker: 'Dr. Chen', text: 'Our laboratory was able to [corroborate] the initial findings with hospital pathology records.' },
@@ -179,14 +179,14 @@ const dialogueInDialogueQuestion: StudyQuestion = {
     makeOption('d22_2', 'Fabricating the hospital pathology data beforehand makes the entire paper suspect.'),
     makeOption('d22_3', 'Postponing the clinical trial indefinitely until next year was the safest path.'),
   ],
-  target_placement: 'DIALOGUE',
+  target_placement: 'dialogue',
 }
 
 // 3. WORD_TO_USAGE with SHORT_ANSWER format
 const usageQuestion: StudyQuestion = {
   question_artifact_id: 103,
   sense_id: 3,
-  question_type: 'WORD_TO_USAGE',
+  question_type: 'word_to_usage',
   content: 'resilience — the capacity to recover quickly from difficulties; toughness',
   correct: makeOption('c3', 'The team demonstrated exceptional resilience during the system outage.'),
   distractors: [],
@@ -197,7 +197,7 @@ const usageQuestion: StudyQuestion = {
 const meaningInContextQuestion: StudyQuestion = {
   question_artifact_id: 104,
   sense_id: 4,
-  question_type: 'MEANING_IN_CONTEXT',
+  question_type: 'meaning_in_context',
   content: 'Her sudden [pragmatic] shift caught several conservative committee members off guard.',
   correct: makeOption('c4', 'Dealing with things sensibly and realistically based on practical considerations'),
   distractors: [
@@ -212,7 +212,7 @@ const meaningInContextQuestion: StudyQuestion = {
 const wordToDefQuestion: StudyQuestion = {
   question_artifact_id: 105,
   sense_id: 5,
-  question_type: 'WORD_TO_DEFINITION',
+  question_type: 'word_to_definition',
   content: 'quintessential',
   correct: makeOption('c5', 'Representing the most perfect or typical example of a quality or class'),
   distractors: [
@@ -227,7 +227,7 @@ const wordToDefQuestion: StudyQuestion = {
 const defToWordQuestion: StudyQuestion = {
   question_artifact_id: 106,
   sense_id: 6,
-  question_type: 'DEFINITION_TO_WORD',
+  question_type: 'definition_to_word',
   content: 'To make something less severe, intense, or painful; ease a burden.',
   correct: makeOption('c6', 'alleviate'),
   distractors: [
@@ -242,7 +242,7 @@ const defToWordQuestion: StudyQuestion = {
 const contextToWordQuestion: StudyQuestion = {
   question_artifact_id: 107,
   sense_id: 7,
-  question_type: 'CONTEXT_TO_WORD',
+  question_type: 'context_to_word',
   content: 'In this situation: After extensive negotiations over zoning laws, the council made a significant concession to local residents.',
   correct: makeOption('c7', 'concession'),
   distractors: [
@@ -257,7 +257,7 @@ const contextToWordQuestion: StudyQuestion = {
 const sentenceRewriteQuestion: StudyQuestion = {
   question_artifact_id: 108,
   sense_id: 8,
-  question_type: 'SENTENCE_REWRITE',
+  question_type: 'sentence_rewrite',
   content: 'The technician confirmed that the battery could not be causing the problem.',
   correct: makeOption('c8', 'The technician [ruled out|p] the battery as the cause of the problem.'),
   distractors: [
@@ -272,52 +272,52 @@ const sentenceRewriteQuestion: StudyQuestion = {
 
 export const ClozeToWord: Story = {
   name: '1. Cloze To Word (Single Word Input)',
-  render: () => <QuizFocus initialSession={createSession({ question: clozeQuestion, format: 'SINGLE_WORD' })} />,
+  render: () => <QuizFocus initialSession={createSession({ question: clozeQuestion, format: 'single_word' })} />,
 }
 
 export const DialogueCompletion: Story = {
   name: '2a. Dialogue Completion · Target in Options (Single Choice)',
-  render: () => <QuizFocus initialSession={createSession({ question: dialogueQuestion, format: 'SINGLE_CHOICE' })} />,
+  render: () => <QuizFocus initialSession={createSession({ question: dialogueQuestion, format: 'single_choice' })} />,
 }
 
 export const DialogueCompletionInDialogue: Story = {
   name: '2b. Dialogue Completion · Target in Dialogue (Single Choice)',
-  render: () => <QuizFocus initialSession={createSession({ question: dialogueInDialogueQuestion, format: 'SINGLE_CHOICE' })} />,
+  render: () => <QuizFocus initialSession={createSession({ question: dialogueInDialogueQuestion, format: 'single_choice' })} />,
 }
 
 export const WordToUsage: Story = {
   name: '3. Word To Usage (Short Answer Textarea)',
-  render: () => <QuizFocus initialSession={createSession({ question: usageQuestion, format: 'SHORT_ANSWER' })} />,
+  render: () => <QuizFocus initialSession={createSession({ question: usageQuestion, format: 'short_answer' })} />,
 }
 
 export const MeaningInContext: Story = {
   name: '4. Meaning In Context (Blockquote + Choice)',
-  render: () => <QuizFocus initialSession={createSession({ question: meaningInContextQuestion, format: 'SINGLE_CHOICE' })} />,
+  render: () => <QuizFocus initialSession={createSession({ question: meaningInContextQuestion, format: 'single_choice' })} />,
 }
 
 export const WordToDefinition: Story = {
   name: '5. Word To Definition (Big Bauhaus Heading)',
-  render: () => <QuizFocus initialSession={createSession({ question: wordToDefQuestion, format: 'SINGLE_CHOICE' })} />,
+  render: () => <QuizFocus initialSession={createSession({ question: wordToDefQuestion, format: 'single_choice' })} />,
 }
 
 export const DefinitionToWord: Story = {
   name: '6. Definition To Word (Choose Lemma)',
-  render: () => <QuizFocus initialSession={createSession({ question: defToWordQuestion, format: 'SINGLE_CHOICE' })} />,
+  render: () => <QuizFocus initialSession={createSession({ question: defToWordQuestion, format: 'single_choice' })} />,
 }
 
 export const ContextToWord: Story = {
   name: '7. Context To Word (Situation Paragraph)',
-  render: () => <QuizFocus initialSession={createSession({ question: contextToWordQuestion, format: 'SINGLE_CHOICE' })} />,
+  render: () => <QuizFocus initialSession={createSession({ question: contextToWordQuestion, format: 'single_choice' })} />,
 }
 
 export const SentenceRewriteShortAnswer: Story = {
   name: '8a. Sentence Rewrite (Short Answer Primary)',
-  render: () => <QuizFocus initialSession={createSession({ question: sentenceRewriteQuestion, format: 'SHORT_ANSWER' })} />,
+  render: () => <QuizFocus initialSession={createSession({ question: sentenceRewriteQuestion, format: 'short_answer' })} />,
 }
 
 export const SentenceRewriteSingleChoice: Story = {
   name: '8b. Sentence Rewrite (Single Choice)',
-  render: () => <QuizFocus initialSession={createSession({ question: sentenceRewriteQuestion, format: 'SINGLE_CHOICE' })} />,
+  render: () => <QuizFocus initialSession={createSession({ question: sentenceRewriteQuestion, format: 'single_choice' })} />,
 }
 
 export const SentenceRewriteFeedback: Story = {
@@ -326,7 +326,7 @@ export const SentenceRewriteFeedback: Story = {
     <QuizFocus
       initialSession={createSession({
         question: sentenceRewriteQuestion,
-        format: 'SHORT_ANSWER',
+        format: 'short_answer',
         phase: 'feedback',
         outcome: 'clear',
       })}
@@ -355,13 +355,13 @@ export const FeedbackPartialWithGrading: Story = {
     <QuizFocus
       initialSession={createSession({
         question: usageQuestion,
-        format: 'SHORT_ANSWER',
+        format: 'short_answer',
         phase: 'feedback',
         outcome: 'partial',
         grade: {
           used: true,
-          meaning: 'APPROXIMATE',
-          form: 'SPELLING_ERROR',
+          meaning: 'approximate',
+          form: 'spelling_error',
           construction: true,
           collocation: true,
           appropriacy: true,
@@ -377,7 +377,7 @@ export const FeedbackMiss: Story = {
     <QuizFocus
       initialSession={createSession({
         question: clozeQuestion,
-        format: 'SINGLE_WORD',
+        format: 'single_word',
         phase: 'feedback',
         outcome: 'miss',
       })}

@@ -6,7 +6,7 @@ test('the landing example connects meanings, decks and practice without saving p
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
   const writes: string[] = []
-  page.on('request', request => { if (request.url().includes('/api/v1/') && request.method() !== 'GET') writes.push(request.url()) })
+  page.on('request', request => { if (request.url().includes('/v1/') && request.method() !== 'GET') writes.push(request.url()) })
   await page.goto('/')
   await expect(page).toHaveURL(/\/$/)
   await expect(page).toHaveTitle('Pycil — A word is only the beginning')

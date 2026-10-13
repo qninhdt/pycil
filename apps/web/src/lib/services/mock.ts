@@ -71,8 +71,8 @@ export function createMockServices(options: MockOptions = {}): FrontendServices 
       updateSettings: (patch, signal) => respond(() => {
         const learning = { ...profile.settings.learning, ...patch.learning }
         const options = profile.learning_options
-        const effective: LearningSettings = { ...learning, formats: options.advanced_grading ? learning.formats : ['SINGLE_CHOICE'] }
-        if (patch.learning?.formats?.some(format => format !== 'SINGLE_CHOICE' && !options.advanced_grading)) throw new HomeApiError(403, 'advanced_grading_not_available')
+        const effective: LearningSettings = { ...learning, formats: options.advanced_grading ? learning.formats : ['single_choice'] }
+        if (patch.learning?.formats?.some(format => format !== 'single_choice' && !options.advanced_grading)) throw new HomeApiError(403, 'advanced_grading_not_available')
         if (learning.question_types.length === 0 || learning.formats.length === 0) throw new HomeApiError(422, 'invalid_preferences')
         if (!effective.question_types.some(type => effective.formats.some(format => options.pairs.some(pair => pair.question_type === type && pair.format === format))) ||
           learning.questions_per_sense < options.limits.min_questions_per_sense || learning.questions_per_sense > options.limits.max_questions_per_sense ||
@@ -113,17 +113,17 @@ export function createMockServices(options: MockOptions = {}): FrontendServices 
       createReference: (parentId, targetId, name, signal, confirmPublication) => respond(() => library.createReference(parentId, targetId, name, confirmPublication), signal),
       list: (parentId, signal) => respond(() => parseLibrary(library.contents(parentId, { limit: 4 })), signal),
       publicContents: (parentId, cursor, signal) => respond(() => {
-        if (library.details(parentId).space !== 'PUBLISHED') throw new HomeApiError(404, 'node_not_found')
+        if (library.details(parentId).space !== 'published') throw new HomeApiError(404, 'node_not_found')
         const page = library.contents(parentId, { cursor, limit: 12 })
         return parseLibrary({ ...page, nodes: page.nodes.map(node => ({ ...node, summary: null })) })
       }, signal),
       publicNode: (nodeId, signal) => respond(() => {
         const detail = library.details(nodeId)
-        if (detail.space !== 'PUBLISHED') throw new HomeApiError(404, 'node_not_found')
+        if (detail.space !== 'published') throw new HomeApiError(404, 'node_not_found')
         return { ...detail, summary: null }
       }, signal),
       publicMeanings: (nodeId, cursor, signal) => respond(() => {
-        if (library.details(nodeId).space !== 'PUBLISHED') throw new HomeApiError(404, 'node_not_found')
+        if (library.details(nodeId).space !== 'published') throw new HomeApiError(404, 'node_not_found')
         const page = library.meanings(nodeId, { cursor, limit: 12 })
         return { ...page, senses: page.senses.map(sense => ({ ...sense, learning: null, sources: [], sources_has_more: false })) }
       }, signal),

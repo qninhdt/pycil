@@ -14,8 +14,6 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY apps/api /app/apps/api
-COPY vendor/lexi-ai /app/vendor/lexi-ai
-RUN cd /app/vendor/lexi-ai && sha256sum --check SHA256SUMS && sha256sum --check CONTENT_SHA256SUMS
 
 # Product policy lives at one fixed path in the image rather than being resolved
 # from a working directory, so the API reads the same revision

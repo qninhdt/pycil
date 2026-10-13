@@ -6,12 +6,12 @@ import type { DictionarySense, DictionaryWord } from '../../dictionary-model'
 import type { LibraryDetails, Meaning } from '../../library-model'
 import { parseMarkedText } from '../../marked-text'
 
-const types: QuestionType[] = ['DEFINITION_TO_WORD','CONTEXT_TO_WORD','CLOZE_TO_WORD','WORD_TO_DEFINITION','WORD_TO_USAGE','DIALOGUE_COMPLETION','MEANING_IN_CONTEXT','SENTENCE_REWRITE']
+const types: QuestionType[] = ['definition_to_word','context_to_word','cloze_to_word','word_to_definition','word_to_usage','dialogue_completion','meaning_in_context','sentence_rewrite']
 const pairs: Record<QuestionType, AnswerFormat[]> = {
-  DEFINITION_TO_WORD: ['SINGLE_CHOICE','SINGLE_WORD'], CONTEXT_TO_WORD: ['SINGLE_CHOICE','SINGLE_WORD'],
-  CLOZE_TO_WORD: ['SINGLE_CHOICE','SINGLE_WORD'], WORD_TO_DEFINITION: ['SINGLE_CHOICE','SHORT_ANSWER'],
-  WORD_TO_USAGE: ['SINGLE_CHOICE','SHORT_ANSWER'], DIALOGUE_COMPLETION: ['SINGLE_CHOICE'], MEANING_IN_CONTEXT: ['SINGLE_CHOICE'],
-  SENTENCE_REWRITE: ['SHORT_ANSWER','SINGLE_CHOICE'],
+  definition_to_word: ['single_choice','single_word'], context_to_word: ['single_choice','single_word'],
+  cloze_to_word: ['single_choice','single_word'], word_to_definition: ['single_choice','short_answer'],
+  word_to_usage: ['single_choice','short_answer'], dialogue_completion: ['single_choice'], meaning_in_context: ['single_choice'],
+  sentence_rewrite: ['short_answer','single_choice'],
 }
 const strip = (value: string) => parseMarkedText(value).text
 const hide = (value: string) => value.replace(/\[[^\]\[|]+(?:\|[a-z0-9]+)?\]/i, '_')
@@ -19,7 +19,7 @@ const normalize = (value: string) => value.trim().toLocaleLowerCase('en').replac
 
 export function createMockQuestions(db: MockDatabase, library: {
   details: (id: string) => LibraryDetails
-  meanings: (id: string, options: { state?: 'ALL' | 'NEW' | 'DUE' | 'NOT_YET_DUE'; limit?: number; cursor?: string }) => { senses: Meaning[]; next_cursor: string | null }
+  meanings: (id: string, options: { state?: 'all' | 'new' | 'due' | 'not_yet_due'; limit?: number; cursor?: string }) => { senses: Meaning[]; next_cursor: string | null }
   setLearning: (senseId: number) => void
 }, now: () => Date) {
   const words = db.dictionary.words as DictionaryWord[]
@@ -30,41 +30,41 @@ export function createMockQuestions(db: MockDatabase, library: {
 
   function option(id: string, content: string): QuestionOption { return { id, content } }
   function others(sense: DictionarySense, kind: QuestionType, count: number): { word: DictionaryWord; sense: DictionarySense }[] {
-    const pool = entries.filter(item => item.sense.id !== sense.id && (kind === 'DEFINITION_TO_WORD' || kind === 'CONTEXT_TO_WORD' || kind === 'CLOZE_TO_WORD' ? item.word.id !== sense.word_id : true))
+    const pool = entries.filter(item => item.sense.id !== sense.id && (kind === 'definition_to_word' || kind === 'context_to_word' || kind === 'cloze_to_word' ? item.word.id !== sense.word_id : true))
     return Array.from({ length: 3 }, (_, index) => pool[(sense.id * 7 + count * 11 + index * 13) % pool.length])
   }
   function build(word: DictionaryWord, sense: DictionarySense, kind: QuestionType, variant: number): PreparedQuestion {
     const qid = sense.id * 1000 + types.indexOf(kind) * 100 + variant + 1
     const definition = sense.definition?.content ?? `the meaning of ${word.lemma}`
     const source = sense.examples[variant % Math.max(1, sense.examples.length)]?.content ?? `They use [${word.lemma}] in this context.`
-    const forms = [{ surface: word.lemma, inf: 'BASE' }, ...sense.forms].sort((a, b) => b.surface.length - a.surface.length)
+    const forms = [{ surface: word.lemma, inf: 'base' }, ...sense.forms].sort((a, b) => b.surface.length - a.surface.length)
     const form = forms.find(value => new RegExp(`\\b${value.surface.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(source))
-    const codes: Record<string, string> = { BASE: '', PAST: 'p', PAST_PARTICIPLE: 'pp', PRESENT_3SG: '3', ING: 'ing', PLURAL: 'pl', COMPARATIVE: 'c', SUPERLATIVE: 's' }
+    const codes: Record<string, string> = { base: '', past: 'p', past_participle: 'pp', PRESENT_3SG: '3', ing: 'ing', plural: 'pl', comparative: 'c', superlative: 's' }
     const example = parseMarkedText(source).spans.length ? source : form ? source.replace(new RegExp(`\\b${form.surface.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i'), match => `[${match}${codes[form.inf] ? '|' + codes[form.inf] : ''}]`)
       : sense.examples.find(value => parseMarkedText(value.content).spans.length)?.content ?? `They use [${word.lemma}] in this context.`
     const distractors = others(sense, kind, variant)
     let content: string | { speaker: string; text: string | null }[] = definition
     let correctText = word.lemma
     let wrongTexts = distractors.map(entry => entry.word.lemma)
-    let target_placement: 'DIALOGUE' | 'OPTIONS' | null = null
-    if (kind === 'CONTEXT_TO_WORD') content = `In this situation: “${strip(hide(example)).replace('_', '…')}” — ${definition}.`
-    if (kind === 'CLOZE_TO_WORD') {
+    let target_placement: 'dialogue' | 'options' | null = null
+    if (kind === 'context_to_word') content = `In this situation: “${strip(hide(example)).replace('_', '…')}” — ${definition}.`
+    if (kind === 'cloze_to_word') {
       content = hide(example).includes('_') ? hide(example) : `To express “${definition}”, use _.`
       correctText = parseMarkedText(example).spans[0]?.surface ?? word.lemma
     }
-    if (kind === 'WORD_TO_DEFINITION') {
+    if (kind === 'word_to_definition') {
       content = `[${word.lemma}]`; correctText = definition
       wrongTexts = distractors.map(entry => entry.sense.definition?.content ?? `another meaning of ${entry.word.lemma}`)
     }
-    if (kind === 'WORD_TO_USAGE') {
+    if (kind === 'word_to_usage') {
       content = `[${word.lemma}] — ${definition}`; correctText = example
       wrongTexts = distractors.map(entry => entry.sense.examples[0]?.content ?? `They discussed ${entry.word.lemma}.`)
     }
-    if (kind === 'DIALOGUE_COMPLETION') {
-      target_placement = variant % 2 ? 'OPTIONS' : 'DIALOGUE'
+    if (kind === 'dialogue_completion') {
+      target_placement = variant % 2 ? 'options' : 'dialogue'
       const partner = variant % 2 ? 'Maya' : 'Alex'
       const learner = variant % 2 ? 'Noah' : 'Sam'
-      if (target_placement === 'OPTIONS') {
+      if (target_placement === 'options') {
         content = [
           { speaker: partner, text: `We need to resolve the ambiguity around “${definition}” before tomorrow's milestone.` },
           { speaker: learner, text: null },
@@ -84,11 +84,11 @@ export function createMockQuestions(db: MockDatabase, library: {
         wrongTexts = distractors.map(entry => `Wait, wouldn't that imply ${entry.sense.definition?.content ?? entry.word.lemma} instead?`)
       }
     }
-    if (kind === 'MEANING_IN_CONTEXT') {
+    if (kind === 'meaning_in_context') {
       content = example; correctText = definition
       wrongTexts = distractors.map(entry => entry.sense.definition?.content ?? `another meaning of ${entry.word.lemma}`)
     }
-    if (kind === 'SENTENCE_REWRITE') {
+    if (kind === 'sentence_rewrite') {
       content = `The technician confirmed that the battery could not be causing the problem.`
       correctText = `The technician [${word.lemma}|p] the battery as the cause of the problem.`
       wrongTexts = distractors.map(entry => `The technician could not [${word.lemma}] the battery.`)
@@ -98,28 +98,28 @@ export function createMockQuestions(db: MockDatabase, library: {
     const pool = [correct, ...wrong], rotate = variant % pool.length
     const options = [...pool.slice(rotate), ...pool.slice(0, rotate)]
     return { question: { question_artifact_id: qid, sense_id: sense.id, question_type: kind, content, correct, distractors: wrong,
-      target_placement }, format: 'SINGLE_CHOICE', level: 1, options }
+      target_placement }, format: 'single_choice', level: 1, options }
   }
-  function prepare(input: { node_id: string; selection: 'DUE' | 'NEW' | 'AUTO'; max_sense_count?: number; questions_per_sense?: number }, preferences: LearningSettings): PreparedSession {
+  function prepare(input: { node_id: string; selection: 'due' | 'new' | 'auto'; max_sense_count?: number; questions_per_sense?: number }, preferences: LearningSettings): PreparedSession {
     library.details(input.node_id)
     const target = input.max_sense_count ?? preferences.max_sense_count, k = input.questions_per_sense ?? preferences.questions_per_sense
     if (!Number.isInteger(target) || target < 1 || target > 20 || !Number.isInteger(k) || k < 1 || k > 3) throw new HomeApiError(422, 'invalid_preparation')
     const all: Meaning[] = []
     let pageCursor: string | undefined
     do {
-      const page = library.meanings(input.node_id, { state: 'ALL', limit: 100, cursor: pageCursor })
+      const page = library.meanings(input.node_id, { state: 'all', limit: 100, cursor: pageCursor })
       all.push(...page.senses); pageCursor = page.next_cursor ?? undefined
     } while (pageCursor)
-    const due = all.filter(item => item.learning?.state === 'DUE'), fresh = all.filter(item => item.learning?.state === 'NEW')
-    const early = all.filter(item => item.learning?.state === 'NOT_YET_DUE')
-    const selected = (input.selection === 'DUE' ? due : input.selection === 'NEW' ? fresh : [...due, ...fresh, ...early]).slice(0, target)
+    const due = all.filter(item => item.learning?.state === 'due'), fresh = all.filter(item => item.learning?.state === 'new')
+    const early = all.filter(item => item.learning?.state === 'not_yet_due')
+    const selected = (input.selection === 'due' ? due : input.selection === 'new' ? fresh : [...due, ...fresh, ...early]).slice(0, target)
     const enabled = types.filter(kind => preferences.question_types.includes(kind) && pairs[kind].some(format => preferences.formats.includes(format)))
     if (!enabled.length) throw new HomeApiError(422, 'infeasible_learning_preferences')
     const bundles = selected.map(item => {
       const entry = bySense.get(item.sense_id)
       if (!entry) throw new HomeApiError(409, 'learning_content_changed')
       const reason = item.learning!.state
-      const level = reason === 'NEW' ? 1 : 3
+      const level = reason === 'new' ? 1 : 3
       const enabledPairs = db.account.learning_options.pairs.filter(pair => enabled.includes(pair.question_type as QuestionType) && preferences.formats.includes(pair.format as AnswerFormat))
       const normal = enabledPairs.filter(pair => pair.level <= level)
       const eligible = normal.length ? normal : enabledPairs.filter(pair => pair.level === Math.min(...enabledPairs.map(pair => pair.level)))
@@ -139,31 +139,31 @@ export function createMockQuestions(db: MockDatabase, library: {
       actual_question_count: bundles.length * k, preferences: { ...preferences, max_sense_count: target, questions_per_sense: k }, bundles })
   }
   function grade(input: GradeInput): GradeResult {
-    // shortcut: semantic grading is illustrative in the design preview; live mode uses Lexi.
-    if (input.format === 'SINGLE_CHOICE') throw new HomeApiError(422, 'invalid_grade_request')
+    // shortcut: semantic grading is illustrative in the design preview; live mode uses backend grading.
+    if (input.format === 'single_choice') throw new HomeApiError(422, 'invalid_grade_request')
     const senseId = Math.floor(input.question_artifact_id / 1000), entry = bySense.get(senseId)
     if (!entry) throw new HomeApiError(404, 'question_artifact_not_found')
     const kind = input.question_type, variant = input.question_artifact_id % 100 - 1
     if (!kind || variant < 0 || variant > 7 || !pairs[kind].includes(input.format)) throw new HomeApiError(422, 'unsupported_question_format')
     const answer = normalize(input.answer ?? ''), word = normalize(entry.word.lemma), definition = normalize(entry.sense.definition?.content ?? '')
     const response = (diagnostics: Diagnostic) => parseGrade({ question_artifact_id: input.question_artifact_id, question_type: kind, format: input.format, diagnostics })
-    if (input.format === 'SINGLE_WORD') {
+    if (input.format === 'single_word') {
       const expected = normalize(build(entry.word, entry.sense, kind, variant).question.correct.content)
       const matched = entries.find(item => normalize(item.word.lemma) === answer)
       const spelling_error = answer !== expected && Math.abs(answer.length - expected.length) <= 1 && answer.slice(0, 2) === expected.slice(0, 2) && !matched
       return response({ task_fit: answer === expected || spelling_error || Boolean(matched), spelling_error,
         sense_id: spelling_error ? senseId : answer === expected ? senseId : matched?.sense.id ?? null })
     }
-    if (kind === 'WORD_TO_DEFINITION') {
+    if (kind === 'word_to_definition') {
       const terms = definition.split(/\W+/).filter(term => term.length > 4)
       const hits = terms.filter(term => answer.includes(term)).length
-      return response({ sense_id: hits ? senseId : null, accuracy: hits >= Math.min(2, terms.length) ? 'ACCURATE' : hits ? 'MIXED' : null,
-        coverage: hits >= Math.min(2, terms.length) ? 'SUFFICIENT' : hits ? 'PARTIAL' : null })
+      return response({ sense_id: hits ? senseId : null, accuracy: hits >= Math.min(2, terms.length) ? 'accurate' : hits ? 'mixed' : null,
+        coverage: hits >= Math.min(2, terms.length) ? 'sufficient' : hits ? 'partial' : null })
     }
     const used = answer.includes(word)
-    const meaning = used && (definition.split(/\W+/).some(term => term.length > 4 && answer.includes(term)) || answer.length > word.length + 25) ? 'CORRECT' : used ? 'APPROXIMATE' : null
-    return response({ used, meaning, form: used ? 'CORRECT' : null, construction: used ? true : null, collocation: used ? true : null, appropriacy: used ? true : null,
-      ...(kind === 'SENTENCE_REWRITE' ? { meaning_preservation: used ? 'PRESERVED' as const : null } : {}) })
+    const meaning = used && (definition.split(/\W+/).some(term => term.length > 4 && answer.includes(term)) || answer.length > word.length + 25) ? 'correct' : used ? 'approximate' : null
+    return response({ used, meaning, form: used ? 'correct' : null, construction: used ? true : null, collocation: used ? true : null, appropriacy: used ? true : null,
+      ...(kind === 'sentence_rewrite' ? { meaning_preservation: used ? 'preserved' as const : null } : {}) })
   }
   function review(input: { results: SubmittedResult[]; key: string }): ReviewBatchResult {
     const body = JSON.stringify(input.results), previous = receipts.get(input.key)

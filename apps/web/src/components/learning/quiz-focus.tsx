@@ -60,7 +60,7 @@ export function Prompt({
   }, [item, selectedOption?.id])
 
   // 1. DIALOGUE_COMPLETION (Messenger / WhatsApp style chat)
-  if (question.question_type === 'DIALOGUE_COMPLETION' && Array.isArray(question.content)) {
+  if (question.question_type === 'dialogue_completion' && Array.isArray(question.content)) {
     const turns = question.content
     const hiddenIndex = turns.findIndex(turn => turn.text === null)
     const userSpeaker = hiddenIndex >= 0 ? turns[hiddenIndex].speaker : 'You'
@@ -188,9 +188,9 @@ export function Prompt({
   const content = typeof question.content === 'string' ? question.content : ''
 
   // 2. CLOZE_TO_WORD (The Dynamic Editorial Stamp)
-  if (question.question_type === 'CLOZE_TO_WORD') {
+  if (question.question_type === 'cloze_to_word') {
     const [before, after] = content.split('_')
-    const activeWord = item.format === 'SINGLE_WORD' ? typed : selectedOption ? selectedOption.content : ''
+    const activeWord = item.format === 'single_word' ? typed : selectedOption ? selectedOption.content : ''
 
     return (
       <div className="mb-4 sm:mb-6 p-4 sm:p-6 md:p-7 border border-foreground bg-background w-full">
@@ -209,7 +209,7 @@ export function Prompt({
   }
 
   // 3. WORD_TO_USAGE (The Author’s Atelier)
-  if (question.question_type === 'WORD_TO_USAGE') {
+  if (question.question_type === 'word_to_usage') {
     const [word, meaning] = content.split(' — ')
     return (
       <div className="mb-4 sm:mb-6 p-4 sm:p-6 md:p-7 border-l-4 border-art-red border-y border-r border-foreground bg-background w-full">
@@ -222,7 +222,7 @@ export function Prompt({
   }
 
   // 4. WORD_TO_DEFINITION (The Lexicon Monolith)
-  if (question.question_type === 'WORD_TO_DEFINITION') {
+  if (question.question_type === 'word_to_definition') {
     return (
       <div className="mb-4 sm:mb-6 p-4 sm:p-6 md:p-7 border border-foreground bg-background flex flex-col justify-center w-full">
         <strong className="block text-3xl sm:text-4xl font-black tracking-tight text-foreground leading-tight wrap-anywhere">
@@ -233,7 +233,7 @@ export function Prompt({
   }
 
   // 5. MEANING_IN_CONTEXT (The Excerpt Monocle)
-  if (question.question_type === 'MEANING_IN_CONTEXT') {
+  if (question.question_type === 'meaning_in_context') {
     return (
       <blockquote className="w-full mb-4 sm:mb-6 p-4 sm:p-6 md:p-7 border border-foreground bg-background">
         <p className="text-base sm:text-lg font-medium leading-relaxed text-foreground m-0">
@@ -244,7 +244,7 @@ export function Prompt({
   }
 
   // 6. DEFINITION_TO_WORD (The Reverse Codex)
-  if (question.question_type === 'DEFINITION_TO_WORD') {
+  if (question.question_type === 'definition_to_word') {
     return (
       <div className="w-full mb-4 sm:mb-6 p-4 sm:p-6 md:p-7 border-l-4 border-foreground border-y border-r border-foreground bg-background">
         <blockquote className="text-base sm:text-lg font-medium leading-relaxed text-foreground m-0">
@@ -255,7 +255,7 @@ export function Prompt({
   }
 
   // 7. CONTEXT_TO_WORD (The Case Dossier) - Strip "In this situation:" prefix!
-  if (question.question_type === 'CONTEXT_TO_WORD') {
+  if (question.question_type === 'context_to_word') {
     const cleanedContext = content.replace(/^In this situation:\s*/i, '')
     return (
       <div className="w-full mb-4 sm:mb-6 p-4 sm:p-6 md:p-7 border border-foreground bg-background">
@@ -306,8 +306,8 @@ export function GradeDetails({ grade }: { grade: Diagnostic | null }) {
   }
 
   if (typeof d.meaning === 'string' && d.meaning) {
-    const isExact = d.meaning === 'CORRECT' || d.meaning === 'EXACT'
-    const isRelated = d.meaning === 'APPROXIMATE' || d.meaning === 'RELATED'
+    const isExact = d.meaning === 'correct' || d.meaning === 'exact'
+    const isRelated = d.meaning === 'approximate' || d.meaning === 'RELATED'
     pills.push({
       key: 'meaning',
       label: t('meaningMatch'),
@@ -317,7 +317,7 @@ export function GradeDetails({ grade }: { grade: Diagnostic | null }) {
   }
 
   if (typeof d.accuracy === 'string' && d.accuracy) {
-    const isAccurate = d.accuracy === 'ACCURATE'
+    const isAccurate = d.accuracy === 'accurate'
     pills.push({
       key: 'accuracy',
       label: t('meaningMatch'),
@@ -334,7 +334,7 @@ export function GradeDetails({ grade }: { grade: Diagnostic | null }) {
       status: d.spelling_error ? 'warn' : 'pass',
     })
   } else if (typeof d.form === 'string' && d.form) {
-    const isCorrect = d.form === 'CORRECT'
+    const isCorrect = d.form === 'correct'
     pills.push({
       key: 'form',
       label: t('formMatch'),
@@ -371,7 +371,7 @@ export function GradeDetails({ grade }: { grade: Diagnostic | null }) {
   }
 
   if (typeof d.meaning_preservation === 'string' && d.meaning_preservation) {
-    const isPreserved = d.meaning_preservation === 'PRESERVED' || d.meaning_preservation === 'EXACT'
+    const isPreserved = d.meaning_preservation === 'preserved' || d.meaning_preservation === 'exact'
     pills.push({
       key: 'preservation',
       label: t('nuancePreserved'),
@@ -463,7 +463,7 @@ export function QuizFocus({ initialSession }: { initialSession?: StudySession } 
     accountId = profile?.id ?? ''
   const nodeId = params?.get('node') || profile?.library_node_id || ''
   const selection = (
-    params?.get('selection') === 'NEW' || params?.get('selection') === 'DUE' ? params?.get('selection') : 'AUTO'
+    params?.get('selection') === 'new' || params?.get('selection') === 'due' ? params?.get('selection') : 'auto'
   ) as SessionSelection
   const backHref = params?.get('owner') && nodeId ? publishedHref(params.get('owner')!, nodeId) : libraryHref(nodeId)
   const [session, setSession] = useState<StudySession | null>(initialSession ?? null)
@@ -618,7 +618,7 @@ export function QuizFocus({ initialSession }: { initialSession?: StudySession } 
       if (!commit(locked)) return
       const pending = locked.pendingAttempt!
       let diagnostics: Diagnostic
-      if (item.format === 'SINGLE_CHOICE') {
+      if (item.format === 'single_choice') {
         if (pending.answer !== null && !item.options.some(option => option.id === pending.answer)) throw new Error(t('chooseAvailableAnswer'))
         diagnostics = { correct: pending.answer === item.question.correct.id }
       } else {
@@ -677,7 +677,7 @@ export function QuizFocus({ initialSession }: { initialSession?: StudySession } 
 
   // Instant keyboard submission on 1-4 for SINGLE_CHOICE
   useEffect(() => {
-    if (phase !== 'question' || !item || item.format !== 'SINGLE_CHOICE' || busy) return
+    if (phase !== 'question' || !item || item.format !== 'single_choice' || busy) return
     const key = (event: KeyboardEvent) => {
       if (
         event.altKey ||
@@ -764,7 +764,7 @@ export function QuizFocus({ initialSession }: { initialSession?: StudySession } 
           </button>
           <div className="flex gap-3 items-baseline min-w-0 px-6 whitespace-nowrap overflow-hidden text-ellipsis [&_strong]:font-extrabold [&_span]:text-muted-foreground max-[760px]:px-3 max-[760px]:gap-2 max-[760px]:text-[13px]">
             <strong>{t('pycilLearn')}</strong>
-            <span>{selection === 'DUE' ? tLib('review') : selection === 'NEW' ? tLib('learnNew') : tHome('practice')}</span>
+            <span>{selection === 'due' ? tLib('review') : selection === 'new' ? tLib('learnNew') : tHome('practice')}</span>
           </div>
           <div className="flex items-center gap-4 min-w-0 max-[760px]:pr-4 max-[760px]:pl-2">
             <div className="w-20 sm:w-full h-2 bg-muted overflow-hidden">
@@ -791,7 +791,7 @@ export function QuizFocus({ initialSession }: { initialSession?: StudySession } 
               <AlertDialogDescription>{preparationError}</AlertDialogDescription>
             </AlertDialogHeader>
             <div className="flex flex-wrap gap-2">
-              {needsSignIn ? <Button asChild><Link href={`/login?returnTo=${encodeURIComponent(`/focus/learn?${params}`)}`}>{tCommon('signIn')}</Link></Button>
+              {needsSignIn ? <Button asChild><Link href={`/login?returnTo=${encodeURIComponent(`/app/learn?${params}`)}`}>{tCommon('signIn')}</Link></Button>
                 : <Button disabled={starting} onClick={() => { if (accountError) account.retry(); else void start() }}>{tCommon('retry')}</Button>}
               <Button variant="outline" onClick={() => router.replace(backHref)}>{tLib('backToLibrary')}</Button>
             </div>
@@ -844,20 +844,20 @@ export function QuizFocus({ initialSession }: { initialSession?: StudySession } 
   }
 
   const questionLabels: Record<string, string> = {
-    DEFINITION_TO_WORD: t('findTheWord'),
-    CONTEXT_TO_WORD: t('readTheContext'),
-    CLOZE_TO_WORD: t('completeTheSentence'),
-    WORD_TO_DEFINITION: t('explainTheMeaning'),
-    WORD_TO_USAGE: t('useThisMeaning'),
-    DIALOGUE_COMPLETION: t('completeTheDialogue'),
-    MEANING_IN_CONTEXT: t('meaningInContext'),
-    SENTENCE_REWRITE: t('rewriteTheSentence'),
+    definition_to_word: t('findTheWord'),
+    context_to_word: t('readTheContext'),
+    cloze_to_word: t('completeTheSentence'),
+    word_to_definition: t('explainTheMeaning'),
+    word_to_usage: t('useThisMeaning'),
+    dialogue_completion: t('completeTheDialogue'),
+    meaning_in_context: t('meaningInContext'),
+    sentence_rewrite: t('rewriteTheSentence'),
   }
 
   // Helper metrics for WORD_TO_USAGE & SENTENCE_REWRITE
   const usageWordCount = typed.trim() ? typed.trim().split(/\s+/).length : 0
-  const isUsageQuestion = question?.question_type === 'WORD_TO_USAGE'
-  const isRewriteQuestion = question?.question_type === 'SENTENCE_REWRITE'
+  const isUsageQuestion = question?.question_type === 'word_to_usage'
+  const isRewriteQuestion = question?.question_type === 'sentence_rewrite'
   const targetUsageLemma = isUsageQuestion && typeof question.content === 'string' ? question.content.split(' — ')[0] : ''
   const bundle = session?.prepared?.bundles?.find(b => b.sense.id === question?.sense_id)
   const targetRewriteLemma = isRewriteQuestion
@@ -882,9 +882,9 @@ export function QuizFocus({ initialSession }: { initialSession?: StudySession } 
 
   // Determine option layout strategy based on question archetype
   const isStackedLayout =
-    question?.question_type === 'DIALOGUE_COMPLETION' ||
-    question?.question_type === 'MEANING_IN_CONTEXT' ||
-    question?.question_type === 'SENTENCE_REWRITE'
+    question?.question_type === 'dialogue_completion' ||
+    question?.question_type === 'meaning_in_context' ||
+    question?.question_type === 'sentence_rewrite'
 
   return (
     <main className="h-svh max-h-svh overflow-hidden flex flex-col bg-background text-foreground">
@@ -900,7 +900,7 @@ export function QuizFocus({ initialSession }: { initialSession?: StudySession } 
         </button>
         <div className="flex gap-3 items-baseline min-w-0 px-6 whitespace-nowrap overflow-hidden text-ellipsis [&_strong]:font-extrabold [&_span]:text-muted-foreground max-[760px]:px-3 max-[760px]:gap-2 max-[760px]:text-[13px] max-[760px]:[&_strong]:overflow-hidden max-[760px]:[&_strong]:text-ellipsis">
           <strong>{t('pycilLearn')}</strong>
-          <span>{selection === 'DUE' ? tLib('review') : selection === 'NEW' ? tLib('learnNew') : tHome('practice')}</span>
+          <span>{selection === 'due' ? tLib('review') : selection === 'new' ? tLib('learnNew') : tHome('practice')}</span>
         </div>
         <div className="flex items-center gap-2.5 sm:gap-4 min-w-0 [&_small]:flex-none [&_small]:text-xs [&_small]:text-muted-foreground [&_small]:tabular-nums max-[760px]:pr-4 max-[760px]:pl-2">
           <div className="w-16 sm:w-full h-2 bg-muted overflow-hidden [&_span]:block [&_span]:h-full [&_span]:bg-foreground [&_span]:transition-[width] [&_span]:duration-200 [&_span]:ease-out max-[760px]:min-w-[18px] motion-reduce:[&_span]:transition-none">
@@ -936,19 +936,19 @@ export function QuizFocus({ initialSession }: { initialSession?: StudySession } 
 
               <div className="focus-card-body w-[min(100%,860px)] m-auto flex-1 max-[760px]:flex-initial max-[760px]:h-auto min-h-0 flex flex-col justify-center overflow-y-auto px-4 py-5 sm:px-10 sm:py-8 max-[760px]:mx-auto">
                 <h1 className="text-xl sm:text-2xl md:text-[28px] font-black text-foreground mb-4 sm:mb-6 tracking-tight leading-tight">
-                  {question!.question_type === 'DEFINITION_TO_WORD'
+                  {question!.question_type === 'definition_to_word'
                     ? t('promptWhichWordMatches')
-                    : question!.question_type === 'CONTEXT_TO_WORD'
+                    : question!.question_type === 'context_to_word'
                       ? t('promptWhichWordFits')
-                      : question!.question_type === 'CLOZE_TO_WORD'
+                      : question!.question_type === 'cloze_to_word'
                         ? t('completeTheSentence')
-                        : question!.question_type === 'DIALOGUE_COMPLETION'
+                        : question!.question_type === 'dialogue_completion'
                           ? t('promptChooseBestReply')
-                          : question!.question_type === 'MEANING_IN_CONTEXT'
+                          : question!.question_type === 'meaning_in_context'
                             ? t('promptWhatDoesHighlightedMean')
-                            : question!.question_type === 'WORD_TO_DEFINITION'
+                            : question!.question_type === 'word_to_definition'
                               ? t('explainTheMeaning')
-                              : question!.question_type === 'SENTENCE_REWRITE'
+                              : question!.question_type === 'sentence_rewrite'
                                 ? targetRewriteLemma
                                   ? t('promptRewriteUsing', { lemma: targetRewriteLemma })
                                   : t('rewriteTheSentence')
@@ -962,10 +962,10 @@ export function QuizFocus({ initialSession }: { initialSession?: StudySession } 
                     className="focus-answer w-full"
                     onSubmit={event => {
                       event.preventDefault()
-                      void answer(item.format === 'SINGLE_CHOICE' ? selected : typed)
+                      void answer(item.format === 'single_choice' ? selected : typed)
                     }}
                   >
-                    {item.format === 'SINGLE_CHOICE' ? (
+                    {item.format === 'single_choice' ? (
                       <fieldset className="w-full">
                         <legend className="sr-only">{t('chooseOneAnswer')}</legend>
                         <div
@@ -1003,7 +1003,7 @@ export function QuizFocus({ initialSession }: { initialSession?: StudySession } 
                           ))}
                         </div>
                       </fieldset>
-                    ) : item.format === 'SINGLE_WORD' ? (
+                    ) : item.format === 'single_word' ? (
                       <div className="mt-2 w-full">
                         <label
                           htmlFor="single-word-input"
@@ -1084,9 +1084,9 @@ export function QuizFocus({ initialSession }: { initialSession?: StudySession } 
                     {/* Bottom action controls */}
                     <div className="flex items-center justify-between mt-4 sm:mt-6 pt-3 sm:pt-4 border-t border-border w-full">
                       <div className="text-xs text-muted-foreground font-mono max-[760px]:hidden">
-                        {item.format === 'SINGLE_CHOICE' ? (
+                        {item.format === 'single_choice' ? (
                           <span>{t('pressToChooseShortcut', { count: item.options.length })}</span>
-                        ) : item.format === 'SINGLE_WORD' ? (
+                        ) : item.format === 'single_word' ? (
                           <span>{t('pressEnterToSubmit')}</span>
                         ) : (
                           <span>{t('pressCmdEnterToSubmit')}</span>
@@ -1107,7 +1107,7 @@ export function QuizFocus({ initialSession }: { initialSession?: StudySession } 
                           >
                             {t('startNewSession')}
                           </Button>
-                        ) : item.format === 'SINGLE_CHOICE' ? (
+                        ) : item.format === 'single_choice' ? (
                           <Button
                             type="button"
                             variant="ghost"
@@ -1182,7 +1182,7 @@ export function QuizFocus({ initialSession }: { initialSession?: StudySession } 
                     </div>
 
                     <div className="p-6">
-                      {question!.question_type === 'SENTENCE_REWRITE' && attempt.answer && (
+                      {question!.question_type === 'sentence_rewrite' && attempt.answer && (
                         <div className="mb-4 p-3 bg-muted/40 border border-border text-sm">
                           <span className="block text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1">
                             Your Rewrite
@@ -1226,12 +1226,12 @@ export function QuizFocus({ initialSession }: { initialSession?: StudySession } 
             <div className="flex-none w-[min(100%,1040px)] mt-2.5 mx-auto flex items-center justify-between text-xs text-muted-foreground max-[760px]:hidden">
               <div className="flex items-center gap-4">
                 {session.phase === 'question' ? (
-                  item.format === 'SINGLE_CHOICE' ? (
+                  item.format === 'single_choice' ? (
                     <span className="flex items-center gap-1.5 font-mono text-[11px]">
                       <kbd className="px-1.5 py-0.5 border border-foreground/30 bg-muted/60 font-bold text-foreground">1–{item.options.length}</kbd>
                       <span>{t('selectOptionAria')}</span>
                     </span>
-                  ) : item.format === 'SINGLE_WORD' ? (
+                  ) : item.format === 'single_word' ? (
                     <span className="flex items-center gap-1.5 font-mono text-[11px]">
                       <kbd className="px-1.5 py-0.5 border border-foreground/30 bg-muted/60 font-bold text-foreground">Enter ↵</kbd>
                       <span>{t('submitWordAria')}</span>

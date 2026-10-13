@@ -1,6 +1,6 @@
 # Study: local learning, artifact preparation and evidence tracking
 
-Lexi persists `QuestionArtifact`; Pycil builds public runtime `Question` samples. The eight public types and formats stay separate from six storage/generation artifact types. The backend stores personal Memory/Mastery and immutable result receipts. The session lives on the client.
+Study persists `QuestionArtifact` and builds public runtime `Question` samples. The eight public types and formats stay separate from six storage/generation artifact types. The backend stores personal Memory/Mastery and immutable result receipts. The session lives on the client.
 
 ## API
 
@@ -17,14 +17,14 @@ Lexi persists `QuestionArtifact`; Pycil builds public runtime `Question` samples
 ## Preparation
 
 ```json
-{"node_id":"00000000-0000-0000-0000-000000000001","selection":"AUTO","max_sense_count":10,"questions_per_sense":2}
+{"node_id":"00000000-0000-0000-0000-000000000001","selection":"auto","max_sense_count":10,"questions_per_sense":2}
 ```
 
-N is 1–20; K is 1–3, default 2. NEW selects absent personal states. DUE selects due states, oldest due then ID. AUTO fills due, new, then future states. Selection uses a repeatable-read SQL scope; bank readiness does not exclude a Sense.
+N is 1–20; K is 1–3, default 2. new selects absent personal states. due selects due states, oldest due then ID. auto fills due, new, then future states. Selection uses a repeatable-read SQL scope; bank readiness does not exclude a Sense.
 
-One pair/level matrix serves Free and Pro. Free effectively uses SINGLE_CHOICE while preserving saved typed preferences. Pro uses its selected supported pairs. Available levels at or below the user's level receive weights `2**(level-user_level)`; sample a level, then a uniform pair within it. If no selected pair fits, use the minimum available level. K draws allow repetition.
+One pair/level matrix serves Free and Pro. Free effectively uses single_choice while preserving saved typed preferences. Pro uses its selected supported pairs. Available levels at or below the user's level receive weights `2**(level-user_level)`; sample a level, then a uniform pair within it. If no selected pair fits, use the minimum available level. K draws allow repetition.
 
-Aggregate `(sense_id, question_type, quantity)` and call native retrieval with `generate=True`, batch size 8. Lexi fills contextual shortages, saves the full batch and returns the requested capacity. WORD_DEFINITION and WORD_TO_USAGE each use one row per Sense/namespace. Shared views use the maximum demand, not the sum. Pycil builds each occurrence independently from returned artifacts. No runtime question or session is persisted.
+Aggregate `(sense_id, question_type, quantity)` and call native retrieval with `generate=True`, batch size 8. Study fills contextual shortages, saves the full batch and returns the requested capacity. WORD_DEFINITION and word_to_usage each use one row per Sense/namespace. Shared views use the maximum demand, not the sum. Pycil builds each occurrence independently from returned artifacts. No runtime question or session is persisted.
 
 Native generation and inference SDK failures return HTTP 503
 `question_generation_unavailable`; changed artifact banks retain HTTP 409
@@ -33,13 +33,20 @@ Native generation and inference SDK failures return HTTP 503
 ## Grading and local session
 
 ```json
-{"question_artifact_id":123,"question_type":"DEFINITION_TO_WORD","format":"SINGLE_WORD","answer":"bank"}
+{"question_artifact_id":123,"question_type":"definition_to_word","format":"single_word","answer":"bank"}
 ```
 
-Quiz diagnostics are computed locally. Typed answers, including null for “don't know,” go to backend grading. Lexi reads the artifact and current lexical meaning from its database. The response contains artifact/type/format references and task-specific diagnostics; grading writes no learning state.
+Quiz diagnostics are computed locally. Typed answers, including null for “don't know,” go to backend grading. Study reads the artifact and current lexical meaning from its database. The response contains artifact/type/format references and task-specific diagnostics; grading writes no learning state.
 
 Native, inference and decision SDK failures return HTTP 503 `grading_unavailable`.
 Unknown artifacts remain HTTP 404 and unsupported formats HTTP 422.
+
+Grading questions and answer shapes live in [Pydantic decision models](../../../apps/api/pycil/study/decisions.py).
+Instructor builds Choice/Noul requests, renders instructions with the supplied context
+and validates typed answers. Sense selection builds a fresh model from the current meaning
+inventory, including `no_candidate`; choices from another inventory are rejected.
+Domain grading applies thresholds and converts assessments into public diagnostics.
+There are no JSON-e grading templates or structured-generation fallback for Decisions.
 
 The client uses local occurrence indices, rounds of eight and retry-first scheduling. Initial answers may have at most two practice retries. Lock and persist the answer/timestamp before grading; a network error keeps them locked and consumes no attempt. Retrying practice never replaces the initial diagnostic. Explicit early finish submits completed initial diagnostics only; exit alone submits nothing. Preparation timeout is 30 seconds.
 
@@ -51,7 +58,7 @@ Idempotency-Key: <client-generated UUID>
 ```
 
 ```json
-{"results":[{"question_artifact_id":123,"question_type":"DEFINITION_TO_WORD","format":"SINGLE_CHOICE","diagnostics":{"correct":true},"answered_at":"2026-10-11T10:00:00Z"}]}
+{"results":[{"question_artifact_id":123,"question_type":"definition_to_word","format":"single_choice","diagnostics":{"correct":true},"answered_at":"2026-10-11T10:00:00Z"}]}
 ```
 
 Accept 1–60 initial results, including repeated artifacts. Persist the ordered body/key locally before sending. The backend consumes diagnostics without regrading or storing answers/session snapshots. Unknown references, incompatible types/formats and future timestamps fail atomically. Reusing a key with changed data returns `review_batch_conflict`; identical replay returns the original receipt.
@@ -94,13 +101,10 @@ dates, default upcoming 30. It counts only due-at > cutoff, including later toda
 grouped in the current timezone. Equality/overdue belongs to Due. This read changes
 with progress/organization, not historical activity. Both return timezone/as_of.
 
-Historical events migrated without recorded timezone-at-acceptance use each user's
-timezone at upgrade. That limitation cannot be retroactively repaired from absent data.
-
 ## Evidence
 
-- [Native preparation, grading and evidence tracking](../../../apps/api/tests/integration/test_learning_pipeline.py)
-- [Reporting](../../../apps/api/tests/integration/test_progress.py)
-- [Atomic/concurrent batches and FE contracts](../../../apps/api/tests/integration/test_completion.py)
-- [Current schema checks](../../../apps/api/tests/integration/test_fresh_schema.py)
-- [Schemas](../../../apps/api/pycil/study/schemas.py), [services](../../../apps/api/pycil/study/progress.py)
+- [Preparation and atomic reviews](../../../apps/api/tests/integration/study/test_reviews.py)
+- [Generation validation/failure](../../../apps/api/tests/integration/study/test_generation.py)
+- [Grading](../../../apps/api/tests/integration/study/test_grading.py)
+- [Artifact banks](../../../apps/api/tests/integration/study/test_artifact_banks.py)
+- [Schemas](../../../apps/api/pycil/study/schemas.py), [progress](../../../apps/api/pycil/study/progress.py)

@@ -1,0 +1,44 @@
+## Shared Word–Definition Artifact
+
+- Return one payload with `corrects: [paraphrased definitions]` and `distractors: [{word, definition}]`. `distractor_count` counts pairs, not separate arrays.
+- Each pair must be incorrect in BOTH directions: its word cannot satisfy a correct target paraphrase, and its definition cannot describe any Sense of the target Word. Resolve the target Word at runtime; do not duplicate it in `corrects`.
+- Each count requests new entries. A zero count means an empty increment for that array. Do not output target metadata or a runtime question.
+
+## Definition to Word
+
+- Generate `correct_count` distinct, learner-facing paraphrases of the selected definition in `corrects`. Preserve its meaning, scope, qualifiers, and distinguishing semantic characteristics. Each paraphrase becomes the entire Definition to Word prompt; do not add framing text or contextual hints.
+- Use the selected Word's citation lemma as the answer anchor when designing distractor pairs.
+- For the `word` field of each distractor pair, use an established English lexical item in its citation form, not an invented expression or deliberately misspelled word.
+- Prefer distractors matching the selected Sense's part of speech and broad grammatical function. Keep lexical forms reasonably comparable without forcing unnatural alternatives.
+- Draw distractors from meaningful lexical confusions: neighboring meanings, shared semantic categories, closely related actions or states, and distinctions in scope, manner, function, intensity, or conventional usage.
+- Consider orthographically similar words when they are genuine independent lexical items that learners could plausibly confuse with the target. Do not rely on spelling resemblance alone to create difficulty.
+- Evaluate every distractor against every correct paraphrase, considering its established meanings rather than only its most common Sense.
+- Reject synonyms, near-equivalent expressions, or broader lexical items that could reasonably satisfy any correct paraphrase. Semantic relatedness alone does not make an expression incorrect.
+- Exclude the target's aliases, spelling variants, inflected forms, and alternative surface representations from the distractor set.
+- Avoid relying on obvious antonyms, unrelated vocabulary, or conspicuous grammatical differences that allow elimination without understanding the displayed meaning.
+- Prefer distractors that encourage learners to distinguish specific semantic characteristics rather than memorize superficial word associations.
+- Keep distractors lexically distinct from one another; avoid filling the option set with redundant variants of essentially the same wrong meaning.
+- The `definition` field must accurately describe the paired distractor word. Identify the semantic distinction that prevents that word from satisfying any target paraphrase; do not fabricate a meaning to make the pair seem incorrect.
+- Do not display or tag the target expression in the question content. The learner must retrieve or recognize it from the supplied definition.
+
+## Word to Definition
+
+### Question Construction
+
+- The application presents the target Word as the entire Word to Definition prompt and samples a correct paraphrase from `corrects`. Do not generate or store this runtime prompt.
+- Use the supplied definition of the selected Sense as the semantic authority for correct paraphrases and distractor definitions.
+- Treat the selected Sense as the generation target, but consider the complete meaning inventory of the displayed Word when determining option validity.
+- Do not add contextual information that artificially restricts the displayed Word to one Sense unless it is explicitly part of the supplied fixed content.
+
+### Distractor Construction
+
+- For the `definition` field of each distractor pair, use a clear, learner-facing English definition of its paired word, not a usage example, grammatical description, or assessment commentary.
+- Ensure every distractor definition is incorrect for ALL established Senses of the displayed Word, not merely different from the selected Sense. Check the supplied `other_definitions` as well as the target definition.
+- Never use another valid definition or paraphrase of the displayed Word as a distractor, even when it belongs to a different Sense.
+- Favor plausible semantic confusions involving neighboring concepts, lexical associations, differences in scope, function, manner, intensity, or implications.
+- Construct distractors around meaningful semantic distinctions rather than arbitrary changes to otherwise valid definitions.
+- Consider established meanings of easily confused lexical items when they provide useful distractor material.
+- Reject descriptions that remain valid under a reasonable interpretation of any known Sense, including overly broad definitions that encompass the target meaning.
+- Avoid definitions that differ from the correct option only through trivial wording changes, misleading negation, or unnecessarily obscure language.
+- Keep options comparable in abstraction, semantic specificity, grammatical presentation, and linguistic complexity.
+- Avoid distractors that are semantically redundant with one another. Explore different plausible misunderstandings where meaningful distinctions are available.

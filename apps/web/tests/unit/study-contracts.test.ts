@@ -19,5 +19,5 @@ test('preparation validates counts, limits, native identities and queue inputs',
 
 test('empty scopes require zero questions rather than invented data', () => {
   expect(parsePreparation({ ...preparation(), actual_sense_count: 0, actual_question_count: 0, bundles: [] }).bundles).toEqual([])
-  expect(() => parsePreparation({ node_id: 'root', selection: 'DUE', actual_sense_count: 0, actual_question_count: 3 })).toThrow(HomeApiError)
+  expect(() => parsePreparation({ node_id: 'root', selection: 'due', actual_sense_count: 0, actual_question_count: 3 })).toThrow(HomeApiError)
 })

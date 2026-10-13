@@ -2,53 +2,67 @@
 
 import base64
 import json
+from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import aclosing, asynccontextmanager
 from datetime import UTC, datetime
+from typing import Any, cast
 from uuid import UUID, uuid7
 from zoneinfo import ZoneInfo
 
-from ag_ui.core import EventType, RunErrorEvent
+from ag_ui.core import EventType, RunAgentInput, RunErrorEvent
 from ag_ui.encoder import EventEncoder
 from ag_ui_langgraph import LangGraphAgent
 from anyio import CancelScope
-from lexi_ai.contract import Word
+from langchain_core.runnables import RunnableConfig
 from pydantic import ValidationError
 from sqlalchemy import select, update
 
+from pycil.account.auth import ActorContext
 from pycil.account.models import User
 from pycil.account.plans import Feature
-from pycil.account.schemas import preferences
+from pycil.account.settings import preferences
 from pycil.account.usage import admit, settle
+from pycil.app.config import ProductConfig
+from pycil.app.http import Problem
+from pycil.app.settings import Deployment
 from pycil.assistant import graph as agents
+from pycil.assistant.config import ModelPolicy
 from pycil.assistant.conversations import guard, owned
 from pycil.assistant.metering import Meter
 from pycil.assistant.models import Conversation
 from pycil.assistant.schemas import CurrentView
-from pycil.http import Problem
+from pycil.infrastructure.observability import get_logger
 from pycil.library.nodes import node_details
-from pycil.logging import get_logger
+from pycil.vocabulary.enums import GenerationState, HitKind
+from pycil.vocabulary.models import Word
 
 logger = get_logger(__name__)
 
 
-def validate_input(data, config):
+def validate_input(
+    data: RunAgentInput, config: ProductConfig
+) -> tuple[UUID, ModelPolicy, str, int, int]:
     try:
-        identifier = UUID(data.thread_id)
-    except ValueError:
+        identifier = UUID(str(data.thread_id))
+    except ValueError, TypeError:
         raise Problem(422, "invalid_conversation_id") from None
-    props = data.forwarded_props or {}
-    if not isinstance(props, dict) or set(props) - {"model_id", "effort", "current_view"}:
+    props_raw = data.forwarded_props
+    if not isinstance(props_raw, dict) and props_raw is not None:
+        raise Problem(422, "invalid_assistant_options")
+    props: dict[str, Any] = cast(dict[str, Any], props_raw) if isinstance(props_raw, dict) else {}
+    if set(props) - {"model_id", "effort", "current_view"}:
         raise Problem(422, "invalid_assistant_options")
     if props.get("current_view") is not None:
         try:
             CurrentView.model_validate(props["current_view"])
         except ValidationError:
             raise Problem(422, "invalid_assistant_view") from None
-    policy = next(
-        (p for p in config.models if p.id == props.get("model_id", config.assistant.default_model)),
+    model_id: str = str(props.get("model_id", config.assistant.default_model))
+    policy: ModelPolicy | None = next(
+        (p for p in config.models if p.id == model_id),
         None,
     )
-    effort = props.get("effort", config.assistant.default_effort)
+    effort: str = str(props.get("effort", config.assistant.default_effort))
     if policy is None or effort not in policy.efforts:
         raise Problem(422, "invalid_assistant_model")
     if data.state or data.tools or data.context or data.parent_run_id:
@@ -56,28 +70,32 @@ def validate_input(data, config):
     if data.resume:
         if data.messages or len(data.resume) != 1:
             raise Problem(422, "invalid_approval")
-    elif len(data.messages) != 1 or data.messages[0].role != "user":
+    elif len(data.messages) != 1 or getattr(data.messages[0], "role", None) != "user":
         raise Problem(422, "one_user_message_required")
     images, chars = 0, 0
     for message in data.messages:
-        if isinstance(message.content, str):
-            chars += len(message.content)
-        else:
-            for part in message.content:
-                if part.type == "text":
-                    chars += len(part.text)
-                elif part.type == "image":
+        content = getattr(message, "content", None)
+        if isinstance(content, str):
+            chars += len(content)
+        elif isinstance(content, list):
+            for part in cast(list[Any], content):
+                part_type = getattr(part, "type", None)
+                if part_type == "text":
+                    chars += len(getattr(part, "text", "") or "")
+                elif part_type == "image":
                     images += 1
-                    source = part.source
+                    source = getattr(part, "source", None)
+                    source_val = getattr(source, "value", None)
                     if (
                         not policy.vision
-                        or source.type != "data"
-                        or source.mime_type not in {"image/png", "image/jpeg", "image/webp"}
-                        or not source.value
+                        or getattr(source, "type", None) != "data"
+                        or getattr(source, "mime_type", None)
+                        not in {"image/png", "image/jpeg", "image/webp"}
+                        or not source_val
                     ):
                         raise Problem(422, "invalid_attachment")
                     try:
-                        payload = base64.b64decode(source.value, validate=True)
+                        payload = base64.b64decode(source_val, validate=True)
                     except ValueError:
                         raise Problem(422, "invalid_attachment") from None
                     if len(payload) > config.assistant.max_image_bytes:
@@ -90,7 +108,13 @@ def validate_input(data, config):
 
 
 @asynccontextmanager
-async def prepare_turn(resources, deployment, user, data, config):
+async def prepare_turn(
+    resources: Any,
+    deployment: Deployment,
+    user: User | ActorContext,
+    data: RunAgentInput,
+    config: ProductConfig,
+) -> AsyncGenerator[AsyncIterator[str]]:
     identifier, policy, effort, chars, images = validate_input(data, config)
     logger.info(
         "assistant_run_started",
@@ -109,8 +133,10 @@ async def prepare_turn(resources, deployment, user, data, config):
             raise Problem(404, "account_not_found")
         settings = preferences(saved_settings, config)
         auto_approve = settings.assistant.auto_approve and not data.resume
-        view = None
-        hint = (data.forwarded_props or {}).get("current_view")
+        view: dict[str, Any] | None = None
+        props_in: object = data.forwarded_props
+        props_dict = cast(dict[str, Any], props_in) if isinstance(props_in, dict) else {}
+        hint: object | None = props_dict.get("current_view")
         if hint is not None:
             selected = CurrentView.model_validate(hint)
             view = selected.model_dump(mode="json", exclude_none=True)
@@ -126,11 +152,11 @@ async def prepare_turn(resources, deployment, user, data, config):
             elif selected.word_id is not None:
                 lemma = await session.scalar(
                     select(Word.lemma).where(
-                        Word.id == selected.word_id, Word.generation_state == "DONE"
+                        Word.id == selected.word_id, Word.generation_state == GenerationState.DONE
                     )
                 )
                 view = (
-                    view | {"name": lemma, "type": "WORD"}
+                    view | {"name": lemma, "type": HitKind.WORD}
                     if lemma is not None
                     else {"path": selected.path, "unavailable": True}
                 )
@@ -150,7 +176,7 @@ async def prepare_turn(resources, deployment, user, data, config):
         agent = agents.graph(
             resources, user, config, selected, auto_approve=auto_approve, turn_context=turn_context
         )
-        checkpoint_config = {"configurable": {"thread_id": str(identifier)}}
+        checkpoint_config: RunnableConfig = {"configurable": {"thread_id": str(identifier)}}
         async with guard(resources.redis, identifier):
             async with resources.sessions() as session:
                 await owned(session, user.id, identifier)
@@ -162,20 +188,22 @@ async def prepare_turn(resources, deployment, user, data, config):
                     raise Problem(409, "approval_not_pending")
                 if entry.status != "resolved" or entry.metadata:
                     raise Problem(422, "invalid_approval")
-                value = entry.payload
-                actions = interrupts[0].value["action_requests"]
-                if (
-                    not isinstance(value, dict)
-                    or set(value) != {"decisions"}
-                    or not isinstance(value["decisions"], list)
-                    or len(value["decisions"]) != len(actions)
-                    or any(
-                        d not in ({"type": "approve"}, {"type": "reject"})
-                        for d in value["decisions"]
-                    )
+                payload: object = entry.payload
+                actions = cast(list[dict[str, Any]], interrupts[0].value["action_requests"])
+                if not isinstance(payload, dict):
+                    raise Problem(422, "invalid_approval")
+                value = cast(dict[str, Any], payload)
+                if set(value) != {"decisions"}:
+                    raise Problem(422, "invalid_approval")
+                decisions_val: object = value.get("decisions")
+                if not isinstance(decisions_val, list):
+                    raise Problem(422, "invalid_approval")
+                decisions_list = cast(list[dict[str, str]], decisions_val)
+                if len(decisions_list) != len(actions) or any(
+                    d not in ({"type": "approve"}, {"type": "reject"}) for d in decisions_list
                 ):
                     raise Problem(422, "invalid_approval")
-                rejection = all(d["type"] == "reject" for d in value["decisions"])
+                rejection = all(d.get("type") == "reject" for d in decisions_list)
             else:
                 if any(task.interrupts for task in state.tasks):
                     raise Problem(409, "approval_pending")
@@ -194,11 +222,14 @@ async def prepare_turn(resources, deployment, user, data, config):
                             )
                         raise
                 minute = int(moment.timestamp()) // 60
-                starts = await resources.redis.eval(
-                    "local n=redis.call('INCR',KEYS[1]); "
-                    "if n==1 then redis.call('EXPIRE',KEYS[1],120) end; return n",
-                    1,
-                    f"pycil:assistant:starts:{user.id}:{minute}",
+                starts = int(
+                    await resources.redis.eval(
+                        "local n=redis.call('INCR',KEYS[1]); "
+                        "if n==1 then redis.call('EXPIRE',KEYS[1],120) end; return n",
+                        1,
+                        f"pycil:assistant:starts:{user.id}:{minute}",
+                    )
+                    or 0
                 )
                 if starts > config.assistant.starts_per_minute:
                     logger.warning(
@@ -209,7 +240,7 @@ async def prepare_turn(resources, deployment, user, data, config):
                     raise Problem(429, "assistant_start_limit")
             encoder = EventEncoder()
 
-            async def events():
+            async def events() -> AsyncGenerator[str]:
                 meter = Meter(policy)
                 adapter = LangGraphAgent(
                     name="pycil",

@@ -1,14 +1,14 @@
 import type { LibraryNode, StudySummary } from './home-api'
 import { motifNames } from '@/components/artwork/artwork'
 
-export type LearningState = 'NEW' | 'DUE' | 'NOT_YET_DUE'
-export type MeaningFilter = 'ALL' | LearningState
-export type MeaningSort = 'LEMMA_ASC' | 'LAST_REVIEWED_DESC'
+export type LearningState = 'new' | 'due' | 'not_yet_due'
+export type MeaningFilter = 'all' | LearningState
+export type MeaningSort = 'lemma_asc' | 'last_reviewed_desc'
 export type LibraryTab = 'overview' | 'words'
-export type LibraryTarget = { id: string; name: string; type: 'DECK' | 'FOLDER'; owner_id: string; space: LibraryDetails['space'] }
+export type LibraryTarget = { id: string; name: string; type: 'deck' | 'folder'; owner_id: string; space: LibraryDetails['space'] }
 export type LibraryDetails = {
   id: string; name: string; type: LibraryNode['type']; description: string | null
-  owner_id: string; space: 'PERSONAL' | 'PUBLISHED' | 'LIBRARY'; role: string
+  owner_id: string; space: 'personal' | 'published' | 'library'; role: string
   created_at: string; updated_at: string
   breadcrumbs: { id: string; name: string }[]
   summary: StudySummary | null
@@ -18,7 +18,7 @@ export type Meaning = {
   sense_id: number; lemma: string; pos: string; definition: string | null
   cefr_level: string | null; examples: { text: string }[]
   learning: { state: LearningState; last_reviewed_at: string | null; due_at: string | null } | null
-  sources: { id: string; name: string; owner_id: string; space: 'PERSONAL' | 'PUBLISHED' }[]; sources_has_more: boolean
+  sources: { id: string; name: string; owner_id: string; space: 'personal' | 'published' }[]; sources_has_more: boolean
 }
 export type MeaningPage = { senses: Meaning[]; next_cursor: string | null }
 export type SourcesPage = { decks: Meaning['sources']; next_cursor: string | null }
@@ -36,7 +36,7 @@ export function publishedHref(ownerId: string, nodeId?: string, tab?: LibraryTab
 }
 
 export function nodeHref(node: Pick<LibraryDetails, 'id' | 'owner_id' | 'space'>, tab?: LibraryTab): string {
-  return node.space === 'PUBLISHED' ? publishedHref(node.owner_id, node.id, tab) : libraryHref(node.id, tab)
+  return node.space === 'published' ? publishedHref(node.owner_id, node.id, tab) : libraryHref(node.id, tab)
 }
 
 export function libraryMotif(id: string) {
@@ -46,20 +46,20 @@ export function libraryMotif(id: string) {
 }
 
 export function isDeck(node: LibraryDetails): boolean {
-  return node.type === 'DECK' || node.type === 'REFERENCE' && node.target?.type === 'DECK'
+  return node.type === 'deck' || node.type === 'reference' && node.target?.type === 'deck'
 }
 
-export function libraryNodeKind(node: LibraryNode): 'DECK' | 'FOLDER' | null {
-  return node.type === 'REFERENCE' ? node.target_type ?? null : node.type
+export function libraryNodeKind(node: LibraryNode): 'deck' | 'folder' | null {
+  return node.type === 'reference' ? node.target_type ?? null : node.type
 }
 
 export function libraryNodeLabel(node: LibraryNode): string {
   const kind = libraryNodeKind(node)
-  return node.type === 'REFERENCE' ? kind === 'FOLDER' ? 'Folder reference' : kind === 'DECK' ? 'Deck reference' : 'Unavailable reference' : kind === 'FOLDER' ? 'Folder' : 'Deck'
+  return node.type === 'reference' ? kind === 'folder' ? 'Folder reference' : kind === 'deck' ? 'Deck reference' : 'Unavailable reference' : kind === 'folder' ? 'Folder' : 'Deck'
 }
 
 export function learningLabel(state: LearningState) {
-  return state === 'DUE' ? 'Due' : state === 'NEW' ? 'New' : 'Not yet due'
+  return state === 'due' ? 'Due' : state === 'new' ? 'New' : 'Not yet due'
 }
 
 export function dateLabel(value: string | null, timezone = 'UTC'): string {

@@ -18,7 +18,7 @@ def main():
             "--locked",
             "python",
             "-c",
-            "import json; from pycil.main import create_app; "
+            "import json; from pycil.app.factory import create_app; "
             "print(json.dumps(create_app().openapi(), indent=2, ensure_ascii=False))",
         ],
         cwd=ROOT / "apps/api",

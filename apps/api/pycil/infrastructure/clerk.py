@@ -1,0 +1,93 @@
+"""Clerk verification and transport; account provisioning belongs to the account domain."""
+
+import asyncio
+from typing import TYPE_CHECKING, Any, TypedDict, cast
+from urllib.parse import quote
+
+import httpx
+import jwt
+
+from pycil.infrastructure.observability import get_logger
+
+if TYPE_CHECKING:
+    from pycil.app.settings import Deployment
+
+logger = get_logger(__name__)
+
+
+class ClerkUserProfile(TypedDict, total=False):
+    id: str
+    first_name: str | None
+    last_name: str | None
+    email_addresses: list[dict[str, Any]]
+
+
+class InvalidIdentityError(ValueError):
+    pass
+
+
+class IdentityServiceUnavailable(RuntimeError):
+    pass
+
+
+class Identity:
+    def __init__(self, deployment: Deployment) -> None:
+        self.deployment = deployment
+        self.keys = jwt.PyJWKClient(deployment.clerk_jwks_url)
+
+    async def subject(self, token: str) -> str:
+        try:
+            key = await asyncio.to_thread(self.keys.get_signing_key_from_jwt, token)
+            claims: dict[str, Any] = jwt.decode(
+                token,
+                key.key,
+                algorithms=["RS256"],
+                issuer=self.deployment.clerk_issuer,
+                audience=self.deployment.clerk_audience,
+                options={
+                    "require": ["exp", "sub", "iss"],
+                    "verify_aud": self.deployment.clerk_audience is not None,
+                },
+            )
+            subject = claims["sub"]
+            if not isinstance(subject, str) or not subject.strip() or len(subject) > 255:
+                raise jwt.InvalidTokenError("invalid subject")
+            return subject
+        except (jwt.InvalidTokenError, jwt.PyJWKClientError) as exc:
+            logger.warning("auth_token_verification_failed", error_type=type(exc).__name__)
+            raise InvalidIdentityError("invalid credentials") from exc
+
+
+async def clerk_user(
+    http: httpx.AsyncClient, deployment: Deployment, subject: str
+) -> ClerkUserProfile:
+    try:
+        response = await http.request(
+            "GET",
+            "https://api.clerk.com/v1/users/" + quote(subject, safe=""),
+            headers={"Authorization": "Bearer " + deployment.clerk_secret_key.get_secret_value()},
+            timeout=15,
+        )
+    except httpx.HTTPError as exc:
+        logger.error("clerk_api_request_failed", error_type=type(exc).__name__, subject=subject)
+        raise IdentityServiceUnavailable("identity service unavailable") from None
+    if response.status_code == 404:
+        logger.warning("clerk_user_not_found", subject=subject)
+        raise InvalidIdentityError("invalid credentials")
+    if not response.is_success:
+        logger.error("clerk_api_request_failed", status_code=response.status_code, subject=subject)
+        raise IdentityServiceUnavailable("identity service unavailable")
+    try:
+        raw: object = response.json()
+        if not isinstance(raw, dict):
+            raise ValueError("invalid identity profile")
+        data: dict[str, object] = cast(dict[str, object], raw)
+        if any(
+            data.get(key) is not None and not isinstance(data.get(key), str)
+            for key in ("first_name", "last_name")
+        ):
+            raise ValueError("invalid identity profile")
+    except ValueError as exc:
+        logger.error("clerk_api_request_failed", error_type=type(exc).__name__, subject=subject)
+        raise IdentityServiceUnavailable("identity service unavailable") from None
+    return cast(ClerkUserProfile, data)

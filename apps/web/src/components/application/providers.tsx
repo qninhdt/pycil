@@ -94,8 +94,8 @@ function AccountProfileProvider({ state, fallbackName = 'Your account', signOut,
     signOut: async () => {
       try { localStorage.removeItem(ACCOUNT_CACHE_KEY) } catch { /* Optional. */ }
       await queryClient.cancelQueries()
-      await signOut()
       queryClient.clear()
+      await signOut()
     },
   }
   return <AccountContext.Provider value={value}>{children}</AccountContext.Provider>

@@ -4,9 +4,9 @@ import { libraryNodeKind } from '@/lib/library-model'
 
 export function LibraryNodeIcon({ node }: { node: LibraryNode }) {
   const kind = libraryNodeKind(node)
-  const name = node.type === 'REFERENCE'
-    ? kind === 'DECK' ? 'deck-reference' : kind === 'FOLDER' ? 'folder-reference' : 'document'
-    : kind === 'DECK' ? 'collection'
+  const name = node.type === 'reference'
+    ? kind === 'deck' ? 'deck-reference' : kind === 'folder' ? 'folder-reference' : 'document'
+    : kind === 'deck' ? 'collection'
       : node.name === 'Personal' ? 'folder-personal'
         : node.name === 'Published' ? 'folder-published'
           : 'folder'

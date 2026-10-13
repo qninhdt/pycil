@@ -31,7 +31,7 @@ function DictionaryResultView({ args, result }: { args: any; result: any }) {
 
   const query = Array.isArray(pArgs?.queries) ? pArgs.queries.join(', ') : ''
   let items: WordHit[]
-  try { items = parseWordSearch(pResult).items.filter((hit): hit is WordHit => hit.kind === 'WORD') }
+  try { items = parseWordSearch(pResult).items.filter((hit): hit is WordHit => hit.kind === 'word') }
   catch { return <p className="text-xs text-muted-foreground">Search results unavailable.</p> }
   const total = items.length
 
@@ -111,7 +111,7 @@ function NodesResultView({ args, result }: { args: any; result: any }) {
       {items.length > 0 ? (
         <div className="flex flex-col gap-1.5">
           {items.slice(0, 6).map((item: any, idx: number) => {
-            const isFolder = item.type === 'FOLDER'
+            const isFolder = item.type === 'folder'
             return (
               <div key={idx} className="flex items-center justify-between gap-2 p-1.5 border border-border bg-background text-xs">
                 <div className="flex items-center gap-2 min-w-0">
@@ -138,7 +138,7 @@ function NodesResultView({ args, result }: { args: any; result: any }) {
 }
 
 // Library metadata.
-const nodeTypes: Record<string, string> = { FOLDER: 'Folder', DECK: 'Deck', REFERENCE: 'Reference' }
+const nodeTypes: Record<string, string> = { folder: 'Folder', deck: 'Deck', reference: 'Reference' }
 
 function NodeDetailView({ result }: { result: any }) {
   const parsed = safeParse(result)

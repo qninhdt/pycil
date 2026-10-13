@@ -5,7 +5,7 @@ import { preparation } from './fixtures'
 import { advanceSession,beginAttempt,createStudySession,currentQuestion,diagnosticComplete,finishSession,recordAttempt,startNextRound } from '../../src/lib/study-session'
 
 test('retry recovery preserves the initial diagnostics and duplicated artifact occurrences', async () => {
-  const prepared = preparation(1, 'SINGLE_CHOICE', 2)
+  const prepared = preparation(1, 'single_choice', 2)
   prepared.bundles[0].questions[1] = structuredClone(prepared.bundles[0].questions[0])
   let session = createStudySession('preview-alex', prepared)
   const firstOccurrence = session.questions[0]
@@ -23,7 +23,7 @@ test('retry recovery preserves the initial diagnostics and duplicated artifact o
 })
 
 test('a grading failure keeps its locked answer and time without using a practice attempt', async () => {
-  const prepared = preparation(1, 'SINGLE_WORD')
+  const prepared = preparation(1, 'single_word')
   const locked = beginAttempt(createStudySession('preview-alex', prepared), 'bank', new Date('2026-10-11T00:00:00Z'))
   expect(beginAttempt(locked, 'a different answer')).toEqual(locked)
   expect(locked.attempts).toEqual({})

@@ -40,7 +40,7 @@ export function WordDetail({ word, contexts, contextError, retryContext, onAdd, 
     return items
   }, new Map<string, SenseContext['decks'][number] & { count: number }>()).values()]
   const deckCountsPartial = contexts?.some(sense => sense.decks_has_more) ?? false
-  const studied = contexts?.filter(sense => sense.learning.state !== 'NEW').length ?? 0
+  const studied = contexts?.filter(sense => sense.learning.state !== 'new').length ?? 0
   const pronunciation = word.senses.find(sense => sense.ipa_uk || sense.ipa_us)
   return <div className="grid grid-cols-[minmax(0,7fr)_minmax(230px,3fr)] border-b border-border max-[1000px]:grid-cols-1">
     <article className="min-w-0 pr-6.5 pt-6.5 pb-8 max-[1000px]:pr-0"><header className="flex justify-between gap-4 items-start mb-4.5 [&_h2]:text-[clamp(36px,4vw,56px)] [&_h2]:leading-[1.1] [&_h2]:wrap-anywhere max-[700px]:[&_h2]:text-[38px]"><div>
@@ -71,7 +71,7 @@ export function WordDetail({ word, contexts, contextError, retryContext, onAdd, 
     </article>
     <aside className="border-l border-border min-w-0 [&_section]:p-5.5 [&_section]:border-b [&_section]:border-border [&_h3]:text-base [&_h3]:mb-4 [&_p]:text-xs [&_p]:text-muted-foreground [&_p]:leading-relaxed max-[1000px]:border-l-0 max-[1000px]:border-t max-[1000px]:border-border max-[1000px]:grid max-[1000px]:grid-cols-2 max-[1000px]:[&_section]:border-r max-[1000px]:[&_section]:border-border max-[700px]:grid-cols-1 max-[700px]:[&_section]:px-0 max-[700px]:[&_section]:border-r-0" aria-label="Word context">
       {account.status === 'ready' && <section><h3>{t('yourProgress')}</h3>{contextError ? <p>{t('couldNotLoadLearningState')} <Button variant="link" onClick={retryContext}>{tCommon('retry')}</Button></p>
-        : contexts ? <><div className="flex items-center gap-3.5 pb-4 [&_>_div]:flex [&_>_div]:flex-col [&_strong]:text-xl [&_strong]:tabular-nums [&_div_span]:text-muted-foreground [&_div_span]:text-[11px]"><span className="size-[54px] flex-none rounded-full relative after:content-[''] after:absolute after:inset-[7px] after:rounded-full after:bg-background" style={{ background: `conic-gradient(var(--art-blue) ${contexts.length ? studied / contexts.length * 100 : 0}%, var(--border) 0)` }} aria-hidden="true" /><div><strong>{studied} / {contexts.length}</strong><span>{t('sensesLearned')}</span></div></div><div className="grid grid-cols-3 gap-2.5 [&_>_div]:flex [&_>_div]:flex-col [&_>_div]:gap-1 [&_strong]:text-[23px] [&_strong]:tabular-nums [&_span]:text-[11px] [&_span]:text-muted-foreground"><div><strong>{contexts.filter(item => item.learning.state === 'NEW').length}</strong><span>{tHome('new')}</span></div><div><strong>{contexts.filter(item => item.learning.state === 'DUE').length}</strong><span>{tHome('dueNow')}</span></div><div><strong>{contexts.filter(item => item.learning.state === 'NOT_YET_DUE').length}</strong><span>{tHome('notDue')}</span></div></div></>
+        : contexts ? <><div className="flex items-center gap-3.5 pb-4 [&_>_div]:flex [&_>_div]:flex-col [&_strong]:text-xl [&_strong]:tabular-nums [&_div_span]:text-muted-foreground [&_div_span]:text-[11px]"><span className="size-[54px] flex-none rounded-full relative after:content-[''] after:absolute after:inset-[7px] after:rounded-full after:bg-background" style={{ background: `conic-gradient(var(--art-blue) ${contexts.length ? studied / contexts.length * 100 : 0}%, var(--border) 0)` }} aria-hidden="true" /><div><strong>{studied} / {contexts.length}</strong><span>{t('sensesLearned')}</span></div></div><div className="grid grid-cols-3 gap-2.5 [&_>_div]:flex [&_>_div]:flex-col [&_>_div]:gap-1 [&_strong]:text-[23px] [&_strong]:tabular-nums [&_span]:text-[11px] [&_span]:text-muted-foreground"><div><strong>{contexts.filter(item => item.learning.state === 'new').length}</strong><span>{tHome('new')}</span></div><div><strong>{contexts.filter(item => item.learning.state === 'due').length}</strong><span>{tHome('dueNow')}</span></div><div><strong>{contexts.filter(item => item.learning.state === 'not_yet_due').length}</strong><span>{tHome('notDue')}</span></div></div></>
           : <p>{t('loadingLearningState')}</p>}</section>}
       {account.status === 'ready' && <section><h3>{t('inYourLibrary')}</h3>{contexts ? decks.length > 0 ? <><ul className="[&_li]:flex [&_li]:gap-2 [&_li]:items-center [&_li]:border-t [&_li]:border-border [&_li]:py-2.5 [&_li_>_svg]:size-5.5 [&_li_>_svg]:flex-none [&_a]:flex [&_a]:justify-between [&_a]:items-center [&_a]:gap-2.5 [&_a]:w-full [&_a]:text-xs [&_a]:text-left [&_a_span]:min-w-0 [&_a_span]:overflow-hidden [&_a_span]:text-ellipsis [&_a_span]:whitespace-nowrap [&_a_small]:ml-auto [&_a_small]:whitespace-nowrap [&_a_small]:text-muted-foreground [&_a_small]:text-[10px] [&_a_svg]:size-3.5 [&_a_svg]:flex-none">{decks.map(deck => <li key={deck.id}><Icon name="collection" /><Link href={nodeHref(deck)}><span>{deck.name}</span><small>{deckCountsPartial ? t('atLeast') : ''}{deck.count} {deck.count === 1 ? t('senseCount') : t('sensesCount')}</small></Link></li>)}</ul>{deckCountsPartial && <p>{t('someDecksHidden')}</p>}</> : <p>{t('notInDeck')}</p> : contextError ? <p>{t('decksUnavailable')}</p> : <p>{t('loadingDecks')}</p>}</section>}
       {account.status !== 'ready' && <section><h3>{t('inYourLibrary')}</h3><p>{t('signInToSeeLearningState')}</p></section>}
@@ -95,8 +95,8 @@ export function DictionaryPage({ initialQuery = '' }: { initialQuery?: string })
   const detail = useQuery({ queryKey: [services.mode, scope, 'dictionary-word', selectedWordId], queryFn: ({ signal }) => services.dictionary.word(selectedWordId!, signal), enabled: selectedWordId != null })
   const context = useQuery({ queryKey: [services.mode, scope, 'dictionary-context', selectedWordId], queryFn: ({ signal }) => services.dictionary.context(selectedWordId!, signal), enabled: selectedWordId != null && account.status === 'ready' })
   const job = useQuery({ queryKey: [services.mode, scope, 'dictionary-generation', jobId], queryFn: ({ signal }) => services.dictionary.generation(jobId!, signal), enabled: Boolean(jobId),
-    refetchInterval: query => ['RUNNING'].includes(query.state.data?.status ?? '') ? 1500 : false })
-  useEffect(() => { if (job.data?.status === 'SUCCEEDED' && job.data.word_id) {
+    refetchInterval: query => ['running'].includes(query.state.data?.status ?? '') ? 1500 : false })
+  useEffect(() => { if (job.data?.status === 'succeeded' && job.data.word_id) {
     void queryClient.invalidateQueries({ queryKey: [services.mode, scope, 'dictionary-search'] }).then(() => {
       setSelectedWordId(job.data!.word_id); setReference(null); setJobId(null)
     })
@@ -105,7 +105,7 @@ export function DictionaryPage({ initialQuery = '' }: { initialQuery?: string })
     setPreparing(true); setPrepareError('')
     try {
       const result = await services.dictionary.prepare(hit.reference_id, hit.display, new AbortController().signal)
-      if (result.status === 'SUCCEEDED' && result.word_id) {
+      if (result.status === 'succeeded' && result.word_id) {
         setSelectedWordId(result.word_id); setReference(null)
       }
       else setJobId(result.task_id)
@@ -139,7 +139,7 @@ export function DictionaryPage({ initialQuery = '' }: { initialQuery?: string })
         {search.isError ? <HomeFailure label={t('dictionaryResults')} error={search.error} retry={() => { void search.refetch() }} />
           : search.isPending ? <HomeLoading label={t('dictionaryResults')} />
             : !results || results.items.length === 0 ? <p className="text-muted-foreground text-[13px]">{t('noEntries')}</p>
-              : <div className="grid max-h-[260px] overflow-auto border-t border-border">{results.items.map(hit => hit.kind === 'WORD' ? (
+              : <div className="grid max-h-[260px] overflow-auto border-t border-border">{results.items.map(hit => hit.kind === 'word' ? (
                 <button key={`word:${hit.word_id}`} type="button" className="grid grid-cols-[30px_minmax(0,1fr)] items-center gap-3 w-full min-h-12 px-3 py-2 text-left border-b border-border bg-transparent transition-colors duration-150 ease-out hover:bg-accent [&[aria-current=true]]:bg-accent focus-visible:relative focus-visible:z-[1] [&_>_.bauhaus-icon]:size-6 [&_strong]:text-sm [&_small]:block [&_small]:text-muted-foreground [&_small]:text-[11px] max-[700px]:grid-cols-[25px_minmax(0,1fr)] max-[700px]:gap-2" onClick={() => { setSelectedWordId(hit.word_id); setReference(null) }} aria-current={selectedWordId === hit.word_id && showDetail ? 'true' : undefined}>
                   <Icon name="book" /><span><strong>{hit.lemma}</strong>{hit.matched_surface !== hit.lemma && <small>Matched “{hit.matched_surface}”</small>}<span className="sr-only">{t('ready')}</span></span>
                 </button>
@@ -162,7 +162,7 @@ export function DictionaryPage({ initialQuery = '' }: { initialQuery?: string })
             <p className="font-semibold text-art-red mb-2">{t('couldNotCheckPreparation')}</p>
             <Button variant="outline" size="sm" onClick={() => { void job.refetch() }}>{t('checkAgain')}</Button>
           </div>
-        ) : job.data?.status === 'FAILED' ? (
+        ) : job.data?.status === 'failed' ? (
           <div className="border border-art-red bg-background p-4 text-sm" role="alert">
             <p className="font-semibold text-art-red mb-2">{t('preparationFailed')}{job.data.error ? `: ${job.data.error}` : '.'}</p>
             <Button variant="outline" size="sm" onClick={() => { void prepare(reference) }}>{tCommon('retry')}</Button>
@@ -188,7 +188,7 @@ export function DictionaryPage({ initialQuery = '' }: { initialQuery?: string })
     </section>}
     {showDetail && (detail.isPending ? <HomeLoading label={t('word')} /> : detail.isError ? <HomeFailure label={t('word')} error={detail.error} retry={() => { void detail.refetch() }} />
       : <WordDetail key={detail.data.id} word={detail.data} contexts={context.data?.senses} contextError={context.isError ? context.error : null} retryContext={() => { void context.refetch() }} onAdd={setSenseId} onSelectWord={(id, lemma) => { setInput(lemma); setSelectedWordId(id) }} />)}
-    {senseId != null && account.profile && <LibraryDestinationDialog open onOpenChange={open => { if (!open) setSenseId(null) }} profile={account.profile} kind="DECK" action={t('addToDeck')}
+    {senseId != null && account.profile && <LibraryDestinationDialog open onOpenChange={open => { if (!open) setSenseId(null) }} profile={account.profile} kind="deck" action={t('addToDeck')}
       onConfirm={destination => saveSense(destination.id)} onCreateDeck={createDeck} />}
   </div>
 }

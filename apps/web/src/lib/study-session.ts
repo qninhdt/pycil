@@ -96,10 +96,10 @@ export function createStudySession(accountId: string, prepared: PreparedSession)
 export function diagnosticComplete(diagnostic: Diagnostic): boolean {
   if ('correct' in diagnostic) return diagnostic.correct
   if ('task_fit' in diagnostic) return diagnostic.task_fit && !diagnostic.spelling_error && diagnostic.sense_id !== null
-  if ('accuracy' in diagnostic) return diagnostic.sense_id !== null && diagnostic.accuracy === 'ACCURATE' && diagnostic.coverage === 'SUFFICIENT'
-  return diagnostic.used && diagnostic.meaning === 'CORRECT' && diagnostic.form === 'CORRECT' && diagnostic.construction === true &&
+  if ('accuracy' in diagnostic) return diagnostic.sense_id !== null && diagnostic.accuracy === 'accurate' && diagnostic.coverage === 'sufficient'
+  return diagnostic.used && diagnostic.meaning === 'correct' && diagnostic.form === 'correct' && diagnostic.construction === true &&
     diagnostic.collocation === true && diagnostic.appropriacy === true &&
-    (!('meaning_preservation' in diagnostic) || diagnostic.meaning_preservation === 'PRESERVED')
+    (!('meaning_preservation' in diagnostic) || diagnostic.meaning_preservation === 'preserved')
 }
 export function beginAttempt(session: StudySession, answer: string | null, now = new Date()): StudySession {
   if (session.phase !== 'question' || !currentQuestion(session)) throw new Error('The question is not ready for an answer.')

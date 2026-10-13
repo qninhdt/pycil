@@ -1,3 +1,4 @@
+import { getApiBaseUrl } from '../../src/lib/services/config'
 import { appendFileSync } from 'node:fs'
 import { parseAccountProfile } from '../../src/lib/api'
 import { api } from './helpers/api'
@@ -67,7 +68,7 @@ test('signup rejects incorrect verification, resends, provisions once and follow
   await page.getByRole('button', { name: 'Verify and continue', exact: true }).click()
   await expect(page).toHaveURL(/\/app\/settings$/)
   const first = (await api<AccountProfile>(page, 'me')).body
-  expect(first.plan).toBe('FREE')
+  expect(first.plan).toBe('free')
   expect(first.personal_node_id).not.toBe(first.published_node_id)
   await page.reload()
   const second = (await api<AccountProfile>(page, 'me')).body
@@ -125,12 +126,12 @@ test('password reset verifies its code and the replacement password signs in', a
 })
 
 test('real token refresh and a new-tab session preserve identity', async ({ page, profile }) => {
-  const refreshed = await page.evaluate(async () => {
+  const refreshed = await page.evaluate(async baseUrl => {
     const session = (window as unknown as { Clerk: { session: { getToken: (options: { skipCache: boolean }) => Promise<string> } } }).Clerk.session
     const token = await session.getToken({ skipCache: true })
-    const response = await fetch('/api/v1/me', { headers: { Authorization: `Bearer ${token}` } })
+    const response = await fetch(`${baseUrl}/me`, { headers: { Authorization: `Bearer ${token}` } })
     return { status: response.status, profile: await response.json() }
-  })
+  }, getApiBaseUrl())
   expect(refreshed).toMatchObject({ status: 200, profile: { id: profile.id } })
   const other = await page.context().newPage()
   try {
@@ -140,7 +141,7 @@ test('real token refresh and a new-tab session preserve identity', async ({ page
 })
 
 test('switching accounts removes private cached Library data and unsafe return URLs are rejected', async ({ page, nodes, profile }) => {
-  const deck = await nodes.create({ type: 'DECK', sense_ids: [28] })
+  const deck = await nodes.create({ type: 'deck', sense_ids: [28] })
   const title = 'private-history-' + randomUUID()
   const conversation = (await api<Conversation>(page, 'assistant/conversations', 'POST', { title })).body
   await start(page, deck.id)

@@ -4,33 +4,26 @@ The product frontend in `apps/web` consumes these contracts in live mode. Its
 Clerk browser session supplies bearer tokens; the Next rewrite forwards API requests.
 Mock UI tests and live full-stack browser tests are separate verification profiles.
 The checked-out API exposes 39 operations. Use `/openapi.json` for exact native
-Lexi/AG-UI types, nullable fields and enums; this guide specifies usage and semantics.
+vocabulary/AG-UI types, nullable fields and enums; this guide specifies usage and semantics.
 The backend contract is not deployed automatically.
 
 The [exported contract](openapi.json) can be regenerated with `make openapi`, without
-stores, runtime `.env`, authentication credentials or provider startup. Run the concrete
-scenario fixtures with:
-
-```sh
-python scripts/test_api.py tests/integration/test_completion.py tests/integration/test_learning_pipeline.py tests/integration/test_progress.py -q
-```
-
-These initialize native lexical rows/banks, owned/public placements and user states in
-automatically owned disposable databases. They do not create a persistent demo account
-on a live host; a real FE deployment must provision its own explicitly approved data.
+stores, runtime `.env`, authentication credentials or provider startup. Use [backend integration tests](testing.md) for disposable scenario evidence.
+They do not provision a live demo account or establish browser compatibility.
+Frontend changes and browser verification are outside the current backend work.
 
 ## Integration-host readiness
 
-- Matching API/client breaking contract and migration head `20261012_profile`.
-- PostgreSQL, Redis, Lexi/checkpoint schemas ready; reference imported into `lexi_reference`.
+- Matching API/client breaking contract and application baseline `initial`.
+- PostgreSQL and Redis ready; application and native checkpoint tables in `public`, with reference imported.
 - Clerk JWT from the configured issuer/audience; bearer tokens, not emails or user IDs.
 - Explicit allowed FE origin. CORS accepts Authorization, Content-Type,
   Idempotency-Key and X-Request-ID; responses expose request correlation ID.
-- Vocabulary available in Lexi. Preparation fills missing question artifact banks on demand; an empty scope can return an empty prepare.
+- Vocabulary available in the vocabulary module. Preparation fills missing question artifact banks on demand; an empty scope can return an empty prepare.
 - Generation runs in the API process with real configured inference providers; WordNet is optional.
   Deterministic integration fixtures do not establish real provider readiness.
-- Pro typed grading requires current entitlement and configured decision/fallback
-  services. Multiple-choice uses generated answer keys; never call grade for it.
+- Pro typed grading requires current entitlement and the configured decision
+  service. Multiple-choice uses generated answer keys; never call grade for it.
 
 No live provider calls, production migration or deployment were performed here.
 
@@ -55,7 +48,7 @@ No live provider calls, production migration or deployment were performed here.
 | Search/add-word groups | POST `/words:batchPreview` | <=30 words / <=500 senses, fail if incomplete |
 | Dictionary word | GET `/words/{id}` plus GET `/me/words/{id}` | Shared native content separate from private viewer state |
 | Membership/progress badges | POST `/me/senses:batchReadContext` | <=100 senses; inline source limit and explicit overflow |
-| Learn / Review / practice | POST prepare NEW / DUE / AUTO | <=60 questions; client-local session |
+| Learn / Review / practice | POST prepare new / due / auto | <=60 questions; client-local session |
 | Flashcards | Scoped senses with `include=examples` | Flip/shuffle/viewing adds no activity |
 | Completion | One atomic reviews batch + retained UUID/body | Initial diagnostics update shared Memory and Mastery |
 | Assistant | Existing models/conversation/state/native SSE | Explicit approval, no uncertain blind mutation retry |
@@ -82,8 +75,8 @@ summary if needed. Mixed cards use one POST `/study:batchSummarize` body `node_i
 metadata page may need summaries split into <=50 with user-controlled loading; do not
 pretend page-larger-than-summary bounds is one unbounded operation.
 
-Senses accept ALL/NEW/DUE/NOT_YET_DUE, literal case-insensitive lemma substring `q`,
-SENSE_ID_ASC/LEMMA_ASC/LAST_REVIEWED_DESC. Personal filters/review sort require sign-in.
+Senses accept all/new/due/not_yet_due, literal case-insensitive lemma substring `q`,
+sense_id_asc/lemma_asc/last_reviewed_desc. Personal filters/review sort require sign-in.
 `include=examples,sources` adds up to 2 native examples and 5 unique canonical decks,
 source count/more flag. Overflow `/nodes/{id}/senses/{sense_id}/sources` remains scoped.
 Private containing Library deck overflow is `/me/senses/{sense_id}/decks`.
@@ -112,18 +105,18 @@ from Clerk; handles are generated from the name with a random suffix. Establishe
 handle cannot be cleared; rename replaces old handle lookup, UUID stays.
 
 ```json
-{"node_id":"00000000-0000-0000-0000-000000000001","selection":"NEW","max_sense_count":10}
+{"node_id":"00000000-0000-0000-0000-000000000001","selection":"new","max_sense_count":10}
 ```
 
-POST `/study:prepare`: maximum is an upper bound. Default AUTO and saved maximum.
-NEW never fills with studied; DUE never fills with NEW. Response has actual counts,
+POST `/study:prepare`: maximum is an upper bound. Default auto and saved maximum.
+new never fills with studied; due never fills with new. Response has actual counts,
 effective preferences, native Sense bundles, runtime questions, shuffled options and reasons.
 No session ID or progress write. Local draft carries index/answers/shuffle/resume.
 
-Typed grading sends `question_artifact_id`, public `question_type`, `format` and nullable `answer` to `/study:grade`. SINGLE_CHOICE is graded locally. Grade responses carry matching references plus diagnostics.
+Typed grading sends `question_artifact_id`, public `question_type`, `format` and nullable `answer` to `/study:grade`. single_choice is graded locally. Grade responses carry matching references plus diagnostics.
 
 ```json
-{"results":[{"question_artifact_id":123,"question_type":"DEFINITION_TO_WORD","format":"SINGLE_CHOICE","diagnostics":{"correct":true},"answered_at":"2026-10-11T10:00:00Z"}]}
+{"results":[{"question_artifact_id":123,"question_type":"definition_to_word","format":"single_choice","diagnostics":{"correct":true},"answered_at":"2026-10-11T10:00:00Z"}]}
 ```
 
 POST `/study:submitResults` with UUID `Idempotency-Key`. Submit 1–60 initial diagnostics, including repeated artifact occurrences. Freeze ordered body/key before sending; replay exactly after uncertain transport failure. Response returns grouped Sense states (Elo, level, S/D, exposure, due) and immutable question evidence. See [Study](modules/study.md) for grading rubrics, local retries, scheduling and Elo.
@@ -179,15 +172,9 @@ Errors use `{error: code}` and X-Request-ID, not reflected answers/credentials.
 Create/save/publish/assistant do not inherit review idempotency. Inspect uncertain
 mutation state before retrying. A 200 SSE header does not mean an assistant turn finished.
 
-## Scenario evidence and remaining FE decisions
+## Verification scope
 
-`tests/integration/test_completion.py` exercises real API/store profile/search/modal,
-context/revocation/pagination and uncertain batch replay. `test_learning_pipeline.py`
-uses native Lexi generation/storage with deterministic external completion only at the
-provider boundary for ready/new/due/early/no-ready-bank cases. `test_progress.py`
-checks empty dates/timezone/streak/schedule; migration tests preserve populated data.
-Use these disposable scenario setups, never application data or paid-provider fixtures.
-
-The client keeps the session locally, allows two retries and submits only initial diagnostics. Continue/recent lookup may be same-device
-local state; no server cross-device session or lookup telemetry exists. Obtain the FE
-target and host credentials/artifacts before live browser acceptance.
+The new [test structure](testing.md) separates isolated component tests from actual
+PostgreSQL/Redis/Tantivy integrations. External providers are controlled at their boundary.
+The backend tests do not establish live Clerk/provider availability or browser acceptance.
+Client sessions remain local; the API does not store cross-device session snapshots.

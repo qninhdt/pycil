@@ -1,26 +1,44 @@
-"""Scoped searchable pages with batched native content and authorized provenance."""
-
+from collections.abc import Sequence
 from datetime import UTC, datetime
+from typing import Any, cast
+from uuid import UUID
 
-from lexi_ai.contract import Sense, Word
 from sqlalchemy import and_, func, or_, select, tuple_
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.sql import Select
 
-from pycil.http import Problem
-from pycil.library.models import DeckSense, Node
+from pycil.app.config import ProductConfig
+from pycil.app.http import Problem
+from pycil.app.pagination import decode, encode, includes, page_limit
+from pycil.library.models import DeckSense, Node, NodeSpace
+from pycil.library.schemas import SenseSort
 from pycil.library.scope import ScopeBudget, bounded, resolve_scopes, scope_ids
-from pycil.pagination import decode, encode, includes, page_limit
+from pycil.study.enums import LearningState
 from pycil.study.models import UserSense
+from pycil.vocabulary.models import Sense, Word
+from pycil.vocabulary.words import get_sense_previews, get_senses
 
 
-async def member_ids(session, node, viewer_id, config):
+async def member_ids(
+    session: AsyncSession, node: Node, viewer_id: UUID | None, config: ProductConfig
+) -> Select[int]:
     return await scope_ids(session, node.id, viewer_id, config)
 
 
-def learning_preview(memory, now, viewer_id, config):
+def learning_preview(
+    memory: UserSense | None,
+    now: datetime,
+    viewer_id: UUID | None,
+    config: ProductConfig,
+) -> dict[str, Any] | None:
     if viewer_id is None:
         return None
     return {
-        "state": "NEW" if memory is None else "DUE" if memory.due_at <= now else "NOT_YET_DUE",
+        "state": LearningState.NEW
+        if memory is None
+        else LearningState.DUE
+        if memory.due_at <= now
+        else LearningState.NOT_YET_DUE,
         "due_at": memory.due_at if memory else None,
         "elo": memory.elo if memory else None,
         "level": config.learning.mastery.level(memory.elo) if memory else None,
@@ -28,17 +46,29 @@ def learning_preview(memory, now, viewer_id, config):
     }
 
 
-def source(row, viewer_id):
+def source_dict(
+    node_id: UUID, name: str, owner_id: UUID | None, space: NodeSpace, viewer_id: UUID | None
+) -> dict[str, Any]:
     return {
-        "id": row.id,
-        "name": row.name,
-        "owner_id": row.owner_id,
-        "space": row.space,
-        "editable": row.owner_id == viewer_id,
+        "id": node_id,
+        "name": name,
+        "owner_id": owner_id,
+        "space": space,
+        "editable": owner_id == viewer_id,
     }
 
 
-async def source_batch(session, decks, identifiers, viewer_id, config):
+def source(row: Node, viewer_id: UUID | None) -> dict[str, Any]:
+    return source_dict(row.id, row.name, row.owner_id, row.space, viewer_id)
+
+
+async def source_batch(
+    session: AsyncSession,
+    decks: Sequence[UUID] | set[UUID],
+    identifiers: Sequence[int],
+    viewer_id: UUID | None,
+    config: ProductConfig,
+) -> dict[int, dict[str, Any]]:
     ranked = (
         select(
             DeckSense.sense_id,
@@ -55,18 +85,36 @@ async def source_batch(session, decks, identifiers, viewer_id, config):
         .where(DeckSense.deck_id.in_(decks), DeckSense.sense_id.in_(identifiers))
         .subquery()
     )
-    result = {i: {"decks": [], "count": 0} for i in identifiers}
+    result: dict[int, dict[str, Any]] = {
+        i: {"decks": cast(list[dict[str, Any]], []), "count": 0} for i in identifiers
+    }
     for row in (
         await session.execute(
             select(ranked).where(ranked.c.position <= config.projections.inline_sources)
         )
     ).all():
-        result[row.sense_id]["decks"].append(source(row, viewer_id))
-        result[row.sense_id]["count"] = row.total
+        sense_id: int = int(row[0])
+        node_id: UUID = cast(UUID, row[1])
+        name: str = str(row[2])
+        owner_id: UUID | None = cast(UUID | None, row[3])
+        space: NodeSpace = cast(NodeSpace, row[4])
+        total: int = int(row[6])
+        cast(list[dict[str, Any]], result[sense_id]["decks"]).append(
+            source_dict(node_id, name, owner_id, space, viewer_id)
+        )
+        result[sense_id]["count"] = total
     return result
 
 
-async def sources_page(session, node_id, sense_id, viewer_id, config, cursor=None, limit=None):
+async def sources_page(
+    session: AsyncSession,
+    node_id: UUID | None,
+    sense_id: int,
+    viewer_id: UUID | None,
+    config: ProductConfig,
+    cursor: str | None = None,
+    limit: int | None = None,
+) -> dict[str, Any]:
     limit = page_limit(limit, config)
     binding = {
         "kind": "sources",
@@ -100,26 +148,33 @@ async def sources_page(session, node_id, sense_id, viewer_id, config, cursor=Non
 
 
 async def sense_page(
-    session,
-    node,
-    viewer_id,
-    config,
-    lexicon,
-    cursor=None,
+    session: AsyncSession,
+    node: Node,
+    viewer_id: UUID | None,
+    config: ProductConfig,
+    sessions: async_sessionmaker[AsyncSession],
+    cursor: str | None = None,
     *,
-    state="ALL",
-    q=None,
-    sort="SENSE_ID_ASC",
-    limit=None,
-    include=None,
-):
-    if (state != "ALL" or sort in {"LAST_REVIEWED_DESC", "MASTERY_ASC"}) and viewer_id is None:
+    state: LearningState = LearningState.ALL,
+    q: str | None = None,
+    sort: SenseSort = SenseSort.SENSE_ID_ASC,
+    limit: int | None = None,
+    include: str | None = None,
+) -> dict[str, Any]:
+    if (
+        state != LearningState.ALL or sort in {SenseSort.LAST_REVIEWED_DESC, SenseSort.MASTERY_ASC}
+    ) and viewer_id is None:
         raise Problem(401, "authentication_required")
-    if state not in {"ALL", "NEW", "DUE", "NOT_YET_DUE"} or sort not in {
-        "SENSE_ID_ASC",
-        "LEMMA_ASC",
-        "LAST_REVIEWED_DESC",
-        "MASTERY_ASC",
+    if state not in {
+        LearningState.ALL,
+        LearningState.NEW,
+        LearningState.DUE,
+        LearningState.NOT_YET_DUE,
+    } or sort not in {
+        SenseSort.SENSE_ID_ASC,
+        SenseSort.LEMMA_ASC,
+        SenseSort.LAST_REVIEWED_DESC,
+        SenseSort.MASTERY_ASC,
     }:
         raise Problem(422, "invalid_sense_filter")
     if q is not None and len(q) > config.projections.max_query_chars:
@@ -136,10 +191,10 @@ async def sense_page(
         "sort": sort,
     }
     kinds = {
-        "SENSE_ID_ASC": ["id"],
-        "LEMMA_ASC": ["text", "id"],
-        "LAST_REVIEWED_DESC": ["nullable_time", "id"],
-        "MASTERY_ASC": ["number", "id"],
+        SenseSort.SENSE_ID_ASC: ["id"],
+        SenseSort.LEMMA_ASC: ["text", "id"],
+        SenseSort.LAST_REVIEWED_DESC: ["nullable_time", "id"],
+        SenseSort.MASTERY_ASC: ["number", "id"],
     }[sort]
     seek, cutoff = decode(cursor, binding, kinds, timed=True)
     now = cutoff or datetime.now(UTC)
@@ -163,26 +218,26 @@ async def sense_page(
                 UserSense, and_(UserSense.user_id == viewer_id, UserSense.sense_id == Sense.id)
             )
         )
-        if state != "ALL":
+        if state != LearningState.ALL:
             query = query.where(
                 {
-                    "NEW": UserSense.sense_id.is_(None),
-                    "DUE": UserSense.due_at <= now,
-                    "NOT_YET_DUE": UserSense.due_at > now,
+                    LearningState.NEW: UserSense.sense_id.is_(None),
+                    LearningState.DUE: UserSense.due_at <= now,
+                    LearningState.NOT_YET_DUE: UserSense.due_at > now,
                 }[state]
             )
         if q:
             escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             query = query.where(Word.lemma.ilike(f"%{escaped}%", escape="\\"))
-        if sort == "SENSE_ID_ASC":
+        if sort == SenseSort.SENSE_ID_ASC:
             ordering = [Sense.id]
             if seek:
                 query = query.where(Sense.id > seek[0])
-        elif sort == "LEMMA_ASC":
+        elif sort == SenseSort.LEMMA_ASC:
             ordering = [lemma, Sense.id]
             if seek:
                 query = query.where(tuple_(lemma, Sense.id) > tuple_(*seek))
-        elif sort == "MASTERY_ASC":
+        elif sort == SenseSort.MASTERY_ASC:
             ordering = [elo, Sense.id]
             if seek:
                 query = query.where(tuple_(elo, Sense.id) > tuple_(*seek))
@@ -202,7 +257,7 @@ async def sense_page(
                 query = query.where(condition)
         rows = list((await session.execute(query.order_by(*ordering).limit(limit + 1))).all())
         page = rows[:limit]
-        identifiers = [r.id for r in page]
+        identifiers: list[int] = [int(r[0]) for r in page]
         memories = (
             {
                 m.sense_id: m
@@ -222,15 +277,19 @@ async def sense_page(
             if "sources" in enrichment and identifiers
             else {}
         )
-    facts = {fact["sense_id"]: dict(fact) for fact in await lexicon.get_sense_previews(identifiers)}
+    facts = {
+        fact["sense_id"]: dict(fact) for fact in await get_sense_previews(sessions, identifiers)
+    }
     native = (
-        {s.id: s for s in await lexicon.get_senses(identifiers)} if "examples" in enrichment else {}
+        {s.id: s for s in await get_senses(sessions, identifiers)}
+        if "examples" in enrichment
+        else {}
     )
-    items = []
+    items: list[dict[str, Any]] = []
     for identifier in identifiers:
         if identifier not in facts or "examples" in enrichment and identifier not in native:
             raise Problem(409, "learning_content_changed")
-        item = facts[identifier] | {
+        item: dict[str, Any] = dict(facts[identifier]) | {
             "learning": learning_preview(memories.get(identifier), now, viewer_id, config)
         }
         if "examples" in enrichment:
@@ -244,14 +303,14 @@ async def sense_page(
             }
         items.append(item)
     last = page[-1] if page else None
-    anchor = (
-        [last.id]
-        if sort == "SENSE_ID_ASC" and last
-        else [last.lemma_key, last.id]
-        if sort == "LEMMA_ASC" and last
-        else [last.elo, last.id]
-        if sort == "MASTERY_ASC" and last
-        else [last.last_exposure_at, last.id]
+    anchor: list[object] = (
+        [last[0]]
+        if sort == SenseSort.SENSE_ID_ASC and last
+        else [last[1], last[0]]
+        if sort == SenseSort.LEMMA_ASC and last
+        else [last[3], last[0]]
+        if sort == SenseSort.MASTERY_ASC and last
+        else [last[2], last[0]]
         if last
         else []
     )

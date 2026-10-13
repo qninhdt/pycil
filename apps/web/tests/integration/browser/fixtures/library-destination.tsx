@@ -14,7 +14,7 @@ export function Fixture() {
   const [open, setOpen] = useState(true)
   const [saved, setSaved] = useState('')
   return <ServicesProvider services={services} scope={profile.id}><I18nProvider>
-    {open && <LibraryDestinationDialog open profile={profile} kind="DECK" action="Add to deck" onOpenChange={setOpen}
+    {open && <LibraryDestinationDialog open profile={profile} kind="deck" action="Add to deck" onOpenChange={setOpen}
       onConfirm={async destination => {
         await services.library.updateDeckSenses(destination.id, { add: [49], remove: [] }, new AbortController().signal)
         setSaved(destination.id)

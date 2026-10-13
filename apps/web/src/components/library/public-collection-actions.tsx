@@ -24,7 +24,7 @@ export function PublicCollectionActions({ nodeId, name, targetId, ownerId }: { n
   return <div className="mt-4">
     <Button variant="outline" onClick={() => setPicking(true)}>{t('saveToPersonal')}</Button>
     {details.isError ? <HomeFailure label={t('studyActions').toLowerCase()} error={details.error} retry={() => { void details.refetch() }} /> : details.data?.summary && <LibraryStudy summary={details.data.summary} nodeId={nodeId} publishedOwner={ownerId} />}
-    {picking && <LibraryDestinationDialog open profile={account.profile} kind="FOLDER" spaceOnly="personal" action={t('saveReference')} onOpenChange={setPicking} onConfirm={async destination => {
+    {picking && <LibraryDestinationDialog open profile={account.profile} kind="folder" spaceOnly="personal" action={t('saveReference')} onOpenChange={setPicking} onConfirm={async destination => {
       await services.library.createReference(destination.id, targetId ?? nodeId, name, new AbortController().signal)
       await queryClient.invalidateQueries({ queryKey: [services.mode] })
       toast.success(t('referenceSaved'))

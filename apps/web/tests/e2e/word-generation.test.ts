@@ -15,7 +15,7 @@ for (const target of ['harbor', 'quay', 'glistening', 'glisten with something'])
   const response = await queued
   expect(response.status()).toBe(202)
   let job: WordGeneration = await response.json()
-  expect(['RUNNING']).toContain(job.status)
+  expect(['running']).toContain(job.status)
   if (target === 'quay') {
     await expect(page.getByRole('alert').filter({ hasText: 'Preparation failed' })).toBeVisible()
     const retry = page.waitForResponse(r => r.url().endsWith('/words:generate') && r.request().method() === 'POST')
@@ -24,12 +24,12 @@ for (const target of ['harbor', 'quay', 'glistening', 'glisten with something'])
     expect(retried.status()).toBe(202)
     const next: WordGeneration = await retried.json()
     expect(next.task_id).not.toBe(job.task_id)
-    expect((await api<WordGeneration>(page, `word-tasks/${job.task_id}`)).body.status).toBe('FAILED')
+    expect((await api<WordGeneration>(page, `word-tasks/${job.task_id}`)).body.status).toBe('failed')
     job = next
   }
   const lemma = target === 'glistening' ? 'glisten' : target === 'glisten with something' ? 'glisten with {sth}' : target
   await expect(page.getByRole('heading', { name: lemma, exact: true })).toBeVisible()
-  await expect.poll(async () => (await api<WordGeneration>(page, `word-tasks/${job.task_id}`)).body.status).toBe('SUCCEEDED')
+  await expect.poll(async () => (await api<WordGeneration>(page, `word-tasks/${job.task_id}`)).body.status).toBe('succeeded')
   const stored = (await api<WordGeneration>(page, `word-tasks/${job.task_id}`)).body
   expect(stored.word_id).toBeGreaterThan(2)
   const word = await api<{ senses: { id: number }[] }>(page, `words/${stored.word_id}`)
@@ -47,13 +47,13 @@ test('generation retains valid examples and learning generates native artifacts 
   const job: WordGeneration = await (await created).json()
   await expect(page.getByRole('heading', { name: 'jetty', exact: true })).toBeVisible()
   let saved = job
-  await expect.poll(async () => { saved = (await api<WordGeneration>(page, `word-tasks/${job.task_id}`)).body; return saved.status }).toBe('SUCCEEDED')
-  expect(saved.status).toBe('SUCCEEDED'); expect(saved.stage).toBe('READY')
+  await expect.poll(async () => { saved = (await api<WordGeneration>(page, `word-tasks/${job.task_id}`)).body; return saved.status }).toBe('succeeded')
+  expect(saved.status).toBe('succeeded'); expect(saved.stage).toBe('ready')
   const word = (await api<{ senses: { id: number; examples: { content: string }[] }[] }>(page, `words/${saved.word_id}`)).body
   expect(word.senses[0].examples.map(example => example.content)).toEqual(['Ships dock at the [jetty].'])
   await expect(page.getByText('Ships dock at the jetty.', { exact: true })).toBeVisible()
   expect(await page.locator('t').count()).toBe(0)
-  const deck = await nodes.create({ type: 'DECK', sense_ids: [word.senses[0].id] })
+  const deck = await nodes.create({ type: 'deck', sense_ids: [word.senses[0].id] })
   const prepared = page.waitForResponse(r => r.url().endsWith('/study:prepare'))
   await start(page, deck.id)
   expect((await (await prepared).json()).actual_question_count).toBe(profile.settings.learning.questions_per_sense)

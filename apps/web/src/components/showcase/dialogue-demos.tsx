@@ -30,7 +30,7 @@ function InteractiveDialogueBox({
   userSpeaker: string
   conversation: ChatTurn[]
   options: DemoOption[]
-  targetPlacement: 'OPTIONS' | 'DIALOGUE'
+  targetPlacement: 'options' | 'dialogue'
   badgeText: string
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -290,7 +290,7 @@ export function DialogueTargetInOptionsDemo() {
       userSpeaker="Ben"
       conversation={conversation}
       options={options}
-      targetPlacement="OPTIONS"
+      targetPlacement="options"
       badgeText="Target marked in every option"
     />
   )
@@ -356,7 +356,7 @@ export function DialogueTargetInDialogueDemo() {
       userSpeaker="Dr. Aris"
       conversation={conversation}
       options={options}
-      targetPlacement="DIALOGUE"
+      targetPlacement="dialogue"
       badgeText="Target marked in conversation"
     />
   )
@@ -372,14 +372,14 @@ export const dialogueDemos: {
   {
     title: 'Dialogue · Target in options',
     components: 'Dialogue Completion · Multi-Turn Thread · Options Placement · MarkedText',
-    code: '<Prompt item={{ question: { question_type: "DIALOGUE_COMPLETION", target_placement: "OPTIONS" } }} />',
+    code: '<Prompt item={{ question: { question_type: "dialogue_completion", target_placement: "options" } }} />',
     render: DialogueTargetInOptionsDemo,
     wide: true,
   },
   {
     title: 'Dialogue · Target in dialogue',
     components: 'Dialogue Completion · Multi-Turn Thread · Dialogue Placement · MarkedText',
-    code: '<Prompt item={{ question: { question_type: "DIALOGUE_COMPLETION", target_placement: "DIALOGUE" } }} />',
+    code: '<Prompt item={{ question: { question_type: "dialogue_completion", target_placement: "dialogue" } }} />',
     render: DialogueTargetInDialogueDemo,
     wide: true,
   },

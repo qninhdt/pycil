@@ -9,9 +9,9 @@ import { expect,test } from './fixtures'
 import { publishedHref } from '../../src/lib/library-model'
 
 test('atomic sense deltas preserve concurrent additions; invalid batches and system/cycle writes change nothing', async ({ page, profile, nodes }) => {
-  const folder = await nodes.create({ type: 'FOLDER' })
-  const child = await nodes.create({ type: 'FOLDER', parent_id: folder.id })
-  const deck = await nodes.create({ type: 'DECK', sense_ids: [1] })
+  const folder = await nodes.create({ type: 'folder' })
+  const child = await nodes.create({ type: 'folder', parent_id: folder.id })
+  const deck = await nodes.create({ type: 'deck', sense_ids: [1] })
   const writes = await Promise.all([2, 3].map(id => api(page, `nodes/${deck.id}:modifySenses`, 'POST', { add: [id], remove: [] })))
   expect(writes.map(write => write.status)).toEqual([200, 200])
   const members = async () => (await api<{ senses: { sense_id: number }[] }>(page, `nodes/${deck.id}/senses?limit=100`)).body.senses.map(sense => sense.sense_id)
@@ -29,8 +29,8 @@ test('atomic sense deltas preserve concurrent additions; invalid batches and sys
 })
 
 test('delete cancellation preserves a subtree and confirmed deletion removes descendants and restores navigation', async ({ page, nodes }) => {
-  const folder = await nodes.create({ type: 'FOLDER' })
-  const deck = await nodes.create({ type: 'DECK', parent_id: folder.id, sense_ids: [1] })
+  const folder = await nodes.create({ type: 'folder' })
+  const deck = await nodes.create({ type: 'deck', parent_id: folder.id, sense_ids: [1] })
   await page.goto(`/app/personal/${folder.id}`)
   await page.getByRole('button', { name: `Settings for ${folder.name}`, exact: true }).click()
   await page.getByRole('menuitem', { name: 'Delete', exact: true }).click()
@@ -47,10 +47,10 @@ test('delete cancellation preserves a subtree and confirmed deletion removes des
 test('double submission and an accepted creation with lost response produce one native deck', async ({ page, profile, nodes }) => {
   const name = 'uncertain-' + randomUUID()
   let creates = 0
-  page.on('request', request => { if (request.url().endsWith('/api/v1/nodes') && request.method() === 'POST') creates++ })
+  page.on('request', request => { if (request.url().endsWith('/v1/nodes') && request.method() === 'POST') creates++ })
   let release!: () => void
   const gate = new Promise<void>(resolve => { release = resolve })
-  await page.route('**/api/v1/nodes', async route => {
+  await page.route('**/v1/nodes', async route => {
     if (route.request().method() !== 'POST') { await route.continue(); return }
     const response = await route.fetch()
     expect(response.status()).toBe(201)
@@ -78,7 +78,7 @@ test('create and rename a deck through UI without losing its placement', async (
   const name = `e2e-${randomUUID()}`
   const form = page.getByRole('dialog', { name: 'New deck' })
   await form.getByRole('textbox', { name: 'Title' }).fill(name)
-  const created = page.waitForResponse(response => response.url().endsWith('/api/v1/nodes') && response.request().method() === 'POST')
+  const created = page.waitForResponse(response => response.url().endsWith('/v1/nodes') && response.request().method() === 'POST')
   await form.getByRole('button', { name: 'Create deck', exact: true }).click()
   const response = await created
   expect(response.status()).toBe(201)
@@ -106,8 +106,8 @@ test('create and rename a deck through UI without losing its placement', async (
 })
 
 test('move and copy use real writes and preserve independent identities', async ({ page, profile, nodes }) => {
-  const folder = await nodes.create({ type: 'FOLDER' })
-  const deck = await nodes.create({ type: 'DECK' })
+  const folder = await nodes.create({ type: 'folder' })
+  const deck = await nodes.create({ type: 'deck' })
   await page.goto(`/app/personal/${deck.id}`)
   await page.getByRole('button', { name: `Settings for ${deck.name}` }).click()
   await page.getByRole('menuitem', { name: 'Move', exact: true }).click()
@@ -131,7 +131,7 @@ test('move and copy use real writes and preserve independent identities', async 
 })
 
 test('another Clerk account cannot read or mutate a private deck', async ({ page, browser, baseURL, nodes, profile }) => {
-  const deck = await nodes.create({ type: 'DECK' })
+  const deck = await nodes.create({ type: 'deck' })
   const context = await browser.newContext({ baseURL })
   try {
     const other = await context.newPage()
@@ -145,7 +145,7 @@ test('another Clerk account cannot read or mutate a private deck', async ({ page
 })
 
 for (const revoke of ['unpublish', 'delete'] as const) test(`saved public references and flashcards become unavailable after ${revoke}`, async ({ page, browser, baseURL, nodes, profile }) => {
-  const deck = await nodes.create({ type: 'DECK', sense_ids: [1] })
+  const deck = await nodes.create({ type: 'deck', sense_ids: [1] })
   const published = await api(page, `nodes/${deck.id}:move`, 'POST', { parent_id: profile.published_node_id, confirm_publication: true })
   expect(published.status).toBe(200)
   const context = await browser.newContext({ baseURL })
@@ -158,7 +158,7 @@ for (const revoke of ['unpublish', 'delete'] as const) test(`saved public refere
     await other.goto(publishedHref(profile.id, deck.id))
     await other.getByRole('button', { name: `Settings for ${deck.name}` }).click()
     await other.getByRole('menuitem', { name: 'Create reference', exact: true }).click()
-    const created = other.waitForResponse(response => response.url().endsWith('/api/v1/nodes') && response.request().method() === 'POST')
+    const created = other.waitForResponse(response => response.url().endsWith('/v1/nodes') && response.request().method() === 'POST')
     await other.getByRole('dialog', { name: 'Create reference', exact: true }).getByRole('button', { name: 'Create reference', exact: true }).click()
     const response = await created
     expect(response.status()).toBe(201)
@@ -169,7 +169,7 @@ for (const revoke of ['unpublish', 'delete'] as const) test(`saved public refere
     expect(reference.parent_id).toBe(second.personal_node_id)
     await other.goto(`/app/personal/${referenceId}`)
     await expect(other.getByRole('heading', { name: deck.name, exact: true })).toBeVisible()
-    await other.goto(`/focus/flashcards?node=${referenceId}`)
+    await other.goto(`/app/flashcards?node=${referenceId}`)
     await other.getByRole('button', { name: /^Reveal meaning of bank/ }).click()
     const revoked = revoke === 'delete' ? await api(page, `nodes/${deck.id}`, 'DELETE') : await api(page, `nodes/${deck.id}:move`, 'POST', { parent_id: profile.personal_node_id })
     expect(revoked.status).toBe(revoke === 'delete' ? 204 : 200)
@@ -189,14 +189,14 @@ for (const revoke of ['unpublish', 'delete'] as const) test(`saved public refere
 })
 
 test('failed deck edit retains saved metadata and a retry applies the draft atomically', async ({ page, nodes }) => {
-  const deck = await nodes.create({ type: 'DECK', sense_ids: [1, 2] })
+  const deck = await nodes.create({ type: 'deck', sense_ids: [1, 2] })
   await page.goto(`/app/personal/${deck.id}`)
   await page.getByRole('button', { name: `Settings for ${deck.name}` }).click()
   await page.getByRole('menuitem', { name: 'Edit details', exact: true }).click()
   const form = page.getByRole('dialog', { name: 'Edit deck', exact: true })
   await form.getByRole('textbox', { name: 'Title', exact: true }).fill('edited-' + randomUUID())
   const draft = await form.getByRole('textbox', { name: 'Title', exact: true }).inputValue()
-  await page.route(`**/api/v1/nodes/${deck.id}`, route => route.request().method() === 'PATCH' ? route.abort('connectionfailed') : route.continue(), { times: 1 })
+  await page.route(`**/v1/nodes/${deck.id}`, route => route.request().method() === 'PATCH' ? route.abort('connectionfailed') : route.continue(), { times: 1 })
   await form.getByRole('button', { name: 'Save changes', exact: true }).click()
   await expect(form.getByRole('alert')).toBeVisible()
   await expect(form.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue(draft)

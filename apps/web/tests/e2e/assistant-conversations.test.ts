@@ -61,12 +61,12 @@ test('native SSE, model policy, checkpoint reload and usage settlement reach the
     await page.reload(); await open(page)
     await expect(page.getByText('E2E response saved through the native checkpoint.', { exact: true })).toBeVisible()
     expect(await page.locator('img[src=x]').count()).toBe(0)
-    expect(profile.plan).toBe('FREE')
+    expect(profile.plan).toBe('free')
   } finally { expect((await api(page, `assistant/conversations/${conversation.id}`, 'DELETE')).status).toBe(204) }
 })
 
 test('Assistant renders native Library reads and hides another account’s private conversation and tool data', async ({ page, nodes, browser, baseURL, profile }) => {
-  const deck = await nodes.create({ type: 'DECK' })
+  const deck = await nodes.create({ type: 'deck' })
   await open(page)
   const created = page.waitForResponse(response => response.url().endsWith('/assistant/conversations') && response.request().method() === 'POST')
   const streamed = page.waitForResponse(response => response.url().endsWith('/assistant:run'))

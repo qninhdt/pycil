@@ -4,7 +4,7 @@ import { flashcardArtwork } from '../../../src/lib/flashcard-artwork'
 
 test('Deck preview reuses the two-face card, supports keyboard and crosses page boundaries without submitting learning', async ({ page }) => {
   const requests: string[] = []
-  page.on('request', request => { if (request.method() === 'POST' || request.url().includes('/api/v1/')) requests.push(request.url()) })
+  page.on('request', request => { if (request.method() === 'POST' || request.url().includes('/v1/')) requests.push(request.url()) })
   await page.goto('/app/personal/everyday')
   const preview = page.getByRole('region', { name: 'Flashcard preview' })
   const card = preview.locator('article')

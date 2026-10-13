@@ -4,14 +4,13 @@ import re
 from datetime import datetime
 from typing import Annotated
 from uuid import UUID
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from lexi_ai import QuestionType, ResponseFormat
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from pycil.account.plans import Feature, Plan
-from pycil.config import AssistantPreferences, LearningLimits, LearningPreferences, ProductConfig
-from pycil.http import Problem
+from pycil.account.plans import Plan
+from pycil.assistant.config import AssistantPreferences
+from pycil.study.config import LearningLimits, LearningPreferences
+from pycil.study.enums import QuestionType, ResponseFormat
 
 
 class Strict(BaseModel):
@@ -19,8 +18,8 @@ class Strict(BaseModel):
 
 
 class LearningPatch(Strict):
-    question_types: list[str] | None = None
-    formats: list[str] | None = None
+    question_types: list[QuestionType] | None = None
+    formats: list[ResponseFormat] | None = None
     questions_per_sense: Annotated[int, Field(strict=True, gt=0)] | None = None
     max_sense_count: Annotated[int, Field(strict=True, gt=0)] | None = None
 
@@ -107,31 +106,32 @@ class ProfilePatch(Strict):
 
     @field_validator("display_name")
     @classmethod
-    def valid_display_name(cls, value):
+    def valid_display_name(cls, value: str | None) -> str:
         if value is None or not 1 <= len(value.strip()) <= 255:
             raise ValueError("display name must contain 1–255 characters")
         return value.strip()
 
     @field_validator("handle")
     @classmethod
-    def valid_handle(cls, value):
+    def valid_handle(cls, value: str | None) -> str:
         if value is None:
             raise ValueError("handle cannot be cleared")
         if not value.isascii():
             raise ValueError("handle must be ASCII")
-        value = value.strip().lower()
-        if re.fullmatch(r"[a-z][a-z0-9_]{2,29}", value, flags=re.ASCII) is None:
+        cleaned = value.strip().lower()
+        if re.fullmatch(r"[a-z][a-z0-9_]{2,29}", cleaned, flags=re.ASCII) is None:
             raise ValueError("invalid handle")
-        return value
+        return cleaned
 
     @field_validator("bio")
     @classmethod
-    def valid_bio(cls, value):
+    def valid_bio(cls, value: str | None) -> str | None:
         if value is not None:
-            value = value.strip()
-            if len(value) > 500:
+            cleaned = value.strip()
+            if len(cleaned) > 500:
                 raise ValueError("bio too long")
-        return value
+            return cleaned
+        return None
 
 
 class Allowance(Strict):
@@ -140,55 +140,3 @@ class Allowance(Strict):
     allowance_units: int
     used_units: int
     remaining_units: int
-
-
-def preferences(saved: dict, config: ProductConfig) -> Preferences:
-    defaults = config.account.defaults.model_dump()
-    learning = config.learning.defaults.model_dump() | saved.get("learning", {})
-    assistant = defaults["assistant"] | saved.get("assistant", {})
-    values = defaults | saved | {"learning": learning, "assistant": assistant}
-    result = Preferences.model_validate(values)
-    if result.locale not in config.account.locales:
-        raise ValueError("unsupported locale")
-    if result.translation_language not in config.account.translation_languages:
-        raise ValueError("unsupported translation language")
-    try:
-        ZoneInfo(result.timezone)
-    except ZoneInfoNotFoundError as exc:
-        raise ValueError("invalid IANA timezone") from exc
-    config.learning.validate_limits(result.learning)
-    return result
-
-
-def effective_learning(saved: dict, plan: Plan, config: ProductConfig) -> LearningPreferences:
-    selected = preferences(saved, config).learning
-    formats = selected.formats
-    if Feature.ADVANCED_GRADING not in config.plans[plan].features:
-        formats = [ResponseFormat.SINGLE_CHOICE]
-    try:
-        effective = LearningPreferences.model_validate(selected.model_dump() | {"formats": formats})
-        config.learning.validate_preferences(effective)
-    except ValueError as exc:
-        raise Problem(422, "infeasible_learning_preferences") from exc
-    return effective
-
-
-def merge_preferences(
-    saved: dict, patch: PreferencesPatch, plan: Plan, config: ProductConfig
-) -> dict:
-    changes = patch.model_dump(exclude_unset=True)
-    nested = changes.pop("learning", None)
-    assistant = changes.pop("assistant", None)
-    merged = saved | changes
-    if assistant is not None:
-        merged["assistant"] = saved.get("assistant", {}) | assistant
-    if nested is not None:
-        if "formats" in nested and Feature.ADVANCED_GRADING not in config.plans[plan].features:
-            if any(fmt != ResponseFormat.SINGLE_CHOICE for fmt in nested["formats"]):
-                raise Problem(403, "advanced_grading_not_available")
-        merged["learning"] = saved.get("learning", {}) | nested
-    try:
-        effective_learning(merged, plan, config)
-    except (ValueError, Problem) as exc:
-        raise Problem(422, "invalid_preferences") from exc
-    return merged
