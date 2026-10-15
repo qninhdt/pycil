@@ -58,8 +58,7 @@ on every turn; it does not recreate the conversation when the view changes.
 The model receives one transient HumanMessage immediately after the current user message:
 `<context>{compact JSON}</context>`. Its only fields are `now` (ISO date/time in the user's
 zone), `timezone`, `current_view`, `name`, and `username`. `name` and `username` use the
-authenticated actor display name and handle, normally read from Redis; the per-turn
-settings query does not fetch identity fields. Profile writes invalidate that cache. View names/types
+current user display name, handle and settings read from PostgreSQL for this turn. View names/types
 come from server reads; an unavailable/private node yields only path + unavailable status.
 The path remains an untrusted UI hint. JSON escapes tag delimiters, and the teaching prompt
 instructs the model to treat context/tool strings as data, not instructions.

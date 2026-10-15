@@ -7,20 +7,22 @@ from sqlalchemy import and_, func, or_, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.sql import Select
 
-from pycil.app.config import ProductConfig
+from pycil.app.config import AppConfig
 from pycil.app.http import Problem
 from pycil.app.pagination import decode, encode, includes, page_limit
+from pycil.infrastructure.cache import MemoryCache
 from pycil.library.models import DeckSense, Node, NodeSpace
 from pycil.library.schemas import SenseSort
 from pycil.library.scope import ScopeBudget, bounded, resolve_scopes, scope_ids
 from pycil.study.enums import LearningState
 from pycil.study.models import UserSense
 from pycil.vocabulary.models import Sense, Word
+from pycil.vocabulary.schemas import Sense as NativeSense
 from pycil.vocabulary.words import get_sense_previews, get_senses
 
 
 async def member_ids(
-    session: AsyncSession, node: Node, viewer_id: UUID | None, config: ProductConfig
+    session: AsyncSession, node: Node, viewer_id: UUID | None, config: AppConfig
 ) -> Select[int]:
     return await scope_ids(session, node.id, viewer_id, config)
 
@@ -29,7 +31,7 @@ def learning_preview(
     memory: UserSense | None,
     now: datetime,
     viewer_id: UUID | None,
-    config: ProductConfig,
+    config: AppConfig,
 ) -> dict[str, Any] | None:
     if viewer_id is None:
         return None
@@ -41,7 +43,7 @@ def learning_preview(
         else LearningState.NOT_YET_DUE,
         "due_at": memory.due_at if memory else None,
         "elo": memory.elo if memory else None,
-        "level": config.learning.mastery.level(memory.elo) if memory else None,
+        "level": config.product.study.mastery.level(memory.elo) if memory else None,
         "last_reviewed_at": memory.last_exposure_at if memory else None,
     }
 
@@ -67,7 +69,7 @@ async def source_batch(
     decks: Sequence[UUID] | set[UUID],
     identifiers: Sequence[int],
     viewer_id: UUID | None,
-    config: ProductConfig,
+    config: AppConfig,
 ) -> dict[int, dict[str, Any]]:
     ranked = (
         select(
@@ -90,7 +92,7 @@ async def source_batch(
     }
     for row in (
         await session.execute(
-            select(ranked).where(ranked.c.position <= config.projections.inline_sources)
+            select(ranked).where(ranked.c.position <= config.product.projections.inline_sources)
         )
     ).all():
         sense_id: int = int(row[0])
@@ -111,7 +113,7 @@ async def sources_page(
     node_id: UUID | None,
     sense_id: int,
     viewer_id: UUID | None,
-    config: ProductConfig,
+    config: AppConfig,
     cursor: str | None = None,
     limit: int | None = None,
 ) -> dict[str, Any]:
@@ -151,7 +153,7 @@ async def sense_page(
     session: AsyncSession,
     node: Node,
     viewer_id: UUID | None,
-    config: ProductConfig,
+    config: AppConfig,
     sessions: async_sessionmaker[AsyncSession],
     cursor: str | None = None,
     *,
@@ -160,6 +162,7 @@ async def sense_page(
     sort: SenseSort = SenseSort.SENSE_ID_ASC,
     limit: int | None = None,
     include: str | None = None,
+    sense_cache: MemoryCache[int, NativeSense] | None = None,
 ) -> dict[str, Any]:
     if (
         state != LearningState.ALL or sort in {SenseSort.LAST_REVIEWED_DESC, SenseSort.MASTERY_ASC}
@@ -177,7 +180,7 @@ async def sense_page(
         SenseSort.MASTERY_ASC,
     }:
         raise Problem(422, "invalid_sense_filter")
-    if q is not None and len(q) > config.projections.max_query_chars:
+    if q is not None and len(q) > config.product.projections.max_query_chars:
         raise Problem(422, "invalid_query")
     q = q.strip() if q else None
     limit = page_limit(limit, config)
@@ -209,7 +212,7 @@ async def sense_page(
         )
         membership = scope.senses().subquery()
         lemma = func.lower(Word.lemma)
-        elo = func.coalesce(UserSense.elo, config.learning.mastery.initial_elo)
+        elo = func.coalesce(UserSense.elo, config.product.study.mastery.initial_elo)
         query = (
             select(Sense.id, lemma.label("lemma_key"), UserSense.last_exposure_at, elo.label("elo"))
             .join(membership, membership.c.sense_id == Sense.id)
@@ -281,7 +284,7 @@ async def sense_page(
         fact["sense_id"]: dict(fact) for fact in await get_sense_previews(sessions, identifiers)
     }
     native = (
-        {s.id: s for s in await get_senses(sessions, identifiers)}
+        {s.id: s for s in await get_senses(sessions, identifiers, cache=sense_cache)}
         if "examples" in enrichment
         else {}
     )
@@ -293,13 +296,15 @@ async def sense_page(
             "learning": learning_preview(memories.get(identifier), now, viewer_id, config)
         }
         if "examples" in enrichment:
-            item["examples"] = native[identifier].examples[: config.projections.inline_examples]
+            item["examples"] = native[identifier].examples[
+                : config.product.projections.inline_examples
+            ]
         if "sources" in enrichment:
             item |= {
                 "sources": sources[identifier]["decks"],
                 "source_count": sources[identifier]["count"],
                 "sources_has_more": sources[identifier]["count"]
-                > config.projections.inline_sources,
+                > config.product.projections.inline_sources,
             }
         items.append(item)
     last = page[-1] if page else None

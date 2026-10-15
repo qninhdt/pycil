@@ -1,5 +1,7 @@
 'use client'
 
+import { webConfig } from '@/config'
+
 import { Fragment } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -26,7 +28,7 @@ export function LibraryHeader({ node, profile, editable }: { node: LibraryDetail
     queryKey: [services.mode, scope, 'public-author', node.owner_id],
     queryFn: ({ signal }) => services.account.publicProfile(node.owner_id, signal),
     enabled: Boolean(published && !mine && node.owner_id),
-    staleTime: 300000,
+    staleTime: webConfig.query.publicHeadingStaleMs,
   })
   const authorName = mine ? t('me') : (authorQuery.data?.display_name ?? node.owner_id ?? 'Public')
   const rootId = published ? (mine ? profile?.published_node_id : authorQuery.data?.published_node_id ?? node.breadcrumbs[0]?.id) : profile?.personal_node_id

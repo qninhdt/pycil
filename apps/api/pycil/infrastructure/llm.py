@@ -309,7 +309,7 @@ def _retrying(
 ) -> AsyncRetrying:
     return AsyncRetrying(
         stop=stop_after_attempt(policy.max_retries + 1),
-        wait=wait_exponential(multiplier=0.5, max=8),
+        wait=wait_exponential(multiplier=policy.retry_min_seconds, max=policy.retry_max_seconds),
         retry=retry_if_exception(predicate),
         reraise=True,
     )

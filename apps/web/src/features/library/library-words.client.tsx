@@ -1,5 +1,7 @@
 'use client'
 
+import { webConfig } from '@/config'
+
 import { useHydrated } from '@/lib/use-hydrated.client'
 import { useSearchParams } from 'next/navigation'
 import { meaningOptions } from '@/features/library/queries'
@@ -42,7 +44,7 @@ export function LibraryWords({ nodeId, folder, editable, summary, timezone }: { 
   const [selected, setSelected] = useState<Meaning | null>(null)
   const [removing, setRemoving] = useState(false), [removeError, setRemoveError] = useState('')
   const trigger = useRef<number | null>(null)
-  const query = useLibraryMeanings(nodeId, { q, state, sort, cursor: cursors.at(-1), limit: 12 })
+  const query = useLibraryMeanings(nodeId, { q, state, sort, cursor: cursors.at(-1), limit: webConfig.pagination.library })
   const filtered = Boolean(q || state !== 'all')
   const searchChange = (value: string) => updateUrl({ q: value, cursor: null }, true)
   const clear = () => { searchChange(''); setState('all') }

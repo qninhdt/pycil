@@ -9,6 +9,7 @@ import orjson
 from sqlalchemy import Integer, column, func, literal, or_, select, tuple_, values
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from pycil.infrastructure.cache import MemoryCache
 from pycil.infrastructure.database import json_collection
 from pycil.study.artifacts.schemas import ARTIFACT_SCHEMAS, Artifact
 from pycil.study.enums import SINGLETON_ARTIFACT_TYPES, QuestionArtifactType
@@ -16,7 +17,6 @@ from pycil.study.errors import QuestionArtifactBankChangedError
 from pycil.study.models import QuestionArtifact
 from pycil.themes.models import Theme
 from pycil.themes.namespace import theme_scope
-from pycil.vocabulary.cache import ContentCache
 from pycil.vocabulary.enums import EntryType, GenerationState
 from pycil.vocabulary.errors import InvalidResourceError
 from pycil.vocabulary.models import Sense, Word, WordAlias
@@ -43,14 +43,14 @@ async def get_many(
     sessions: async_sessionmaker[AsyncSession],
     identifiers: Sequence[int],
     *,
-    cache: ContentCache | None = None,
+    cache: MemoryCache[int, Artifact] | None = None,
 ) -> list[Artifact]:
     found: dict[int, Artifact] = {}
     if cache is not None:
         found = {
             identifier: value
             for identifier in identifiers
-            if (value := cache.get(identifier, Artifact)) is not None
+            if (value := cache.get(identifier)) is not None
         }
     missing = list(
         dict.fromkeys(identifier for identifier in identifiers if identifier not in found)
@@ -104,7 +104,7 @@ async def append(
     sessions: async_sessionmaker[AsyncSession],
     artifacts: Sequence[Artifact],
     *,
-    cache: ContentCache | None = None,
+    cache: MemoryCache[int, Artifact] | None = None,
 ) -> list[Artifact]:
     if not artifacts:
         return []
@@ -227,7 +227,7 @@ async def retrieve_many(
     requests: Sequence[tuple[int, QuestionArtifactType, int]],
     *,
     theme_key: str | None = None,
-    cache: ContentCache | None = None,
+    cache: MemoryCache[int, Artifact] | None = None,
 ) -> list[Artifact]:
     pairs = [(sense_id, kind) for sense_id, kind, _quantity in requests]
     if len(set(pairs)) != len(pairs) or any(

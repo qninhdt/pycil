@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
@@ -7,8 +8,9 @@ from pydantic import Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from pycil.app.config import ProductConfig
+from pycil.app.config import AppConfig
 from pycil.app.http import Problem
+from pycil.infrastructure.cache import MemoryCache
 from pycil.library.schemas import LearningPreview, SourceDeck
 from pycil.library.scope import ScopeBudget, bounded, resolve_scopes
 from pycil.library.senses import learning_preview, source_batch
@@ -69,9 +71,11 @@ async def word_previews(
     session: AsyncSession,
     sessions: async_sessionmaker[AsyncSession],
     identifiers: Sequence[int],
-    config: ProductConfig,
+    config: AppConfig,
+    *,
+    sense_cache: MemoryCache[int, NativeSense] | None = None,
 ) -> list[dict[str, Any]]:
-    if len(identifiers) > config.projections.max_word_ids:
+    if len(identifiers) > config.product.projections.max_word_ids:
         raise Problem(422, "lexical_batch_too_large")
     words = {
         w.id: w for w in (await session.scalars(select(Word).where(Word.id.in_(identifiers)))).all()
@@ -84,20 +88,21 @@ async def word_previews(
                 select(Sense.id, Sense.word_id)
                 .where(Sense.word_id.in_(identifiers))
                 .order_by(Sense.id)
-                .limit(config.projections.max_word_senses + 1)
+                .limit(config.product.projections.max_word_senses + 1)
             )
         ).all()
     )
-    if len(rows) > config.projections.max_word_senses:
+    if len(rows) > config.product.projections.max_word_senses:
         raise Problem(422, "lexical_batch_too_large")
-    native = {s.id: s for s in await get_senses(sessions, [r.id for r in rows])}
+    native = {s.id: s for s in await get_senses(sessions, [r.id for r in rows], cache=sense_cache)}
     if set(native) != {r.id for r in rows}:
         raise Problem(409, "learning_content_changed")
     groups: dict[int, list[NativeSense]] = {i: [] for i in identifiers}
     for row in rows:
         groups[row.word_id].append(
-            native[row.id].model_copy(
-                update={"examples": native[row.id].examples[: config.projections.inline_examples]}
+            replace(
+                native[row.id],
+                examples=native[row.id].examples[: config.product.projections.inline_examples],
             )
         )
     return [
@@ -114,13 +119,13 @@ async def word_previews(
 async def viewer_context(
     session: AsyncSession,
     user_id: UUID,
-    config: ProductConfig,
+    config: AppConfig,
     identifiers: Sequence[int],
     *,
     include_sources: bool = True,
     max_senses: int | None = None,
 ) -> dict[str, Any]:
-    if len(identifiers) > (max_senses or config.projections.max_context_senses) or len(
+    if len(identifiers) > (max_senses or config.product.projections.max_context_senses) or len(
         set(identifiers)
     ) != len(identifiers):
         raise Problem(422, "context_too_large")
@@ -161,7 +166,7 @@ async def viewer_context(
                 "decks": membership[identifier]["decks"],
                 "deck_count": membership[identifier]["count"],
                 "decks_has_more": int(membership[identifier]["count"])
-                > config.projections.inline_sources,
+                > config.product.projections.inline_sources,
             }
             for identifier in identifiers
         ]
@@ -179,14 +184,17 @@ async def viewer_context(
 
 
 async def word_context(
-    session: AsyncSession, user_id: UUID, config: ProductConfig, word_id: int
+    session: AsyncSession, user_id: UUID, config: AppConfig, word_id: int
 ) -> dict[str, Any]:
     if await session.get(Word, word_id) is None:
         raise Problem(404, "word_not_found")
     identifiers = list(
         (
             await session.scalars(
-                select(Sense.id).where(Sense.word_id == word_id).order_by(Sense.id).limit(101)
+                select(Sense.id)
+                .where(Sense.word_id == word_id)
+                .order_by(Sense.id)
+                .limit(config.product.projections.max_context_senses + 1)
             )
         ).all()
     )

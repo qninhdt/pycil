@@ -1,3 +1,4 @@
+import { webConfig } from '@/config'
 import { dehydrateRoute } from '@/lib/query/server'
 import 'server-only'
 import { prefetchAuthors } from './authors.server'
@@ -29,7 +30,7 @@ export async function LibraryRoute({ nodeId, space = 'personal', words = false, 
       const [, page] = await Promise.all([
         client.prefetchQuery(progressQuery(services, scope, id)),
         words ? client.query(meaningsQuery(services, scope, id, meaningOptions(params)))
-          : isDeck(node) ? client.query(meaningsQuery(services, scope, id, { cursor: undefined, limit: 12 }))
+          : isDeck(node) ? client.query(meaningsQuery(services, scope, id, { cursor: undefined, limit: webConfig.pagination.library }))
             : client.query(contentsQuery(services, scope, node.target?.id ?? id, contentsOptions(params))),
       ])
       if ('nodes' in page) await prefetchAuthors(client, services, scope, page.nodes, account?.id)

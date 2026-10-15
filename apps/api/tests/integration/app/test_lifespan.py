@@ -9,10 +9,11 @@ from pycil.vocabulary.references.importer import import_reference
 from tests.support.reference import reference_file, reference_word
 
 
-@pytest.mark.parametrize("failed_component", ["database", "redis"])
+@pytest.mark.parametrize("failed_component", ["database", "redis", "redis_timeout"])
 async def test_readiness_dependency_failures_return_safe_503_and_preserve_health(
     database, redis_store, redis_container, failed_component
 ):
+    from time import perf_counter
     from types import SimpleNamespace
 
     from redis.asyncio import Redis
@@ -23,7 +24,7 @@ async def test_readiness_dependency_failures_return_safe_503_and_preserve_health
 
     redis, _ = redis_store
     app = create_app()
-    app.state.product = load_config()
+    app.state.config = load_config()
     app.state.deployment = SimpleNamespace(allowed_origins=[])
     index = SearchIndex(database.sessions)
     broken_engine = broken_redis = None
@@ -37,7 +38,7 @@ async def test_readiness_dependency_failures_return_safe_503_and_preserve_health
             )
             broken_engine, _ = connect(url.render_as_string(hide_password=False))
             app.state.engine = broken_engine
-        else:
+        elif failed_component == "redis":
             broken_redis = Redis(
                 host=redis_container.get_container_host_ip(),
                 port=int(redis_container.get_exposed_port(6379)),
@@ -50,7 +51,12 @@ async def test_readiness_dependency_failures_return_safe_503_and_preserve_health
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://api.test"
         ) as client:
+            if failed_component == "redis_timeout":
+                await redis.execute_command("CLIENT", "PAUSE", 1500, "ALL")
+            started = perf_counter()
             response = await client.get("/ready")
+            if failed_component == "redis_timeout":
+                assert perf_counter() - started < 1
             assert response.status_code == 503 and response.json() == {"error": "not_ready"}
             assert "private-readiness-marker" not in response.text
             assert (await client.get("/health")).json() == {"status": "ok"}
@@ -114,8 +120,8 @@ async def test_schema_startup_failure_disposes_the_acquired_engine(database, mon
     acquired = []
     connect = resources.connect
 
-    def captured_connection(url):
-        engine, sessions = connect(url)
+    def captured_connection(url, **policy):
+        engine, sessions = connect(url, **policy)
         acquired.append((engine, engine.pool))
         return engine, sessions
 
@@ -146,33 +152,51 @@ def deployment_for(db_url, redis_url):
     )
 
 
+@pytest.mark.parametrize("cleanup_failure", ["error", "timeout"])
 async def test_failed_redis_closer_does_not_prevent_engine_cleanup(
-    database, redis_store, monkeypatch
+    database, redis_store, monkeypatch, cleanup_failure
 ):
+    import asyncio
+
     redis, _ = redis_store
     acquired, closed = [], []
     connect, close_redis = resources.connect, redis.aclose
 
-    def captured_connection(url):
-        engine, sessions = connect(url)
+    def captured_connection(url, **policy):
+        engine, sessions = connect(url, **policy)
         acquired.append((engine, engine.pool))
         return engine, sessions
 
     async def failed_closer():
         await close_redis()
         closed.append(True)
+        if cleanup_failure == "timeout":
+            await asyncio.Event().wait()
         raise RuntimeError("private cleanup detail")
 
     await redis.ping()
     monkeypatch.setattr(resources, "connect", captured_connection)
     monkeypatch.setattr(resources.Redis, "from_url", lambda *args, **kwargs: redis)
     monkeypatch.setattr(redis, "aclose", failed_closer)
+    config = load_config()
+    config = config.model_copy(
+        update={
+            "runtime": config.runtime.model_copy(
+                update={
+                    "lifecycle": config.runtime.lifecycle.model_copy(
+                        update={"cleanup_timeout_seconds": 0.1}
+                    )
+                }
+            )
+        }
+    )
     try:
         with pytest.raises(RuntimeError, match="^Runtime resource cleanup failed$"):
-            async with resources.process_resources(
-                load_config(), deployment_for(database.url, "redis://127.0.0.1:1/0")
-            ):
-                pytest.fail("empty reference dataset must prevent startup")
+            async with asyncio.timeout(2):
+                async with resources.process_resources(
+                    config, deployment_for(database.url, "redis://127.0.0.1:1/0")
+                ):
+                    pytest.fail("empty reference dataset must prevent startup")
         assert closed == [True]
         engine, previous_pool = acquired[0]
         assert engine.pool is not previous_pool and previous_pool.checkedout() == 0
@@ -192,8 +216,8 @@ async def test_startup_cancellation_closes_acquired_resources_before_return(
     connect, verify, close_redis = resources.connect, resources.verify_schema, redis.aclose
     acquired, closed, verified = [], [], asyncio.Event()
 
-    def captured_connection(url):
-        engine, sessions = connect(url)
+    def captured_connection(url, **policy):
+        engine, sessions = connect(url, **policy)
         acquired.append((engine, engine.pool))
         return engine, sessions
 

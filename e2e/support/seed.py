@@ -5,7 +5,6 @@ import asyncio
 import json
 import os
 from datetime import UTC, datetime, timedelta
-from hashlib import sha256
 from pathlib import Path
 from uuid import UUID
 
@@ -33,7 +32,6 @@ from pycil.vocabulary.models import (
     Word,
     WordAlias,
 )
-from redis.asyncio import Redis
 from sqlalchemy import select
 
 
@@ -118,7 +116,7 @@ async def baseline(manifest: Path | None):
         await engine.dispose()
 
 
-async def actor_state(
+async def user_state(
     identifier: UUID, plan: Plan | None, exhausted: bool, due_sense: int | None
 ):
     register_models()
@@ -129,13 +127,13 @@ async def actor_state(
         async with sessions() as session, session.begin():
             user = await session.get(User, identifier)
             if user is None:
-                raise ValueError("Actor must be provisioned through the real API first")
+                raise ValueError("User must be provisioned through the real API first")
             if plan is not None:
                 user.plan = plan
             now = datetime.now(UTC)
             if exhausted:
                 start, end = period_bounds(user.cycle_anchor, now)
-                budget = config.plans[user.plan].monthly_allowance_units
+                budget = config.product.account.plans[user.plan].monthly_allowance_units
                 period = await session.scalar(
                     select(UsagePeriod).where(
                         UsagePeriod.user_id == identifier,
@@ -170,23 +168,15 @@ async def actor_state(
                     session.add(memory)
                 memory.last_exposure_at = now - timedelta(days=2)
                 memory.due_at = now - timedelta(days=1)
-            subject = user.clerk_subject
-        # Match the production cache namespace and invalidate only this actor.
-        namespace = (
-            "pycil:cache:v3:"
-            + sha256((url + "\0" + os.environ["CLERK_ISSUER"]).encode()).hexdigest()
-        )
-        async with Redis.from_url(os.environ["REDIS_URL"]) as redis:
-            await redis.delete(f"{namespace}:actor:v3:{subject}")
     finally:
         await engine.dispose()
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("operation", choices=["baseline", "actor"])
+    parser.add_argument("operation", choices=["baseline", "user"])
     parser.add_argument("--manifest", type=Path)
-    parser.add_argument("--actor-id", type=UUID)
+    parser.add_argument("--user-id", type=UUID)
     parser.add_argument("--plan", type=Plan)
     parser.add_argument("--exhausted", action="store_true")
     parser.add_argument("--due-sense", type=int)
@@ -195,11 +185,11 @@ if __name__ == "__main__":
         if arguments.operation == "baseline":
             asyncio.run(baseline(arguments.manifest))
         else:
-            if arguments.actor_id is None:
-                parser.error("actor preparation requires --actor-id")
+            if arguments.user_id is None:
+                parser.error("user preparation requires --user-id")
             asyncio.run(
-                actor_state(
-                    arguments.actor_id,
+                user_state(
+                    arguments.user_id,
                     arguments.plan,
                     arguments.exhausted,
                     arguments.due_sense,

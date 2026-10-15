@@ -34,7 +34,7 @@ async def test_conversation_http_stream_state_pagination_and_delete_enforce_owne
 
     class Identity:
         async def subject(self, token):
-            return owner.clerk_subject if token == "owner" else other.clerk_subject
+            return owner.clerk_id if token == "owner" else other.clerk_id
 
     provider = Provider(messages=iter([AIMessage(content="Hello learner.")]))
 
@@ -46,7 +46,7 @@ async def test_conversation_http_stream_state_pagination_and_delete_enforce_owne
     redis, _ = redis_store
     app = create_app()
     app.state.sessions = database.sessions
-    app.state.product = load_config()
+    app.state.config = load_config()
     app.state.identity = Identity()
     app.state.deployment = SimpleNamespace(allowed_origins=[])
     app.state.redis = redis

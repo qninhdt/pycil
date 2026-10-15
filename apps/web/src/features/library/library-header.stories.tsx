@@ -15,7 +15,7 @@ const mockProfile: AccountProfile = {
   library_node_id: 'node_library_root',
   learning_options: {
     pairs: [],
-    limits: { min_questions_per_sense: 1, max_questions_per_sense: 4, max_questions_per_prepare: 20 },
+    limits: { min_questions_per_sense: 1, max_questions_per_sense: 4, max_questions_per_prepare: 20, max_answer_chars: 8000 },
     advanced_grading: true,
   },
   settings: {

@@ -1,5 +1,7 @@
 'use client'
 
+import { webConfig } from '@/config'
+
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { setLocaleCookie } from '@/lib/preferences/locale'
@@ -139,7 +141,7 @@ export function LiveAssistant({ initialId, remember, historyOpen, closeHistory, 
   const [version, setVersion] = useState(0)
   const models = useQuery({ queryKey: [services.mode, scope, 'assistant-models'], queryFn: ({ signal }) => service.models(signal) })
   const detail = useQuery({ queryKey: [services.mode, scope, 'assistant-conversation', selectedId, version], queryFn: ({ signal }) => service.details(selectedId!, signal), enabled: !!selectedId, staleTime: 0,
-    retry: (count, error) => !(error instanceof AssistantError && error.status === 404) && count < 3 })
+    retry: (count, error) => !(error instanceof AssistantError && error.status === 404) && count < webConfig.query.conversationRetries })
   const history = useInfiniteQuery({ queryKey: [services.mode, scope, 'assistant-conversations'], initialPageParam: undefined as string | undefined, queryFn: ({ pageParam, signal }) => service.list(pageParam, signal), getNextPageParam: page => page.next_cursor ?? undefined })
   useEffect(() => {
     if (selectedId && detail.error instanceof AssistantError && detail.error.status === 404) {

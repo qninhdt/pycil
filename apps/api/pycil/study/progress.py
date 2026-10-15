@@ -9,10 +9,9 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import Integer, Uuid, and_, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pycil.account.auth import Actor
 from pycil.account.models import User
 from pycil.account.settings import preferences
-from pycil.app.config import ProductConfig
+from pycil.app.config import AppConfig
 from pycil.app.http import Problem
 from pycil.library.models import DeckSense, NodeType
 from pycil.library.scope import Scope, ScopeBudget, bounded, resolve_scopes
@@ -22,7 +21,7 @@ from pycil.study.models import DailyActivity, UserSense
 def scope_mapping(
     scopes: Iterable[Scope],
     budget: ScopeBudget,
-    config: ProductConfig,
+    config: AppConfig,
 ) -> tuple[dict[UUID, int], list[tuple[int, UUID]]]:
     groups: dict[frozenset[UUID], int] = {}
     group_ids: dict[UUID, int] = {}
@@ -35,7 +34,7 @@ def scope_mapping(
             mapping.extend((group, deck) for deck in key)
         group_ids[scope.root.id] = groups[key]
     logical_work = sum(sum(budget.membership_counts.get(deck, 0) for deck in key) for key in groups)
-    if logical_work > config.projections.max_summary_memberships:
+    if logical_work > config.product.projections.max_summary_memberships:
         raise Problem(422, "scope_too_large")
     return group_ids, mapping
 
@@ -43,14 +42,14 @@ def scope_mapping(
 async def summaries(
     session: AsyncSession,
     viewer_id: UUID | None,
-    config: ProductConfig,
+    config: AppConfig,
     node_ids: Sequence[UUID | None],
     *,
     budget: ScopeBudget | None = None,
 ) -> list[dict[str, Any]]:
     if (
         not node_ids
-        or len(node_ids) > config.learning.limits.max_summary_nodes
+        or len(node_ids) > config.product.study.limits.max_summary_nodes
         or len(set(node_ids)) != len(node_ids)
     ):
         raise Problem(422, "invalid_summary_batch")
@@ -134,11 +133,11 @@ async def summaries(
 
 async def progress(
     session: AsyncSession,
-    user: Actor,
-    config: ProductConfig,
+    user: UUID,
+    config: AppConfig,
     node_id: UUID | None = None,
 ) -> dict[str, Any]:
-    return (await summaries(session, user.id, config, [node_id]))[0]
+    return (await summaries(session, user, config, [node_id]))[0]
 
 
 def window(
@@ -164,7 +163,7 @@ def window(
 
 
 async def reporting(
-    session: AsyncSession, user_id: UUID, config: ProductConfig
+    session: AsyncSession, user_id: UUID, config: AppConfig
 ) -> tuple[str, datetime, date]:
     saved = await session.scalar(select(User.settings).where(User.id == user_id))
     if saved is None:
@@ -177,12 +176,12 @@ async def reporting(
 async def activity(
     session: AsyncSession,
     user_id: UUID,
-    config: ProductConfig,
+    config: AppConfig,
     start_date: date | None = None,
     end_date: date | None = None,
 ) -> dict[str, Any]:
     timezone, now, today = await reporting(session, user_id, config)
-    start, end = window(start_date, end_date, today, config.learning.limits.max_activity_days)
+    start, end = window(start_date, end_date, today, config.product.study.limits.max_activity_days)
     rows = list(
         (
             await session.scalars(
@@ -256,7 +255,7 @@ async def activity(
 async def schedule(
     session: AsyncSession,
     user_id: UUID,
-    config: ProductConfig,
+    config: AppConfig,
     node_id: UUID | None = None,
     start_date: date | None = None,
     end_date: date | None = None,
@@ -267,7 +266,7 @@ async def schedule(
 async def schedules(
     session: AsyncSession,
     user_id: UUID,
-    config: ProductConfig,
+    config: AppConfig,
     node_ids: Sequence[UUID | None],
     start_date: date | None = None,
     end_date: date | None = None,
@@ -276,13 +275,13 @@ async def schedules(
 ) -> list[dict[str, Any]]:
     if (
         not node_ids
-        or len(node_ids) > config.learning.limits.max_summary_nodes
+        or len(node_ids) > config.product.study.limits.max_summary_nodes
         or len(set(node_ids)) != len(node_ids)
     ):
         raise Problem(422, "invalid_summary_batch")
     timezone, now, today = await reporting(session, user_id, config)
     start, end = window(
-        start_date, end_date, today, config.learning.limits.max_schedule_days, future=True
+        start_date, end_date, today, config.product.study.limits.max_schedule_days, future=True
     )
     budget = budget or ScopeBudget(user_id)
     async with bounded(session, config, budget):

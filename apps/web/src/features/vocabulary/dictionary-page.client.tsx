@@ -1,5 +1,7 @@
 'use client'
 
+import { webConfig } from '@/config'
+
 import { useHydrated } from '@/lib/use-hydrated.client'
 import { useSearchParams } from 'next/navigation'
 import { dictionaryQueries, dictionaryState } from '@/features/vocabulary/queries'
@@ -104,7 +106,7 @@ export function DictionaryPage() {
   const search = useQuery(queries.search), detail = useQuery(queries.word)
   const context = useQuery({ ...queries.context, enabled: queries.context.enabled && account.status === 'ready' })
   const job = useQuery({ queryKey: [services.mode, scope, 'dictionary-generation', jobId], queryFn: ({ signal }) => services.dictionary.generation(jobId!, signal), enabled: Boolean(jobId),
-    refetchInterval: query => ['running'].includes(query.state.data?.status ?? '') ? 1500 : false })
+    refetchInterval: query => ['running'].includes(query.state.data?.status ?? '') ? webConfig.polling.generationMs : false })
   useEffect(() => { if (job.data?.status === 'succeeded' && job.data.word_id) {
     void queryClient.invalidateQueries({ queryKey: [services.mode, scope, 'dictionary-search'] }).then(() => {
       setSelectedWordId(job.data!.word_id); setReference(null); setJobId(null)
@@ -139,7 +141,7 @@ export function DictionaryPage() {
   const results = search.data
   return <div className="w-full min-w-0 [&_h1]:font-extrabold [&_h1]:tracking-tight [&_h2]:font-extrabold [&_h2]:tracking-tight [&_h3]:font-extrabold [&_h3]:tracking-tight"><header className="grid grid-cols-[minmax(0,1.3fr)_1fr_1fr_1fr] max-[767px]:grid-cols-1 items-stretch min-h-[124px] max-[767px]:min-h-0 max-[767px]:py-4 border-b border-border [&_h1]:leading-[1.12]"><div className="col-span-3 max-[767px]:col-span-1 min-w-0 flex flex-col justify-center py-4 pr-6 max-[767px]:p-0"><h1 className="text-[clamp(2.25rem,2.6vw,3rem)] font-extrabold leading-[1.12] tracking-[-.03em] max-[700px]:text-[34px]">{t('title')}<span className="text-art-red" aria-hidden="true">.</span></h1></div><div className="header-motif-art col-span-1 max-[767px]:hidden" aria-hidden="true"><Motif name="split-circle" /></div></header>
     <form className="flex items-center gap-3 border-b border-foreground min-h-[72px] [&_>_svg]:size-5 [&_>_svg]:flex-none [&_>_svg]:ml-3.5 [&_[data-slot=input]]:flex-1 [&_[data-slot=input]]:h-14 [&_[data-slot=input]]:p-0 [&_[data-slot=input]]:border-0 [&_[data-slot=input]]:text-[17px] [&_>_[data-slot=button]:last-child]:mr-2 max-[700px]:gap-1.5 max-[700px]:[&_>_svg]:ml-1 max-[700px]:[&_[data-slot=input]]:text-sm max-[700px]:[&_>_[data-slot=button]:last-child]:px-2.5 max-[700px]:[&_>_[data-slot=button]:last-child]:text-xs" role="search" onSubmit={event => { event.preventDefault(); setSelectedWordId(null); setReference(null) }}>
-      <Search aria-hidden="true" /><Input type="text" inputMode="search" role="searchbox" disabled={!hydrated} aria-label={t('searchPlaceholder')} placeholder={t('searchPlaceholder')} value={input} maxLength={512} onChange={event => { setInput(event.target.value); setSelectedWordId(null); setReference(null); setJobId(null) }} />
+      <Search aria-hidden="true" /><Input type="text" inputMode="search" role="searchbox" disabled={!hydrated} aria-label={t('searchPlaceholder')} placeholder={t('searchPlaceholder')} value={input} maxLength={webConfig.search.maxQueryChars} onChange={event => { setInput(event.target.value); setSelectedWordId(null); setReference(null); setJobId(null) }} />
       {input && <Button type="button" variant="ghost" size="icon" aria-label={tCommon('clearSearch')} onClick={() => { setInput(''); setSelectedWordId(null); setReference(null) }}><X aria-hidden="true" /></Button>}
       <Button type="submit">{t('searchButton')}</Button>
     </form>

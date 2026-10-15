@@ -7,13 +7,11 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pycil.account.auth import ActorContext
-from pycil.account.lifecycle import invalidate_actor
 from pycil.account.models import User
 from pycil.account.plans import Feature
 from pycil.account.schemas import ProfilePatch
 from pycil.account.settings import effective_learning, preferences
-from pycil.app.config import ProductConfig
+from pycil.app.config import AppConfig
 from pycil.app.http import Problem
 from pycil.infrastructure.observability import get_logger
 from pycil.library.models import NodeRole
@@ -22,11 +20,9 @@ from pycil.library.tree import roots
 logger = get_logger(__name__)
 
 
-async def profile(
-    user: User | ActorContext, config: ProductConfig, session: AsyncSession
-) -> dict[str, Any]:
+async def profile(user_id: UUID, config: AppConfig, session: AsyncSession) -> dict[str, Any]:
     selected = await session.scalar(
-        select(User).where(User.id == user.id).execution_options(populate_existing=True)
+        select(User).where(User.id == user_id).execution_options(populate_existing=True)
     )
     if selected is None:
         raise Problem(404, "account_not_found")
@@ -48,12 +44,12 @@ async def profile(
         "learning_options": {
             "pairs": [
                 {"question_type": kind, "format": fmt, "level": level}
-                for kind, formats in config.learning.pair_levels.items()
+                for kind, formats in config.product.study.pair_levels.items()
                 for fmt, level in formats.items()
             ],
-            "limits": config.learning.limits.model_dump(),
+            "limits": config.product.study.limits.model_dump(),
             "advanced_grading": Feature.ADVANCED_GRADING
-            in config.plans[current_user.plan].features,
+            in config.product.account.plans[current_user.plan].features,
         },
         "plan": current_user.plan,
         "settings": resolved.model_dump(mode="json"),
@@ -93,5 +89,4 @@ async def update_profile(session: AsyncSession, user_id: UUID, data: ProfilePatc
             logger.warning("account_handle_conflict", handle=data.handle)
             raise Problem(409, "handle_unavailable") from None
         raise
-    await invalidate_actor(session, user)
     return user

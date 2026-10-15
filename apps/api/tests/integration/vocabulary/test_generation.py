@@ -2,7 +2,7 @@ import pytest
 from sqlalchemy import func, select
 
 from pycil.app.config import load_config
-from pycil.vocabulary.cache import ContentCache
+from pycil.infrastructure.cache import MemoryCache
 from pycil.vocabulary.enums import GenerationStage, GenerationState, HitKind, JobState, MatchKind
 from pycil.vocabulary.errors import InvalidOutputError
 from pycil.vocabulary.generation.jobs import Generations
@@ -19,13 +19,24 @@ async def test_generation_publishes_content_and_consumes_reference_search_hit(da
     await import_reference(
         database.sessions, reference_file(tmp_path / "reference.jsonl", [reference_word()])
     )
-    index, provider, cache = SearchIndex(database.sessions), WordProvider(), ContentCache()
+    index, provider, cache = (
+        SearchIndex(database.sessions),
+        WordProvider(),
+        MemoryCache(max_entries=1024, ttl=30),
+    )
     try:
         await index.start()
         before = await index.search("bank", include_reference=True)
         assert before.items[0].kind is HitKind.REFERENCE
         word = await generate_word(
-            database.sessions, index, provider, cache, "bank", reference_id=encode_reference_id(1)
+            database.sessions,
+            index,
+            provider,
+            cache,
+            "bank",
+            reference_id=encode_reference_id(1),
+            example_count=1,
+            enrichment_batch_size=8,
         )
         assert word.senses[0].definition.content == "a financial institution"
         assert word.senses[0].ipa_uk == "bæŋk"
@@ -42,7 +53,14 @@ async def test_generation_publishes_content_and_consumes_reference_search_hit(da
         assert inflected.items[0].word_id == word.id
         assert inflected.items[0].match_kind is MatchKind.EXACT
         reused = await generate_word(
-            database.sessions, index, provider, cache, "bank", reference_id=encode_reference_id(1)
+            database.sessions,
+            index,
+            provider,
+            cache,
+            "bank",
+            reference_id=encode_reference_id(1),
+            example_count=1,
+            enrichment_batch_size=8,
         )
         assert reused.id == word.id
         assert provider.calls == 2
@@ -117,12 +135,20 @@ async def test_native_instructor_reasks_for_semantic_defects_before_publication(
     try:
         await index.start()
         async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
-            policy = load_config().providers.vocabulary.model_copy(update={"max_retries": 1})
+            policy = load_config().runtime.providers.vocabulary.model_copy(
+                update={"max_retries": 1}
+            )
             llm = StructuredLLM(
                 policy, api_key="test", base_url="https://provider.test", http_client=http
             )
             word = await generate_word(
-                database.sessions, index, llm, ContentCache(), "bank", example_count=1
+                database.sessions,
+                index,
+                llm,
+                MemoryCache(max_entries=1024, ttl=30),
+                "bank",
+                example_count=1,
+                enrichment_batch_size=8,
             )
         assert word.senses[0].examples[0].content == "The [bank] opens at nine."
         assert len(requests) == 3
@@ -138,12 +164,21 @@ async def test_index_failure_keeps_committed_content_and_retry_reuses_it(
     await import_reference(
         database.sessions, reference_file(tmp_path / "reference.jsonl", [reference_word()])
     )
-    index, provider, cache = SearchIndex(database.sessions), WordProvider(), ContentCache()
-    from pycil.infrastructure.cache import RedisCache
+    index, provider, cache = (
+        SearchIndex(database.sessions),
+        WordProvider(),
+        MemoryCache(max_entries=1024, ttl=30),
+    )
 
     redis, namespace = redis_store
     jobs = Generations(
-        database.sessions, index, provider, cache, load_config(), store=RedisCache(redis, namespace)
+        database.sessions,
+        index,
+        provider,
+        cache,
+        load_config(),
+        redis=redis,
+        prefix=namespace + ":word-tasks",
     )
 
     async def failed_update(word_id):
@@ -183,7 +218,6 @@ async def test_assistant_generation_tools_share_status_and_reuse_content(databas
     from types import SimpleNamespace
 
     from pycil.assistant.tools import tools
-    from pycil.infrastructure.cache import RedisCache
     from tests.support.account import account
     from tests.support.vocabulary import neutral_word
 
@@ -191,16 +225,36 @@ async def test_assistant_generation_tools_share_status_and_reuse_content(databas
     word_id, sense_id = await neutral_word(database.sessions)
     config = load_config()
     redis, namespace = redis_store
-    store = RedisCache(redis, namespace)
-    index, provider, cache = SearchIndex(database.sessions), WordProvider(), ContentCache()
-    owner = Generations(database.sessions, index, provider, cache, config, store=store)
-    observer = Generations(database.sessions, index, provider, cache, config, store=store)
+    store = redis
+    index, provider, cache = (
+        SearchIndex(database.sessions),
+        WordProvider(),
+        MemoryCache(max_entries=1024, ttl=30),
+    )
+    owner = Generations(
+        database.sessions,
+        index,
+        provider,
+        cache,
+        config,
+        redis=store,
+        prefix=namespace + ":word-tasks",
+    )
+    observer = Generations(
+        database.sessions,
+        index,
+        provider,
+        cache,
+        config,
+        redis=store,
+        prefix=namespace + ":word-tasks",
+    )
 
     def surface(generations):
         resources = SimpleNamespace(
-            sessions=database.sessions, content_cache=cache, generations=generations
+            sessions=database.sessions, sense_cache=MemoryCache(1024, 30), generations=generations
         )
-        return {tool.name: tool for tool in tools(resources, user, config)}
+        return {tool.name: tool for tool in tools(resources, user.id, config)}
 
     try:
         await index.start()
@@ -229,9 +283,11 @@ async def test_invented_citation_never_publishes_word_or_sense(database, tmp_pat
                 database.sessions,
                 index,
                 WordProvider(invalid_citation=True),
-                ContentCache(),
+                MemoryCache(max_entries=1024, ttl=30),
                 "bank",
                 reference_id=encode_reference_id(1),
+                example_count=1,
+                enrichment_batch_size=8,
             )
         async with database.sessions() as session:
             assert await session.scalar(select(func.count()).select_from(Word)) == 0
@@ -259,7 +315,13 @@ async def test_enrichment_cannot_publish_examples_marked_for_another_word(databa
     try:
         with pytest.raises(InvalidOutputError):
             await generate_word(
-                database.sessions, search, WrongTarget(), ContentCache(), "bank", example_count=1
+                database.sessions,
+                search,
+                WrongTarget(),
+                MemoryCache(max_entries=1024, ttl=30),
+                "bank",
+                example_count=1,
+                enrichment_batch_size=8,
             )
         async with database.sessions() as session:
             assert await session.scalar(select(func.count()).select_from(Word)) == 0
@@ -312,9 +374,10 @@ async def test_enrichment_failure_cancels_sibling_batches_and_publishes_nothing(
                     database.sessions,
                     index,
                     FailingBatch(),
-                    ContentCache(),
+                    MemoryCache(max_entries=1024, ttl=30),
                     "bank",
                     example_count=1,
+                    enrichment_batch_size=8,
                 )
         assert sibling_cleaned.is_set()
         async with database.sessions() as session:

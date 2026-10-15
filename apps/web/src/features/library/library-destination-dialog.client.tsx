@@ -1,5 +1,7 @@
 'use client'
 
+import { webConfig } from '@/config'
+
 import { useDeferredValue, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
@@ -38,7 +40,7 @@ export function LibraryDestinationDialog(props: Props) {
   const [confirmed, setConfirmed] = useState(false)
   const needsConfirmation = props.requirePublicationConfirmation || (creating && current.space === 'published')
   const query = useQuery({ queryKey: [services.mode, scope, 'destination', current.id, q, cursors.at(-1)],
-    queryFn: ({ signal }) => services.library.contents(current.id, { q, cursor: cursors.at(-1), limit: 20, includeProgress: false }, signal), enabled: open })
+    queryFn: ({ signal }) => services.library.contents(current.id, { q, cursor: cursors.at(-1), limit: webConfig.pagination.picker, includeProgress: false }, signal), enabled: open })
   async function navigate(item: Destination) {
     if (busy) return
     setBusy(true); setError('')

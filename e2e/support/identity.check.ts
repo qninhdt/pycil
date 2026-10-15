@@ -4,7 +4,7 @@ import { ClerkAPIResponseError } from '@clerk/backend/errors'
 import { createClerkClient } from '@clerk/backend'
 import { createServer } from 'node:http'
 import { once } from 'node:events'
-import { deleteIdentityUser, identityFailure, provisionIdentity } from '../fixtures/actors.ts'
+import { deleteIdentityUser, identityFailure, provisionIdentity } from '../fixtures/users.ts'
 
 test('identity failures retain HTTP status and codes without leaking provider messages or metadata', () => {
   const error = new ClerkAPIResponseError('private provider message', {

@@ -9,8 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from pycil.account.auth import Viewer
 from pycil.account.lifecycle import row_data
-from pycil.app.config import ProductConfig
-from pycil.app.dependencies import Product, Session
+from pycil.app.config import AppConfig
+from pycil.app.dependencies import Config, Session
 from pycil.app.http import Problem
 from pycil.app.pagination import decode, encode, includes, page_limit, strict_query
 from pycil.library.access import reference_visible, visible
@@ -24,7 +24,7 @@ router = APIRouter(prefix="/v1/discovery", tags=["discovery"])
 async def search_nodes(
     session: AsyncSession,
     viewer_id: UUID | None,
-    config: ProductConfig,
+    config: AppConfig,
     *,
     node_id: UUID | None = None,
     q: str | None = None,
@@ -38,7 +38,7 @@ async def search_nodes(
     limit = page_limit(limit, config)
     enrichment = includes(include, {"summary"})
     if q is not None:
-        if not q.strip() or len(q) > config.projections.max_query_chars:
+        if not q.strip() or len(q) > config.product.projections.max_query_chars:
             raise Problem(422, "invalid_query")
         q = q.strip()
     if node_id is not None and q is None:
@@ -186,7 +186,7 @@ async def discovery(
     request: Request,
     viewer: Viewer,
     session: Session,
-    config: Product,
+    config: Config,
     q: str | None = Query(default=None, max_length=200),
     type: NodeType | None = None,
     owner_id: UUID | None = None,
@@ -197,7 +197,7 @@ async def discovery(
     strict_query(request, {"q", "type", "owner_id", "cursor", "limit", "include"})
     return await search_nodes(
         session,
-        viewer.id if viewer else None,
+        viewer,
         config,
         q=q,
         type=type,

@@ -1,3 +1,4 @@
+import { webConfig } from '@/config'
 import { MessageSchema, type Message, type RunAgentInput } from '@ag-ui/core'
 import { ApiError } from './error'
 import { apiRequest, apiToken } from './http'
@@ -73,13 +74,13 @@ export function turnInput(input: RunAgentInput, threadId: string, model: Assista
   }
   if (chars > 8000 || images > 4) throw new Error('Use up to 8,000 characters and four images per message.')
   const body = { threadId, runId: input.runId, messages, state: {}, tools: [], context: [], forwardedProps: { model_id: model.id, effort, ...(currentView ? { current_view: currentView } : {}) }, ...(input.resume?.length ? { resume: input.resume } : {}) }
-  if (new TextEncoder().encode(JSON.stringify(body)).length > 15_000_000) throw new Error('Use fewer or smaller images. The complete message must fit within 15 MB.')
+  if (new TextEncoder().encode(JSON.stringify(body)).length > webConfig.assistant.maxBodyBytes) throw new Error('Use fewer or smaller images. The complete message must fit within 15 MB.')
   return body
 }
 
 export function createAssistantService(getToken: () => Promise<string | null>) {
   async function request<T>(path: string, parse: (value: unknown) => T, signal: AbortSignal, body?: unknown) {
-    const bounded = AbortSignal.any([signal, AbortSignal.timeout(12000)])
+    const bounded = AbortSignal.any([signal, AbortSignal.timeout(webConfig.requests.timeoutMs)])
     try { return await apiRequest(`assistant/${path}`, await apiToken(getToken, bounded), parse, bounded, body, body ? 'POST' : undefined) }
     catch (error) {
       if (error instanceof ApiError) throw new AssistantError(error.status, error.code)
@@ -95,14 +96,14 @@ export function createAssistantService(getToken: () => Promise<string | null>) {
         return item as AssistantModel
       })
     }, signal),
-    list: (cursor: string | undefined, signal: AbortSignal) => request(`conversations?${new URLSearchParams({ limit: '20', ...(cursor ? { cursor } : {}) })}`, value => {
+    list: (cursor: string | undefined, signal: AbortSignal) => request(`conversations?${new URLSearchParams({ limit: String(webConfig.pagination.conversations), ...(cursor ? { cursor } : {}) })}`, value => {
       const item = record(value)
       if (!Array.isArray(item.conversations) || item.next_cursor !== null && typeof item.next_cursor !== 'string') throw new AssistantError(502, 'invalid_response')
       return { conversations: item.conversations.map(conversation), next_cursor: item.next_cursor as string | null }
     }, signal),
     create: (title: string, signal: AbortSignal) => request('conversations', conversation, signal, { title: title.slice(0, 255) }),
     remove: async (id: string, signal: AbortSignal) => {
-      const bounded = AbortSignal.any([signal, AbortSignal.timeout(12000)])
+      const bounded = AbortSignal.any([signal, AbortSignal.timeout(webConfig.requests.timeoutMs)])
       try { await apiRequest(`assistant/conversations/${encodeURIComponent(id)}`, await apiToken(getToken, bounded), () => undefined, bounded, undefined, 'DELETE') }
       catch (error) { if (error instanceof ApiError) throw new AssistantError(error.status, error.code); throw error }
     },

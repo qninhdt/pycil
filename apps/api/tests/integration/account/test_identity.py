@@ -9,19 +9,19 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import Request
 from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import SecretStr
-from sqlalchemy import func, select
+from sqlalchemy import event, func, select
 
-from pycil.account.auth import actor, optional_actor
+from pycil.account.auth import current_user_id, optional_user_id
 from pycil.account.models import User
 from pycil.app.config import load_config
 from pycil.app.http import Problem
-from pycil.infrastructure.cache import RedisCache
+from pycil.infrastructure.cache import MemoryCache
 from pycil.infrastructure.clerk import Identity
 from pycil.library.models import Node, NodePath
 
 
 async def test_verified_identity_provisions_once_and_invalid_tokens_cannot_use_cache(
-    database, redis_store, monkeypatch
+    database, monkeypatch
 ):
     private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     deployment = SimpleNamespace(
@@ -44,8 +44,7 @@ async def test_verified_identity_provisions_once_and_invalid_tokens_cannot_use_c
         "exp": datetime.now(UTC) + timedelta(minutes=5),
     }
     token = jwt.encode(claims, private_key, algorithm="RS256")
-    redis, namespace = redis_store
-    cache = RedisCache(redis, namespace)
+    cache = MemoryCache(max_entries=100, ttl=60)
     calls = 0
     both_requested = asyncio.Event()
 
@@ -59,7 +58,7 @@ async def test_verified_identity_provisions_once_and_invalid_tokens_cannot_use_c
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(profile)) as http:
         state = SimpleNamespace(
-            identity=identity, deployment=deployment, http=http, product=load_config()
+            identity=identity, deployment=deployment, http=http, config=load_config()
         )
 
         async def authenticate(value):
@@ -72,13 +71,23 @@ async def test_verified_identity_provisions_once_and_invalid_tokens_cannot_use_c
             )
             credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=value)
             async with database.sessions() as session:
-                session.info["cache"] = cache
-                return await actor(request, session, credentials)
+                session.info["user_id_cache"] = cache
+                return await current_user_id(request, session, credentials)
 
         first, second = await asyncio.gather(authenticate(token), authenticate(token))
-        assert first.id == second.id
-        assert first.display_name == "A Learner"
-        assert (await authenticate(token)).id == first.id
+        assert first == second
+        assert isinstance(first, __import__("uuid").UUID)
+        queries = []
+
+        def record_query(*args):
+            queries.append(args[2])
+
+        event.listen(database.engine.sync_engine, "before_cursor_execute", record_query)
+        try:
+            assert await authenticate(token) == first
+        finally:
+            event.remove(database.engine.sync_engine, "before_cursor_execute", record_query)
+        assert queries == []
         assert calls == 2
         async with database.sessions() as session:
             assert await session.scalar(select(func.count()).select_from(User)) == 1
@@ -110,6 +119,7 @@ async def test_remote_identity_failure_does_not_create_accounts(database, status
         transport=httpx.MockTransport(lambda request: httpx.Response(status, json=["invalid"]))
     ) as http:
         state = SimpleNamespace(
+            config=load_config(),
             identity=VerifiedSubject(),
             http=http,
             deployment=SimpleNamespace(clerk_secret_key=SecretStr("test-only")),
@@ -123,7 +133,7 @@ async def test_remote_identity_failure_does_not_create_accounts(database, status
         )
         async with database.sessions() as session:
             with pytest.raises(Problem) as error:
-                await optional_actor(
+                await optional_user_id(
                     request,
                     session,
                     HTTPAuthorizationCredentials(scheme="Bearer", credentials="verified"),

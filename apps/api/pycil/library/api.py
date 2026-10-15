@@ -3,8 +3,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, Path, Query, Request, Response
 
-from pycil.account.auth import Actor, Viewer
-from pycil.app.dependencies import Product, Runtime, Session
+from pycil.account.auth import UserId, Viewer
+from pycil.app.dependencies import Config, Runtime, Session
 from pycil.app.pagination import strict_query
 from pycil.library import nodes
 from pycil.library.access import readable
@@ -37,7 +37,7 @@ async def listing(
     request: Request,
     viewer: Viewer,
     session: Session,
-    config: Product,
+    config: Config,
     parent_id: UUID | None = None,
     cursor: str | None = Query(default=None, max_length=2048),
     limit: int | None = Query(default=None, ge=1, le=100),
@@ -46,7 +46,7 @@ async def listing(
     strict_query(request, {"parent_id", "cursor", "limit", "include"})
     return await nodes.list_nodes(
         session,
-        viewer.id if viewer else None,
+        viewer,
         parent_id,
         cursor,
         config,
@@ -56,8 +56,8 @@ async def listing(
 
 
 @router.post("", status_code=201, response_model=SavedNode)
-async def create(data: NodeCreate, user: Actor, session: Session, config: Product):
-    return await nodes.create_node(session, user.id, data, config)
+async def create(data: NodeCreate, user: UserId, session: Session, config: Config):
+    return await nodes.create_node(session, user, data, config)
 
 
 @router.get("/{node_id}:search", response_model=NodePage, openapi_extra={"security": [{}]})
@@ -66,7 +66,7 @@ async def scoped_search(
     node_id: UUID,
     viewer: Viewer,
     session: Session,
-    config: Product,
+    config: Config,
     q: str = Query(max_length=200),
     type: NodeType | None = None,
     cursor: str | None = Query(default=None, max_length=2048),
@@ -76,7 +76,7 @@ async def scoped_search(
     strict_query(request, {"q", "type", "cursor", "limit", "include"})
     return await search_nodes(
         session,
-        viewer.id if viewer else None,
+        viewer,
         config,
         node_id=node_id,
         q=q,
@@ -88,37 +88,37 @@ async def scoped_search(
 
 
 @router.get("/{node_id}", response_model=NodeDetails, openapi_extra={"security": [{}]})
-async def detail(node_id: UUID, viewer: Viewer, session: Session, config: Product):
-    return await nodes.node_details(session, node_id, viewer.id if viewer else None, config)
+async def detail(node_id: UUID, viewer: Viewer, session: Session, config: Config):
+    return await nodes.node_details(session, node_id, viewer, config)
 
 
 @router.patch("/{node_id}", response_model=NodeView)
-async def patch(node_id: UUID, data: NodePatch, user: Actor, session: Session, config: Product):
-    return await nodes.patch_node(session, user.id, node_id, data, config)
+async def patch(node_id: UUID, data: NodePatch, user: UserId, session: Session, config: Config):
+    return await nodes.patch_node(session, user, node_id, data, config)
 
 
 @router.post("/{node_id}:modifySenses", response_model=SavedDeck)
 async def edit_senses(
-    node_id: UUID, data: SenseDelta, user: Actor, session: Session, config: Product
+    node_id: UUID, data: SenseDelta, user: UserId, session: Session, config: Config
 ):
-    return await nodes.patch_senses(session, user.id, node_id, data, config)
+    return await nodes.patch_senses(session, user, node_id, data, config)
 
 
 @router.post("/{node_id}:move", response_model=NodeViewWithReference)
-async def move(node_id: UUID, data: NodeMove, user: Actor, session: Session, config: Product):
-    return await nodes.move_node(session, user.id, node_id, data, config)
+async def move(node_id: UUID, data: NodeMove, user: UserId, session: Session, config: Config):
+    return await nodes.move_node(session, user, node_id, data, config)
 
 
 @router.post("/{node_id}:copy", status_code=201, response_model=SavedNode)
 async def copy(
-    node_id: UUID, data: NodeDestination, user: Actor, session: Session, config: Product
+    node_id: UUID, data: NodeDestination, user: UserId, session: Session, config: Config
 ):
-    return await nodes.copy_node(session, user.id, node_id, data, config)
+    return await nodes.copy_node(session, user, node_id, data, config)
 
 
 @router.delete("/{node_id}", status_code=204)
-async def remove(node_id: UUID, user: Actor, session: Session, config: Product):
-    await nodes.delete_node(session, user.id, node_id, config)
+async def remove(node_id: UUID, user: UserId, session: Session, config: Config):
+    await nodes.delete_node(session, user, node_id, config)
     return Response(status_code=204)
 
 
@@ -132,7 +132,7 @@ async def senses(
     node_id: UUID,
     viewer: Viewer,
     session: Session,
-    config: Product,
+    config: Config,
     resources: Runtime,
     cursor: str | None = Query(default=None, max_length=2048),
     limit: int | None = Query(default=None, ge=1, le=100),
@@ -146,7 +146,7 @@ async def senses(
     ] = LearningState.ALL,
 ):
     strict_query(request, {"cursor", "limit", "q", "sort", "include", "state"})
-    viewer_id = viewer.id if viewer else None
+    viewer_id = viewer
     node = await readable(session, node_id, viewer_id, config)
     return await sense_page(
         session,
@@ -160,6 +160,7 @@ async def senses(
         sort=sort,
         include=include,
         limit=limit,
+        sense_cache=resources.sense_cache,
     )
 
 
@@ -172,11 +173,9 @@ async def provenance(
     sense_id: Annotated[int, Path(gt=0)],
     viewer: Viewer,
     session: Session,
-    config: Product,
+    config: Config,
     cursor: str | None = Query(default=None, max_length=2048),
     limit: int | None = Query(default=None, ge=1, le=100),
 ):
     strict_query(request, {"cursor", "limit"})
-    return await sources_page(
-        session, node_id, sense_id, viewer.id if viewer else None, config, cursor, limit
-    )
+    return await sources_page(session, node_id, sense_id, viewer, config, cursor, limit)

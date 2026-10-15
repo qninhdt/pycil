@@ -1,9 +1,10 @@
+import { webConfig } from '@/config'
 import { queryOptions } from '@tanstack/react-query'
 import type { FrontendServices } from '@/lib/api/services/contracts'
 import type { ContentsOptions, MeaningOptions } from '@/features/library/model'
 
 export function contentsOptions(params: Pick<URLSearchParams, 'get' | 'getAll'>): ContentsOptions {
-  return { q: params.get('q')?.trim() ?? '', cursor: params.getAll('cursor').at(-1), limit: 12 }
+  return { q: params.get('q')?.trim() ?? '', cursor: params.getAll('cursor').at(-1), limit: webConfig.pagination.library }
 }
 export function meaningOptions(params: Pick<URLSearchParams, 'get' | 'getAll'>): MeaningOptions {
   const state = params.get('state'), sort = params.get('sort')

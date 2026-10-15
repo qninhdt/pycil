@@ -24,13 +24,15 @@ class Draws:
 def test_pair_planning_uses_weighted_eligible_levels_and_returns_requested_draws(monkeypatch):
     config, draws = load_config(), Draws()
     monkeypatch.setattr(preparation, "randomness", draws)
-    selected = config.learning.defaults
+    selected = config.product.study.defaults
     result = preparation.plan_pairs(10000, selected, config, 3)
     assert len(result) == 3
     assert all(kind in selected.question_types and fmt in selected.formats for kind, fmt in result)
-    level = config.learning.mastery.level(10000)
+    level = config.product.study.mastery.level(10000)
     assert draws.weights == [2 ** (candidate - level) for candidate in draws.levels]
-    assert all(config.learning.pair_levels[kind][fmt] == max(draws.levels) for kind, fmt in result)
+    assert all(
+        config.product.study.pair_levels[kind][fmt] == max(draws.levels) for kind, fmt in result
+    )
 
 
 def test_pair_planning_falls_back_to_minimum_supported_level_and_rejects_infeasibility(monkeypatch):
@@ -46,7 +48,7 @@ def test_pair_planning_falls_back_to_minimum_supported_level_and_rejects_infeasi
         (QuestionType.SENTENCE_REWRITE, ResponseFormat.SHORT_ANSWER)
     ]
     assert draws.levels == [
-        config.learning.pair_levels[QuestionType.SENTENCE_REWRITE][ResponseFormat.SHORT_ANSWER]
+        config.product.study.pair_levels[QuestionType.SENTENCE_REWRITE][ResponseFormat.SHORT_ANSWER]
     ]
     impossible = SimpleNamespace(
         question_types=[QuestionType.WORD_TO_USAGE], formats=[ResponseFormat.SINGLE_WORD]

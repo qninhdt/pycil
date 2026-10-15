@@ -1,3 +1,4 @@
+import { webConfig } from '@/config'
 export const locales = ['en', 'vi'] as const
 export type Locale = (typeof locales)[number]
 export const defaultLocale: Locale = 'en'
@@ -18,7 +19,7 @@ export function resolveLocale(cookie: string | undefined, acceptLanguage: string
 }
 
 export function setLocaleCookie(locale: Locale): void {
-  document.cookie = `NEXT_LOCALE=${locale}; Path=/; Max-Age=31536000; SameSite=Lax`
+  document.cookie = `NEXT_LOCALE=${locale}; Path=/; Max-Age=${webConfig.preferences.localeCookieSeconds}; SameSite=Lax`
 }
 
 export type Messages = typeof import('@/messages/en.json')

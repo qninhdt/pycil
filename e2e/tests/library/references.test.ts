@@ -1,34 +1,34 @@
 import { test, expect } from '../../fixtures/index.ts'
 
-test('a reference created through UI follows source membership and deduplicates folder scope', async ({ actor, data, vocabulary }) => {
+test('a reference created through UI follows source membership and deduplicates folder scope', async ({ user, data, vocabulary }) => {
   const source = await data.create({ name: 'River source', type: 'deck', sense_ids: [vocabulary.bankRiver.sense_id] })
-  await actor.page.goto(`/app/personal/${source.id}`)
-  await actor.page.getByRole('button', { name: `Settings for ${source.name}`, exact: true }).click()
-  await actor.page.getByRole('menuitem', { name: 'Create reference', exact: true }).click()
-  const dialog = actor.page.getByRole('dialog', { name: 'Create reference', exact: true })
+  await user.page.goto(`/app/personal/${source.id}`)
+  await user.page.getByRole('button', { name: `Settings for ${source.name}`, exact: true }).click()
+  await user.page.getByRole('menuitem', { name: 'Create reference', exact: true }).click()
+  const dialog = user.page.getByRole('dialog', { name: 'Create reference', exact: true })
   await dialog.getByLabel('Title', { exact: true }).fill('River reference')
-  const created = actor.page.waitForResponse(response => response.url().endsWith('/v1/nodes') && response.request().method() === 'POST')
+  const created = user.page.waitForResponse(response => response.url().endsWith('/v1/nodes') && response.request().method() === 'POST')
   await dialog.getByRole('button', { name: 'Create reference', exact: true }).click()
   const reference = await (await created).json() as { id: string }
   data.track(reference.id)
-  expect(await actor.api.call('study/progress')).toMatchObject({ total: 1 })
-  await actor.api.call(`nodes/${source.id}:modifySenses`, 'POST', { add: [vocabulary.archiveCollection.sense_id], remove: [] })
-  await actor.page.goto(`/app/personal/${reference.id}/words`)
-  await expect(actor.page.getByRole('table')).toContainText('a collection of historical records')
-  expect(await actor.api.call(`study/progress?node_id=${reference.id}`)).toMatchObject({ total: 2 })
-  expect(await actor.api.call('study/progress')).toMatchObject({ total: 2 })
-  await actor.api.call(`nodes/${source.id}`, 'DELETE', undefined, 204)
-  await actor.page.reload()
-  await expect(actor.page.getByText('Reference unavailable.', { exact: true })).toBeVisible()
+  expect(await user.api.call('study/progress')).toMatchObject({ total: 1 })
+  await user.api.call(`nodes/${source.id}:modifySenses`, 'POST', { add: [vocabulary.archiveCollection.sense_id], remove: [] })
+  await user.page.goto(`/app/personal/${reference.id}/words`)
+  await expect(user.page.getByRole('table')).toContainText('a collection of historical records')
+  expect(await user.api.call(`study/progress?node_id=${reference.id}`)).toMatchObject({ total: 2 })
+  expect(await user.api.call('study/progress')).toMatchObject({ total: 2 })
+  await user.api.call(`nodes/${source.id}`, 'DELETE', undefined, 204)
+  await user.page.reload()
+  await expect(user.page.getByText('Reference unavailable.', { exact: true })).toBeVisible()
 })
 
-test('source deck pagination retains every canonical source without duplicates', async ({ actor, data, vocabulary }) => {
+test('source deck pagination retains every canonical source without duplicates', async ({ user, data, vocabulary }) => {
   const folder = await data.create({ name: 'Many source collections', type: 'folder' })
   const sources = []
   for (let index = 0; index < 22; index++) sources.push(await data.create({ name: `Finance source ${String(index).padStart(2, '0')}`, type: 'deck', parent_id: folder.id, sense_ids: [vocabulary.bankFinancial.sense_id] }))
-  await actor.page.goto(`/app/personal/${folder.id}/words`)
-  await actor.page.getByRole('button', { name: /View bank: an institution/ }).click()
-  const dialog = actor.page.getByRole('dialog')
+  await user.page.goto(`/app/personal/${folder.id}/words`)
+  await user.page.getByRole('button', { name: /View bank: an institution/ }).click()
+  const dialog = user.page.getByRole('dialog')
   await expect(dialog.getByRole('link', { name: /^Finance source/ })).toHaveCount(5)
   await dialog.getByRole('button', { name: 'Load more source decks', exact: true }).click()
   await expect(dialog.getByRole('link', { name: /^Finance source/ })).toHaveCount(20)

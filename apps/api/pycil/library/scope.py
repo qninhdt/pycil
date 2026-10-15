@@ -12,7 +12,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 
-from pycil.app.config import ProductConfig
+from pycil.app.config import AppConfig
 from pycil.app.http import Problem
 from pycil.infrastructure.observability import get_logger
 from pycil.library.access import reference_visible, visible
@@ -46,9 +46,9 @@ class Scope:
 
 @asynccontextmanager
 async def bounded(
-    session: AsyncSession, config: ProductConfig, budget: ScopeBudget
+    session: AsyncSession, config: AppConfig, budget: ScopeBudget
 ) -> AsyncGenerator[None]:
-    remaining = config.library.scope_timeout_seconds - (monotonic() - budget.started_at)
+    remaining = config.runtime.library.scope_timeout_seconds - (monotonic() - budget.started_at)
     if remaining <= 0:
         logger.warning(
             "library_scope_budget_exhausted",
@@ -59,7 +59,7 @@ async def bounded(
         async with asyncio.timeout(remaining):
             await session.execute(
                 text("SELECT set_config('statement_timeout', :timeout, true)"),
-                {"timeout": f"{config.library.statement_timeout_ms}ms"},
+                {"timeout": f"{config.runtime.library.statement_timeout_ms}ms"},
             )
             yield
     except TimeoutError:
@@ -82,7 +82,7 @@ async def resolve_scopes(
     session: AsyncSession,
     identifiers: Sequence[UUID | None],
     viewer_id: UUID | None,
-    config: ProductConfig,
+    config: AppConfig,
     *,
     budget: ScopeBudget | None = None,
     include_memberships: bool = True,
@@ -125,7 +125,7 @@ async def resolve_scopes(
         if materialize_candidates:
             candidates = paths.cte("scope_candidates").prefix_with("MATERIALIZED")
             paths = select(candidates.c.descendant_id)
-        remaining = config.library.max_scope_nodes - len(budget.nodes)
+        remaining = config.product.library.quotas.max_scope_nodes - len(budget.nodes)
         rows = list(
             (
                 await session.execute(
@@ -173,7 +173,7 @@ async def resolve_scopes(
             guard = (
                 select(DeckSense.deck_id)
                 .where(DeckSense.deck_id.in_(decks))
-                .limit(config.library.max_scope_memberships - budget.memberships + 1)
+                .limit(config.product.library.quotas.max_scope_memberships - budget.memberships + 1)
                 .subquery()
             )
             counts: list[tuple[UUID, int]] = [
@@ -186,7 +186,7 @@ async def resolve_scopes(
             ]
             budget.membership_counts.update(dict(counts))
             budget.memberships += sum(count for _, count in counts)
-            if budget.memberships > config.library.max_scope_memberships:
+            if budget.memberships > config.product.library.quotas.max_scope_memberships:
                 raise Problem(422, "scope_too_large")
             budget.decks.update(decks)
         frontier = targets - budget.nodes
@@ -208,7 +208,7 @@ async def scope_ids(
     session: AsyncSession,
     node_id: UUID | None,
     viewer_id: UUID | None,
-    config: ProductConfig,
+    config: AppConfig,
     *,
     budget: ScopeBudget | None = None,
 ) -> Select[int]:

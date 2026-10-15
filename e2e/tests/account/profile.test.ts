@@ -2,10 +2,10 @@ import { test, expect } from "../../fixtures/index.ts";
 import { Api, type Account } from "../../support/api.ts";
 
 test("profile changes survive reload and the old handle is no longer public", async ({
-  actor,
+  user,
 }) => {
-  const { page, account, api } = actor;
-  const handle = `learner_${actor.subject.slice(-10).toLowerCase()}`;
+  const { page, account, api } = user;
+  const handle = `learner_${user.subject.slice(-10).toLowerCase()}`;
   await page.goto(`/u/${account.id}`);
   await page.getByRole("button", { name: "Edit profile", exact: true }).click();
   const dialog = page.getByRole("dialog");
@@ -46,13 +46,13 @@ test("profile changes survive reload and the old handle is no longer public", as
 });
 
 test("a duplicate handle preserves the unsaved profile draft", async ({
-  actor,
+  user,
   secondary,
 }) => {
-  const { page } = actor;
+  const { page } = user;
   const taken = `taken_${secondary.subject.slice(-10).toLowerCase()}`;
   await secondary.api.call("me/profile", "PATCH", { handle: taken });
-  await page.goto(`/u/${actor.account.id}`);
+  await page.goto(`/u/${user.account.id}`);
   await page.getByRole("button", { name: "Edit profile", exact: true }).click();
   const dialog = page.getByRole("dialog");
   await dialog.getByLabel("Display name", { exact: true }).fill("Unsaved name");
@@ -68,8 +68,8 @@ test("a duplicate handle preserves the unsaved profile draft", async ({
   await expect(dialog.getByLabel("Display name", { exact: true })).toHaveValue(
     "Unsaved name",
   );
-  expect(await actor.api.call<Account>("me")).toMatchObject({
-    handle: actor.account.handle,
-    display_name: actor.account.display_name,
+  expect(await user.api.call<Account>("me")).toMatchObject({
+    handle: user.account.handle,
+    display_name: user.account.display_name,
   });
 });

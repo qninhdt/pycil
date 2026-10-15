@@ -3,7 +3,7 @@
 import random
 from typing import Any, cast
 
-from pycil.app.config import ProductConfig
+from pycil.app.config import AppConfig
 from pycil.app.http import Problem
 from pycil.study.artifacts.schemas import Artifact
 from pycil.study.enums import QuestionType, ResponseFormat, TargetPlacement
@@ -31,10 +31,10 @@ def build_question(
     fmt: ResponseFormat,
     sense: Sense,
     lemma: str,
-    config: ProductConfig,
+    config: AppConfig,
 ) -> PreparedQuestion:
     payload = cast(dict[str, Any], artifact.payload)
-    count = config.generation.distractor_count
+    count = config.product.study.artifacts.distractor_count
     placement: TargetPlacement | None = None
     content: str | list[DialogueTurn]
     correct: str
@@ -110,6 +110,6 @@ def build_question(
             target_placement=placement,
         ),
         format=fmt,
-        level=config.learning.pair_levels[question_type][fmt],
+        level=config.product.study.pair_levels[question_type][fmt],
         options=options,
     )

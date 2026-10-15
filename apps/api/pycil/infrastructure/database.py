@@ -55,12 +55,17 @@ def enum_column[E: StrEnum](enum: type[E]) -> Enum:
     )
 
 
-def connect(url: str) -> tuple[AsyncEngine, async_sessionmaker[AsyncSession]]:
+def connect(
+    url: str, *, size: int = 5, max_overflow: int = 0, timeout_seconds: float = 2
+) -> tuple[AsyncEngine, async_sessionmaker[AsyncSession]]:
     if not url.startswith("postgresql+asyncpg://"):
         raise ValueError("Pycil requires an explicit PostgreSQL async URL")
     engine = create_async_engine(
         url,
         pool_pre_ping=True,
+        pool_size=size,
+        max_overflow=max_overflow,
+        pool_timeout=timeout_seconds,
         hide_parameters=True,
         connect_args={"server_settings": {"search_path": "public"}},
     )

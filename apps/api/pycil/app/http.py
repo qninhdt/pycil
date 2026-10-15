@@ -140,7 +140,7 @@ class BodyLimit:
     async def __call__(self, scope: Scope, receive: Receive, send: Send):
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
-        max_bytes = scope["app"].state.product.http.max_body_bytes
+        max_bytes = scope["app"].state.config.runtime.http.max_body_bytes
         declared = Headers(scope=scope).get("content-length")
         if declared is not None:
             try:

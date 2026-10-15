@@ -7,7 +7,7 @@ from sqlalchemy import delete, func, insert, or_, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pycil.account.lifecycle import require_user, row_data
-from pycil.app.config import ProductConfig
+from pycil.app.config import AppConfig
 from pycil.app.http import Problem
 from pycil.app.pagination import decode, encode, includes, page_limit
 from pycil.infrastructure.database import transaction_lock
@@ -27,9 +27,7 @@ async def lock_owner(session: AsyncSession, owner_id: UUID) -> None:
     await require_user(session, owner_id)
 
 
-async def owned(
-    session: AsyncSession, node_id: UUID, owner_id: UUID, config: ProductConfig
-) -> Node:
+async def owned(session: AsyncSession, node_id: UUID, owner_id: UUID, config: AppConfig) -> Node:
     node = await readable(session, node_id, owner_id, config)
     if node.owner_id != owner_id:
         raise Problem(404, "node_not_found")
@@ -59,7 +57,7 @@ async def validate_parent(
     session: AsyncSession,
     node: Node,
     parent_id: UUID,
-    config: ProductConfig,
+    config: AppConfig,
     *,
     creating: bool = False,
 ) -> Node:
@@ -99,7 +97,7 @@ async def validate_parent(
         )
         or 0
     )
-    if new_depth > config.library.max_depth and (creating or new_depth > old_depth):
+    if new_depth > config.product.library.quotas.max_depth and (creating or new_depth > old_depth):
         raise Problem(422, "node_depth_exceeded")
     # A descendant reference may become a direct ancestor-reference after this move.
     invalid = await session.scalar(
@@ -124,7 +122,7 @@ async def validate_parent(
             )
             or 0
         )
-        if children >= config.library.max_children_per_folder:
+        if children >= config.product.library.quotas.max_children_per_folder:
             raise Problem(422, "quota_exceeded")
     return parent
 
@@ -190,11 +188,14 @@ async def validate_publication(
 
 
 async def create_node(
-    session: AsyncSession, owner_id: UUID, data: NodeCreate, config: ProductConfig
+    session: AsyncSession, owner_id: UUID, data: NodeCreate, config: AppConfig
 ) -> dict[str, Any]:
     async with session.begin():
         await lock_owner(session, owner_id)
-        if await check_node_quota(session, owner_id) >= config.library.max_owned_nodes:
+        if (
+            await check_node_quota(session, owner_id)
+            >= config.product.library.quotas.max_owned_nodes
+        ):
             raise Problem(422, "quota_exceeded")
         values = data.model_dump(exclude={"confirm_publication", "sense_ids"})
         parent_id = await default_parent(session, owner_id, values["parent_id"])
@@ -229,7 +230,7 @@ async def create_node(
 
 
 async def move_locked(
-    session: AsyncSession, node: Node, data: NodeMove, config: ProductConfig
+    session: AsyncSession, node: Node, data: NodeMove, config: AppConfig
 ) -> UUID | None:
     old_parent, old_space = node.parent_id, node.space
     parent_id = await default_parent(session, node.owner_id, data.parent_id)
@@ -243,7 +244,10 @@ async def move_locked(
             raise Problem(422, "invalid_retained_reference")
         if old_parent is None:
             raise Problem(422, "invalid_parent")
-        if await check_node_quota(session, node.owner_id) >= config.library.max_owned_nodes:
+        if (
+            await check_node_quota(session, node.owner_id)
+            >= config.product.library.quotas.max_owned_nodes
+        ):
             raise Problem(422, "quota_exceeded")
         reference = Node(
             id=uuid7(),
@@ -265,7 +269,7 @@ async def move_locked(
 
 
 async def patch_node(
-    session: AsyncSession, owner_id: UUID, node_id: UUID, data: NodePatch, config: ProductConfig
+    session: AsyncSession, owner_id: UUID, node_id: UUID, data: NodePatch, config: AppConfig
 ) -> dict[str, Any]:
     return await update_node(session, owner_id, node_id, data, None, config)
 
@@ -276,7 +280,7 @@ async def update_node(
     node_id: UUID,
     metadata: NodePatch | None,
     membership: SenseDelta | None,
-    config: ProductConfig,
+    config: AppConfig,
 ) -> dict[str, Any]:
     """Apply metadata and membership together under the existing owner lock."""
     async with session.begin():
@@ -311,14 +315,14 @@ async def update_node(
 
 
 async def patch_senses(
-    session: AsyncSession, owner_id: UUID, node_id: UUID, data: SenseDelta, config: ProductConfig
+    session: AsyncSession, owner_id: UUID, node_id: UUID, data: SenseDelta, config: AppConfig
 ) -> dict[str, Any]:
     result = await update_node(session, owner_id, node_id, None, data, config)
     return {k: v for k, v in result.items() if k not in {"added_count", "removed_count"}}
 
 
 async def move_node(
-    session: AsyncSession, owner_id: UUID, node_id: UUID, data: NodeMove, config: ProductConfig
+    session: AsyncSession, owner_id: UUID, node_id: UUID, data: NodeMove, config: AppConfig
 ) -> dict[str, Any]:
     async with session.begin():
         await lock_owner(session, owner_id)
@@ -344,7 +348,7 @@ async def copy_node(
     owner_id: UUID,
     node_id: UUID,
     data: NodeDestination,
-    config: ProductConfig,
+    config: AppConfig,
 ) -> dict[str, Any]:
     async with session.begin():
         await lock_owner(session, owner_id)
@@ -360,13 +364,13 @@ async def copy_node(
                     .join(NodePath, NodePath.descendant_id == Node.id)
                     .where(NodePath.ancestor_id == source.id, Node.deleted_at.is_(None))
                     .order_by(NodePath.depth, Node.id)
-                    .limit(config.library.max_owned_nodes + 1)
+                    .limit(config.product.library.quotas.max_owned_nodes + 1)
                 )
             ).all()
         )
         if (
             len(originals) + await check_node_quota(session, owner_id)
-            > config.library.max_owned_nodes
+            > config.product.library.quotas.max_owned_nodes
         ):
             raise Problem(422, "quota_exceeded")
         await validate_parent(session, source, data.parent_id, config, creating=True)
@@ -392,7 +396,7 @@ async def copy_node(
             if original.reference_id and (original.reference_id, original.id) in ancestor_pairs:
                 raise Problem(422, "node_cycle")
         if any(
-            count > config.library.max_children_per_folder
+            count > config.product.library.quotas.max_children_per_folder
             for parent_id, count in children.items()
             if parent_id in identifiers
         ):
@@ -428,14 +432,16 @@ async def copy_node(
                 await session.execute(
                     select(DeckSense.deck_id, DeckSense.sense_id)
                     .where(DeckSense.deck_id.in_(identifiers))
-                    .limit(config.library.max_owned_memberships + 1)
+                    .limit(config.product.library.quotas.max_owned_memberships + 1)
                 )
             ).all()
         ]
         sizes: dict[UUID, int] = {}
         for deck_id, _ in members:
             sizes[deck_id] = sizes.get(deck_id, 0) + 1
-        if any(count > config.library.max_senses_per_deck for count in sizes.values()):
+        if any(
+            count > config.product.library.quotas.max_senses_per_deck for count in sizes.values()
+        ):
             raise Problem(422, "deck_sense_limit_exceeded")
         if members:
             count = (
@@ -447,7 +453,7 @@ async def copy_node(
                 )
                 or 0
             )
-            if count + len(members) > config.library.max_owned_memberships:
+            if count + len(members) > config.product.library.quotas.max_owned_memberships:
                 raise Problem(422, "quota_exceeded")
         copies = {
             original.id: Node(
@@ -511,7 +517,7 @@ async def copy_node(
 
 
 async def delete_node(
-    session: AsyncSession, owner_id: UUID, node_id: UUID, config: ProductConfig
+    session: AsyncSession, owner_id: UUID, node_id: UUID, config: AppConfig
 ) -> None:
     async with session.begin():
         await lock_owner(session, owner_id)
@@ -531,7 +537,7 @@ async def list_nodes(
     viewer_id: UUID | None,
     parent_id: UUID | None,
     cursor: str | None,
-    config: ProductConfig,
+    config: AppConfig,
     *,
     limit: int | None = None,
     include: str | None = None,
@@ -596,7 +602,7 @@ async def list_nodes(
 
 
 async def replace_membership(
-    session: AsyncSession, node: Node, sense_ids: Sequence[int] | set[int], config: ProductConfig
+    session: AsyncSession, node: Node, sense_ids: Sequence[int] | set[int], config: AppConfig
 ) -> list[int]:
     """Apply the final membership set inside the owner lock."""
     present = set(
@@ -606,7 +612,7 @@ async def replace_membership(
     )
     final = set(sense_ids)
     additions, removals = final - present, present - final
-    if additions and len(final) > config.library.max_senses_per_deck:
+    if additions and len(final) > config.product.library.quotas.max_senses_per_deck:
         raise Problem(422, "deck_sense_limit_exceeded")
     if len(final) > len(present):
         count = (
@@ -621,7 +627,7 @@ async def replace_membership(
             )
             or 0
         )
-        if count + len(final) - len(present) > config.library.max_owned_memberships:
+        if count + len(final) - len(present) > config.product.library.quotas.max_owned_memberships:
             raise Problem(422, "quota_exceeded")
     if additions:
         existing = set(
@@ -650,7 +656,7 @@ async def replace_membership(
 
 
 async def node_details(
-    session: AsyncSession, node_id: UUID, viewer_id: UUID | None, config: ProductConfig
+    session: AsyncSession, node_id: UUID, viewer_id: UUID | None, config: AppConfig
 ) -> dict[str, Any]:
     node, ancestors = await readable_path(session, node_id, viewer_id, config)
     data = row_data(node)

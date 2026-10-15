@@ -1,3 +1,4 @@
+import { webConfig } from '@/config'
 import { queryOptions } from '@tanstack/react-query'
 import type { FrontendServices } from '@/lib/api/services/contracts'
 
@@ -8,5 +9,5 @@ export function discoveryState(params: Pick<URLSearchParams, 'get' | 'getAll'>):
 }
 export function discoveryQuery(services: FrontendServices, scope: string, { q, type, cursor }: DiscoveryState) {
   return queryOptions({ queryKey: [services.mode, scope, 'discovery', q, type, cursor],
-    queryFn: ({ signal }) => services.library.discovery({ q, type: type === 'all' ? undefined : type, cursor, limit: 12 }, signal) })
+    queryFn: ({ signal }) => services.library.discovery({ q, type: type === 'all' ? undefined : type, cursor, limit: webConfig.pagination.library }, signal) })
 }

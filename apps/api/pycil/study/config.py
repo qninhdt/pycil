@@ -26,10 +26,10 @@ class LearningLimits(Policy):
     max_questions_per_prepare: Annotated[int, Field(strict=True, ge=1, le=60)]
     max_sense_count: Annotated[int, Field(strict=True, ge=1, le=20)]
     max_answer_chars: PositiveInt
-    max_review_batch: Annotated[int, Field(strict=True, ge=1, le=60)] = 60
-    max_summary_nodes: Annotated[int, Field(strict=True, ge=1, le=50)] = 50
-    max_activity_days: Annotated[int, Field(strict=True, ge=1, le=366)] = 366
-    max_schedule_days: Annotated[int, Field(strict=True, ge=1, le=30)] = 30
+    max_review_batch: Annotated[int, Field(strict=True, ge=1, le=60)]
+    max_summary_nodes: Annotated[int, Field(strict=True, ge=1, le=50)]
+    max_activity_days: Annotated[int, Field(strict=True, ge=1, le=366)]
+    max_schedule_days: Annotated[int, Field(strict=True, ge=1, le=30)]
 
 
 class MasteryPolicy(Policy):
@@ -59,7 +59,13 @@ class FSRSPolicy(Policy):
     initial_difficulty: Annotated[float, Field(ge=1, le=10)]
 
 
+class ArtifactPolicy(Policy):
+    correct_count: Annotated[int, Field(strict=True, ge=1, le=20)]
+    distractor_count: Annotated[int, Field(strict=True, ge=3, le=20)]
+
+
 class LearningPolicy(Policy):
+    artifacts: ArtifactPolicy
     defaults: LearningPreferences
     limits: LearningLimits
     pair_levels: dict[

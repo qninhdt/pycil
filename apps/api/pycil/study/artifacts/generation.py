@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, create_model, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from pycil.infrastructure.cache import MemoryCache
 from pycil.infrastructure.llm import render_prompt
 from pycil.infrastructure.observability import get_logger, observe_operation
 from pycil.study.artifacts.schemas import (
@@ -24,9 +25,9 @@ from pycil.study.enums import (
     QuestionArtifactType,
     QuestionType,
 )
-from pycil.vocabulary.cache import ContentCache
 from pycil.vocabulary.errors import InvalidOutputError, InvalidResourceError
 from pycil.vocabulary.models import Definition, Sense
+from pycil.vocabulary.schemas import forms_adapter
 
 logger = get_logger(__name__)
 
@@ -38,7 +39,7 @@ class StructuredLLMProtocol(Protocol):
 async def generate_artifacts(
     sessions: async_sessionmaker[AsyncSession],
     structured_llm: StructuredLLMProtocol,
-    cache: ContentCache | None,
+    cache: MemoryCache[int, Artifact] | None,
     sense_id: int,
     kind: QuestionArtifactType | str,
     batch_size: int = 1,
@@ -92,7 +93,7 @@ async def generate_artifacts(
             QuestionArtifactType.SENTENCE_REWRITE,
         }:
             if sense.forms:
-                context["forms"] = [form.model_dump(mode="json") for form in sense.forms]
+                context["forms"] = forms_adapter.dump_python(sense.forms, mode="json")
             if sense.patterns:
                 context["patterns"] = sense.patterns
         if artifact_kind is QuestionArtifactType.WORD_TO_USAGE and sense.collocations:
@@ -166,7 +167,7 @@ async def generate_artifacts(
 async def retrieve_artifacts(
     sessions: async_sessionmaker[AsyncSession],
     structured_llm: StructuredLLMProtocol,
-    cache: ContentCache | None,
+    cache: MemoryCache[int, Artifact] | None,
     requests: Sequence[tuple[int, QuestionType, int]],
     *,
     generation_batch_size: int = 1,

@@ -1,12 +1,12 @@
 import pytest
 from sqlalchemy import func, select
 
+from pycil.infrastructure.cache import MemoryCache
 from pycil.study.artifacts.schemas import Artifact
 from pycil.study.artifacts.storage import append, get_many, retrieve_many
 from pycil.study.enums import QuestionArtifactType
 from pycil.themes.errors import InvalidThemeError
 from pycil.themes.service import create_theme, delete_theme, update_theme
-from pycil.vocabulary.cache import ContentCache
 from pycil.vocabulary.errors import InvalidOutputError, InvalidResourceError
 from pycil.vocabulary.generation.themed import ensure_word_theme
 from pycil.vocabulary.models import Definition, Example
@@ -39,27 +39,27 @@ class ThemeProvider:
 
 async def test_theme_edits_preserve_content_and_deletion_removes_only_theme_namespace(database):
     word_id, _sense_id = await neutral_word(database.sessions)
-    provider, cache = ThemeProvider(), ContentCache()
+    provider, cache = ThemeProvider(), MemoryCache(max_entries=1024, ttl=30)
     theme = await create_theme(database.sessions, provider, "Space", "Space", "life in space")
     themed = await ensure_word_theme(
-        database.sessions, provider, word_id, theme.key, 1, cache=cache
+        database.sessions, provider, word_id, theme.key, 1, word_cache=cache
     )
     assert themed.senses[0].definition.content == "an institution holding the crew's money"
     assert themed.senses[0].definition.theme_id == theme.id
     await update_theme(database.sessions, theme.key, voice="a station crew")
     reused = await ensure_word_theme(
-        database.sessions, provider, word_id, theme.key, 1, cache=cache
+        database.sessions, provider, word_id, theme.key, 1, word_cache=cache
     )
     assert reused == themed
     assert provider.calls == 2
-    assert await delete_theme(database.sessions, theme.key, content_cache=cache)
+    assert await delete_theme(database.sessions, theme.key, word_cache=cache)
     async with database.sessions() as session:
         assert await session.scalar(select(func.count()).select_from(Definition)) == 1
         assert await session.scalar(select(func.count()).select_from(Example)) == 1
-    neutral = await get_word(database.sessions, word_id, cache=cache)
+    neutral = await get_word(database.sessions, word_id, word_cache=cache)
     assert neutral.senses[0].definition.content == "a financial institution"
     with pytest.raises(InvalidResourceError):
-        await get_word(database.sessions, word_id, theme_key=theme.key, cache=cache)
+        await get_word(database.sessions, word_id, theme_key=theme.key, word_cache=cache)
     with pytest.raises(InvalidThemeError):
         await update_theme(database.sessions, " ", voice="another voice")
 
@@ -99,13 +99,18 @@ async def test_concurrent_theme_creation_has_one_identity_and_duplicate_loser(da
 async def test_theme_deletion_invalidates_both_caches_and_preserves_other_banks(database):
     word_id, sense_id = await neutral_word(database.sessions)
     provider = ThemeProvider()
-    content, artifacts = ContentCache(), ContentCache()
+    content, artifacts = (
+        MemoryCache(max_entries=1024, ttl=30),
+        MemoryCache(max_entries=1024, ttl=30),
+    )
     themes = [
         await create_theme(database.sessions, provider, key, key, "life in space")
         for key in ["space", "station"]
     ]
     words = [
-        await ensure_word_theme(database.sessions, provider, word_id, theme.key, 1, cache=content)
+        await ensure_word_theme(
+            database.sessions, provider, word_id, theme.key, 1, word_cache=content
+        )
         for theme in themes
     ]
     kind = QuestionArtifactType.CONTEXT_TO_WORD
@@ -129,17 +134,17 @@ async def test_theme_deletion_invalidates_both_caches_and_preserves_other_banks(
         )
         assert [item.theme_id for item in sampled] == [theme.id]
     assert await delete_theme(
-        database.sessions, themes[0].key, content_cache=content, artifact_cache=artifacts
+        database.sessions, themes[0].key, word_cache=content, artifact_cache=artifacts
     )
     remaining = await get_many(database.sessions, [item.id for item in saved], cache=artifacts)
     assert [item.theme_id for item in remaining] == [themes[1].id]
     assert (
-        await get_word(database.sessions, word_id, theme_key=themes[1].key, cache=content)
+        await get_word(database.sessions, word_id, theme_key=themes[1].key, word_cache=content)
         == words[1]
     )
     with pytest.raises(InvalidResourceError):
-        await get_word(database.sessions, word_id, theme_key=themes[0].key, cache=content)
-    assert (await get_word(database.sessions, word_id, cache=content)).senses[
+        await get_word(database.sessions, word_id, theme_key=themes[0].key, word_cache=content)
+    assert (await get_word(database.sessions, word_id, word_cache=content)).senses[
         0
     ].definition.theme_id is None
 

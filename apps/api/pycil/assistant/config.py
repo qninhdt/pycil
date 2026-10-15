@@ -10,16 +10,17 @@ class AssistantPreferences(Policy):
     auto_approve: Annotated[bool, Field(strict=True)]
 
 
-class AssistantPolicy(Policy):
-    default_model: str
-    default_effort: str
-    llm_timeout_seconds: PositiveInt
+class AssistantDefaults(Policy):
+    model: str
+    effort: str
+
+
+class AssistantLimits(Policy):
     max_tool_calls: PositiveInt
     max_message_chars: PositiveInt
     max_context_messages: PositiveInt
     max_images: PositiveInt
     max_image_bytes: PositiveInt
-    starts_per_minute: PositiveInt
 
 
 class ModelPolicy(Policy):
@@ -44,3 +45,9 @@ class ModelPolicy(Policy):
         if any(effort not in {"low", "medium", "high"} for effort in self.efforts):
             raise ValueError("model effort must be one of: low, medium, high")
         return self
+
+
+class AssistantPolicy(Policy):
+    defaults: AssistantDefaults
+    limits: AssistantLimits
+    models: list[ModelPolicy]

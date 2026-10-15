@@ -42,6 +42,8 @@ def policy(structured=True):
         reasoning_effort=None,
         temperature=None,
         max_retries=1,
+        retry_min_seconds=0.01,
+        retry_max_seconds=0.02,
     )
 
 

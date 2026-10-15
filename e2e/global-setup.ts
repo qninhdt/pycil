@@ -1,6 +1,6 @@
 import { clerkSetup } from '@clerk/testing/playwright'
 import { startStack } from './support/stack.ts'
-import { cleanupIdentities } from './fixtures/actors.ts'
+import { cleanupIdentities } from './fixtures/users.ts'
 import { writeFile } from 'node:fs/promises'
 import { artifacts, providerURL } from './support/environment.ts'
 

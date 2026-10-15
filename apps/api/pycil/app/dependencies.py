@@ -1,5 +1,6 @@
 from collections.abc import AsyncGenerator
 from typing import Annotated, Protocol, cast
+from uuid import UUID
 
 import httpx
 from fastapi import Depends, Request
@@ -10,34 +11,36 @@ from redis.asyncio import Redis
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from pycil.app.config import ProductConfig
+from pycil.app.config import AppConfig
 from pycil.app.http import Problem
 from pycil.app.settings import Deployment
-from pycil.infrastructure.cache import RedisCache
+from pycil.infrastructure.cache import MemoryCache
 from pycil.infrastructure.clerk import Identity
 from pycil.infrastructure.llm import DecisionLLM, StructuredLLM
 from pycil.infrastructure.observability import get_logger
-from pycil.vocabulary.cache import ContentCache
+from pycil.study.artifacts.schemas import Artifact
 from pycil.vocabulary.generation.jobs import Generations
+from pycil.vocabulary.schemas import CachedWord, Sense
 from pycil.vocabulary.search import SearchIndex
 
 logger = get_logger(__name__)
 
 
 class AppState(Protocol):
-    product: ProductConfig
+    config: AppConfig
     deployment: Deployment
     identity: Identity
     engine: AsyncEngine
     sessions: async_sessionmaker[AsyncSession]
     redis: Redis
-    cache: RedisCache
+    user_id_cache: MemoryCache[str, UUID]
     http: httpx.AsyncClient
     structured_llm: StructuredLLM
     decision_llm: DecisionLLM
     search: SearchIndex
-    content_cache: ContentCache
-    artifact_cache: ContentCache
+    word_cache: MemoryCache[int, CachedWord]
+    sense_cache: MemoryCache[int, Sense]
+    artifact_cache: MemoryCache[int, Artifact]
     generations: Generations
     checkpoint_pool: AsyncConnectionPool[AsyncConnection[DictRow]]
 
@@ -54,9 +57,9 @@ async def session(request: Request) -> AsyncGenerator[AsyncSession]:
             raise
 
 
-def product(request: Request) -> ProductConfig:
+def configuration(request: Request) -> AppConfig:
     state = cast(AppState, request.app.state)
-    return state.product
+    return state.config
 
 
 def resources(request: Request) -> AppState:
@@ -64,5 +67,5 @@ def resources(request: Request) -> AppState:
 
 
 Session = Annotated[AsyncSession, Depends(session)]
-Product = Annotated[ProductConfig, Depends(product)]
+Config = Annotated[AppConfig, Depends(configuration)]
 Runtime = Annotated[AppState, Depends(resources)]

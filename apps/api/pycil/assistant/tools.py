@@ -12,12 +12,10 @@ from langchain_core.tools import BaseTool, ToolException, tool
 from pydantic import BaseModel, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from pycil.account.auth import ActorContext
-from pycil.account.models import User
 from pycil.account.profiles import profile
 from pycil.account.schemas import PreferencesPatch
 from pycil.account.settings import update_preferences as save_preferences
-from pycil.app.config import ProductConfig
+from pycil.app.config import AppConfig
 from pycil.app.http import Problem
 from pycil.assistant.projections import (
     node_cards,
@@ -54,6 +52,9 @@ from pycil.vocabulary.enums import JobState
 from pycil.vocabulary.errors import InvalidResourceError
 
 logger = get_logger(__name__)
+# Search previews carry one sample; expanded context uses the projection policy.
+SEARCH_PREVIEW_EXAMPLES = 1
+
 
 MUTATION_TOOLS = {
     "create_node",
@@ -69,7 +70,7 @@ MUTATION_TOOLS = {
 class AssistantResources(Protocol):
     sessions: async_sessionmaker[AsyncSession]
     search: Any
-    content_cache: Any
+    sense_cache: Any
     generations: Any
 
 
@@ -111,8 +112,8 @@ def task_tool(
 
 def tools(
     resources: AssistantResources,
-    user: User | ActorContext,
-    config: ProductConfig,
+    user: UUID,
+    config: AppConfig,
 ) -> list[BaseTool]:
     @task_tool(WordSearch)
     async def search_words(**values: Any) -> Any:
@@ -176,15 +177,15 @@ def tools(
         data = NodeSearch(**values)
         merged: dict[UUID, dict[str, Any]] = {}
         unmatched: list[str] = []
-        budget = ScopeBudget(user.id)
+        budget = ScopeBudget(user)
         async with resources.sessions() as session:
             root = data.node_id
             if data.scope == NodeSpace.LIBRARY and root is None:
-                root = (await roots(session, user.id))[NodeRole.LIBRARY_ROOT].id
+                root = (await roots(session, user))[NodeRole.LIBRARY_ROOT].id
             for query in dict.fromkeys(data.queries):
                 page = await search_service(
                     session,
-                    user.id,
+                    user,
                     config,
                     q=query,
                     node_id=root,
@@ -198,7 +199,7 @@ def tools(
                     merged.setdefault(node["id"], node | {"matched_queries": []})[
                         "matched_queries"
                     ].append(query)
-            cards = await node_cards(session, user.id, config, list(merged.values()))
+            cards = await node_cards(session, user, config, list(merged.values()))
         for card, node in zip(cards, merged.values(), strict=True):
             card["matched_queries"] = node["matched_queries"]
         return {"nodes": cards, "unmatched_queries": unmatched}
@@ -214,24 +215,24 @@ def tools(
         """
         data = LibraryRead(**values)
         async with resources.sessions() as session:
-            root = data.node_id or (await roots(session, user.id))[NodeRole.LIBRARY_ROOT].id
-            detail = await nodes.node_details(session, root, user.id, config)
-            node = node_projection(detail, user.id) | {
+            root = data.node_id or (await roots(session, user))[NodeRole.LIBRARY_ROOT].id
+            detail = await nodes.node_details(session, root, user, config)
+            node = node_projection(detail, user) | {
                 "path": [{"node_id": r["id"], "name": r["name"]} for r in detail["breadcrumbs"]],
                 "reference_available": detail["reference_available"],
             }
-            count = (await summaries(session, user.id, config, [root]))[0]
+            count = (await summaries(session, user, config, [root]))[0]
             if data.view == LibraryView.STRUCTURE:
                 page = await nodes.list_nodes(
-                    session, user.id, root, data.cursor, config, limit=data.limit
+                    session, user, root, data.cursor, config, limit=data.limit
                 )
-                page["nodes"] = await node_cards(session, user.id, config, page["nodes"])
+                page["nodes"] = await node_cards(session, user, config, page["nodes"])
             else:
-                target = await readable(session, root, user.id, config)
+                target = await readable(session, root, user, config)
                 page = await sense_page(
                     session,
                     target,
-                    user.id,
+                    user,
                     config,
                     resources.sessions,
                     data.cursor,
@@ -240,13 +241,14 @@ def tools(
                     sort=data.sort,
                     limit=data.limit,
                     include="examples",
+                    sense_cache=resources.sense_cache,
                 )
                 page["senses"] = [
                     {
                         k: s[k]
                         for k in ("sense_id", "word_id", "lemma", "pos", "definition", "learning")
                     }
-                    | {"examples": [e.content for e in s["examples"][:1]]}
+                    | {"examples": [e.content for e in s["examples"][:SEARCH_PREVIEW_EXAMPLES]]}
                     for s in page["senses"]
                 ]
             return {"node": node, "summary": count} | page
@@ -261,15 +263,15 @@ def tools(
         data = LearningOverview(**values)
         ids = data.node_ids or [None]
         async with resources.sessions() as session:
-            budget = ScopeBudget(user.id)
+            budget = ScopeBudget(user)
             result: dict[str, Any] = {
-                "summaries": await summaries(session, user.id, config, ids, budget=budget)
+                "summaries": await summaries(session, user, config, ids, budget=budget)
             }
             if "activity" in data.include:
                 dates = data.activity_window
                 result["activity"] = await activity(
                     session,
-                    user.id,
+                    user,
                     config,
                     dates.start_date if dates else None,
                     dates.end_date if dates else None,
@@ -278,7 +280,7 @@ def tools(
                 dates = data.schedule_window
                 result["schedules"] = await schedules(
                     session,
-                    user.id,
+                    user,
                     config,
                     ids,
                     dates.start_date if dates else None,
@@ -375,8 +377,8 @@ def tools(
         saved metadata/counts, not the whole membership list.
         """
         async with resources.sessions() as session:
-            result = await nodes.create_node(session, user.id, NodeCreate(**values), config)
-        return await saved_node(resources, user.id, config, result)
+            result = await nodes.create_node(session, user, NodeCreate(**values), config)
+        return await saved_node(resources, user, config, result)
 
     @task_tool(NodeUpdate)
     async def update_node(**values: Any) -> Any:
@@ -393,13 +395,13 @@ def tools(
         async with resources.sessions() as session:
             result = await nodes.update_node(
                 session,
-                user.id,
+                user,
                 data.node_id,
                 NodePatch(**metadata) if metadata else None,
                 delta if delta.add or delta.remove else None,
                 config,
             )
-        return await saved_node(resources, user.id, config, result)
+        return await saved_node(resources, user, config, result)
 
     async def batch_nodes(
         data: NodeMove | NodeCopy | NodeBatch,
@@ -424,7 +426,7 @@ def tools(
                     {"source_node_id": identifier, "status": JobState.FAILED, "error": exc.code}
                 )
         if saved:
-            enriched = await saved_nodes(resources, user.id, config, [r for _, r in saved])
+            enriched = await saved_nodes(resources, user, config, [r for _, r in saved])
             for (item, _), card in zip(saved, enriched, strict=True):
                 item.update(card)
         return {"items": items}
@@ -439,7 +441,7 @@ def tools(
         move = Move(**data.model_dump(exclude={"node_ids"}))
         return await batch_nodes(
             data,
-            lambda session, identifier: nodes.move_node(session, user.id, identifier, move, config),
+            lambda session, identifier: nodes.move_node(session, user, identifier, move, config),
         )
 
     @task_tool(NodeCopy)
@@ -452,7 +454,7 @@ def tools(
         return await batch_nodes(
             data,
             lambda session, identifier: nodes.copy_node(
-                session, user.id, identifier, destination, config
+                session, user, identifier, destination, config
             ),
         )
 
@@ -463,7 +465,7 @@ def tools(
         """
         return await batch_nodes(
             NodeBatch(**values),
-            lambda session, identifier: nodes.delete_node(session, user.id, identifier, config),
+            lambda session, identifier: nodes.delete_node(session, user, identifier, config),
         )
 
     def preference_projection(result: Mapping[str, Any]) -> dict[str, Any]:
@@ -486,8 +488,8 @@ def tools(
         effective learning configuration/plan restrictions. Does not change the user's plan.
         """
         async with resources.sessions() as session:
-            updated = await save_preferences(session, user.id, PreferencesPatch(**values), config)
-            return preference_projection(await profile(updated, config, session))
+            updated = await save_preferences(session, user, PreferencesPatch(**values), config)
+            return preference_projection(await profile(updated.id, config, session))
 
     return [
         search_words,

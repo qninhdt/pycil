@@ -2,7 +2,7 @@
 
 ## Responsibility
 
-The account module maps a verified Clerk subject to a Pycil user, provisions a Library,
+The account module maps a verified Clerk subject (`users.clerk_id`) to a Pycil user, provisions a Library,
 resolves saved preferences, checks plan features, and accounts for assistant usage.
 It does not implement checkout, payment webhooks, a public plan-change route, or a
 separate local-password login system.
@@ -28,16 +28,15 @@ usage and private root IDs, even when the requester is authenticated.
 
 1. Reject absent or malformed private-route authorization.
 2. Verify the signed JWT against configured JWKS/issuer and optional audience.
-3. Look up a bounded detached context under `actor:v3:<subject>`.
-4. On a miss, look up the user by subject. If missing, check that the Clerk user exists
+3. Read the bounded process-local `clerk_id -> user_id` memory cache. A hit returns
+   only the internal UUID, with zero SQL, Redis or Clerk profile calls.
+4. On a miss, look up `users.clerk_id`. If missing, verify that the Clerk user exists
    before provisioning, preventing a stale signed identity from recreating a deleted account.
-5. Initialize absent display name from Clerk first/last name and generate a unique handle
-   from that name. A nameless Clerk profile uses `Pycil learner`. Existing names/handles
-   are preserved, including owner edits. Upsert with conflict handling and provision
-   all three roots in the same transaction; retry handle collisions inside a savepoint.
-6. Build a frozen actor context including display name/handle and optionally cache it
-   for 60 seconds. A cache hit needs no SQL or Clerk profile request. Expiry, invalidation
-   or Redis failure falls back to SQL; a complete identity does not call Clerk again.
+5. Initialize absent display name/handle from Clerk once. Existing owner edits are preserved.
+   Retry handle collisions inside a savepoint; upsert identity and provision three roots
+   in the same transaction.
+6. Cache the UUID for the configured user-ID TTL. Load profile, settings and plan from
+   PostgreSQL only when the operation needs them. Those fields have no cache in this phase.
 
 Cache hits do not skip JWT verification. They do not necessarily call Clerk or refresh
 every account field on every request. Writes requiring account existence check the user
@@ -83,7 +82,7 @@ Users without advanced_grading cannot newly request typed formats. Free preparat
 and a restriction so the client can render settings and explain the issue.
 
 Stored paid preferences are preserved across downgrade. Settings writes refresh the
-user inside a transaction, then invalidate the actor cache after commit. There is no
+user inside a transaction; later reads load current persisted settings. There is no
 settings revision or conflict-aware draft merge beyond the explicit PATCH semantics.
 
 Maximum senses times questions per sense must not exceed `max_questions_per_prepare=60`.
@@ -94,8 +93,7 @@ preserves either field. Concurrent duplicate handles return `handle_unavailable`
 Renames invalidate the old handle URL; UUID identity remains stable. Display names
 trim whitespace and require 1–255 characters; explicit null/empty values are rejected.
 All three profile fields are owner-editable; omission preserves existing values.
-Display-name edits do not regenerate the handle or update Clerk. Profile writes
-invalidate the actor cache after commit. No country, avatar upload, email-derived handle
+Display-name edits do not regenerate the handle or update Clerk. Profile reads use current database values after writes. No country, avatar upload, email-derived handle
 or recurring Clerk profile sync is added. Existing missing identity initializes once
 on the next authenticated cache miss; migration does not contact Clerk.
 
@@ -120,7 +118,7 @@ Conflicting repeated settlement returns `usage_event_conflict`. Unknown token re
 are represented through unmetered-call bookkeeping rather than invented costs.
 
 The internal `change_plan()` service preserves usage and does not lower an already
-granted period allowance. It invalidates the actor cache. There is no public route
+granted period allowance. Plan-sensitive reads fetch current database values. There is no public route
 exposing that helper or an automatic billing integration in this source.
 
 ## Failure behavior
@@ -131,7 +129,9 @@ exposing that helper or an automatic billing integration in this source.
 - Unsupported feature or exhausted allowance: 403 `feature_not_available` / `allowance_exhausted`.
 - Invalid saved selection: 422 `invalid_preferences`; impossible effective learning:
   `infeasible_learning_preferences`.
-- Optional actor cache failure falls back to database reads, not to accepting an invalid token.
+- Expired/evicted identity mappings fall back to the database; JWT verification always runs.
+- Known account deletion/identity-link changes must discard the local mapping after commit;
+  the configured TTL bounds stale mappings in other processes. A cached UUID is not an account-existence grant.
 
 ## Sources and tests
 

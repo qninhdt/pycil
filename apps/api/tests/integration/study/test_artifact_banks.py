@@ -108,11 +108,11 @@ async def test_invalid_payload_never_partially_publishes_a_batch(database, sense
 async def test_missing_sense_rolls_back_whole_batch_and_preserves_existing_cache(
     database, sense_id
 ):
+    from pycil.infrastructure.cache import MemoryCache
     from pycil.study.artifacts.storage import get_many
-    from pycil.vocabulary.cache import ContentCache
     from pycil.vocabulary.errors import InvalidResourceError
 
-    cache = ContentCache()
+    cache = MemoryCache(max_entries=1024, ttl=30)
     original = await append(database.sessions, [singleton(sense_id, "a financial institution")])
     cached = await get_many(database.sessions, [original[0].id], cache=cache)
     with pytest.raises(InvalidResourceError):
@@ -129,10 +129,10 @@ async def test_missing_sense_rolls_back_whole_batch_and_preserves_existing_cache
 
 
 async def test_successful_singleton_merge_invalidates_cached_payload(database, sense_id):
+    from pycil.infrastructure.cache import MemoryCache
     from pycil.study.artifacts.storage import get_many
-    from pycil.vocabulary.cache import ContentCache
 
-    cache = ContentCache()
+    cache = MemoryCache(max_entries=1024, ttl=30)
     saved = await append(database.sessions, [singleton(sense_id, "a financial institution")])
     before = (await get_many(database.sessions, [saved[0].id], cache=cache))[0]
     changed = await append(

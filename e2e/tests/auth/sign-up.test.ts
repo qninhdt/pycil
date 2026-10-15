@@ -1,6 +1,6 @@
 import { test, expect } from '../../fixtures/index.ts'
 import { setupClerkTestingToken } from '@clerk/testing/playwright'
-import { reserveIdentity, removeReservedIdentity } from '../../fixtures/actors.ts'
+import { reserveIdentity, removeReservedIdentity } from '../../fixtures/users.ts'
 import { Api } from '../../support/api.ts'
 
 test('signup validates verification, resends the code and provisions one personal library', async ({ page }) => {

@@ -53,7 +53,7 @@ async def test_native_checkpoint_survives_pool_restart_and_owned_delete_cleans_t
     )
     async with checkpoint_pool(database.url) as pool:
         resources.checkpoint_pool = pool
-        agent = graph(resources, user, config, provider, auto_approve=True)
+        agent = graph(resources, user.id, config, provider, auto_approve=True)
         result = await agent.ainvoke(
             {"messages": [HumanMessage(content="Set my language to Vietnamese.")]},
             thread,
@@ -63,18 +63,30 @@ async def test_native_checkpoint_survives_pool_restart_and_owned_delete_cleans_t
         assert '"locale": "vi"' in tool_result.content
     async with checkpoint_pool(database.url) as pool:
         resources.checkpoint_pool = pool
-        restarted = graph(resources, user, config, provider)
+        restarted = graph(resources, user.id, config, provider)
         snapshot = await restarted.aget_state(thread)
         assert snapshot.values["messages"][-1].content == result["messages"][-1].content
         with pytest.raises(Problem) as error:
-            await delete_conversation(resources, stranger, identifier)
+            await delete_conversation(
+                resources,
+                stranger.id,
+                identifier,
+                lease_ttl=config.runtime.assistant.lease_ttl_seconds,
+            )
         assert error.value.status == 404
         assert await AsyncPostgresSaver(pool).aget_tuple(thread) is not None
-        async with guard(redis, identifier):
+        async with guard(redis, identifier, ttl=config.runtime.assistant.lease_ttl_seconds):
             with pytest.raises(Problem) as error:
-                await delete_conversation(resources, user, identifier)
+                await delete_conversation(
+                    resources,
+                    user.id,
+                    identifier,
+                    lease_ttl=config.runtime.assistant.lease_ttl_seconds,
+                )
             assert error.value.status == 409
-        await delete_conversation(resources, user, identifier)
+        await delete_conversation(
+            resources, user.id, identifier, lease_ttl=config.runtime.assistant.lease_ttl_seconds
+        )
         assert await AsyncPostgresSaver(pool).aget_tuple(thread) is None
         async with database.sessions() as session:
             assert await session.get(Conversation, identifier) is None

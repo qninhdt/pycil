@@ -4,13 +4,14 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from pycil.infrastructure.cache import MemoryCache
 from pycil.infrastructure.database import transaction_lock
 from pycil.infrastructure.llm import render_prompt
 from pycil.themes.models import Theme
 from pycil.themes.namespace import normalize_key
-from pycil.vocabulary.cache import ContentCache
 from pycil.vocabulary.errors import InvalidOutputError, InvalidResourceError
 from pycil.vocabulary.models import Definition, Example, Word
+from pycil.vocabulary.schemas import CachedWord, Sense
 from pycil.vocabulary.schemas import Word as WordSchema
 from pycil.vocabulary.text import marked_occurrences, target_sequences
 from pycil.vocabulary.words import get_word
@@ -47,7 +48,8 @@ async def ensure_word_theme(
     key: str,
     example_count: int,
     *,
-    cache: ContentCache | None = None,
+    word_cache: MemoryCache[int, CachedWord] | None = None,
+    sense_cache: MemoryCache[int, Sense] | None = None,
 ) -> WordSchema | None:
     if type(example_count) is not int or not 1 <= example_count <= 20:
         raise ValueError("invalid example count")
@@ -94,6 +96,7 @@ async def ensure_word_theme(
                 Example(sense_id=sense.id, theme_id=theme.id, content=example)
                 for example in group.examples
             )
-    if cache is not None:
-        cache.clear()
-    return await get_word(sessions, word_id, theme_key=key, cache=cache)
+    for cache in (word_cache, sense_cache):
+        if cache is not None:
+            cache.clear()
+    return await get_word(sessions, word_id, theme_key=key)

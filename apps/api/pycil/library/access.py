@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import ColumnElement
 from sqlalchemy.sql.selectable import Exists, FromClause
 
-from pycil.app.config import ProductConfig
+from pycil.app.config import AppConfig
 from pycil.app.http import Problem
 from pycil.library.models import Node, NodePath, NodeRole, NodeType
 
@@ -71,7 +71,7 @@ def reference_visible(node: FromClause, viewer_id: UUID | None) -> Exists:
 
 
 async def readable(
-    session: AsyncSession, node_id: UUID, viewer_id: UUID | None, config: ProductConfig
+    session: AsyncSession, node_id: UUID, viewer_id: UUID | None, config: AppConfig
 ) -> Node:
     node = await session.scalar(
         select(Node).where(Node.id == node_id, visible(Node.__table__, viewer_id))
@@ -88,7 +88,7 @@ async def readable(
 
 
 async def readable_path(
-    session: AsyncSession, node_id: UUID, viewer_id: UUID | None, config: ProductConfig
+    session: AsyncSession, node_id: UUID, viewer_id: UUID | None, config: AppConfig
 ) -> tuple[Node, list[Node]]:
     node = await readable(session, node_id, viewer_id, config)
     ancestors = list(

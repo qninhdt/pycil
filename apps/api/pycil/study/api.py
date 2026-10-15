@@ -7,10 +7,10 @@ from fastapi import APIRouter, Header, Request
 from openai import APIError
 from sqlalchemy import select
 
-from pycil.account.auth import Actor, Viewer
+from pycil.account.auth import UserId, Viewer
 from pycil.account.models import User
 from pycil.account.plans import Feature
-from pycil.app.dependencies import Product, Runtime, Session
+from pycil.app.dependencies import Config, Runtime, Session
 from pycil.app.http import Problem
 from pycil.app.pagination import strict_query
 from pycil.infrastructure.observability import get_logger
@@ -42,7 +42,7 @@ router = APIRouter(prefix="/v1/study", tags=["study"])
 
 @router.post(":prepare", response_model=Preparation)
 async def preparation(
-    data: Prepare, user: Actor, session: Session, config: Product, resources: Runtime
+    data: Prepare, user: UserId, session: Session, config: Config, resources: Runtime
 ):
     return await prepare(
         session,
@@ -52,6 +52,7 @@ async def preparation(
         user,
         data.node_id,
         config,
+        sense_cache=resources.sense_cache,
         selection=data.selection,
         max_sense_count=data.max_sense_count,
         questions_per_sense=data.questions_per_sense,
@@ -59,17 +60,20 @@ async def preparation(
 
 
 @router.post(":grade", response_model=GradeResult)
-async def grade(data: Grade, user: Actor, config: Product, resources: Runtime, session: Session):
+async def grade(data: Grade, user: UserId, config: Config, resources: Runtime, session: Session):
     async with session.begin():
-        plan = await session.scalar(select(User.plan).where(User.id == user.id))
+        plan = await session.scalar(select(User.plan).where(User.id == user))
     if plan is None:
         raise Problem(404, "account_not_found")
-    if Feature.ADVANCED_GRADING not in config.plans[plan].features:
+    if Feature.ADVANCED_GRADING not in config.product.account.plans[plan].features:
         raise Problem(403, "advanced_grading_not_available")
     if (
         data.format is ResponseFormat.SINGLE_CHOICE
         or data.answer is not None
-        and (not data.answer.strip() or len(data.answer) > config.learning.limits.max_answer_chars)
+        and (
+            not data.answer.strip()
+            or len(data.answer) > config.product.study.limits.max_answer_chars
+        )
     ):
         raise Problem(422, "invalid_grade_request")
     try:
@@ -82,10 +86,10 @@ async def grade(data: Grade, user: Actor, config: Product, resources: Runtime, s
             data.question_type,
             data.format,
             data.answer,
-            policy=config.providers.vocabulary,
+            policy=config.runtime.providers.vocabulary,
             allowed_pairs={
                 (kind, fmt)
-                for kind, formats in config.learning.pair_levels.items()
+                for kind, formats in config.product.study.pair_levels.items()
                 for fmt in formats
             },
         )
@@ -99,7 +103,7 @@ async def grade(data: Grade, user: Actor, config: Product, resources: Runtime, s
     except VocabularyError, ProviderOutputError, APIError, httpx.HTTPError:
         logger.error(
             "study_grading_failed",
-            user_id=str(user.id),
+            user_id=str(user),
             question_artifact_id=data.question_artifact_id,
         )
         raise Problem(503, "grading_unavailable") from None
@@ -108,49 +112,49 @@ async def grade(data: Grade, user: Actor, config: Product, resources: Runtime, s
 @router.post(":submitResults", response_model=BatchResult)
 async def submit_results(
     data: ReviewBatch,
-    user: Actor,
+    user: UserId,
     session: Session,
-    config: Product,
+    config: Config,
     idempotency_key: Annotated[UUID, Header(alias="Idempotency-Key")],
 ):
-    return await review(session, user.id, data, idempotency_key, config)
+    return await review(session, user, data, idempotency_key, config)
 
 
 @router.get("/progress", response_model=Summary)
 async def summary(
-    request: Request, user: Actor, session: Session, config: Product, node_id: UUID | None = None
+    request: Request, user: UserId, session: Session, config: Config, node_id: UUID | None = None
 ):
     strict_query(request, {"node_id"})
     return await progress(session, user, config, node_id)
 
 
 @router.post(":batchSummarize", response_model=list[Summary], openapi_extra={"security": [{}]})
-async def cards(data: SummaryBatch, viewer: Viewer, session: Session, config: Product):
-    return await summaries(session, viewer.id if viewer else None, config, data.node_ids)
+async def cards(data: SummaryBatch, viewer: Viewer, session: Session, config: Config):
+    return await summaries(session, viewer, config, data.node_ids)
 
 
 @router.get("/activity", response_model=Activity)
 async def days(
     request: Request,
-    user: Actor,
+    user: UserId,
     session: Session,
-    config: Product,
+    config: Config,
     start_date: date | None = None,
     end_date: date | None = None,
 ):
     strict_query(request, {"start_date", "end_date"})
-    return await activity(session, user.id, config, start_date, end_date)
+    return await activity(session, user, config, start_date, end_date)
 
 
 @router.get("/review-schedule", response_model=Schedule)
 async def upcoming(
     request: Request,
-    user: Actor,
+    user: UserId,
     session: Session,
-    config: Product,
+    config: Config,
     node_id: UUID | None = None,
     start_date: date | None = None,
     end_date: date | None = None,
 ):
     strict_query(request, {"node_id", "start_date", "end_date"})
-    return await schedule(session, user.id, config, node_id, start_date, end_date)
+    return await schedule(session, user, config, node_id, start_date, end_date)

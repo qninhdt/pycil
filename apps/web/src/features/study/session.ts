@@ -1,3 +1,4 @@
+import { webConfig } from '@/config'
 import { parsePreparation, type Diagnostic, type PreparedQuestion, type PreparedSession, type ReviewBatchResult, type SubmittedResult } from '../../lib/api/study'
 
 export type Attempt = { answer: string | null; answered_at: string; diagnostics: Diagnostic; complete: boolean }
@@ -11,7 +12,7 @@ export type StudySession = {
   updated_at?: string
 }
 
-export const roundSize = 8
+export const roundSize = webConfig.study.roundSize
 export const sessionKey = (accountId: string, nodeId: string) => `pycil:study:${accountId}:${nodeId}`
 
 export function loadSession(accountId: string, nodeId: string): StudySession | null {
@@ -58,7 +59,7 @@ export function listActiveSessions(accountId: string): string[] {
   } catch { return [] }
 }
 
-export function pruneStaleSessions(accountId: string, maxAgeDays = 7) {
+export function pruneStaleSessions(accountId: string, maxAgeDays: number = webConfig.study.retentionDays) {
   try {
     const prefix = `pycil:study:${accountId}:`
     const now = Date.now()
@@ -106,7 +107,7 @@ export function beginAttempt(session: StudySession, answer: string | null, now =
   if (session.pendingAttempt) return session
   if (answer !== null && !answer.trim()) throw new Error('Choose or enter an answer.')
   const occurrence = session.questions[session.position]
-  if ((session.attempts[occurrence]?.length ?? 0) >= 3) throw new Error('Attempt limit reached.')
+  if ((session.attempts[occurrence]?.length ?? 0) >= webConfig.study.maxAttempts) throw new Error('Attempt limit reached.')
   return { ...session, pendingAttempt: { occurrence, answer, answered_at: now.toISOString() } }
 }
 export function recordAttempt(session: StudySession, diagnostics: Diagnostic): StudySession {
@@ -114,12 +115,12 @@ export function recordAttempt(session: StudySession, diagnostics: Diagnostic): S
   if (session.phase !== 'question' || !pending || pending.occurrence !== session.questions[session.position]) throw new Error('Lock the answer before grading.')
   const complete = diagnosticComplete(diagnostics), attempts = [...(session.attempts[pending.occurrence] ?? []), { answer: pending.answer, answered_at: pending.answered_at, diagnostics, complete }]
   return { ...session, pendingAttempt: null, attempts: { ...session.attempts, [pending.occurrence]: attempts },
-    retry: !complete && attempts.length < 3 ? [...session.retry, pending.occurrence] : session.retry, phase: 'feedback' }
+    retry: !complete && attempts.length < webConfig.study.maxAttempts ? [...session.retry, pending.occurrence] : session.retry, phase: 'feedback' }
 }
 export function completedCount(session: StudySession) {
   return allQuestions(session).filter((_, occurrence) => {
     const attempts = session.attempts[occurrence] ?? []
-    return attempts.at(-1)?.complete || attempts.length === 3
+    return attempts.at(-1)?.complete || attempts.length === webConfig.study.maxAttempts
   }).length
 }
 export function finishSession(session: StudySession): StudySession {

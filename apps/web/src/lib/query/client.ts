@@ -1,13 +1,14 @@
+import { webConfig } from '@/config'
 import { QueryClient, defaultShouldDehydrateQuery, isServer } from '@tanstack/react-query'
 
 export function makeQueryClient(): QueryClient {
   return new QueryClient({
     defaultOptions: {
       queries: {
-        staleTime: 60 * 1000,
-        gcTime: 5 * 60 * 1000,
+        staleTime: webConfig.query.staleMs,
+        gcTime: webConfig.query.gcMs,
         retry: (attempt, error) =>
-          attempt < 1 &&
+          attempt < webConfig.query.retries &&
           (!('status' in error) || ![401, 403, 404, 422].includes(Number((error as { status?: number }).status))),
         refetchOnWindowFocus: true,
       },

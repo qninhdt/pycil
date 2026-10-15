@@ -1,3 +1,4 @@
+import { webConfig } from '@/config'
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -821,7 +822,7 @@ export function AssistantThread({
             autoFocus
             aria-label={t("messagePycilAiAria")}
             placeholder={t("askPycilAiPlaceholder")}
-            maxLength={8000}
+            maxLength={webConfig.assistant.maxMessageChars}
             rows={2}
             className="ai-input"
           />

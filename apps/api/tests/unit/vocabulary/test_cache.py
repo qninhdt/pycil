@@ -1,33 +1,42 @@
+import pytest
 from cachetools import TTLCache
 from pydantic import BaseModel
 
-from pycil.vocabulary.cache import ContentCache
+from pycil.infrastructure.cache import MemoryCache
 
 
 class Value(BaseModel):
     text: str
 
 
-def test_cache_detaches_values_replaces_evicts_and_expires():
+def test_cache_stores_objects_and_replaces_evicts_expires_and_clears():
     now = [0]
-    cache = ContentCache(max_bytes=30, ttl=5)
-    cache.values = TTLCache(maxsize=30, ttl=5, timer=lambda: now[0], getsizeof=len)
+    cache = MemoryCache[str, Value](max_entries=2, ttl=5)
+    cache.values = TTLCache(maxsize=2, ttl=5, timer=lambda: now[0])
     original = Value(text="a")
     cache.put("one", original)
-    original.text = "changed"
-    read = cache.get("one", Value)
-    assert read.text == "a"
-    read.text = "changed again"
-    assert cache.get("one", Value).text == "a"
-    cache.put("one", Value(text="b"))
-    cache.put("two", Value(text="c"))
-    cache.put("three", Value(text="d"))
-    assert cache.get("one", Value) is None
-    assert cache.get("two", Value).text == "c"
+    assert cache.get("one") is original
+    cache.put("two", Value(text="b"))
+    assert cache.get("one") is original  # Access updates LRU, not expiry.
+    cache.put("three", Value(text="c"))
+    assert cache.get("two") is None
+    cache.put("one", Value(text="replacement"))
+    assert cache.get("one").text == "replacement"
     now[0] = 5
-    assert cache.get("two", Value) is None
-    cache.put("three", Value(text="x" * 31))
-    assert cache.get("three", Value) is None
-    cache.values["corrupt"] = b"{}"
-    assert cache.get("corrupt", Value) is None
-    assert "corrupt" not in cache.values
+    assert cache.get("one") is None
+    cache.put("one", original)
+    cache.discard("one")
+    cache.discard("absent")
+    assert cache.get("one") is None
+    cache.put("one", original)
+    cache.clear()
+    assert not cache.values
+
+
+@pytest.mark.parametrize(
+    "capacity,ttl",
+    [(0, 1), (-1, 1), (True, 1), (1, 0), (1, -1), (1, True), (1, float("nan")), (1, float("inf"))],
+)
+def test_cache_rejects_invalid_capacity_and_expiration(capacity, ttl):
+    with pytest.raises(ValueError):
+        MemoryCache(capacity, ttl)

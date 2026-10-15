@@ -48,8 +48,8 @@ async def test_study_http_grading_rechecks_plan_and_review_header_controls_repla
     )
     app = create_app()
     app.state.sessions = database.sessions
-    app.state.product = load_config()
-    app.state.identity = Identity(user.clerk_subject)
+    app.state.config = load_config()
+    app.state.identity = Identity(user.clerk_id)
     app.state.deployment = SimpleNamespace(allowed_origins=[])
     app.state.search = app.state.artifact_cache = None
 
@@ -136,8 +136,8 @@ async def test_http_routes_enforce_auth_validate_enums_and_persist_domain_mutati
         saved.display_name, saved.handle = "Alice", "alice"
     app = create_app()
     app.state.sessions = database.sessions
-    app.state.product = load_config()
-    app.state.identity = Identity(user.clerk_subject)
+    app.state.config = load_config()
+    app.state.identity = Identity(user.clerk_id)
     app.state.deployment = SimpleNamespace(allowed_origins=[])
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api.test") as client:
         assert (await client.get("/v1/me")).status_code == 401
@@ -160,7 +160,7 @@ async def test_http_routes_enforce_auth_validate_enums_and_persist_domain_mutati
         assert updated.status_code == 200 and updated.json()["description"] == "saved"
         public = await client.get(f"/v1/users/{user.id}")
         assert public.status_code == 200
-        assert "settings" not in public.json() and "clerk_subject" not in public.json()
+        assert "settings" not in public.json() and "clerk_id" not in public.json()
     async with database.sessions() as session:
         stored = await session.scalar(select(Node).where(Node.name == "Finance"))
         assert stored.description == "saved"
@@ -173,7 +173,7 @@ async def test_request_query_timeout_is_sanitized_and_closes_failed_session(data
 
     app = create_app()
     app.state.sessions = database.sessions
-    app.state.product = load_config()
+    app.state.config = load_config()
     app.state.deployment = SimpleNamespace(allowed_origins=[])
 
     @app.get("/test-query-timeout")

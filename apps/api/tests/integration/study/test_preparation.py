@@ -7,6 +7,7 @@ from pycil.account.models import User
 from pycil.account.plans import Plan
 from pycil.app.config import load_config
 from pycil.app.http import Problem
+from pycil.infrastructure.cache import MemoryCache
 from pycil.library.models import NodeType
 from pycil.library.nodes import create_node
 from pycil.library.schemas import NodeCreate
@@ -21,7 +22,6 @@ from pycil.study.enums import (
     Selection,
 )
 from pycil.study.models import ReviewReceipt, UserSense
-from pycil.vocabulary.cache import ContentCache
 from pycil.vocabulary.enums import PartOfSpeech, Tier
 from pycil.vocabulary.models import Definition, Sense
 from tests.support.account import account
@@ -68,7 +68,7 @@ async def prepared_library(database, monkeypatch):
                     sense_id=sense_id,
                     stability=1,
                     difficulty=5,
-                    elo=config.learning.mastery.initial_elo,
+                    elo=config.product.study.mastery.initial_elo,
                     last_exposure_at=now - timedelta(days=2),
                     due_at=due_at,
                     review_count=1,
@@ -123,8 +123,8 @@ async def test_preparation_selects_ordered_scope_and_never_changes_learning_stat
             session,
             database.sessions,
             UnusedProvider(),
-            ContentCache(),
-            user,
+            MemoryCache(max_entries=1024, ttl=30),
+            user.id,
             deck["id"],
             config,
             selection=selection,
@@ -154,7 +154,7 @@ async def test_preparation_uses_fresh_plan_preserves_saved_preferences_and_appli
             database.sessions,
             UnusedProvider(),
             None,
-            user,
+            user.id,
             deck["id"],
             config,
             max_sense_count=1,
@@ -174,6 +174,6 @@ async def test_preparation_cannot_read_foreign_private_scope(database, prepared_
     async with database.sessions() as session:
         with pytest.raises(Problem) as error:
             await preparation.prepare(
-                session, database.sessions, UnusedProvider(), None, foreign, deck["id"], config
+                session, database.sessions, UnusedProvider(), None, foreign.id, deck["id"], config
             )
         assert error.value.status == 404

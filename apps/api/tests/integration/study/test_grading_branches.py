@@ -80,7 +80,7 @@ async def test_single_word_grading_resolves_alternate_meaning_through_real_searc
             QuestionType.CONTEXT_TO_WORD,
             ResponseFormat.SINGLE_WORD,
             answer,
-            load_config().providers.vocabulary,
+            load_config().runtime.providers.vocabulary,
             allowed_pairs=ALLOWED_PAIRS,
         )
         assert result.model_dump() == dict(
@@ -122,7 +122,7 @@ async def test_null_answer_returns_unused_diagnostics_without_inference(database
         kind,
         fmt,
         None,
-        load_config().providers.vocabulary,
+        load_config().runtime.providers.vocabulary,
         allowed_pairs=ALLOWED_PAIRS,
     )
     if fmt is ResponseFormat.SINGLE_WORD:
@@ -212,7 +212,7 @@ async def test_semantic_grading_branches_are_readonly(database, kind, bank, answ
             kind,
             ResponseFormat.SHORT_ANSWER,
             "The bank opens.",
-            load_config().providers.vocabulary,
+            load_config().runtime.providers.vocabulary,
             allowed_pairs=ALLOWED_PAIRS,
         )
         assert result.model_dump(mode="json").items() >= expected.items()
@@ -245,7 +245,7 @@ async def test_out_of_inventory_decision_is_rejected_without_credit(database):
             QuestionType.WORD_TO_DEFINITION,
             ResponseFormat.SHORT_ANSWER,
             "meaning",
-            load_config().providers.vocabulary,
+            load_config().runtime.providers.vocabulary,
             allowed_pairs=ALLOWED_PAIRS,
         )
 
@@ -302,7 +302,7 @@ async def test_grading_failures_do_not_publish_content_or_learning_state(databas
             kind,
             fmt,
             "a financial institution",
-            load_config().providers.vocabulary,
+            load_config().runtime.providers.vocabulary,
             allowed_pairs=ALLOWED_PAIRS,
         )
     async with database.sessions() as session:

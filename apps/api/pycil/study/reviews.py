@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from pycil.account.lifecycle import require_user
 from pycil.account.models import User
 from pycil.account.settings import preferences
-from pycil.app.config import ProductConfig
+from pycil.app.config import AppConfig
 from pycil.app.http import Problem
 from pycil.infrastructure.database import transaction_lock
 from pycil.infrastructure.observability import get_logger
@@ -49,9 +49,9 @@ async def review(
     user_id: UUID,
     data: ReviewBatch,
     event_key: UUID,
-    config: ProductConfig,
+    config: AppConfig,
 ) -> dict[str, Any]:
-    if len(data.results) > config.learning.limits.max_review_batch:
+    if len(data.results) > config.product.study.limits.max_review_batch:
         raise Problem(422, "review_batch_too_large")
     digest = request_hash(data)
     async with session.begin():
@@ -87,10 +87,10 @@ async def review(
         )
         tracked: list[TrackedEvidence] = []
         now = datetime.now(UTC)
-        policy = config.learning.mastery
+        policy = config.product.study.mastery
         for item in data.results:
             artifact = artifacts[item.question_artifact_id]
-            formats = config.learning.pair_levels.get(item.question_type, {})
+            formats = config.product.study.pair_levels.get(item.question_type, {})
             if (
                 QUESTION_ARTIFACT_MAP[item.question_type] != artifact.artifact_type
                 or item.format not in formats

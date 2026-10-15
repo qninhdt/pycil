@@ -39,7 +39,7 @@ async def library_content(database):
                     sense_id=sense_id,
                     stability=1,
                     difficulty=5,
-                    elo=config.learning.mastery.initial_elo,
+                    elo=config.product.study.mastery.initial_elo,
                     last_exposure_at=now - timedelta(days=2),
                     due_at=now - timedelta(days=1),
                     review_count=1,
@@ -125,7 +125,15 @@ async def test_source_projection_deduplicates_reference_aliases_and_reports_inli
 ):
     user, roots, config, deck, ids = library_content
     small = config.model_copy(
-        update={"projections": config.projections.model_copy(update={"inline_sources": 1})}
+        update={
+            "product": config.product.model_copy(
+                update={
+                    "projections": config.product.projections.model_copy(
+                        update={"inline_sources": 1}
+                    )
+                }
+            )
+        }
     )
     async with database.sessions() as session:
         other = await create_node(

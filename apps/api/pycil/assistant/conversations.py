@@ -17,14 +17,11 @@ from redis.exceptions import RedisError
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from pycil.account.auth import ActorContext
-from pycil.account.models import User
 from pycil.app.http import Problem
 from pycil.assistant.models import Conversation
 from pycil.infrastructure.observability import get_logger
 
 logger = get_logger(__name__)
-LOCK_TTL_SECONDS = 30
 
 
 class ConversationResources(Protocol):
@@ -43,11 +40,11 @@ async def owned(session: AsyncSession, user_id: UUID, identifier: UUID) -> Conve
 
 
 @asynccontextmanager
-async def guard(redis: Redis, conversation_id: UUID) -> AsyncGenerator[None]:
+async def guard(redis: Redis, conversation_id: UUID, *, ttl: float) -> AsyncGenerator[None]:
     """A renewable native lease; no DB connection is held while work runs."""
     lock: Lock = redis.lock(
         f"pycil:conversation:{conversation_id}",
-        timeout=LOCK_TTL_SECONDS,
+        timeout=ttl,
         blocking=False,
         thread_local=False,
     )
@@ -64,7 +61,7 @@ async def guard(redis: Redis, conversation_id: UUID) -> AsyncGenerator[None]:
             async def renew() -> None:
                 nonlocal lost
                 while True:
-                    await sleep(LOCK_TTL_SECONDS / 3)
+                    await sleep(ttl / 3)
                     try:
                         await lock.reacquire()
                     except RedisError:
@@ -102,22 +99,22 @@ async def guard(redis: Redis, conversation_id: UUID) -> AsyncGenerator[None]:
 
 
 async def delete_conversation(
-    resources: ConversationResources, user: User | ActorContext, identifier: UUID
+    resources: ConversationResources, user: UUID, identifier: UUID, *, lease_ttl: float
 ) -> None:
     async with resources.sessions() as session:
-        await owned(session, user.id, identifier)
-    async with guard(resources.redis, identifier):
+        await owned(session, user, identifier)
+    async with guard(resources.redis, identifier, ttl=lease_ttl):
         async with resources.sessions() as session:
-            await owned(session, user.id, identifier)
+            await owned(session, user, identifier)
         await AsyncPostgresSaver(resources.checkpoint_pool).adelete_thread(str(identifier))
         async with resources.sessions() as session, session.begin():
             await session.execute(
                 delete(Conversation).where(
-                    Conversation.id == identifier, Conversation.user_id == user.id
+                    Conversation.id == identifier, Conversation.user_id == user
                 )
             )
         logger.info(
             "conversation_deleted",
             conversation_id=str(identifier),
-            user_id=str(user.id),
+            user_id=str(user),
         )

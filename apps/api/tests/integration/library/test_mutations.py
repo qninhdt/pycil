@@ -168,7 +168,19 @@ async def test_copy_quota_failure_leaves_no_partial_tree_and_deletion_releases_q
     folder = await library.create(NodeType.FOLDER, "Folder")
     child = await library.create(NodeType.DECK, "Deck", parent_id=folder["id"])
     limited = library.config.model_copy(
-        update={"library": library.config.library.model_copy(update={"max_owned_nodes": 5})}
+        update={
+            "product": library.config.product.model_copy(
+                update={
+                    "library": library.config.product.library.model_copy(
+                        update={
+                            "quotas": library.config.product.library.quotas.model_copy(
+                                update={"max_owned_nodes": 5}
+                            )
+                        }
+                    )
+                }
+            )
+        }
     )
     async with database.sessions() as session:
         with pytest.raises(Problem) as error:
@@ -239,7 +251,19 @@ async def test_node_seek_survives_deleted_anchor_and_binds_parent_and_viewer(dat
 
 async def test_concurrent_growth_obeys_exact_node_quota(database, library):
     limited = library.config.model_copy(
-        update={"library": library.config.library.model_copy(update={"max_owned_nodes": 3})}
+        update={
+            "product": library.config.product.model_copy(
+                update={
+                    "library": library.config.product.library.model_copy(
+                        update={
+                            "quotas": library.config.product.library.quotas.model_copy(
+                                update={"max_owned_nodes": 3}
+                            )
+                        }
+                    )
+                }
+            )
+        }
     )
     barrier = asyncio.Barrier(2)
 
@@ -268,8 +292,16 @@ async def test_over_limit_memberships_allow_reduction_but_not_growth(database, l
     deck = await library.create(NodeType.DECK, "Deck", sense_ids=[library.sense, second])
     limited = library.config.model_copy(
         update={
-            "library": library.config.library.model_copy(
-                update={"max_senses_per_deck": 1, "max_owned_memberships": 1}
+            "product": library.config.product.model_copy(
+                update={
+                    "library": library.config.product.library.model_copy(
+                        update={
+                            "quotas": library.config.product.library.quotas.model_copy(
+                                update={"max_senses_per_deck": 1, "max_owned_memberships": 1}
+                            )
+                        }
+                    )
+                }
             )
         }
     )
@@ -308,7 +340,19 @@ async def test_move_respects_subtree_height_and_rejects_descendant_reference_to_
     child = await library.create(NodeType.DECK, "Child", parent_id=source["id"])
     destination = await library.create(NodeType.FOLDER, "Destination")
     limited = library.config.model_copy(
-        update={"library": library.config.library.model_copy(update={"max_depth": 3})}
+        update={
+            "product": library.config.product.model_copy(
+                update={
+                    "library": library.config.product.library.model_copy(
+                        update={
+                            "quotas": library.config.product.library.quotas.model_copy(
+                                update={"max_depth": 3}
+                            )
+                        }
+                    )
+                }
+            )
+        }
     )
     async with database.sessions() as session:
         with pytest.raises(Problem) as error:

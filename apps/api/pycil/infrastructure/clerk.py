@@ -31,9 +31,11 @@ class IdentityServiceUnavailable(RuntimeError):
 
 
 class Identity:
-    def __init__(self, deployment: Deployment) -> None:
+    def __init__(
+        self, deployment: Deployment, *, timeout: float = 30, lifespan: float = 300
+    ) -> None:
         self.deployment = deployment
-        self.keys = jwt.PyJWKClient(deployment.clerk_jwks_url)
+        self.keys = jwt.PyJWKClient(deployment.clerk_jwks_url, timeout=timeout, lifespan=lifespan)
 
     async def subject(self, token: str) -> str:
         try:
@@ -59,14 +61,14 @@ class Identity:
 
 
 async def clerk_user(
-    http: httpx.AsyncClient, deployment: Deployment, subject: str
+    http: httpx.AsyncClient, deployment: Deployment, subject: str, *, timeout: float
 ) -> ClerkUserProfile:
     try:
         response = await http.request(
             "GET",
             "https://api.clerk.com/v1/users/" + quote(subject, safe=""),
             headers={"Authorization": "Bearer " + deployment.clerk_secret_key.get_secret_value()},
-            timeout=15,
+            timeout=timeout,
         )
     except httpx.HTTPError as exc:
         logger.error("clerk_api_request_failed", error_type=type(exc).__name__, subject=subject)

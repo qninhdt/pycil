@@ -6,19 +6,19 @@ from typing import Protocol
 from uuid import UUID, uuid7
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
+from redis.asyncio import Redis
 from redis.exceptions import RedisError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from pycil.app.config import ProductConfig
+from pycil.app.config import AppConfig
 from pycil.app.http import Problem
-from pycil.infrastructure.cache import RedisCache
+from pycil.infrastructure.cache import MemoryCache
 from pycil.infrastructure.observability import bound_contextvars, get_logger
-from pycil.vocabulary.cache import ContentCache
 from pycil.vocabulary.enums import GenerationStage, JobState
 from pycil.vocabulary.errors import InvalidHandleError, InvalidResourceError
 from pycil.vocabulary.generation.pipeline import generate_word
 from pycil.vocabulary.references.reference import fetch_reference
-from pycil.vocabulary.schemas import SearchResult
+from pycil.vocabulary.schemas import CachedWord, SearchResult, Sense
 from pycil.vocabulary.text import match_key, validate_lemma
 from pycil.vocabulary.types import GenerationTaskState
 
@@ -43,21 +43,25 @@ class Generations:
         sessions: async_sessionmaker[AsyncSession],
         search: SearchProtocol,
         structured_llm: LLMProtocol,
-        cache: ContentCache,
-        config: ProductConfig,
+        word_cache: MemoryCache[int, CachedWord],
+        config: AppConfig,
         *,
-        store: RedisCache,
+        sense_cache: MemoryCache[int, Sense] | None = None,
+        redis: Redis,
+        prefix: str,
     ) -> None:
         self.sessions = sessions
         self.search = search
         self.structured_llm = structured_llm
-        self.cache = cache
+        self.word_cache = word_cache
+        self.sense_cache = sense_cache
         self.config = config
-        self.store = store
+        self.redis = redis
+        self.prefix = prefix
         # shortcut: jobs die with their process; add a durable queue if restart recovery is needed.
         self.flights: dict[str, tuple[GenerationTaskState, asyncio.Task[None]]] = {}
         self.lock = asyncio.Lock()
-        self.slots: asyncio.Semaphore = asyncio.Semaphore(128)
+        self.slots: asyncio.Semaphore = asyncio.Semaphore(config.runtime.generation.active_jobs)
         self.closed: bool = False
 
     async def submit(self, target: str, *, reference_id: str | None = None) -> GenerationTaskState:
@@ -81,6 +85,12 @@ class Generations:
                     key=key,
                 )
                 return flight[0].copy()
+            if (
+                len(self.flights)
+                >= self.config.runtime.generation.active_jobs
+                + self.config.runtime.generation.pending_jobs
+            ):
+                raise Problem(503, "generation_overloaded")
             identifier = uuid7()
             result: GenerationTaskState = {
                 "task_id": identifier,
@@ -104,10 +114,10 @@ class Generations:
 
     async def _save_status(self, result: GenerationTaskState) -> None:
         try:
-            await self.store.redis.set(
-                self.store.key(f"word-tasks:{result['task_id']}"),
+            await self.redis.set(
+                f"{self.prefix}:{result['task_id']}",
                 task_state.dump_json(result),
-                ex=24 * 60 * 60,
+                ex=self.config.runtime.generation.status_retention_seconds,
             )
         except RedisError:
             logger.error("word_generation_status_write_failed", task_id=str(result["task_id"]))
@@ -115,7 +125,7 @@ class Generations:
 
     async def status(self, identifier: UUID) -> GenerationTaskState:
         try:
-            payload = await self.store.redis.get(self.store.key(f"word-tasks:{identifier}"))
+            payload = await self.redis.get(f"{self.prefix}:{identifier}")
             if payload is not None:
                 return task_state.validate_json(payload)
         except RedisError, ValidationError:
@@ -128,7 +138,13 @@ class Generations:
         id_set = set(identifiers)
         pending = {task for result, task in self.flights.values() if result["task_id"] in id_set}
         if pending:
-            await asyncio.wait(pending, timeout=min(30, self.config.generation.timeout_seconds))
+            await asyncio.wait(
+                pending,
+                timeout=min(
+                    self.config.runtime.generation.tool_wait_seconds,
+                    self.config.runtime.generation.timeout_seconds,
+                ),
+            )
 
     async def _run(
         self,
@@ -139,15 +155,20 @@ class Generations:
     ) -> None:
         try:
             with bound_contextvars(task_id=str(result["task_id"])):
-                async with self.slots, asyncio.timeout(self.config.generation.timeout_seconds):
+                async with (
+                    self.slots,
+                    asyncio.timeout(self.config.runtime.generation.timeout_seconds),
+                ):
                     word = await generate_word(
                         self.sessions,
                         self.search,
                         self.structured_llm,
-                        self.cache,
+                        self.word_cache,
                         target,
+                        sense_cache=self.sense_cache,
                         reference_id=reference_id,
-                        example_count=self.config.generation.examples_per_sense,
+                        example_count=self.config.product.vocabulary.generation.examples_per_sense,
+                        enrichment_batch_size=self.config.runtime.generation.enrichment_batch_size,
                     )
                     if not word.senses:
                         raise InvalidResourceError("generated Word has no Senses")

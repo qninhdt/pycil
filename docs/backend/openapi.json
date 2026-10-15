@@ -7801,29 +7801,25 @@
             "type": "integer",
             "maximum": 60.0,
             "minimum": 1.0,
-            "title": "Max Review Batch",
-            "default": 60
+            "title": "Max Review Batch"
           },
           "max_summary_nodes": {
             "type": "integer",
             "maximum": 50.0,
             "minimum": 1.0,
-            "title": "Max Summary Nodes",
-            "default": 50
+            "title": "Max Summary Nodes"
           },
           "max_activity_days": {
             "type": "integer",
             "maximum": 366.0,
             "minimum": 1.0,
-            "title": "Max Activity Days",
-            "default": 366
+            "title": "Max Activity Days"
           },
           "max_schedule_days": {
             "type": "integer",
             "maximum": 30.0,
             "minimum": 1.0,
-            "title": "Max Schedule Days",
-            "default": 30
+            "title": "Max Schedule Days"
           }
         },
         "additionalProperties": false,
@@ -7833,7 +7829,11 @@
           "max_questions_per_sense",
           "max_questions_per_prepare",
           "max_sense_count",
-          "max_answer_chars"
+          "max_answer_chars",
+          "max_review_batch",
+          "max_summary_nodes",
+          "max_activity_days",
+          "max_schedule_days"
         ],
         "title": "LearningLimits"
       },

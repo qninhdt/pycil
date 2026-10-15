@@ -8,7 +8,7 @@ import { artifacts, runId } from '../support/environment.ts'
 import { Api, type Account } from '../support/api.ts'
 
 const backend = () => createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY! })
-export type Actor = { subject: string; email: string; password: string; page: Page; api: Api; account: Account }
+export type User = { subject: string; email: string; password: string; page: Page; api: Api; account: Account }
 
 export function identityFailure(error: unknown) {
   return isClerkAPIResponseError(error)
@@ -32,11 +32,11 @@ export async function provisionIdentity(client: ReturnType<typeof createClerkCli
 }
 
 export async function deleteIdentityUser(client: ReturnType<typeof createClerkClient>, subject: string) {
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 2; attempt++) {
     try { await client.users.deleteUser(subject); return }
     catch (error) {
       if (isClerkAPIResponseError(error) && error.status === 404) return
-      if (attempt >= 2 || !identityTransportFailure(error)) throw identityFailure(error)
+      if (attempt >= 1 || !identityTransportFailure(error)) throw identityFailure(error)
       console.warn(`Clerk fixture: deletion lost its response (attempt ${attempt + 1}); retrying the owned identity.`, error)
       await new Promise(r => setTimeout(r, 1000))
     }
@@ -83,7 +83,7 @@ export async function signIn(page: Page, email: string, password: string, destin
 }
 
 
-export async function createActor(page: Page): Promise<Actor> {
+export async function createUser(page: Page): Promise<User> {
   const identity = await createIdentity()
   let api: Api | undefined
   try {
@@ -136,7 +136,7 @@ export async function createActor(page: Page): Promise<Actor> {
     const failure = identityFailure(cause)
     const results = await Promise.allSettled([api?.dispose(), deleteIdentity(identity.subject)])
     const errors = results.filter(result => result.status === 'rejected').map(result => result.reason)
-    if (errors.length) throw new AggregateError([failure, ...errors], 'Actor setup and cleanup failed')
+    if (errors.length) throw new AggregateError([failure, ...errors], 'User setup and cleanup failed')
     throw failure
   }
 }

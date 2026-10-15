@@ -12,7 +12,19 @@ from pycil.assistant.tools import validation_message
 async def test_history_trim_keeps_current_tool_chain_and_fills_missing_results_without_mutation():
     config = load_config()
     config = config.model_copy(
-        update={"assistant": config.assistant.model_copy(update={"max_context_messages": 2})}
+        update={
+            "product": config.product.model_copy(
+                update={
+                    "assistant": config.product.assistant.model_copy(
+                        update={
+                            "limits": config.product.assistant.limits.model_copy(
+                                update={"max_context_messages": 2}
+                            )
+                        }
+                    )
+                }
+            )
+        }
     )
     messages = [
         HumanMessage(content="old"),

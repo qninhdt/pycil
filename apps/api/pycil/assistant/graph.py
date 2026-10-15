@@ -2,6 +2,7 @@ from collections.abc import AsyncGenerator, Awaitable, Callable, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, cast
+from uuid import UUID
 
 import langchain.agents as lc_agents
 import langchain_core.messages as lc_messages
@@ -20,9 +21,7 @@ from langgraph.config import get_config
 from openrouter import OpenRouter
 from pydantic import ValidationError
 
-from pycil.account.auth import ActorContext
-from pycil.account.models import User
-from pycil.app.config import ProductConfig
+from pycil.app.config import AppConfig
 from pycil.app.http import Problem
 from pycil.app.settings import Deployment
 from pycil.assistant.config import ModelPolicy
@@ -36,10 +35,10 @@ logger = get_logger(__name__)
 
 
 class Boundary(AgentMiddleware[Any, Any, Any]):
-    config: ProductConfig
+    config: AppConfig
     turn_context: str | None
 
-    def __init__(self, config: ProductConfig, turn_context: str | None = None) -> None:
+    def __init__(self, config: AppConfig, turn_context: str | None = None) -> None:
         super().__init__()
         self.config = config
         self.turn_context = turn_context
@@ -60,7 +59,9 @@ class Boundary(AgentMiddleware[Any, Any, Any]):
         # Retain this turn's whole tool chain; trim only older conversation turns.
         trimmed: list[BaseMessage] = trim_messages(
             req_messages[:position],
-            max_tokens=max(0, self.config.assistant.max_context_messages - len(current)),
+            max_tokens=max(
+                0, self.config.product.assistant.limits.max_context_messages - len(current)
+            ),
             token_counter=len,
             strategy="last",
             start_on="human",
@@ -146,13 +147,13 @@ class Boundary(AgentMiddleware[Any, Any, Any]):
 
 @asynccontextmanager
 async def model(
-    deployment: Deployment, policy: ModelPolicy, effort: str, timeout_seconds: int
+    deployment: Deployment, policy: ModelPolicy, effort: str, timeout_seconds: float
 ) -> AsyncGenerator[ChatOpenRouter]:
     selected = ChatOpenRouter(
         model=policy.id,
         api_key=deployment.llm_api_key,
         base_url=deployment.llm_base_url,
-        timeout=timeout_seconds * 1000,
+        timeout=int(timeout_seconds * 1000),
         app_url=None,
         app_title=None,
         max_tokens=policy.max_output_tokens,
@@ -161,7 +162,7 @@ async def model(
         client=OpenRouter(
             api_key=deployment.llm_api_key.get_secret_value(),
             server_url=deployment.llm_base_url,
-            timeout_ms=timeout_seconds * 1000,
+            timeout_ms=int(timeout_seconds * 1000),
             retry_config=None,
         ),
         reasoning={"effort": effort, "exclude": False},
@@ -175,8 +176,8 @@ async def model(
 
 def graph(
     resources: Any,
-    user: User | ActorContext,
-    config: ProductConfig,
+    user: UUID,
+    config: AppConfig,
     selected_model: ChatOpenRouter,
     *,
     auto_approve: bool = False,
@@ -192,9 +193,11 @@ def graph(
     middleware_chain: Sequence[AgentMiddleware[Any, Any, Any]] = [
         Boundary(config, turn_context),
         HumanInTheLoopMiddleware(interrupt_on=interrupt_on),
-        ToolCallLimitMiddleware(run_limit=config.assistant.max_tool_calls, exit_behavior="error"),
+        ToolCallLimitMiddleware(
+            run_limit=config.product.assistant.limits.max_tool_calls, exit_behavior="error"
+        ),
         ModelCallLimitMiddleware(
-            run_limit=config.assistant.max_tool_calls + 1, exit_behavior="error"
+            run_limit=config.product.assistant.limits.max_tool_calls + 1, exit_behavior="error"
         ),
     ]
     return create_agent(

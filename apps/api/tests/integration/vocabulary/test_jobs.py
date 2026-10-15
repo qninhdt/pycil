@@ -7,11 +7,10 @@ from httpx import ASGITransport, AsyncClient
 from redis.asyncio import Redis
 from structlog import get_logger
 
-from pycil.account.auth import actor
+from pycil.account.auth import current_user_id
 from pycil.app.config import load_config
 from pycil.app.factory import create_app
 from pycil.app.http import Problem
-from pycil.infrastructure.cache import RedisCache
 from pycil.vocabulary.enums import GenerationStage, JobState
 from pycil.vocabulary.generation import jobs
 
@@ -21,10 +20,18 @@ def manager(redis_store):
     redis, namespace = redis_store
 
     def create():
+        base = load_config()
         config = SimpleNamespace(
-            generation=SimpleNamespace(timeout_seconds=10, examples_per_sense=1)
+            product=base.product,
+            runtime=SimpleNamespace(
+                generation=SimpleNamespace(
+                    **(base.runtime.generation.model_dump() | {"timeout_seconds": 10})
+                )
+            ),
         )
-        return jobs.Generations(None, None, None, None, config, store=RedisCache(redis, namespace))
+        return jobs.Generations(
+            None, None, None, None, config, redis=redis, prefix=namespace + ":word-tasks"
+        )
 
     return create
 
@@ -72,7 +79,7 @@ async def test_configured_deadline_cancels_and_joins_pipeline_before_failure(mon
 
     monkeypatch.setattr(jobs, "generate_word", pipeline)
     generations = manager()
-    generations.config.generation.timeout_seconds = 0.01
+    generations.config.runtime.generation.timeout_seconds = 0.01
     try:
         submitted = await generations.submit("bank")
         async with asyncio.timeout(1):
@@ -174,12 +181,12 @@ async def test_polling_another_instance_reads_running_and_completed_status(
         socket_timeout=1,
         socket_connect_timeout=1,
     )
-    observer.store = RedisCache(remote, redis_store[1])
+    observer.redis = remote
     apps = [create_app(), create_app()]
     for app, generations in zip(apps, (owner, observer), strict=True):
-        app.state.product = load_config()
+        app.state.config = load_config()
         app.state.generations = generations
-        app.dependency_overrides[actor] = lambda: None
+        app.dependency_overrides[current_user_id] = lambda: None
     try:
         async with (
             AsyncClient(transport=ASGITransport(app=apps[0]), base_url="http://api.test") as submit,
@@ -233,6 +240,79 @@ async def test_concurrent_submissions_still_share_one_local_flight(monkeypatch, 
         assert len(identifiers) == 1 and calls == 1
         finish.set()
         await generations.wait(identifiers)
+    finally:
+        await generations.close()
+
+
+@pytest.mark.parametrize("first_fails", [False, True])
+async def test_admission_bounds_concurrent_work_and_recovers_capacity(
+    first_fails, monkeypatch, manager, redis_store
+):
+    targets = [f"word {chr(97 + index // 26)}{chr(97 + index % 26)}" for index in range(40)]
+    releases = {target: asyncio.Event() for target in targets}
+    started, replacement_started = asyncio.Event(), asyncio.Event()
+    active = peak = calls = 0
+
+    async def pipeline(*args, **options):
+        nonlocal active, peak, calls
+        target = args[4]
+        active += 1
+        calls += 1
+        peak = max(peak, active)
+        if calls == 8:
+            started.set()
+        if calls == 9:
+            replacement_started.set()
+        try:
+            await releases[target].wait()
+            if first_fails:
+                raise RuntimeError("controlled generation failure")
+            return SimpleNamespace(id=7, senses=[SimpleNamespace(id=8)])
+        finally:
+            active -= 1
+
+    monkeypatch.setattr(jobs, "generate_word", pipeline)
+    generations = manager()
+    try:
+        async with asyncio.timeout(5):
+            results = await asyncio.gather(
+                *(generations.submit(target) for target in targets), return_exceptions=True
+            )
+            await started.wait()
+            accepted = [result for result in results if not isinstance(result, Exception)]
+            rejected = [result for result in results if isinstance(result, Exception)]
+            assert len(accepted) == 24 and len(rejected) == 16
+            assert all(
+                isinstance(error, Problem)
+                and error.status == 503
+                and error.code == "generation_overloaded"
+                for error in rejected
+            )
+            assert active == peak == calls == 8
+            redis, namespace = redis_store
+            assert (
+                len([key async for key in redis.scan_iter(match=namespace + ":word-tasks:*")]) == 24
+            )
+            duplicate = await generations.submit(targets[0].upper())
+            assert duplicate["task_id"] == accepted[0]["task_id"]
+            assert len(generations.flights) == 24
+
+            first_task = generations.flights["word:" + targets[0]][1]
+            releases[targets[0]].set()
+            await first_task
+            await replacement_started.wait()
+            replacement = await generations.submit(targets[0])
+            assert replacement["task_id"] != accepted[0]["task_id"]
+            assert len(generations.flights) == 24
+
+            await generations.close()
+            assert active == 0 and peak == 8 and not generations.flights
+            first = await generations.status(accepted[0]["task_id"])
+            assert first["status"] is (JobState.FAILED if first_fails else JobState.SUCCEEDED)
+            for result in [*accepted[1:], replacement]:
+                status = await generations.status(result["task_id"])
+                assert status["status"] is JobState.FAILED
+                assert status["error"] == "generation_interrupted"
     finally:
         await generations.close()
 
@@ -342,7 +422,7 @@ async def test_redis_failure_does_not_start_untracked_work_or_hide_publication_f
     try:
         if phase == "completion":
             submitted = await generations.submit("bank")
-        generations.store = RedisCache(rejected, redis_store[1])
+        generations.redis = rejected
         from structlog.testing import capture_logs
 
         with capture_logs() as logs:

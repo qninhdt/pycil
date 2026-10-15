@@ -8,9 +8,9 @@ from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select, tuple_
 
-from pycil.account.auth import Actor
+from pycil.account.auth import UserId
 from pycil.account.lifecycle import require_user, row_data
-from pycil.app.dependencies import Product, Session
+from pycil.app.dependencies import Config, Session
 from pycil.app.pagination import decode, encode, page_limit, strict_query
 from pycil.assistant import graph as agents
 from pycil.assistant.conversations import delete_conversation, owned
@@ -31,24 +31,24 @@ router = APIRouter(prefix="/v1/assistant", tags=["assistant"])
 
 
 @router.get("/models", response_model=list[AssistantModel])
-async def models(user: Actor, config: Product):
+async def models(user: UserId, config: Config):
     return [
         {"id": m.id, "name": m.name, "vision": m.vision, "efforts": m.efforts}
-        for m in config.models
+        for m in config.product.assistant.models
     ]
 
 
 @router.post("/conversations", status_code=201, response_model=ConversationView)
-async def create(data: CreateConversation, user: Actor, session: Session):
+async def create(data: CreateConversation, user: UserId, session: Session):
     async with session.begin():
-        await require_user(session, user.id)
-        conversation = Conversation(user_id=user.id, title=data.title)
+        await require_user(session, user)
+        conversation = Conversation(user_id=user, title=data.title)
         session.add(conversation)
         await session.flush()
         logger.info(
             "conversation_created",
             conversation_id=str(conversation.id),
-            user_id=str(user.id),
+            user_id=str(user),
         )
         return row_data(conversation)
 
@@ -56,17 +56,17 @@ async def create(data: CreateConversation, user: Actor, session: Session):
 @router.get("/conversations", response_model=ConversationPage)
 async def listing(
     request: Request,
-    user: Actor,
+    user: UserId,
     session: Session,
-    config: Product,
+    config: Config,
     cursor: str | None = Query(default=None, max_length=2048),
     limit: int | None = Query(default=None, ge=1, le=100),
 ):
     strict_query(request, {"cursor", "limit"})
     limit = page_limit(limit, config)
-    binding = {"kind": "conversations", "viewer": str(user.id)}
+    binding = {"kind": "conversations", "viewer": str(user)}
     seek, _ = decode(cursor, binding, ["time", "uuid"])
-    query = select(Conversation).where(Conversation.user_id == user.id)
+    query = select(Conversation).where(Conversation.user_id == user)
     if seek is not None:
         query = query.where(tuple_(Conversation.updated_at, Conversation.id) < tuple_(*seek))
     rows = (
@@ -84,16 +84,20 @@ async def listing(
 
 
 @router.get("/conversations/{identifier}", response_model=ConversationDetails)
-async def state(identifier: UUID, user: Actor, session: Session, request: Request, config: Product):
-    row = await owned(session, user.id, identifier)
+async def state(identifier: UUID, user: UserId, session: Session, request: Request, config: Config):
+    row = await owned(session, user, identifier)
     await session.commit()
     resources = request.app.state
-    policy = next(m for m in config.models if m.id == config.assistant.default_model)
+    policy = next(
+        m
+        for m in config.product.assistant.models
+        if m.id == config.product.assistant.defaults.model
+    )
     async with agents.model(
         resources.deployment,
         policy,
-        config.assistant.default_effort,
-        config.assistant.llm_timeout_seconds,
+        config.product.assistant.defaults.effort,
+        config.runtime.assistant.llm_timeout_seconds,
     ) as selected:
         snapshot = await agents.graph(resources, user, config, selected).aget_state(
             {"configurable": {"thread_id": str(identifier)}}
@@ -111,12 +115,14 @@ async def state(identifier: UUID, user: Actor, session: Session, request: Reques
 
 
 @router.delete("/conversations/{identifier}", status_code=204)
-async def remove(identifier: UUID, user: Actor, request: Request):
-    await delete_conversation(request.app.state, user, identifier)
+async def remove(identifier: UUID, user: UserId, request: Request, config: Config):
+    await delete_conversation(
+        request.app.state, user, identifier, lease_ttl=config.runtime.assistant.lease_ttl_seconds
+    )
     return Response(status_code=204)
 
 
-async def turn_events(data: RunAgentInput, user: Actor, request: Request, config: Product):
+async def turn_events(data: RunAgentInput, user: UserId, request: Request, config: Config):
     async with prepare_turn(
         request.app.state, request.app.state.deployment, user, data, config
     ) as events:

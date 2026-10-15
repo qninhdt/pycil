@@ -9,7 +9,7 @@ from uuid import UUID
 
 from fastapi import Request
 
-from pycil.app.config import ProductConfig
+from pycil.app.config import AppConfig
 from pycil.app.http import Problem
 
 
@@ -113,9 +113,9 @@ def decode(
         raise Problem(422, "invalid_cursor") from None
 
 
-def page_limit(limit: int | None, config: ProductConfig) -> int:
-    resolved: int = config.library.page_size if limit is None else limit
-    if resolved < 1 or resolved > config.projections.max_page_size:
+def page_limit(limit: int | None, config: AppConfig) -> int:
+    resolved: int = config.product.library.pagination.page_size if limit is None else limit
+    if resolved < 1 or resolved > config.product.projections.max_page_size:
         raise Problem(422, "invalid_limit")
     return resolved
 

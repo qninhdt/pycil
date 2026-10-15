@@ -73,7 +73,10 @@ async def test_allowance_read_is_readonly_and_plan_changes_keep_current_cycle_bu
         current = await session.get(User, user.id)
         budget = await allowance(session, current, config, moment)
         assert current.plan is Plan.FREE
-        assert budget["allowance_units"] == config.plans[Plan.PRO].monthly_allowance_units
+        assert (
+            budget["allowance_units"]
+            == config.product.account.plans[Plan.PRO].monthly_allowance_units
+        )
         assert budget["remaining_units"] == budget["allowance_units"] - 1
 
 
@@ -120,7 +123,7 @@ async def test_exhausted_allowance_denies_new_work_without_creating_extra_events
     config = load_config()
     user, _ = await account(database.sessions)
     moment = datetime.now(UTC)
-    quota = config.plans[user.plan].monthly_allowance_units
+    quota = config.product.account.plans[user.plan].monthly_allowance_units
     async with database.sessions() as session:
         await settle(
             session,

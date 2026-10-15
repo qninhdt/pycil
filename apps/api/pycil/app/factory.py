@@ -44,9 +44,13 @@ def create_app() -> FastAPI:
         config = load_config()
         deployment = Deployment.from_environment()
         async with process_resources(config, deployment) as resources:
-            app.state.product = config
+            app.state.config = config
             app.state.deployment = deployment
-            app.state.identity = Identity(deployment)
+            app.state.identity = Identity(
+                deployment,
+                timeout=config.runtime.identity.jwks_timeout_seconds,
+                lifespan=config.runtime.identity.jwks_lifespan_seconds,
+            )
             for name, value in vars(resources).items():
                 setattr(app.state, name, value)
             try:
@@ -54,7 +58,7 @@ def create_app() -> FastAPI:
                 yield
             finally:
                 # Closed clients must not remain accessible after shutdown/restart.
-                for name in (*vars(resources), "identity", "product", "deployment"):
+                for name in (*vars(resources), "identity", "config", "deployment"):
                     delattr(app.state, name)
         logger.info("app_shutdown_completed")
 
@@ -90,17 +94,20 @@ def create_app() -> FastAPI:
     async def ready():
         component = "lifecycle"
         try:
-            async with asyncio.timeout(5):
+            async with asyncio.timeout(app.state.config.runtime.health.timeout_seconds):
                 component = "database"
                 async with app.state.engine.connect() as connection:
                     await connection.execute(text("SELECT 1"))
                 component = "redis"
-                await app.state.redis.ping()
+                async with asyncio.timeout(app.state.config.runtime.health.redis_timeout_seconds):
+                    await app.state.redis.ping()
                 component = "search"
                 app.state.search.ready()
         except Exception as error:
             logger.warning(
-                "readiness_check_failed", component=component, error_type=type(error).__name__
+                "readiness_check_failed",
+                component=component,
+                error_type=type(error).__name__,
             )
             raise Problem(503, "not_ready") from None
         return {"status": "ready"}

@@ -1,5 +1,6 @@
 'use client'
 
+
 import Link from 'next/link'
 import { Check, RotateCcw, X } from '@/components/artwork/artwork'
 import { GradeDetails } from '@/features/study/grade-details.client'
@@ -304,7 +305,7 @@ export function QuizFocus({ initialSession }: { initialSession?: StudySession } 
                           onChange={event => {
                             if (session) commit({ ...session, draft: event.target.value })
                           }}
-                          maxLength={8000}
+                          maxLength={profile?.learning_options.limits.max_answer_chars}
                           placeholder={t('typeWordPlaceholder')}
                           className="w-full px-5 py-4 border-2 border-foreground bg-background text-foreground text-xl sm:text-2xl font-bold tracking-tight outline-none focus:border-art-blue focus:ring-2 focus:ring-art-blue/20 transition-all"
                         />
@@ -350,7 +351,7 @@ export function QuizFocus({ initialSession }: { initialSession?: StudySession } 
                               void answer(typed)
                             }
                           }}
-                          maxLength={8000}
+                          maxLength={profile?.learning_options.limits.max_answer_chars}
                           rows={4}
                           placeholder={isRewriteQuestion ? t('rewritePlaceholder') : t('answerPlaceholder')}
                           className="w-full p-4 border-2 border-foreground bg-background text-foreground text-base sm:text-lg font-medium leading-relaxed outline-none focus:border-art-blue focus:ring-1 focus:ring-art-blue resize-y transition-colors"

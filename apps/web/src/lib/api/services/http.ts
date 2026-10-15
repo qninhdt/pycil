@@ -1,3 +1,4 @@
+import { webConfig } from '@/config'
 import { parseAccountProfile, parsePublicProfile, parseUsageAllowance } from '../account'
 import { parseActivity, parseGrade, parseLibrary, parsePreparation, parseReviewBatch, parseSchedule, parseSummary } from '../study'
 import { ApiError } from '../error'
@@ -9,7 +10,7 @@ import { parseDictionaryWord, parseWordContext, parseWordGeneration, parseWordPr
 
 export function createHttpServices(getToken: () => Promise<string | null>): FrontendServices {
   async function request<T>(path: string, parse: (value: unknown) => T, signal: AbortSignal, body?: unknown, method?: 'POST' | 'PATCH' | 'DELETE', publicRead = false, headers?: Record<string, string>) {
-    const boundedSignal = AbortSignal.any([signal, AbortSignal.timeout(path === 'study:prepare' ? 30000 : 12000)])
+    const boundedSignal = AbortSignal.any([signal, AbortSignal.timeout(path === 'study:prepare' ? webConfig.requests.preparationTimeoutMs : webConfig.requests.timeoutMs)])
     return apiRequest(path, publicRead ? null : await apiToken(getToken, boundedSignal), parse, boundedSignal, body, method, headers)
   }
   const validateWindow = <T extends { start_date: string; end_date: string }>(value: T, window: DateWindow): T => {
@@ -55,17 +56,17 @@ export function createHttpServices(getToken: () => Promise<string | null>): Fron
     },
     library: {
       discovery: (options, signal) => {
-        const query = new URLSearchParams({ limit: String(options.limit ?? 12) })
+        const query = new URLSearchParams({ limit: String(options.limit ?? webConfig.pagination.library) })
         if (options.q?.trim()) query.set('q', options.q.trim())
         if (options.type) query.set('type', options.type)
         if (options.ownerId) query.set('owner_id', options.ownerId)
         if (options.cursor) query.set('cursor', options.cursor)
         return libraryPage(`discovery/nodes?${query}`, signal, true)
       },
-      sources: (id, senseId, cursor, signal) => request(`nodes/${encodeURIComponent(id)}/senses/${senseId}/sources?limit=20${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, parseSources, signal),
+      sources: (id, senseId, cursor, signal) => request(`nodes/${encodeURIComponent(id)}/senses/${senseId}/sources?limit=${webConfig.pagination.picker}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, parseSources, signal),
       createReference: (parentId, targetId, name, signal, confirmPublication = false) => request('nodes', nodeId, signal, { type: 'reference', name, parent_id: parentId, reference_id: targetId, confirm_publication: confirmPublication }),
-      list: (parentId, signal) => libraryPage(`nodes?parent_id=${encodeURIComponent(parentId)}&include=summary&limit=4`, signal),
-      publicContents: (parentId, cursor, signal) => libraryPage(`nodes?parent_id=${encodeURIComponent(parentId)}&limit=12${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, signal, true),
+      list: (parentId, signal) => libraryPage(`nodes?parent_id=${encodeURIComponent(parentId)}&include=summary&limit=${webConfig.pagination.preview}`, signal),
+      publicContents: (parentId, cursor, signal) => libraryPage(`nodes?parent_id=${encodeURIComponent(parentId)}&limit=${webConfig.pagination.library}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, signal, true),
       publicNode: async (nodeId, signal) => {
         const node = await request(`nodes/${encodeURIComponent(nodeId)}`, parseNodeDetails, signal, undefined, undefined, true)
         if (node.type !== 'reference' || !node.reference_id || node.reference_available === false) return node
@@ -73,7 +74,7 @@ export function createHttpServices(getToken: () => Promise<string | null>): Fron
         if (target.type === 'reference') throw new ApiError(502, 'invalid_response')
         return { ...node, target: { id: target.id, name: target.name, type: target.type, owner_id: target.owner_id, space: target.space } }
       },
-      publicMeanings: (nodeId, cursor, signal) => request(`nodes/${encodeURIComponent(nodeId)}/senses?limit=12&sort=lemma_asc&state=all&include=examples${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, parseMeaningPage, signal, undefined, undefined, true),
+      publicMeanings: (nodeId, cursor, signal) => request(`nodes/${encodeURIComponent(nodeId)}/senses?limit=${webConfig.pagination.library}&sort=lemma_asc&state=all&include=examples${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, parseMeaningPage, signal, undefined, undefined, true),
       metadata: async (id, signal) => {
         const node = await request(`nodes/${encodeURIComponent(id)}`, parseNodeDetails, signal)
         if (node.type === 'reference' && node.reference_available === false) return node
@@ -85,7 +86,7 @@ export function createHttpServices(getToken: () => Promise<string | null>): Fron
         return node
       },
       contents: (id, options, signal, publicRead = false) => {
-        const query = new URLSearchParams({ limit: String(options.limit ?? 12) })
+        const query = new URLSearchParams({ limit: String(options.limit ?? webConfig.pagination.library) })
         if (!publicRead && options.includeProgress !== false) query.set('include', 'summary')
         if (options.cursor) query.set('cursor', options.cursor)
         if (options.q?.trim()) { query.set('q', options.q.trim()); return libraryPage(`nodes/${encodeURIComponent(id)}:search?${query}`, signal, publicRead) }
@@ -93,7 +94,7 @@ export function createHttpServices(getToken: () => Promise<string | null>): Fron
         return libraryPage(`nodes?${query}`, signal, publicRead)
       },
       meanings: (id, options, signal) => {
-        const query = new URLSearchParams({ limit: String(options.limit ?? 12), include: 'examples,sources', state: options.state ?? 'all', sort: options.sort ?? 'lemma_asc' })
+        const query = new URLSearchParams({ limit: String(options.limit ?? webConfig.pagination.library), include: 'examples,sources', state: options.state ?? 'all', sort: options.sort ?? 'lemma_asc' })
         if (options.q?.trim()) query.set('q', options.q.trim())
         if (options.cursor) query.set('cursor', options.cursor)
         return request(`nodes/${encodeURIComponent(id)}/senses?${query}`, parseMeaningPage, signal)

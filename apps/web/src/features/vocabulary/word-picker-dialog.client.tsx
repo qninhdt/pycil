@@ -1,5 +1,7 @@
 'use client'
 
+import { webConfig } from '@/config'
+
 import { useDeferredValue, useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Search, X } from '@/components/artwork/artwork'
@@ -31,7 +33,7 @@ export function WordPickerDialog({ open, onOpenChange, deckId }: Props) {
   const ids = search.data?.items.flatMap(hit => hit.kind === 'word' ? [hit.word_id] : []) ?? []
   const previews = useQuery({ queryKey: [services.mode, scope, 'word-previews', ids], queryFn: ({ signal }) => services.dictionary.previews(ids, signal), enabled: open && ids.length > 0 })
   const job = useQuery({ queryKey: [services.mode, scope, 'picker-generation', jobId], queryFn: ({ signal }) => services.dictionary.generation(jobId!, signal), enabled: open && Boolean(jobId),
-    refetchInterval: query => ['running'].includes(query.state.data?.status ?? '') ? 1500 : false })
+    refetchInterval: query => ['running'].includes(query.state.data?.status ?? '') ? webConfig.polling.generationMs : false })
   useEffect(() => { if (job.data?.status === 'succeeded') {
     void queryClient.invalidateQueries({ queryKey: [services.mode, scope, 'dictionary-search'] }).then(() => {
       setJobId(null); setPendingEntry(null)
@@ -68,7 +70,7 @@ export function WordPickerDialog({ open, onOpenChange, deckId }: Props) {
   return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="w-[min(1360px,calc(100vw-32px))] max-w-none sm:max-w-none h-[min(90vh,900px)] max-h-none flex flex-col gap-0 p-0 bg-background [&_[data-slot=dialog-header]]:text-left [&_[data-slot=dialog-header]]:px-7 [&_[data-slot=dialog-header]]:pt-5 [&_[data-slot=dialog-header]]:pb-4.5 [&_[data-slot=dialog-header]]:border-b [&_[data-slot=dialog-header]]:border-border [&_[data-slot=dialog-title]]:text-[27px] [&_[data-slot=dialog-title]]:font-extrabold [&_[data-slot=dialog-title]]:tracking-tight [&_[data-slot=dialog-description]]:text-[13px] max-[700px]:w-[calc(100vw-16px)] max-[700px]:h-[calc(100dvh-16px)]">
     <DialogHeader><DialogTitle>{t('addWordsToDeck')}</DialogTitle><DialogDescription>{t('addWordsDescription')}</DialogDescription></DialogHeader>
     <div className="grid grid-cols-[minmax(0,7fr)_minmax(270px,3fr)] flex-1 min-h-0 max-[1000px]:grid-cols-[minmax(0,6fr)_minmax(240px,4fr)] max-[700px]:grid-cols-1 max-[700px]:overflow-auto"><div className="flex flex-col min-w-0 min-h-0 pt-5 pr-5.5 pl-7 max-[700px]:min-h-[360px] max-[700px]:px-4 max-[700px]:pt-3.5">
-      <div className="mb-3.5 flex gap-3 max-[700px]:flex-wrap"><div className="flex items-center gap-2 border border-border [&_>_svg]:size-[17px] [&_>_svg]:flex-none [&_[data-slot=input]]:border-0 flex-1 min-w-0 px-2.5"><Search aria-hidden="true" /><Input type="text" inputMode="search" role="searchbox" aria-label={t('searchWords')} placeholder={t('searchWordsPlaceholder')} value={input} maxLength={512} onChange={event => setInput(event.target.value)} />
+      <div className="mb-3.5 flex gap-3 max-[700px]:flex-wrap"><div className="flex items-center gap-2 border border-border [&_>_svg]:size-[17px] [&_>_svg]:flex-none [&_[data-slot=input]]:border-0 flex-1 min-w-0 px-2.5"><Search aria-hidden="true" /><Input type="text" inputMode="search" role="searchbox" aria-label={t('searchWords')} placeholder={t('searchWordsPlaceholder')} value={input} maxLength={webConfig.search.maxQueryChars} onChange={event => setInput(event.target.value)} />
         {input && <Button variant="ghost" size="icon-sm" aria-label={tCommon('clearSearch')} onClick={() => setInput('')}><X aria-hidden="true" /></Button>}</div>
         <NativeSelect className="min-w-[165px] max-[700px]:w-full" aria-label={t('partOfSpeech')} value={pos} onChange={event => setPos(event.target.value)}><option value="all">{t('allPartsOfSpeech')}</option>{availablePos.map(value => <option key={value} value={value}>{value.toLowerCase()}</option>)}</NativeSelect></div>
       <div className="overflow-auto min-h-0 pr-1.5" aria-live="polite">{!q ? <p className="py-6 text-muted-foreground text-[13px]">{t('searchToBrowse')}</p>

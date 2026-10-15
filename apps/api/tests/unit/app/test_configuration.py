@@ -1,27 +1,29 @@
 import pytest
 from pydantic import ValidationError
 
-from pycil.app.config import ProductConfig, load_config
+from pycil.app.config import AppConfig, load_config
 from pycil.app.settings import Deployment
 
 
 def test_duplicate_yaml_keys_and_invalid_policy_are_safe_failures(tmp_path):
     path = tmp_path / "policy.yaml"
-    path.write_text("cache:\n  actor_ttl_seconds: 1\n  actor_ttl_seconds: 2\n")
+    path.write_text("runtime:\n  caches: 1\n  caches: 2\n")
     with pytest.raises(ValueError, match="Duplicate product-policy key"):
         load_config(path)
     data = load_config().model_dump(mode="json")
-    data["assistant"]["default_model"] = "missing"
+    data["product"]["assistant"]["defaults"]["model"] = "missing"
     with pytest.raises(ValidationError, match="default assistant model"):
-        ProductConfig.model_validate(data)
+        AppConfig.model_validate(data)
     data = load_config().model_dump(mode="json")
-    data["library"]["page_size"] = data["projections"]["max_page_size"] + 1
+    data["product"]["library"]["pagination"]["page_size"] = (
+        data["product"]["projections"]["max_page_size"] + 1
+    )
     with pytest.raises(ValidationError):
-        ProductConfig.model_validate(data)
+        AppConfig.model_validate(data)
     data = load_config().model_dump(mode="json")
-    data["models"].append(data["models"][0])
+    data["product"]["assistant"]["models"].append(data["product"]["assistant"]["models"][0])
     with pytest.raises(ValidationError, match="duplicate model ID"):
-        ProductConfig.model_validate(data)
+        AppConfig.model_validate(data)
 
 
 @pytest.mark.parametrize(

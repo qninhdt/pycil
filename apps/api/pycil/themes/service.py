@@ -90,7 +90,8 @@ async def delete_theme(
     sessions: async_sessionmaker[AsyncSession],
     key: str,
     *,
-    content_cache: CacheProtocol | None = None,
+    word_cache: CacheProtocol | None = None,
+    sense_cache: CacheProtocol | None = None,
     artifact_cache: CacheProtocol | None = None,
 ) -> bool:
     async with sessions() as session, session.begin():
@@ -98,7 +99,7 @@ async def delete_theme(
         cursor_result = cast(CursorResult[tuple[()]], result)
         removed = bool(cursor_result.rowcount)
     if removed:
-        for cache in (content_cache, artifact_cache):
+        for cache in (word_cache, sense_cache, artifact_cache):
             if cache is not None:
                 cache.clear()
     return removed

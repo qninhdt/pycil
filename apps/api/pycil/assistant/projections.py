@@ -7,9 +7,7 @@ from uuid import UUID
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from pycil.account.auth import ActorContext
-from pycil.account.models import User
-from pycil.app.config import ProductConfig
+from pycil.app.config import AppConfig
 from pycil.app.http import Problem
 from pycil.app.projections import viewer_context
 from pycil.library.access import reference_visible, visible
@@ -17,18 +15,19 @@ from pycil.library.models import Node, NodePath, NodeRole, NodeType
 from pycil.library.scope import ScopeBudget
 from pycil.study.progress import summaries
 from pycil.vocabulary.models import Sense, Word
+from pycil.vocabulary.schemas import sense_adapter
 from pycil.vocabulary.words import get_sense_previews, get_senses
 
 
 class ProjectionsResources(Protocol):
     sessions: async_sessionmaker[AsyncSession]
-    content_cache: Any
+    sense_cache: Any
 
 
 async def vocabulary(
     resources: ProjectionsResources,
-    user: User | ActorContext,
-    config: ProductConfig,
+    user: UUID,
+    config: AppConfig,
     word_ids: Sequence[int] = (),
     sense_ids: Sequence[int] = (),
     include: Sequence[str] = (),
@@ -48,11 +47,11 @@ async def vocabulary(
                     select(Sense.id, Sense.word_id)
                     .where(or_(Sense.word_id.in_(word_ids_set), Sense.id.in_(sense_ids_set)))
                     .order_by(Sense.id)
-                    .limit(config.projections.max_word_senses + 1)
+                    .limit(config.product.projections.max_word_senses + 1)
                 )
             ).all()
         )
-        if len(rows) > config.projections.max_word_senses:
+        if len(rows) > config.product.projections.max_word_senses:
             raise Problem(422, "lexical_batch_too_large")
         identifiers: list[int] = [int(r[0]) for r in rows]
         if not sense_ids_set <= set(identifiers):
@@ -63,11 +62,11 @@ async def vocabulary(
                 for s in (
                     await viewer_context(
                         session,
-                        user.id,
+                        user,
                         config,
                         identifiers,
                         include_sources="sources" in include,
-                        max_senses=config.projections.max_word_senses,
+                        max_senses=config.product.projections.max_word_senses,
                     )
                 )["senses"]
             }
@@ -81,9 +80,7 @@ async def vocabulary(
     native = (
         {
             s.id: s
-            for s in await get_senses(
-                resources.sessions, identifiers, cache=resources.content_cache
-            )
+            for s in await get_senses(resources.sessions, identifiers, cache=resources.sense_cache)
         }
         if set(include) & {"examples", "lexical_details"}
         else {}
@@ -108,9 +105,12 @@ async def vocabulary(
             )
         }
         if "examples" in include:
-            item["examples"] = [e.content for e in native[identifier].examples[:2]]
+            item["examples"] = [
+                e.content
+                for e in native[identifier].examples[: config.product.projections.inline_examples]
+            ]
         if "lexical_details" in include:
-            details = native[identifier].model_dump(mode="json")
+            details = sense_adapter.dump_python(native[identifier], mode="json")
             item |= {
                 k: details[k]
                 for k in ("forms", "patterns", "collocations", "relations", "ipa_uk", "ipa_us")
@@ -143,7 +143,7 @@ def node_projection(node: Mapping[str, Any], user_id: UUID) -> dict[str, Any]:
 async def node_cards(
     session: AsyncSession,
     user_id: UUID,
-    config: ProductConfig,
+    config: AppConfig,
     rows: Sequence[Mapping[str, Any]],
 ) -> list[dict[str, Any]]:
     if not rows:
@@ -170,7 +170,7 @@ async def node_cards(
         ).all()
     )
     counts: list[dict[str, Any]] = []
-    size = config.learning.limits.max_summary_nodes
+    size = config.product.study.limits.max_summary_nodes
     budget = ScopeBudget(user_id)
     for start in range(0, len(identifiers), size):
         counts.extend(
@@ -192,7 +192,7 @@ async def node_cards(
 async def saved_node(
     resources: ProjectionsResources,
     user_id: UUID,
-    config: ProductConfig,
+    config: AppConfig,
     result: Mapping[str, Any],
 ) -> dict[str, Any]:
     return (await saved_nodes(resources, user_id, config, [result]))[0]
@@ -201,7 +201,7 @@ async def saved_node(
 async def saved_nodes(
     resources: ProjectionsResources,
     user_id: UUID,
-    config: ProductConfig,
+    config: AppConfig,
     results: Sequence[Mapping[str, Any]],
 ) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []

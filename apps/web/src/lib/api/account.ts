@@ -12,7 +12,7 @@ export type AccountProfile = {
   library_node_id: string
   learning_options: {
     pairs: { question_type: string; format: AnswerFormat; level: number }[]
-    limits: { min_questions_per_sense: number; max_questions_per_sense: number; max_questions_per_prepare: number }
+    limits: { min_questions_per_sense: number; max_questions_per_sense: number; max_questions_per_prepare: number; max_answer_chars: number }
     advanced_grading: boolean
   }
   settings: { locale: string; timezone: string; translation_language: string; learning: LearningSettings; assistant: AssistantSettings }
@@ -84,7 +84,7 @@ export function parseAccountProfile(value: unknown): AccountProfile {
   return { ...publicProfile, plan: item.plan, personal_node_id: text(item.personal_node_id), library_node_id: text(item.library_node_id),
     settings: { locale: text(settings.locale), timezone, translation_language: text(settings.translation_language), learning: learning(settings.learning), assistant: { auto_approve: assistant.auto_approve } },
     learning_options: { advanced_grading: options.advanced_grading,
-      limits: { min_questions_per_sense: min, max_questions_per_sense: max, max_questions_per_prepare: perPrepare },
+      limits: { min_questions_per_sense: min, max_questions_per_sense: max, max_questions_per_prepare: perPrepare, max_answer_chars: positive(limits.max_answer_chars) },
       pairs: options.pairs.map(value => {
         const pair = record(value)
         if (!formats.includes(pair.format as AnswerFormat)) throw new ApiError(502, 'invalid_profile')

@@ -9,7 +9,9 @@ from pycil.app.http import BodyLimit, RequestBoundary, RuntimeCORS
 
 def boundary_app():
     app = FastAPI()
-    app.state.product = SimpleNamespace(http=SimpleNamespace(max_body_bytes=6))
+    app.state.config = SimpleNamespace(
+        runtime=SimpleNamespace(http=SimpleNamespace(max_body_bytes=6))
+    )
     app.state.deployment = SimpleNamespace(allowed_origins=["https://web.example.test"])
     app.add_middleware(BodyLimit)
     app.add_middleware(RequestBoundary)

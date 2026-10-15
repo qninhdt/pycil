@@ -6,11 +6,11 @@ from pydantic import BaseModel, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from pycil.infrastructure.cache import MemoryCache
 from pycil.infrastructure.database import transaction_lock
 from pycil.infrastructure.llm import render_prompt
 from pycil.infrastructure.observability import get_logger, observe_operation
 from pycil.vocabulary import models as rows
-from pycil.vocabulary.cache import ContentCache
 from pycil.vocabulary.enums import (
     GenerationState,
     HitKind,
@@ -32,7 +32,7 @@ from pycil.vocabulary.patterns import pattern_head_key, surface_head_key
 from pycil.vocabulary.references.models import SourceWord
 from pycil.vocabulary.references.reference import fetch_reference
 from pycil.vocabulary.references.wordnet import lookup
-from pycil.vocabulary.schemas import SearchResult
+from pycil.vocabulary.schemas import CachedWord, SearchResult, Sense
 from pycil.vocabulary.schemas import Word as WordSchema
 from pycil.vocabulary.text import (
     answer_key,
@@ -78,23 +78,29 @@ async def generate_word(
     sessions: async_sessionmaker[AsyncSession],
     search: SearchProtocol,
     structured_llm: StructuredLLMProtocol,
-    cache: ContentCache,
+    word_cache: MemoryCache[int, CachedWord],
     target: str,
     *,
+    sense_cache: MemoryCache[int, Sense] | None = None,
     reference_id: str | None = None,
-    example_count: int = 3,
+    example_count: int,
+    enrichment_batch_size: int,
 ) -> WordSchema:
     with observe_operation(logger, "word_generation", reference_id=reference_id):
         target = validate_lemma(target)
         if type(example_count) is not int or example_count < 1:
             raise ValueError("invalid example count")
+        if type(enrichment_batch_size) is not int or not 1 <= enrichment_batch_size <= 8:
+            raise ValueError("invalid enrichment batch size")
         if reference_id is None:
             result = await search.search(target, include_reference=True)
             hit = result.items[0] if result.items else None
             if hit is None or hit.match_kind is not MatchKind.EXACT:
                 raise InvalidResourceError("no exact lexical match")
             if hit.kind is HitKind.WORD:
-                word = await get_word(sessions, hit.word_id, cache=cache)
+                word = await get_word(
+                    sessions, hit.word_id, word_cache=word_cache, sense_cache=sense_cache
+                )
                 if word is None:
                     raise InvalidResourceError("matched word is unavailable")
                 return word
@@ -107,10 +113,14 @@ async def generate_word(
         async with sessions() as session:
             identifier = await consumed_word(session, source.id)
         if identifier is None:
-            identifier = await _generate(sessions, structured_llm, source, target, example_count)
-        cache.clear()
+            identifier = await _generate(
+                sessions, structured_llm, source, target, example_count, enrichment_batch_size
+            )
+        word_cache.clear()
+        if sense_cache is not None:
+            sense_cache.clear()
         await search.update(identifier)
-        word = await get_word(sessions, identifier, cache=cache)
+        word = await get_word(sessions, identifier, word_cache=word_cache, sense_cache=sense_cache)
         if word is None:
             raise InvalidResourceError("published word is unavailable")
         logger.info("word_publication_completed", word_id=identifier, reference_word_id=source.id)
@@ -123,6 +133,7 @@ async def _generate(
     source: SourceWord,
     target: str,
     example_count: int,
+    enrichment_batch_size: int,
 ) -> int:
     supporting = await lookup(target)
     citations: dict[str, tuple[ReferenceSource, str]] = {}
@@ -220,8 +231,8 @@ async def _generate(
 
     seeds: list[tuple[int, InventorySense]] = list(enumerate(inventory.senses, 1))
     tasks: list[asyncio.Task[list[Enrichment]]] = [
-        asyncio.create_task(enrich(seeds[offset : offset + 8]))
-        for offset in range(0, len(seeds), 8)
+        asyncio.create_task(enrich(seeds[offset : offset + enrichment_batch_size]))
+        for offset in range(0, len(seeds), enrichment_batch_size)
     ]
     try:
         details: dict[int, Enrichment] = {

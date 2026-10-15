@@ -31,6 +31,6 @@ async def require_user(session: AsyncSession, user_id: UUID) -> User:
     return user
 
 
-async def invalidate_actor(session: AsyncSession, user: User) -> None:
-    if cache := session.info.get("cache"):
-        await cache.discard(f"actor:v3:{user.clerk_subject}")
+def invalidate_user_id(session: AsyncSession, clerk_id: str) -> None:
+    if (cache := session.info.get("user_id_cache")) is not None:
+        cache.discard(clerk_id)

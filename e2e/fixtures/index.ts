@@ -1,5 +1,5 @@
 import { test as base, expect, type BrowserContext, type Page } from '@playwright/test'
-import { createActor, deleteIdentity, type Actor } from './actors.ts'
+import { createUser, deleteIdentity, type User } from './users.ts'
 import { Data, vocabulary, type Vocabulary } from './data.ts'
 import { webURL } from '../support/environment.ts'
 import { createScenarios } from './provider.ts'
@@ -42,37 +42,37 @@ function browserErrors(context: BrowserContext) {
   return errors
 }
 
-export const test = base.extend<{ actor: Actor; secondary: Actor; guest: Page; data: Data; vocabulary: Vocabulary; scenarios: Awaited<ReturnType<typeof createScenarios>> }>({
+export const test = base.extend<{ user: User; secondary: User; guest: Page; data: Data; vocabulary: Vocabulary; scenarios: Awaited<ReturnType<typeof createScenarios>> }>({
   context: async ({ context }, provide) => {
     await installLocalhostCookieFix(context)
     const errors = browserErrors(context)
     await provide(context)
     expect(errors, 'Unexpected browser exceptions').toEqual([])
   },
-  actor: async ({ page }, provide) => {
-    const actor = await createActor(page)
+  user: async ({ page }, provide) => {
+    const user = await createUser(page)
     const errors: unknown[] = []
-    try { await provide(actor) } catch (error) { errors.push(error) }
-    const results = await Promise.allSettled([actor.api.dispose(), page.context().close()])
+    try { await provide(user) } catch (error) { errors.push(error) }
+    const results = await Promise.allSettled([user.api.dispose(), page.context().close()])
     errors.push(...results.filter(result => result.status === 'rejected').map(result => result.reason))
-    try { await deleteIdentity(actor.subject) } catch (error) { errors.push(error) }
-    if (errors.length) throw new AggregateError(errors, 'Actor fixture failed')
+    try { await deleteIdentity(user.subject) } catch (error) { errors.push(error) }
+    if (errors.length) throw new AggregateError(errors, 'User fixture failed')
   },
   secondary: async ({ browser, contextOptions }, provide) => {
     const context = await browser.newContext({ ...contextOptions, baseURL: webURL })
     await installLocalhostCookieFix(context)
     const exceptions = browserErrors(context)
-    let actor: Actor | undefined
+    let user: User | undefined
     const errors: unknown[] = []
     try {
-      actor = await createActor(await context.newPage())
-      await provide(actor)
+      user = await createUser(await context.newPage())
+      await provide(user)
     } catch (error) { errors.push(error) }
-    const results = await Promise.allSettled([actor?.api.dispose(), context.close()])
+    const results = await Promise.allSettled([user?.api.dispose(), context.close()])
     errors.push(...results.filter(result => result.status === 'rejected').map(result => result.reason))
     errors.push(...exceptions)
-    if (actor) try { await deleteIdentity(actor.subject) } catch (error) { errors.push(error) }
-    if (errors.length) throw new AggregateError(errors, 'Secondary actor fixture failed')
+    if (user) try { await deleteIdentity(user.subject) } catch (error) { errors.push(error) }
+    if (errors.length) throw new AggregateError(errors, 'Secondary user fixture failed')
   },
   guest: async ({ browser, contextOptions }, provide) => {
     const context = await browser.newContext({ ...contextOptions, baseURL: webURL, storageState: undefined })
@@ -82,8 +82,8 @@ export const test = base.extend<{ actor: Actor; secondary: Actor; guest: Page; d
     try { await context.close() } catch (error) { errors.push(error) }
     if (errors.length) throw new AggregateError(errors, 'Guest fixture failed')
   },
-  data: async ({ actor }, provide) => {
-    const data = new Data(actor)
+  data: async ({ user }, provide) => {
+    const data = new Data(user)
     try { await provide(data) } finally { await data.cleanup() }
   },
   // eslint-disable-next-line no-empty-pattern -- Playwright discovers fixture dependencies through destructuring.

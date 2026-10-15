@@ -1,6 +1,6 @@
 # Database setup and recovery
 
-Pycil owns one static application migration,
+Pycil owns an application migration history rooted at
 [initial.py](../../../apps/api/migrations/versions/initial.py). Application tables and
 native checkpoint tables live in PostgreSQL `public`. Checkpoint setup uses the installed
 library's native migration history; it is not copied into application Alembic revisions.
@@ -21,11 +21,17 @@ uv run --locked --env-file /absolute/path/to/approved.env python -m pycil.app.mi
 `DB_URL` must be a PostgreSQL async URL. `--database-url` can explicitly select the target
 instead. Treat command-line credentials according to the installation's secret policy.
 
-The command applies the single application baseline, performs native checkpoint setup,
+The command upgrades application migrations to the current head, performs native checkpoint setup,
 optionally imports reference JSONL and verifies the resulting schema. Omitting
 `--reference` performs schema setup only; API startup still requires imported references.
 There is no automatic reference download, SQLite import or mandatory generated-content seed.
 Generated content is optional and may be imported manually later by operations.
+
+## Identity adoption
+
+The `user_identity` migration renames `users.clerk_subject` to `clerk_id` and its
+unique constraint without replacing user rows. Coordinate rollout: older application
+versions expecting the old column cannot share this schema.
 
 ## Reference artifact
 

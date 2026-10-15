@@ -3,22 +3,22 @@ import { clerk, setupClerkTestingToken } from '@clerk/testing/playwright'
 import { test, expect } from '../../fixtures/index.ts'
 
 
-test('an enrolled authenticator is required by the real custom sign-in flow', async ({ actor }) => {
+test('an enrolled authenticator is required by the real custom sign-in flow', async ({ user }) => {
   if (process.env.E2E_TOTP_ENABLED !== 'true') throw new Error('External TOTP coverage requires E2E_TOTP_ENABLED=true and TOTP enabled in the Clerk development instance')
-  const secret = await actor.page.evaluate(async () => (await window.Clerk.user!.createTOTP()).secret)
+  const secret = await user.page.evaluate(async () => (await window.Clerk.user!.createTOTP()).secret)
   if (!secret) throw new Error('Clerk did not return an enrollment secret')
-  await actor.page.evaluate(async code => { await window.Clerk.user!.verifyTOTP({ code }) }, authenticatorCode(secret))
-  await clerk.signOut({ page: actor.page })
-  await setupClerkTestingToken({ page: actor.page })
-  await actor.page.goto('/login')
-  await actor.page.getByLabel('Email', { exact: true }).fill(actor.email)
-  await actor.page.getByLabel('Password', { exact: true }).fill(actor.password)
-  await actor.page.getByRole('button', { name: 'Sign in', exact: true }).click()
-  await expect(actor.page.getByLabel('Verification code', { exact: true })).toBeVisible()
-  await actor.page.getByLabel('Verification code', { exact: true }).fill(authenticatorCode(secret))
-  await actor.page.getByRole('button', { name: 'Verify and continue', exact: true }).click()
-  await expect(actor.page).toHaveURL(/\/app$/)
-  expect(await actor.api.call('me')).toMatchObject({ id: actor.account.id })
+  await user.page.evaluate(async code => { await window.Clerk.user!.verifyTOTP({ code }) }, authenticatorCode(secret))
+  await clerk.signOut({ page: user.page })
+  await setupClerkTestingToken({ page: user.page })
+  await user.page.goto('/login')
+  await user.page.getByLabel('Email', { exact: true }).fill(user.email)
+  await user.page.getByLabel('Password', { exact: true }).fill(user.password)
+  await user.page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await expect(user.page.getByLabel('Verification code', { exact: true })).toBeVisible()
+  await user.page.getByLabel('Verification code', { exact: true }).fill(authenticatorCode(secret))
+  await user.page.getByRole('button', { name: 'Verify and continue', exact: true }).click()
+  await expect(user.page).toHaveURL(/\/app$/)
+  expect(await user.api.call('me')).toMatchObject({ id: user.account.id })
 })
 
 test('Google OAuth returns through the application callback to an authenticated account', async ({ guest }) => {

@@ -8,10 +8,10 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pycil.account.lifecycle import invalidate_actor, require_user
+from pycil.account.lifecycle import require_user
 from pycil.account.models import UsageEvent, UsagePeriod, User
 from pycil.account.plans import Feature, Plan
-from pycil.app.config import ProductConfig
+from pycil.app.config import AppConfig
 from pycil.app.http import Problem
 from pycil.infrastructure.database import transaction_lock
 from pycil.infrastructure.observability import get_logger
@@ -36,7 +36,7 @@ def period_bounds(anchor: datetime, moment: datetime) -> tuple[datetime, datetim
 
 
 async def allowance(
-    session: AsyncSession, user: User, config: ProductConfig, moment: datetime
+    session: AsyncSession, user: User, config: AppConfig, moment: datetime
 ) -> dict[str, Any]:
     start, end = period_bounds(user.cycle_anchor, moment)
     period = await session.scalar(
@@ -45,7 +45,7 @@ async def allowance(
             UsagePeriod.period_start == start,
         )
     )
-    permitted = config.plans[user.plan].monthly_allowance_units
+    permitted = config.product.account.plans[user.plan].monthly_allowance_units
     used = int(period.used_units) if period else 0
     budget = max(permitted, int(period.allowance_units)) if period else permitted
     return {
@@ -60,7 +60,7 @@ async def allowance(
 async def settle(
     session: AsyncSession,
     user_id: UUID,
-    config: ProductConfig,
+    config: AppConfig,
     *,
     execution_key: UUID,
     feature: Feature,
@@ -108,7 +108,7 @@ async def settle(
                 user_id=user_id,
                 period_start=start,
                 period_end=end,
-                allowance_units=config.plans[user.plan].monthly_allowance_units,
+                allowance_units=config.product.account.plans[user.plan].monthly_allowance_units,
                 used_units=0,
             )
             session.add(period)
@@ -138,7 +138,7 @@ async def change_plan(
     session: AsyncSession,
     user_id: UUID,
     plan: Plan,
-    config: ProductConfig,
+    config: AppConfig,
     moment: datetime,
 ) -> None:
     async with session.begin():
@@ -161,16 +161,15 @@ async def change_plan(
         )
         if period:
             period.allowance_units = max(
-                period.allowance_units, config.plans[plan].monthly_allowance_units
+                period.allowance_units, config.product.account.plans[plan].monthly_allowance_units
             )
         logger.info("account_plan_changed", user_id=str(user_id), plan=plan.value)
-    await invalidate_actor(session, user)
 
 
 async def admit(
     session: AsyncSession,
     user_id: UUID,
-    config: ProductConfig,
+    config: AppConfig,
     feature: Feature,
     moment: datetime,
 ) -> Plan:
@@ -180,7 +179,7 @@ async def admit(
         )
         if user is None:
             raise Problem(404, "account_not_found")
-        if feature not in config.plans[user.plan].features:
+        if feature not in config.product.account.plans[user.plan].features:
             logger.warning(
                 "feature_access_denied",
                 user_id=str(user_id),

@@ -1,10 +1,10 @@
 import { test, expect } from '../../fixtures/index.ts'
 import { apiURL, webURL } from '../../support/environment.ts'
 
-test('hydrated Library filters call Pycil directly and preserve URL history', async ({ actor, data }) => {
-  const first = await data.create({ type: 'deck', name: `Rivers ${actor.subject.slice(-8)}` })
-  await data.create({ type: 'deck', name: `Mountains ${actor.subject.slice(-8)}` })
-  const { page } = actor
+test('hydrated Library filters call Pycil directly and preserve URL history', async ({ user, data }) => {
+  const first = await data.create({ type: 'deck', name: `Rivers ${user.subject.slice(-8)}` })
+  await data.create({ type: 'deck', name: `Mountains ${user.subject.slice(-8)}` })
+  const { page } = user
   const initialReads: string[] = []
   page.on('request', request => {
     if (new URL(request.url()).origin === apiURL && request.method() === 'GET' && new URL(request.url()).pathname === '/v1/nodes') initialReads.push(request.url())
@@ -25,8 +25,8 @@ test('hydrated Library filters call Pycil directly and preserve URL history', as
   await expect(page.getByRole('searchbox', { name: 'Search this folder' })).toHaveValue('Rivers')
 })
 
-test('mobile navigation restores focus on dismissal and opens the selected workspace', async ({ actor, browser }) => {
-  const context = await browser.newContext({ ignoreHTTPSErrors: true, baseURL: webURL, viewport: { width: 390, height: 844 }, storageState: await actor.page.context().storageState() })
+test('mobile navigation restores focus on dismissal and opens the selected workspace', async ({ user, browser }) => {
+  const context = await browser.newContext({ ignoreHTTPSErrors: true, baseURL: webURL, viewport: { width: 390, height: 844 }, storageState: await user.page.context().storageState() })
   try {
     const page = await context.newPage()
     await page.goto('/app')

@@ -1,5 +1,7 @@
 'use client'
 
+import { webConfig } from '@/config'
+
 import { useEffect, useState } from 'react'
 import { useQuery, type UseQueryResult } from '@tanstack/react-query'
 import { useServices } from '@/lib/api/services/provider.client'
@@ -21,7 +23,7 @@ function useReportingDay(timezone: string, initialDay: string): string {
       setValue(current => current.timezone === timezone && current.day === day ? current : { timezone, day })
     }
     update()
-    const timer = setInterval(update, 60000)
+    const timer = setInterval(update, webConfig.polling.clockMs)
     window.addEventListener('focus', update)
     return () => { clearInterval(timer); window.removeEventListener('focus', update) }
   }, [timezone])

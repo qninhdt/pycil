@@ -8,7 +8,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from pycil.app.config import VocabularyPolicy
+from pycil.infrastructure.cache import MemoryCache
 from pycil.infrastructure.observability import get_logger, observe_operation
+from pycil.study.artifacts.schemas import Artifact
 from pycil.study.artifacts.storage import get_many
 from pycil.study.decisions import (
     DefinitionAssessment,
@@ -36,7 +38,6 @@ from pycil.study.schemas import (
     SingleWordDiagnostic,
     UsageDiagnostic,
 )
-from pycil.vocabulary.cache import ContentCache
 from pycil.vocabulary.enums import HitKind
 from pycil.vocabulary.errors import InvalidOutputError, InvalidResourceError
 from pycil.vocabulary.models import Definition, Sense, Word
@@ -99,7 +100,7 @@ async def grade_answer(
     sessions: async_sessionmaker[AsyncSession],
     search: SearchProtocol,
     decision_llm: DecisionLLM,
-    cache: ContentCache | None,
+    cache: MemoryCache[int, Artifact] | None,
     artifact_id: int,
     kind: QuestionType,
     fmt: ResponseFormat,

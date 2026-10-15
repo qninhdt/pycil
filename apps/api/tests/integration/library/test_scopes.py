@@ -35,7 +35,19 @@ async def test_logical_reference_cycle_terminates_and_membership_is_distinct(dat
         assert scopes[a["id"]].decks == scopes[b["id"]].decks == {deck["id"]}
         assert list(await session.scalars(scopes[a["id"]].senses())) == [sense]
     tiny = config.model_copy(
-        update={"library": config.library.model_copy(update={"max_scope_nodes": 2})}
+        update={
+            "product": config.product.model_copy(
+                update={
+                    "library": config.product.library.model_copy(
+                        update={
+                            "quotas": config.product.library.quotas.model_copy(
+                                update={"max_scope_nodes": 2}
+                            )
+                        }
+                    )
+                }
+            )
+        }
     )
     async with database.sessions() as session:
         with pytest.raises(Problem) as error:
@@ -43,7 +55,7 @@ async def test_logical_reference_cycle_terminates_and_membership_is_distinct(dat
         assert error.value.code == "scope_too_large"
     async with database.sessions() as session:
         expired = ScopeBudget(
-            user.id, started_at=monotonic() - config.library.scope_timeout_seconds - 1
+            user.id, started_at=monotonic() - config.runtime.library.scope_timeout_seconds - 1
         )
         with pytest.raises(Problem) as error:
             async with bounded(session, config, expired):

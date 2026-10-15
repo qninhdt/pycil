@@ -124,7 +124,7 @@ def test_diagnostic_evidence_credits_correct_sense_and_separates_recall_usage(
 
 
 def test_grouped_elo_shares_one_time_budget_and_handles_extreme_scores():
-    policy = load_config().learning.mastery
+    policy = load_config().product.study.mastery
     now = datetime(2026, 1, 1, tzinfo=UTC)
     base = 1000.0
     full = update_elo(base, [(1.0, base)], None, now, policy)
@@ -155,8 +155,16 @@ def test_fsrs_failure_in_mixed_batch_preserves_null_memory_and_caps_interval():
     assert next_state(memory, [None, None], now, config)[:2] == (20.0, 5.0)
     capped = config.model_copy(
         update={
-            "learning": config.learning.model_copy(
-                update={"fsrs": config.learning.fsrs.model_copy(update={"max_interval_days": 1})}
+            "product": config.product.model_copy(
+                update={
+                    "study": config.product.study.model_copy(
+                        update={
+                            "fsrs": config.product.study.fsrs.model_copy(
+                                update={"max_interval_days": 1}
+                            )
+                        }
+                    )
+                }
             )
         }
     )

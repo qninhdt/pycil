@@ -17,12 +17,11 @@ from langchain_core.runnables import RunnableConfig
 from pydantic import ValidationError
 from sqlalchemy import select, update
 
-from pycil.account.auth import ActorContext
 from pycil.account.models import User
 from pycil.account.plans import Feature
 from pycil.account.settings import preferences
 from pycil.account.usage import admit, settle
-from pycil.app.config import ProductConfig
+from pycil.app.config import AppConfig
 from pycil.app.http import Problem
 from pycil.app.settings import Deployment
 from pycil.assistant import graph as agents
@@ -40,7 +39,7 @@ logger = get_logger(__name__)
 
 
 def validate_input(
-    data: RunAgentInput, config: ProductConfig
+    data: RunAgentInput, config: AppConfig
 ) -> tuple[UUID, ModelPolicy, str, int, int]:
     try:
         identifier = UUID(str(data.thread_id))
@@ -57,12 +56,12 @@ def validate_input(
             CurrentView.model_validate(props["current_view"])
         except ValidationError:
             raise Problem(422, "invalid_assistant_view") from None
-    model_id: str = str(props.get("model_id", config.assistant.default_model))
+    model_id: str = str(props.get("model_id", config.product.assistant.defaults.model))
     policy: ModelPolicy | None = next(
-        (p for p in config.models if p.id == model_id),
+        (p for p in config.product.assistant.models if p.id == model_id),
         None,
     )
-    effort: str = str(props.get("effort", config.assistant.default_effort))
+    effort: str = str(props.get("effort", config.product.assistant.defaults.effort))
     if policy is None or effort not in policy.efforts:
         raise Problem(422, "invalid_assistant_model")
     if data.state or data.tools or data.context or data.parent_run_id:
@@ -98,11 +97,14 @@ def validate_input(
                         payload = base64.b64decode(source_val, validate=True)
                     except ValueError:
                         raise Problem(422, "invalid_attachment") from None
-                    if len(payload) > config.assistant.max_image_bytes:
+                    if len(payload) > config.product.assistant.limits.max_image_bytes:
                         raise Problem(413, "attachment_too_large")
                 else:
                     raise Problem(422, "invalid_message_content")
-    if chars > config.assistant.max_message_chars or images > config.assistant.max_images:
+    if (
+        chars > config.product.assistant.limits.max_message_chars
+        or images > config.product.assistant.limits.max_images
+    ):
         raise Problem(413, "assistant_request_too_large")
     return identifier, policy, effort, chars, images
 
@@ -111,15 +113,15 @@ def validate_input(
 async def prepare_turn(
     resources: Any,
     deployment: Deployment,
-    user: User | ActorContext,
+    user: UUID,
     data: RunAgentInput,
-    config: ProductConfig,
+    config: AppConfig,
 ) -> AsyncGenerator[AsyncIterator[str]]:
     identifier, policy, effort, chars, images = validate_input(data, config)
     logger.info(
         "assistant_run_started",
         conversation_id=str(identifier),
-        user_id=str(user.id),
+        user_id=str(user),
         model_id=policy.id,
         effort=effort,
         message_count=len(data.messages),
@@ -127,11 +129,11 @@ async def prepare_turn(
         image_count=images,
     )
     async with resources.sessions() as session:
-        await owned(session, user.id, identifier)
-        saved_settings = await session.scalar(select(User.settings).where(User.id == user.id))
-        if saved_settings is None:
+        await owned(session, user, identifier)
+        current = await session.scalar(select(User).where(User.id == user))
+        if current is None:
             raise Problem(404, "account_not_found")
-        settings = preferences(saved_settings, config)
+        settings = preferences(current.settings, config)
         auto_approve = settings.assistant.auto_approve and not data.resume
         view: dict[str, Any] | None = None
         props_in: object = data.forwarded_props
@@ -142,7 +144,7 @@ async def prepare_turn(
             view = selected.model_dump(mode="json", exclude_none=True)
             if selected.node_id is not None:
                 try:
-                    detail = await node_details(session, selected.node_id, user.id, config)
+                    detail = await node_details(session, selected.node_id, user, config)
                 except Problem as exc:
                     if exc.status != 404:
                         raise
@@ -164,22 +166,24 @@ async def prepare_turn(
             "now": datetime.now(ZoneInfo(settings.timezone)).isoformat(),
             "timezone": settings.timezone,
             "current_view": view,
-            "name": user.display_name,
-            "username": user.handle,
+            "name": current.display_name,
+            "username": current.handle,
         }
         packed = json.dumps(context, ensure_ascii=False, separators=(",", ":"), default=str)
         packed = packed.replace("<", "\\u003c").replace(">", "\\u003e")
         turn_context = f"<context>{packed}</context>"
     async with agents.model(
-        deployment, policy, effort, config.assistant.llm_timeout_seconds
+        deployment, policy, effort, config.runtime.assistant.llm_timeout_seconds
     ) as selected:
         agent = agents.graph(
             resources, user, config, selected, auto_approve=auto_approve, turn_context=turn_context
         )
         checkpoint_config: RunnableConfig = {"configurable": {"thread_id": str(identifier)}}
-        async with guard(resources.redis, identifier):
+        async with guard(
+            resources.redis, identifier, ttl=config.runtime.assistant.lease_ttl_seconds
+        ):
             async with resources.sessions() as session:
-                await owned(session, user.id, identifier)
+                await owned(session, user, identifier)
             state = await agent.aget_state(checkpoint_config)
             if data.resume:
                 interrupts = [i for task in state.tasks for i in task.interrupts]
@@ -212,12 +216,12 @@ async def prepare_turn(
             if not rejection:
                 async with resources.sessions() as session:
                     try:
-                        await admit(session, user.id, config, Feature.ASSISTANT, moment)
+                        await admit(session, user, config, Feature.ASSISTANT, moment)
                     except Problem as exc:
                         if exc.status == 403:
                             logger.warning(
                                 "assistant_quota_exhausted",
-                                user_id=str(user.id),
+                                user_id=str(user),
                                 conversation_id=str(identifier),
                             )
                         raise
@@ -227,14 +231,14 @@ async def prepare_turn(
                         "local n=redis.call('INCR',KEYS[1]); "
                         "if n==1 then redis.call('EXPIRE',KEYS[1],120) end; return n",
                         1,
-                        f"pycil:assistant:starts:{user.id}:{minute}",
+                        f"pycil:assistant:starts:{user}:{minute}",
                     )
                     or 0
                 )
-                if starts > config.assistant.starts_per_minute:
+                if starts > config.runtime.assistant.starts_per_minute:
                     logger.warning(
                         "assistant_rate_limit_exceeded",
-                        user_id=str(user.id),
+                        user_id=str(user),
                         conversation_id=str(identifier),
                     )
                     raise Problem(429, "assistant_start_limit")
@@ -248,7 +252,7 @@ async def prepare_turn(
                     config={
                         "configurable": {"reject_all": rejection},
                         "callbacks": [meter],
-                        "recursion_limit": config.assistant.max_tool_calls * 4 + 10,
+                        "recursion_limit": config.product.assistant.limits.max_tool_calls * 4 + 10,
                     },
                     enable_legacy_on_interrupt_event=False,
                     emit_interrupt_outcome=True,
@@ -277,7 +281,7 @@ async def prepare_turn(
                             async with resources.sessions() as session:
                                 await settle(
                                     session,
-                                    user.id,
+                                    user,
                                     config,
                                     execution_key=key,
                                     feature=Feature.ASSISTANT,
@@ -287,7 +291,7 @@ async def prepare_turn(
                                 )
                             logger.info(
                                 "assistant_units_settled",
-                                user_id=str(user.id),
+                                user_id=str(user),
                                 conversation_id=str(identifier),
                                 units=meter.units,
                             )

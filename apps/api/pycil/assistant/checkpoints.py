@@ -18,11 +18,14 @@ def checkpoint_dsn(url: str) -> str:
 @asynccontextmanager
 async def checkpoint_pool(
     url: str,
+    *,
+    min_size: int = 1,
+    max_size: int = 3,
 ) -> AsyncGenerator[AsyncConnectionPool[AsyncConnection[DictRow]]]:
     async with AsyncConnectionPool[AsyncConnection[DictRow]](
         checkpoint_dsn(url),
-        min_size=1,
-        max_size=5,
+        min_size=min_size,
+        max_size=max_size,
         open=False,
         kwargs={
             "autocommit": True,

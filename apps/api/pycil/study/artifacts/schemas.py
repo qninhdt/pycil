@@ -86,6 +86,7 @@ class RewriteArtifact(Strict):
 
 
 class Artifact(Strict):
+    model_config = ConfigDict(extra="forbid", frozen=True)
     id: int
     sense_id: int
     theme_id: int | None

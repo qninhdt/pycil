@@ -55,7 +55,7 @@ async def test_pending_mutation_persists_across_restart_and_executes_only_on_app
     )
     async with checkpoint_pool(database.url) as pool:
         resources.checkpoint_pool = pool
-        agent = graph(resources, user, config, provider)
+        agent = graph(resources, user.id, config, provider)
         result = await agent.ainvoke(
             {"messages": [HumanMessage(content="Set my language to Vietnamese.")]}, thread
         )
@@ -64,7 +64,7 @@ async def test_pending_mutation_persists_across_restart_and_executes_only_on_app
             assert (await session.get(User, user.id)).settings == {}
     async with checkpoint_pool(database.url) as pool:
         resources.checkpoint_pool = pool
-        restarted = graph(resources, user, config, provider)
+        restarted = graph(resources, user.id, config, provider)
         state = await restarted.aget_state(thread)
         assert any(task.interrupts for task in state.tasks)
         resumed = await restarted.ainvoke(
@@ -90,7 +90,8 @@ async def test_tool_batch_commits_successful_items_and_reports_unauthorized_item
             session, stranger.id, NodeCreate(type=NodeType.DECK, name="private"), config
         )
     surface = {
-        tool.name: tool for tool in tools(SimpleNamespace(sessions=database.sessions), user, config)
+        tool.name: tool
+        for tool in tools(SimpleNamespace(sessions=database.sessions), user.id, config)
     }
     result = await surface["delete_nodes"].ainvoke(
         {"node_ids": [str(owned["id"]), str(foreign["id"]), str(roots[NodeRole.PERSONAL_ROOT].id)]}

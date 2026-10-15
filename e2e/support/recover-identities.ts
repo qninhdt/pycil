@@ -5,7 +5,7 @@ const { credentials } = await import('./environment.ts')
 const { requireFreePort } = await import('./stack.ts')
 credentials(false)
 await requireFreePort(3200)
-const { cleanupIdentities } = await import('../fixtures/actors.ts')
+const { cleanupIdentities } = await import('../fixtures/users.ts')
 await cleanupIdentities()
 console.log(`Reconciled only Clerk identities recorded for run ${id}.`)
 export {}

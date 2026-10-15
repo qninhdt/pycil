@@ -12,11 +12,11 @@ from pydantic import BaseModel
 from sqlalchemy import DateTime, Float, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from pycil.account.auth import Actor
 from pycil.account.models import User
 from pycil.account.settings import effective_learning
-from pycil.app.config import ProductConfig
+from pycil.app.config import AppConfig
 from pycil.app.http import Problem
+from pycil.infrastructure.cache import MemoryCache
 from pycil.infrastructure.observability import get_logger
 from pycil.infrastructure.retry import ProviderOutputError
 from pycil.library.access import readable
@@ -36,7 +36,6 @@ from pycil.study.errors import QuestionArtifactBankChangedError
 from pycil.study.models import UserSense
 from pycil.study.questions import build_question
 from pycil.study.schemas import PreparedQuestion
-from pycil.vocabulary.cache import ContentCache
 from pycil.vocabulary.errors import VocabularyError
 from pycil.vocabulary.schemas import Sense
 from pycil.vocabulary.types import SensePreview
@@ -59,14 +58,14 @@ class PlannedRow:
 
 
 def plan_pairs(
-    elo: float, preferences: LearningPreferences, config: ProductConfig, k: int
+    elo: float, preferences: LearningPreferences, config: AppConfig, k: int
 ) -> list[tuple[QuestionType, ResponseFormat]]:
-    level = config.learning.mastery.level(elo)
+    level = config.product.study.mastery.level(elo)
     pairs = [
-        (kind, fmt, config.learning.pair_levels[kind][fmt])
+        (kind, fmt, config.product.study.pair_levels[kind][fmt])
         for kind in preferences.question_types
         for fmt in preferences.formats
-        if fmt in config.learning.pair_levels.get(kind, {})
+        if fmt in config.product.study.pair_levels.get(kind, {})
     ]
     if not pairs:
         raise Problem(422, "infeasible_learning_preferences")
@@ -87,18 +86,19 @@ async def prepare(
     session: AsyncSession,
     sessions: async_sessionmaker[AsyncSession],
     structured_llm: StructuredLLMProtocol,
-    artifact_cache: ContentCache | None,
-    user: Actor,
+    artifact_cache: MemoryCache[int, Artifact] | None,
+    user: UUID,
     node_id: UUID,
-    config: ProductConfig,
+    config: AppConfig,
     *,
+    sense_cache: MemoryCache[int, Sense] | None = None,
     selection: Selection = Selection.AUTO,
     max_sense_count: int | None = None,
     questions_per_sense: int | None = None,
 ) -> dict[str, Any]:
     async with session.begin():
         current = await session.scalar(
-            select(User).where(User.id == user.id).execution_options(populate_existing=True)
+            select(User).where(User.id == user).execution_options(populate_existing=True)
         )
     if current is None:
         raise Problem(404, "account_not_found")
@@ -111,12 +111,12 @@ async def prepare(
     if selection not in {Selection.AUTO, Selection.NEW, Selection.DUE}:
         raise Problem(422, "invalid_preparation")
     try:
-        config.learning.validate_preferences(preferences)
+        config.product.study.validate_preferences(preferences)
     except ValueError as exc:
         raise Problem(422, "invalid_preparation") from exc
     logger.info(
         "study_preparation_started",
-        user_id=str(user.id),
+        user_id=str(user),
         node_id=str(node_id),
         selection=selection,
         max_sense_count=target,
@@ -124,18 +124,18 @@ async def prepare(
     now = datetime.now(UTC)
     async with session.begin():
         await session.connection(execution_options={"isolation_level": "REPEATABLE READ"})
-        node = await readable(session, node_id, user.id, config)
-        scope = (await member_ids(session, node, user.id, config)).cte("preparation_scope")
+        node = await readable(session, node_id, user, config)
+        scope = (await member_ids(session, node, user, config)).cte("preparation_scope")
         learned = select(UserSense.sense_id, UserSense.elo, UserSense.due_at).where(
-            UserSense.user_id == user.id, UserSense.sense_id.in_(select(scope.c.sense_id))
+            UserSense.user_id == user, UserSense.sense_id.in_(select(scope.c.sense_id))
         )
         fresh = select(
             scope.c.sense_id,
-            literal(config.learning.mastery.initial_elo, type_=Float()).label("elo"),
+            literal(config.product.study.mastery.initial_elo, type_=Float()).label("elo"),
             literal(None, type_=DateTime(timezone=True)).label("due_at"),
         ).where(
             ~select(UserSense.sense_id)
-            .where(UserSense.user_id == user.id, UserSense.sense_id == scope.c.sense_id)
+            .where(UserSense.user_id == user, UserSense.sense_id == scope.c.sense_id)
             .correlate(scope)
             .exists()
         )
@@ -175,9 +175,9 @@ async def prepare(
                 structured_llm,
                 artifact_cache,
                 [(sense_id, kind, count) for (sense_id, kind), count in demand.items()],
-                generation_batch_size=config.generation.question_artifact_batch_size,
-                correct_count=config.generation.correct_count,
-                distractor_count=config.generation.distractor_count,
+                generation_batch_size=config.runtime.generation.artifact_batch_size,
+                correct_count=config.product.study.artifacts.correct_count,
+                distractor_count=config.product.study.artifacts.distractor_count,
             )
             if demand
             else []
@@ -185,7 +185,7 @@ async def prepare(
     except QuestionArtifactBankChangedError as exc:
         logger.warning(
             "study_artifact_retrieval_failed",
-            user_id=str(user.id),
+            user_id=str(user),
             node_id=str(node_id),
             error_type=type(exc).__name__,
         )
@@ -193,12 +193,14 @@ async def prepare(
     except (VocabularyError, APIError, ProviderOutputError) as exc:
         logger.warning(
             "study_artifact_retrieval_failed",
-            user_id=str(user.id),
+            user_id=str(user),
             node_id=str(node_id),
             error_type=type(exc).__name__,
         )
         raise Problem(503, "question_generation_unavailable") from None
-    senses: dict[int, Sense] = {s.id: s for s in await get_senses(sessions, list(plans))}
+    senses: dict[int, Sense] = {
+        s.id: s for s in await get_senses(sessions, list(plans), cache=sense_cache)
+    }
     facts: dict[int, SensePreview] = {
         s["sense_id"]: s for s in await get_sense_previews(sessions, list(plans))
     }
@@ -228,7 +230,7 @@ async def prepare(
         bundles.append(dict(sense=senses[row.sense_id], reason=row.reason, questions=questions))
     logger.info(
         "study_preparation_completed",
-        user_id=str(user.id),
+        user_id=str(user),
         node_id=str(node_id),
         selection=selection,
         sense_count=len(bundles),

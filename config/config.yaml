@@ -1,143 +1,698 @@
-# Product policy, never credentials. Units preserve the previous integer scale.
-plans:
-  free:
-    monthly_allowance_units: 1000000
-    features: [assistant]
-  pro:
-    monthly_allowance_units: 10000000
-    features: [assistant, advanced_grading]
-account:
-  defaults:
-    locale: en
-    timezone: UTC
-    translation_language: vi
-    assistant:
-      auto_approve: false
-  locales: [en, vi]
-  translation_languages: [en, vi]
-learning:
-  defaults:
-    question_types:
-      [
-        definition_to_word,
-        context_to_word,
-        cloze_to_word,
-        word_to_definition,
-        word_to_usage,
-        dialogue_completion,
-        meaning_in_context,
-        sentence_rewrite,
-      ]
-    formats: [single_choice]
-    questions_per_sense: 2
-    max_sense_count: 10
-  limits:
-    min_questions_per_sense: 1
-    max_questions_per_sense: 3
-    max_questions_per_prepare: 60
-    max_sense_count: 20
-    max_answer_chars: 8000
-    max_review_batch: 60
-    max_summary_nodes: 50
-    max_activity_days: 366
-    max_schedule_days: 30
-  pair_levels:
-    definition_to_word: { single_choice: 1, single_word: 3 }
-    context_to_word: { single_choice: 2, single_word: 3 }
-    cloze_to_word: { single_choice: 2, single_word: 3 }
-    word_to_definition: { single_choice: 1, short_answer: 4 }
-    word_to_usage: { single_choice: 2, short_answer: 4 }
-    dialogue_completion: { single_choice: 2 }
-    meaning_in_context: { single_choice: 2 }
-    sentence_rewrite: { single_choice: 2, short_answer: 5 }
-  mastery:
-    initial_elo: 600
-    k_elo: 32
-    horizon_hours: 24
-    level_thresholds: [800, 1000, 1200, 1400]
-    opponent_elo: [600, 800, 1000, 1200, 1400]
-    policy_version: 1
-  fsrs:
-    desired_retention: 0.9
-    max_interval_days: 365
-    initial_stability: 1
-    initial_difficulty: 5
-generation:
-  question_artifact_batch_size: 8
-  correct_count: 1
-  distractor_count: 3
-  examples_per_sense: 5
-  timeout_seconds: 600
-assistant:
-  default_model: openai/gpt-6-luna
-  default_effort: medium
-  llm_timeout_seconds: 180
-  max_tool_calls: 32
-  max_message_chars: 8000
-  max_context_messages: 100
-  max_images: 4
-  max_image_bytes: 10000000
-  starts_per_minute: 20
-models:
-  # OpenRouter catalog checked 2026-10-12; units are USD per million tokens.
-  - id: openai/gpt-6-luna
-    name: GPT-6 Luna
-    vision: true
-    efforts: [low, medium, high]
-    max_output_tokens: 8192
-    input_units_per_token: "0.10"
-    output_units_per_token: "0.50"
-    cached_read_units_per_token: "0.01"
-    cache_write_units_per_token: "0.125"
-  - id: openai/gpt-6.1-sol
-    name: GPT-6.1 Sol
-    vision: true
-    efforts: [low, medium, high]
-    max_output_tokens: 8192
-    input_units_per_token: "2.00"
-    output_units_per_token: "10.00"
-    cached_read_units_per_token: "0.10"
-    cache_write_units_per_token: "2.50"
-  - id: google/gemini-3.8-flash
-    name: Gemini 3.8 Flash
-    vision: true
-    efforts: [low, medium, high]
-    max_output_tokens: 8192
-    input_units_per_token: "0.75"
-    output_units_per_token: "3.75"
-    cached_read_units_per_token: "0.075"
-    cache_write_units_per_token: "0.0416666666666667"
-providers:
+# Canonical non-secret policy. Backend changes require process restart.
+# Product behavior is separate from execution budgets. Environment owns credentials.
+# Accounting rates are units per token: 100 input tokens at 0.10 cost 10 units;
+# totals include all token classes and use Decimal ROUND_HALF_UP to whole units.
+# Cache entry capacities bound count, not bytes; validate memory under the deployment workload.
+product:
+  account:
+    preferences:
+      defaults:
+        # Initial UI locale for a new account.
+        # Must be a shipped locale; changing it affects new/defaulted preferences.
+        # Configured value: en. Applies after API restart.
+        locale: en
+        # Initial IANA timezone for calendar-based learning activity.
+        # Must resolve through zoneinfo; changes affect defaulted calendar boundaries.
+        # Configured value: UTC. Applies after API restart.
+        timezone: UTC
+        # Initial lexical translation language.
+        # Must occur in translation_languages; changes affect new/defaulted preferences.
+        # Configured value: vi. Applies after API restart.
+        translation_language: vi
+        assistant:
+          # Default assistant tool approval preference.
+          # Boolean; true permits eligible tools without interactive confirmation, subject to authorization.
+          # Configured value: false. Applies after API restart.
+          auto_approve: false
+      # Selectable UI locales.
+      # Nonempty unique shipped translation identifiers; adding a code does not ship translations.
+      # Configured value: [en, vi]. Applies after API restart.
+      locales: [en, vi]
+      # Selectable lexical translation targets.
+      # Nonempty unique supported language identifiers; broader lists permit more targets.
+      # Configured value: [en, vi]. Applies after API restart.
+      translation_languages: [en, vi]
+    plans:
+      free:
+        # Monthly allowance for this subscription plan.
+        # Integer >= 0 in application accounting units per user/period; increasing grants more usage.
+        # Configured value: 1000000. Applies after API restart.
+        monthly_allowance_units: 1000000
+        # Feature grants for this subscription plan.
+        # Unique supported feature names; Free cannot grant advanced_grading.
+        # Configured value: [assistant]. Applies after API restart.
+        features: [assistant]
+      pro:
+        # Monthly allowance for this subscription plan.
+        # Integer >= 0 in application accounting units per user/period; increasing grants more usage.
+        # Configured value: 10000000. Applies after API restart.
+        monthly_allowance_units: 10000000
+        # Feature grants for this subscription plan.
+        # Unique supported feature names; Free cannot grant advanced_grading.
+        # Configured value: [assistant, advanced_grading]. Applies after API restart.
+        features: [assistant, advanced_grading]
+  study:
+    defaults:
+      # Default selected study question types.
+      # Nonempty unique supported types; affects default question selection.
+      # Configured value: [definition_to_word, context_to_word, cloze_to_word, word_to_definition, word_to_usage, dialogue_completion, meaning_in_context, sentence_rewrite]. Applies after API restart.
+      question_types: [definition_to_word, context_to_word, cloze_to_word, word_to_definition, word_to_usage, dialogue_completion, meaning_in_context, sentence_rewrite]
+      # Default selected study response formats.
+      # Nonempty supported formats; default must remain single_choice for Free.
+      # Configured value: [single_choice]. Applies after API restart.
+      formats: [single_choice]
+      # Default questions prepared for each sense.
+      # Positive count within study.limits; increasing increases session and generation work.
+      # Configured value: 2. Applies after API restart.
+      questions_per_sense: 2
+      # Sense count bound/default for a study preparation.
+      # Positive count, maximum supported limit 20; increasing increases preparation work.
+      # Configured value: 10. Applies after API restart.
+      max_sense_count: 10
+    limits:
+      # Minimum permitted questions for each selected sense.
+      # Positive count <= configured maximum; increasing restricts smaller sessions.
+      # Configured value: 1. Applies after API restart.
+      min_questions_per_sense: 1
+      # Maximum permitted questions for each selected sense.
+      # Integer 1..3; increasing permits more preparation work.
+      # Configured value: 3. Applies after API restart.
+      max_questions_per_sense: 3
+      # Maximum questions in one preparation.
+      # Integer 1..60; bounds sense-count multiplied by questions-per-sense.
+      # Configured value: 60. Applies after API restart.
+      max_questions_per_prepare: 60
+      # Sense count bound/default for a study preparation.
+      # Positive count, maximum supported limit 20; increasing increases preparation work.
+      # Configured value: 20. Applies after API restart.
+      max_sense_count: 20
+      # Maximum submitted free-text study answer length.
+      # Positive character count per answer; increasing permits larger provider inputs.
+      # Configured value: 8000. Applies after API restart.
+      max_answer_chars: 8000
+      # Maximum reviews accepted in one submission.
+      # Integer 1..60; increasing permits more transactional review work.
+      # Configured value: 60. Applies after API restart.
+      max_review_batch: 60
+      # Maximum nodes in one study summary request.
+      # Integer 1..50; increasing permits more aggregation work.
+      # Configured value: 50. Applies after API restart.
+      max_summary_nodes: 50
+      # Maximum activity report date window.
+      # Integer 1..366 days; increasing permits larger reports.
+      # Configured value: 366. Applies after API restart.
+      max_activity_days: 366
+      # Maximum schedule report date window.
+      # Integer 1..30 days; increasing permits larger forecasts.
+      # Configured value: 30. Applies after API restart.
+      max_schedule_days: 30
+    pair_levels:
+      definition_to_word:
+        # Minimum mastery level for definition_to_word with single_choice.
+        # Integer 1..5; higher values defer this pair until later mastery; only supported pairs are allowed.
+        # Configured value: 1. Applies after API restart.
+        single_choice: 1
+        # Minimum mastery level for definition_to_word with single_word.
+        # Integer 1..5; higher values defer this pair until later mastery; only supported pairs are allowed.
+        # Configured value: 3. Applies after API restart.
+        single_word: 3
+      context_to_word:
+        # Minimum mastery level for context_to_word with single_choice.
+        # Integer 1..5; higher values defer this pair until later mastery; only supported pairs are allowed.
+        # Configured value: 2. Applies after API restart.
+        single_choice: 2
+        # Minimum mastery level for context_to_word with single_word.
+        # Integer 1..5; higher values defer this pair until later mastery; only supported pairs are allowed.
+        # Configured value: 3. Applies after API restart.
+        single_word: 3
+      cloze_to_word:
+        # Minimum mastery level for cloze_to_word with single_choice.
+        # Integer 1..5; higher values defer this pair until later mastery; only supported pairs are allowed.
+        # Configured value: 2. Applies after API restart.
+        single_choice: 2
+        # Minimum mastery level for cloze_to_word with single_word.
+        # Integer 1..5; higher values defer this pair until later mastery; only supported pairs are allowed.
+        # Configured value: 3. Applies after API restart.
+        single_word: 3
+      word_to_definition:
+        # Minimum mastery level for word_to_definition with single_choice.
+        # Integer 1..5; higher values defer this pair until later mastery; only supported pairs are allowed.
+        # Configured value: 1. Applies after API restart.
+        single_choice: 1
+        # Minimum mastery level for word_to_definition with short_answer.
+        # Integer 1..5; higher values defer this pair until later mastery; only supported pairs are allowed.
+        # Configured value: 4. Applies after API restart.
+        short_answer: 4
+      word_to_usage:
+        # Minimum mastery level for word_to_usage with single_choice.
+        # Integer 1..5; higher values defer this pair until later mastery; only supported pairs are allowed.
+        # Configured value: 2. Applies after API restart.
+        single_choice: 2
+        # Minimum mastery level for word_to_usage with short_answer.
+        # Integer 1..5; higher values defer this pair until later mastery; only supported pairs are allowed.
+        # Configured value: 4. Applies after API restart.
+        short_answer: 4
+      dialogue_completion:
+        # Minimum mastery level for dialogue_completion with single_choice.
+        # Integer 1..5; higher values defer this pair until later mastery; only supported pairs are allowed.
+        # Configured value: 2. Applies after API restart.
+        single_choice: 2
+      meaning_in_context:
+        # Minimum mastery level for meaning_in_context with single_choice.
+        # Integer 1..5; higher values defer this pair until later mastery; only supported pairs are allowed.
+        # Configured value: 2. Applies after API restart.
+        single_choice: 2
+      sentence_rewrite:
+        # Minimum mastery level for sentence_rewrite with single_choice.
+        # Integer 1..5; higher values defer this pair until later mastery; only supported pairs are allowed.
+        # Configured value: 2. Applies after API restart.
+        single_choice: 2
+        # Minimum mastery level for sentence_rewrite with short_answer.
+        # Integer 1..5; higher values defer this pair until later mastery; only supported pairs are allowed.
+        # Configured value: 5. Applies after API restart.
+        short_answer: 5
+    mastery:
+      # Starting mastery Elo for previously unseen evidence.
+      # Finite Elo score; increasing changes initial mastery classification.
+      # Configured value: 600. Applies after API restart.
+      initial_elo: 600
+      # Mastery Elo update coefficient.
+      # Finite number > 0; higher values react more strongly to each result.
+      # Configured value: 32. Applies after API restart.
+      k_elo: 32
+      # Shared mastery evidence time horizon.
+      # Hours > 0; higher values spread the available evidence budget over a longer window.
+      # Configured value: 24. Applies after API restart.
+      horizon_hours: 24
+      # Increasing Elo cutoffs for mastery levels 2..5.
+      # Exactly four unique ordered scores; higher cutoffs make levels harder to reach.
+      # Configured value: [800, 1000, 1200, 1400]. Applies after API restart.
+      level_thresholds: [800, 1000, 1200, 1400]
+      # Question difficulty Elo for levels 1..5.
+      # Exactly five unique ordered scores; higher scores increase difficulty weighting.
+      # Configured value: [600, 800, 1000, 1200, 1400]. Applies after API restart.
+      opponent_elo: [600, 800, 1000, 1200, 1400]
+      # Version attached to mastery evidence policy.
+      # Positive integer; change deliberately when evidence interpretation changes.
+      # Configured value: 1. Applies after API restart.
+      policy_version: 1
+    fsrs:
+      # FSRS target recall probability.
+      # Number strictly between 0 and 1; higher targets generally require more frequent reviews.
+      # Configured value: 0.9. Applies after API restart.
+      desired_retention: 0.9
+      # Maximum FSRS review interval.
+      # Positive days; lower values cap long-term spacing sooner.
+      # Configured value: 365. Applies after API restart.
+      max_interval_days: 365
+      # Initial FSRS stability for new memory.
+      # Number > 0 in scheduler day units; higher values start with longer stability.
+      # Configured value: 1. Applies after API restart.
+      initial_stability: 1
+      # Initial FSRS difficulty for new memory.
+      # Number 1..10; higher values start with greater difficulty.
+      # Configured value: 5. Applies after API restart.
+      initial_difficulty: 5
+    artifacts:
+      # Requested correct answers per generated study artifact.
+      # Integer 1..20; increasing increases generated content and answer variation.
+      # Configured value: 1. Applies after API restart.
+      correct_count: 1
+      # Requested distractors per generated study artifact.
+      # Integer 3..20; increasing increases generated content and choice variation.
+      # Configured value: 3. Applies after API restart.
+      distractor_count: 3
   vocabulary:
-    model: openai/gpt-6.1-sol
-    timeout_seconds: 120
-    max_completion_tokens: 16384
-    max_retries: 2
-    structured_outputs: true
-    reasoning_effort: medium
-    temperature: null
-    decision_model: typesafe/jev-1.13
-library:
-  max_depth: 20
-  page_size: 50
-  max_senses_per_deck: 1000
-  max_children_per_folder: 500
-  max_owned_nodes: 2000
-  max_owned_memberships: 100000
-  max_scope_nodes: 10000
-  max_scope_memberships: 200000
-  statement_timeout_ms: 3000
-  scope_timeout_seconds: 5
-cache:
-  actor_ttl_seconds: 60
-projections:
-  max_page_size: 100
-  max_summary_memberships: 200000
-  max_word_ids: 30
-  max_word_senses: 500
-  max_context_senses: 100
-  inline_sources: 5
-  inline_examples: 2
-  max_query_chars: 200
-http:
-  max_body_bytes: 15000000
+    generation:
+      # Requested lexical examples per generated sense.
+      # Positive count; increasing increases provider output and stored content.
+      # Configured value: 5. Applies after API restart.
+      examples_per_sense: 5
+    search:
+      # Maximum supported search query length.
+      # Positive character count bounded by the owning search schema; higher values permit larger queries.
+      # Configured value: 256. Applies after API restart.
+      max_query_chars: 256
+      # Default lexical search result count.
+      # Integer 1..100; higher values increase response and ranking work.
+      # Configured value: 30. Applies after API restart.
+      default_limit: 30
+  assistant:
+    defaults:
+      # Selected provider model identifier.
+      # Nonblank provider/catalog identifier; changing it changes generation capability and cost.
+      # Configured value: openai/gpt-6-luna. Applies after API restart.
+      model: openai/gpt-6-luna
+      # Default assistant reasoning effort.
+      # Must be supported by the default catalog model; higher effort can increase latency/cost.
+      # Configured value: medium. Applies after API restart.
+      effort: medium
+    limits:
+      # Maximum assistant tool calls in one run.
+      # Positive count per run; higher values allow more work and cost.
+      # Configured value: 32. Applies after API restart.
+      max_tool_calls: 32
+      # Maximum user text in one assistant request.
+      # Positive character count per request; higher values permit larger model inputs.
+      # Configured value: 8000. Applies after API restart.
+      max_message_chars: 8000
+      # Assistant retained message context budget.
+      # Positive message count; higher values increase context size and cost.
+      # Configured value: 100. Applies after API restart.
+      max_context_messages: 100
+      # Maximum images in one assistant request.
+      # Positive count; higher values increase attachment/model work.
+      # Configured value: 4. Applies after API restart.
+      max_images: 4
+      # Maximum decoded bytes for each assistant image.
+      # Positive bytes per image; higher values increase memory and upload cost.
+      # Configured value: 10000000. Applies after API restart.
+      max_image_bytes: 10000000
+    models:
+      # Catalog entry 1; each rate below is an accounting input, not a live quote.
+      -
+        # Selectable assistant model identifier.
+        # Unique nonblank provider model ID; changes affect selection and persisted client preferences.
+        # Configured value: openai/gpt-6-luna. Applies after API restart.
+        id: openai/gpt-6-luna
+        # Human-readable assistant model name.
+        # Nonblank display text; changes affect the model picker label.
+        # Configured value: GPT-6 Luna. Applies after API restart.
+        name: GPT-6 Luna
+        # Whether this model accepts image input.
+        # Boolean; true enables images subject to request bounds.
+        # Configured value: true. Applies after API restart.
+        vision: true
+        # Reasoning efforts exposed for this model.
+        # Unique nonempty subset of low/medium/high; controls accepted client choices.
+        # Configured value: [low, medium, high]. Applies after API restart.
+        efforts: [low, medium, high]
+        # Provider output token ceiling.
+        # Positive tokens per operation within supported provider limits; higher values permit more output/cost.
+        # Configured value: 8192. Applies after API restart.
+        max_output_tokens: 8192
+        # Input token accounting rate for this model.
+        # Decimal units per token >= 0; higher values charge more allowance; cache-write null means unknown/unpriced.
+        # Configured value: '0.10'. Applies after API restart.
+        input_units_per_token: '0.10'
+        # Output token accounting rate for this model.
+        # Decimal units per token >= 0; higher values charge more allowance; cache-write null means unknown/unpriced.
+        # Configured value: '0.50'. Applies after API restart.
+        output_units_per_token: '0.50'
+        # Cached read token accounting rate for this model.
+        # Decimal units per token >= 0; higher values charge more allowance; cache-write null means unknown/unpriced.
+        # Configured value: '0.01'. Applies after API restart.
+        cached_read_units_per_token: '0.01'
+        # Cache write token accounting rate for this model.
+        # Decimal units per token >= 0; higher values charge more allowance; cache-write null means unknown/unpriced.
+        # Configured value: '0.125'. Applies after API restart.
+        cache_write_units_per_token: '0.125'
+      # Catalog entry 2; each rate below is an accounting input, not a live quote.
+      -
+        # Selectable assistant model identifier.
+        # Unique nonblank provider model ID; changes affect selection and persisted client preferences.
+        # Configured value: openai/gpt-6.1-sol. Applies after API restart.
+        id: openai/gpt-6.1-sol
+        # Human-readable assistant model name.
+        # Nonblank display text; changes affect the model picker label.
+        # Configured value: GPT-6.1 Sol. Applies after API restart.
+        name: GPT-6.1 Sol
+        # Whether this model accepts image input.
+        # Boolean; true enables images subject to request bounds.
+        # Configured value: true. Applies after API restart.
+        vision: true
+        # Reasoning efforts exposed for this model.
+        # Unique nonempty subset of low/medium/high; controls accepted client choices.
+        # Configured value: [low, medium, high]. Applies after API restart.
+        efforts: [low, medium, high]
+        # Provider output token ceiling.
+        # Positive tokens per operation within supported provider limits; higher values permit more output/cost.
+        # Configured value: 8192. Applies after API restart.
+        max_output_tokens: 8192
+        # Input token accounting rate for this model.
+        # Decimal units per token >= 0; higher values charge more allowance; cache-write null means unknown/unpriced.
+        # Configured value: '2.00'. Applies after API restart.
+        input_units_per_token: '2.00'
+        # Output token accounting rate for this model.
+        # Decimal units per token >= 0; higher values charge more allowance; cache-write null means unknown/unpriced.
+        # Configured value: '10.00'. Applies after API restart.
+        output_units_per_token: '10.00'
+        # Cached read token accounting rate for this model.
+        # Decimal units per token >= 0; higher values charge more allowance; cache-write null means unknown/unpriced.
+        # Configured value: '0.10'. Applies after API restart.
+        cached_read_units_per_token: '0.10'
+        # Cache write token accounting rate for this model.
+        # Decimal units per token >= 0; higher values charge more allowance; cache-write null means unknown/unpriced.
+        # Configured value: '2.50'. Applies after API restart.
+        cache_write_units_per_token: '2.50'
+      # Catalog entry 3; each rate below is an accounting input, not a live quote.
+      -
+        # Selectable assistant model identifier.
+        # Unique nonblank provider model ID; changes affect selection and persisted client preferences.
+        # Configured value: google/gemini-3.8-flash. Applies after API restart.
+        id: google/gemini-3.8-flash
+        # Human-readable assistant model name.
+        # Nonblank display text; changes affect the model picker label.
+        # Configured value: Gemini 3.8 Flash. Applies after API restart.
+        name: Gemini 3.8 Flash
+        # Whether this model accepts image input.
+        # Boolean; true enables images subject to request bounds.
+        # Configured value: true. Applies after API restart.
+        vision: true
+        # Reasoning efforts exposed for this model.
+        # Unique nonempty subset of low/medium/high; controls accepted client choices.
+        # Configured value: [low, medium, high]. Applies after API restart.
+        efforts: [low, medium, high]
+        # Provider output token ceiling.
+        # Positive tokens per operation within supported provider limits; higher values permit more output/cost.
+        # Configured value: 8192. Applies after API restart.
+        max_output_tokens: 8192
+        # Input token accounting rate for this model.
+        # Decimal units per token >= 0; higher values charge more allowance; cache-write null means unknown/unpriced.
+        # Configured value: '0.75'. Applies after API restart.
+        input_units_per_token: '0.75'
+        # Output token accounting rate for this model.
+        # Decimal units per token >= 0; higher values charge more allowance; cache-write null means unknown/unpriced.
+        # Configured value: '3.75'. Applies after API restart.
+        output_units_per_token: '3.75'
+        # Cached read token accounting rate for this model.
+        # Decimal units per token >= 0; higher values charge more allowance; cache-write null means unknown/unpriced.
+        # Configured value: '0.075'. Applies after API restart.
+        cached_read_units_per_token: '0.075'
+        # Cache write token accounting rate for this model.
+        # Decimal units per token >= 0; higher values charge more allowance; cache-write null means unknown/unpriced.
+        # Configured value: '0.0416666666666667'. Applies after API restart.
+        cache_write_units_per_token: '0.0416666666666667'
+  library:
+    quotas:
+      # Maximum supported library tree depth.
+      # Positive count; higher values permit deeper traversal work.
+      # Configured value: 20. Applies after API restart.
+      max_depth: 20
+      # Maximum memberships in one owned deck.
+      # Positive count; higher values increase deck capacity and work.
+      # Configured value: 1000. Applies after API restart.
+      max_senses_per_deck: 1000
+      # Maximum children in one folder.
+      # Positive count; higher values increase folder capacity and list work.
+      # Configured value: 500. Applies after API restart.
+      max_children_per_folder: 500
+      # Maximum nodes owned by one account.
+      # Positive count; higher values increase permitted storage.
+      # Configured value: 2000. Applies after API restart.
+      max_owned_nodes: 2000
+      # Maximum memberships owned by one account.
+      # Positive count; higher values increase permitted storage.
+      # Configured value: 100000. Applies after API restart.
+      max_owned_memberships: 100000
+      # Maximum nodes traversed for one library scope.
+      # Positive count; higher values permit larger SQL work.
+      # Configured value: 10000. Applies after API restart.
+      max_scope_nodes: 10000
+      # Maximum memberships traversed for one library scope.
+      # Positive count; higher values permit larger SQL work.
+      # Configured value: 200000. Applies after API restart.
+      max_scope_memberships: 200000
+    pagination:
+      # Default library/API list page size.
+      # Positive count <= product.projections.max_page_size; higher values return more rows.
+      # Configured value: 50. Applies after API restart.
+      page_size: 50
+  projections:
+    # Maximum API read page size.
+    # Integer 1..100; increasing permits larger result pages within the supported schema.
+    # Configured value: 100. Applies after API restart.
+    max_page_size: 100
+    # Membership bound for one summary projection.
+    # Positive count; increasing permits larger aggregation work.
+    # Configured value: 200000. Applies after API restart.
+    max_summary_memberships: 200000
+    # Maximum words in one preview/read projection.
+    # Integer 1..30; increasing permits larger reads.
+    # Configured value: 30. Applies after API restart.
+    max_word_ids: 30
+    # Maximum senses in a word batch projection.
+    # Integer 1..500; increasing permits larger reads.
+    # Configured value: 500. Applies after API restart.
+    max_word_senses: 500
+    # Maximum senses in one personal word context.
+    # Integer 1..100; query lookahead derives from this bound.
+    # Configured value: 100. Applies after API restart.
+    max_context_senses: 100
+    # Sources embedded in each sense preview.
+    # Integer 1..5; increasing grows response size.
+    # Configured value: 5. Applies after API restart.
+    inline_sources: 5
+    # Examples embedded in each applicable preview.
+    # Integer 1..2; increasing grows response/context size.
+    # Configured value: 2. Applies after API restart.
+    inline_examples: 2
+    # Maximum supported search query length.
+    # Positive character count bounded by the owning search schema; higher values permit larger queries.
+    # Configured value: 200. Applies after API restart.
+    max_query_chars: 200
+runtime:
+  caches:
+    user_id:
+      # Cached value lifetime since insertion/update.
+      # Positive seconds per API process; reads do not renew it; higher values reduce reads but retain stale values longer.
+      # Configured value: 60. Applies after API restart.
+      ttl_seconds: 60
+      # Maximum entries in this process-local cache.
+      # Positive count per API process, not bytes; higher values reduce eviction and increase memory; multiply by worker count.
+      # Configured value: 10000. Applies after API restart.
+      max_entries: 10000
+    words:
+      # Maximum residence of neutral Word metadata since insertion/update.
+      # Positive seconds per API process; reads do not renew it. 30 bounds stale
+      # metadata between processes. Higher values reduce SQL and retain stale
+      # Sense IDs longer; independent of Sense freshness. Restart to apply.
+      ttl_seconds: 30
+      # Maximum neutral Word metadata entries per API process, not a byte budget.
+      # Positive integer; 5000 accommodates the measured 4591 DONE Words. Higher
+      # values retain more metadata and reduce LRU eviction; multiply memory by
+      # worker count. This does not preload content. Restart to apply.
+      max_entries: 5000
+    senses:
+      # Maximum residence of a neutral Sense since insertion/update.
+      # Positive seconds per API process; reads do not renew it. 30 independently
+      # bounds stale Sense payloads between processes. Higher values reduce SQL
+      # and retain stale content longer. Restart to apply.
+      ttl_seconds: 30
+      # Maximum neutral Sense entries per API process, not a byte budget.
+      # Positive integer; 20000 accommodates the measured 19388 Senses. The full
+      # local DONE corpus with Word metadata measured about 60 MiB, not a hard
+      # bound. Higher values reduce LRU eviction and use more RAM; multiply by
+      # worker count. This does not preload content. Restart to apply.
+      max_entries: 20000
+    artifacts:
+      # Cached value lifetime since insertion/update.
+      # Positive seconds per API process; reads do not renew it; higher values reduce reads but retain stale values longer.
+      # Configured value: 30. Applies after API restart.
+      ttl_seconds: 30
+      # Maximum entries in this process-local cache.
+      # Positive count per API process, not bytes; higher values reduce eviction and increase memory; multiply by worker count.
+      # Configured value: 2048. Applies after API restart.
+      max_entries: 2048
+  generation:
+    # Concurrent running generation jobs.
+    # Positive count per API process; higher values increase provider/DB/memory demand.
+    # Configured value: 8. Applies after API restart.
+    active_jobs: 8
+    # Additional queued generation jobs.
+    # Integer >= 0 per process; higher values permit longer queues; jobs are not durable.
+    # Configured value: 16. Applies after API restart.
+    pending_jobs: 16
+    # Deadline for the owning operation.
+    # Positive seconds including waits/retries where applicable; higher values retain resources longer.
+    # Configured value: 600. Applies after API restart.
+    timeout_seconds: 600
+    # Redis generation status retention after each write.
+    # Positive seconds; 86400 is one day, independent of read-cache TTL.
+    # Configured value: 86400. Applies after API restart.
+    status_retention_seconds: 86400
+    # Maximum assistant wait for generation jobs.
+    # Positive seconds; effective wait is min(value, generation timeout).
+    # Configured value: 30. Applies after API restart.
+    tool_wait_seconds: 30
+    # Senses sent in each enrichment operation.
+    # Integer 1..8, bounded by provider schema; higher values grow provider input/output.
+    # Configured value: 8. Applies after API restart.
+    enrichment_batch_size: 8
+    # Study artifacts requested per generation batch.
+    # Integer 1..20; higher values grow provider requests.
+    # Configured value: 8. Applies after API restart.
+    artifact_batch_size: 8
+  assistant:
+    # Assistant model request deadline.
+    # Positive seconds; higher values allow slower providers but longer resource occupancy.
+    # Configured value: 180. Applies after API restart.
+    llm_timeout_seconds: 180
+    # Renewable conversation lease duration.
+    # Positive seconds; renewal interval is TTL/3; higher values delay crash recovery.
+    # Configured value: 30. Applies after API restart.
+    lease_ttl_seconds: 30
+    # Maximum admitted assistant starts.
+    # Positive count per user per fixed minute; higher values permit more burst/load.
+    # Configured value: 20. Applies after API restart.
+    starts_per_minute: 20
+  providers:
+    vocabulary:
+      # Selected provider model identifier.
+      # Nonblank provider/catalog identifier; changing it changes generation capability and cost.
+      # Configured value: openai/gpt-6.1-sol. Applies after API restart.
+      model: openai/gpt-6.1-sol
+      # Deadline for the owning operation.
+      # Positive seconds including waits/retries where applicable; higher values retain resources longer.
+      # Configured value: 120. Applies after API restart.
+      timeout_seconds: 120
+      # Structured provider completion ceiling.
+      # Integer 1..32768 tokens; higher values permit larger structured outputs and cost.
+      # Configured value: 16384. Applies after API restart.
+      max_completion_tokens: 16384
+      # Additional provider attempts after the first.
+      # Integer >= 0 per operation; SDK retries are disabled to avoid duplicate retry engines.
+      # Configured value: 2. Applies after API restart.
+      max_retries: 2
+      # Use provider-native structured response mode.
+      # Boolean; changing it affects provider schema enforcement.
+      # Configured value: true. Applies after API restart.
+      structured_outputs: true
+      # Structured provider reasoning effort.
+      # Supported effort string or null for provider default; higher effort may increase latency/cost.
+      # Configured value: medium. Applies after API restart.
+      reasoning_effort: medium
+      # Structured provider sampling temperature.
+      # Number 0..2 or null for provider default; higher values increase variation.
+      # Configured value: null. Applies after API restart.
+      temperature: null
+      # Model used for grading Decisions requests.
+      # Full vendor-prefixed identifier; changing it affects grading capability/cost.
+      # Configured value: typesafe/jev-1.13. Applies after API restart.
+      decision_model: typesafe/jev-1.13
+      # Exponential retry backoff multiplier.
+      # Positive seconds; higher values delay early retries; cannot exceed retry_max_seconds.
+      # Configured value: 0.5. Applies after API restart.
+      retry_min_seconds: 0.5
+      # Maximum retry backoff delay.
+      # Positive seconds >= multiplier; higher values delay later retries within operation deadline.
+      # Configured value: 8. Applies after API restart.
+      retry_max_seconds: 8
+  database:
+    application_pool:
+      # Persistent application database connections.
+      # Positive count per process; multiply by workers and add overflow/checkpoint budgets.
+      # Configured value: 5. Applies after API restart.
+      size: 5
+      # Additional temporary application connections.
+      # Integer >= 0 per process; higher values permit larger database bursts.
+      # Configured value: 0. Applies after API restart.
+      max_overflow: 0
+      # Maximum wait for an available application pool connection.
+      # Positive seconds; excludes SQL execution and new-connection establishment.
+      # Configured value: 2. Applies after API restart.
+      timeout_seconds: 2
+    checkpoint_pool:
+      # Minimum native checkpoint pool connections.
+      # Integer >= 0 per process and <= max_size; higher values reserve more idle connections.
+      # Configured value: 1. Applies after API restart.
+      min_size: 1
+      # Maximum native checkpoint pool connections.
+      # Positive count per process and >= min_size; add to application pool budget.
+      # Configured value: 3. Applies after API restart.
+      max_size: 3
+  redis:
+    # Redis connection establishment deadline.
+    # Positive seconds per connection attempt; higher values tolerate slower connections.
+    # Configured value: 5. Applies after API restart.
+    connect_timeout_seconds: 5
+    # Redis socket operation deadline.
+    # Positive seconds per operation; higher values delay required failures and optional cache fallback.
+    # Configured value: 5. Applies after API restart.
+    operation_timeout_seconds: 5
+  identity:
+    # Clerk profile HTTP request deadline.
+    # Positive seconds per lookup; higher values delay provisioning failure.
+    # Configured value: 15. Applies after API restart.
+    profile_timeout_seconds: 15
+    # JWT signing-key HTTP lookup deadline.
+    # Positive seconds; higher values delay identity verification failure.
+    # Configured value: 30. Applies after API restart.
+    jwks_timeout_seconds: 30
+    # JWKS set cache freshness window.
+    # Positive seconds per API process; higher values reduce key fetches but delay refresh.
+    # Configured value: 300. Applies after API restart.
+    jwks_lifespan_seconds: 300
+  search:
+    # Rows loaded in each search rebuild page.
+    # Positive count per index owner; higher values increase snapshot batch memory.
+    # Configured value: 2000. Applies after API restart.
+    rebuild_batch_size: 2000
+    # Tantivy writer memory allocation.
+    # Integer >= 15000000 bytes per index owner; higher values allow larger native buffers.
+    # Configured value: 15000000. Applies after API restart.
+    writer_heap_bytes: 15000000
+    # Tantivy indexing threads.
+    # Positive count per index owner; higher values increase CPU/parallel native work.
+    # Configured value: 1. Applies after API restart.
+    writer_threads: 1
+    # Revision owner polling interval.
+    # Positive seconds, initially 2; lower values reduce normal visibility lag and increase DB polls.
+    # Configured value: 2. Applies after API restart.
+    poll_interval_seconds: 2
+    # Standby writer acquisition retry interval.
+    # Positive seconds, initially 2; lower values reduce takeover latency and increase lock attempts.
+    # Configured value: 2. Applies after API restart.
+    ownership_retry_seconds: 2
+    # Maximum random delay added to owner/retry waits.
+    # Seconds >= 0; higher values spread simultaneous workers but delay acquisition.
+    # Configured value: 0.2. Applies after API restart.
+    retry_jitter_seconds: 0.2
+    # Maximum revisions scanned per incremental batch.
+    # Positive count, initially 100; higher values increase batch work and catch-up throughput.
+    # Configured value: 100. Applies after API restart.
+    revision_batch_size: 100
+    # Local search publication receipt deadline.
+    # Positive seconds without holding a DB connection; timeout does not roll back committed content.
+    # Configured value: 30. Applies after API restart.
+    publication_timeout_seconds: 30
+    # Search bootstrap/catch-up startup deadline.
+    # Positive seconds; 300 allows five minutes for local bootstrap, to calibrate against dataset size.
+    # Configured value: 300. Applies after API restart.
+    startup_timeout_seconds: 300
+    # Maximum sustained reconciliation failure/pending progress interval.
+    # Positive seconds, initially 30; idle fully caught-up indexes are healthy.
+    # Configured value: 30. Applies after API restart.
+    progress_timeout_seconds: 30
+  library:
+    # Library SQL statement deadline.
+    # Positive milliseconds per scoped transaction; higher values permit longer database work.
+    # Configured value: 3000. Applies after API restart.
+    statement_timeout_ms: 3000
+    # Overall library scope computation budget.
+    # Positive seconds per operation; higher values permit longer traversals.
+    # Configured value: 5. Applies after API restart.
+    scope_timeout_seconds: 5
+  http:
+    # Streamed request body ceiling.
+    # Positive bytes per request; keep ingress cap aligned and reject at both boundaries.
+    # Configured value: 15000000. Applies after API restart.
+    max_body_bytes: 15000000
+    # Shared HTTP client default request timeout.
+    # Positive seconds; explicit provider/profile overrides retain their own budgets.
+    # Configured value: 5. Applies after API restart.
+    client_timeout_seconds: 5
+  health:
+    # Deadline for the owning operation.
+    # Positive seconds including waits/retries where applicable; higher values retain resources longer.
+    # Configured value: 2. Applies after API restart.
+    timeout_seconds: 2
+    # Readiness Redis ping deadline.
+    # Positive seconds inside the overall readiness budget; higher values delay unhealthy responses.
+    # Configured value: 0.25. Applies after API restart.
+    redis_timeout_seconds: 0.25
+  lifecycle:
+    # Overall owned-resource cleanup deadline.
+    # Positive seconds per shutdown; fit inside server/container drain budgets and join tasks before DB close.
+    # Configured value: 40. Applies after API restart.
+    cleanup_timeout_seconds: 40

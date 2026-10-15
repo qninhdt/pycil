@@ -95,7 +95,7 @@ async def test_native_stream_emits_text_or_interrupt_persists_state_and_settles_
     config = load_config()
     async with checkpoint_pool(database.url) as pool:
         resources = SimpleNamespace(sessions=database.sessions, redis=redis, checkpoint_pool=pool)
-        async with prepare_turn(resources, None, user, request(identifier), config) as iterator:
+        async with prepare_turn(resources, None, user.id, request(identifier), config) as iterator:
             encoded = [part async for part in iterator]
         events = [
             json.loads(line.removeprefix("data: "))
@@ -105,13 +105,13 @@ async def test_native_stream_emits_text_or_interrupt_persists_state_and_settles_
         ]
         assert events[0]["type"] == "RUN_STARTED"
         assert events[-1]["type"] == "RUN_FINISHED"
-        snapshot = await agents.graph(resources, user, config, provider).aget_state(
+        snapshot = await agents.graph(resources, user.id, config, provider).aget_state(
             {"configurable": {"thread_id": str(identifier)}}
         )
         if mutation:
             assert any(task.interrupts for task in snapshot.tasks)
             with pytest.raises(Problem) as error:
-                async with prepare_turn(resources, None, user, request(identifier), config):
+                async with prepare_turn(resources, None, user.id, request(identifier), config):
                     pytest.fail("new turn bypassed pending approval")
             assert error.value.code == "approval_pending"
         else:
@@ -167,7 +167,9 @@ async def test_provider_failure_or_disconnect_closes_stream_and_settles_once(
         resources = SimpleNamespace(sessions=database.sessions, redis=redis, checkpoint_pool=pool)
 
         async def consume():
-            async with prepare_turn(resources, None, user, request(identifier), config) as iterator:
+            async with prepare_turn(
+                resources, None, user.id, request(identifier), config
+            ) as iterator:
                 async for part in iterator:
                     encoded.append(part)
 
@@ -244,7 +246,7 @@ async def test_current_view_rechecks_access_escapes_context_and_never_persists_i
             identifier,
             forwarded_props={"current_view": {"path": "/library", "node_id": str(deck["id"])}},
         )
-        async with prepare_turn(resources, None, user, data, config) as iterator:
+        async with prepare_turn(resources, None, user.id, data, config) as iterator:
             encoded = [part async for part in iterator]
         assert any('"RUN_FINISHED"' in part for part in encoded)
         context = next(
@@ -258,7 +260,7 @@ async def test_current_view_rechecks_access_escapes_context_and_never_persists_i
             assert '"unavailable":true' in context
         else:
             assert "\\u003c/context\\u003e\\u003cinjected\\u003e" in context
-        state = await agents.graph(resources, user, config, provider).aget_state(
+        state = await agents.graph(resources, user.id, config, provider).aget_state(
             {"configurable": {"thread_id": str(identifier)}}
         )
         assert [message.type for message in state.values["messages"]] == ["human", "ai"]
@@ -301,9 +303,9 @@ async def test_invalid_resume_keeps_approval_pending_and_rejection_does_not_char
     config = load_config()
     async with checkpoint_pool(database.url) as pool:
         resources = SimpleNamespace(sessions=database.sessions, redis=redis, checkpoint_pool=pool)
-        async with prepare_turn(resources, None, user, request(identifier), config) as iterator:
+        async with prepare_turn(resources, None, user.id, request(identifier), config) as iterator:
             _ = [part async for part in iterator]
-        agent = agents.graph(resources, user, config, provider)
+        agent = agents.graph(resources, user.id, config, provider)
         thread = {"configurable": {"thread_id": str(identifier)}}
         state = await agent.aget_state(thread)
         pending = next(interrupt for task in state.tasks for interrupt in task.interrupts)
@@ -323,7 +325,11 @@ async def test_invalid_resume_keeps_approval_pending_and_rejection_does_not_char
         ]:
             with pytest.raises(Problem) as error:
                 async with prepare_turn(
-                    resources, None, user, request(identifier, messages=[], resume=[entry]), config
+                    resources,
+                    None,
+                    user.id,
+                    request(identifier, messages=[], resume=[entry]),
+                    config,
                 ):
                     pytest.fail("invalid approval must not start a stream")
             assert error.value.code == code
@@ -331,11 +337,11 @@ async def test_invalid_resume_keeps_approval_pending_and_rejection_does_not_char
         async with database.sessions() as session, session.begin():
             (await session.get(User, user.id)).settings = {"assistant": {"auto_approve": True}}
         with pytest.raises(Problem) as error:
-            async with prepare_turn(resources, None, user, request(identifier), config):
+            async with prepare_turn(resources, None, user.id, request(identifier), config):
                 pytest.fail("enabling auto-approve must not execute an existing interrupt")
         assert error.value.code == "approval_pending"
         async with prepare_turn(
-            resources, None, user, request(identifier, messages=[], resume=[valid]), config
+            resources, None, user.id, request(identifier, messages=[], resume=[valid]), config
         ) as iterator:
             encoded = [part async for part in iterator]
         assert any('"RUN_FINISHED"' in part for part in encoded)
@@ -366,14 +372,22 @@ async def test_rate_limit_rejects_second_turn_and_releases_lease_without_extra_s
     redis, _ = redis_store
     config = load_config()
     config = config.model_copy(
-        update={"assistant": config.assistant.model_copy(update={"starts_per_minute": 1})}
+        update={
+            "runtime": config.runtime.model_copy(
+                update={
+                    "assistant": config.runtime.assistant.model_copy(
+                        update={"starts_per_minute": 1}
+                    )
+                }
+            )
+        }
     )
     async with checkpoint_pool(database.url) as pool:
         resources = SimpleNamespace(sessions=database.sessions, redis=redis, checkpoint_pool=pool)
-        async with prepare_turn(resources, None, user, request(identifier), config) as iterator:
+        async with prepare_turn(resources, None, user.id, request(identifier), config) as iterator:
             _ = [part async for part in iterator]
         with pytest.raises(Problem) as error:
-            async with prepare_turn(resources, None, user, request(identifier), config):
+            async with prepare_turn(resources, None, user.id, request(identifier), config):
                 pytest.fail("minute limit must reject additional turns")
         assert error.value.status == 429 and error.value.code == "assistant_start_limit"
         assert not await redis.exists(f"pycil:conversation:{identifier}")
@@ -394,7 +408,19 @@ async def test_auto_approve_rechecks_saved_setting_and_still_enforces_node_quota
     config = load_config()
     if limit is not None:
         config = config.model_copy(
-            update={"library": config.library.model_copy(update={"max_owned_nodes": limit})}
+            update={
+                "product": config.product.model_copy(
+                    update={
+                        "library": config.product.library.model_copy(
+                            update={
+                                "quotas": config.product.library.quotas.model_copy(
+                                    update={"max_owned_nodes": limit}
+                                )
+                            }
+                        )
+                    }
+                )
+            }
         )
     provider = Provider(
         messages=iter(
@@ -428,11 +454,11 @@ async def test_auto_approve_rechecks_saved_setting_and_still_enforces_node_quota
     async with checkpoint_pool(database.url) as pool:
         resources = SimpleNamespace(sessions=database.sessions, redis=redis, checkpoint_pool=pool)
         async with prepare_turn(
-            resources, None, user, request(conversation_id), config
+            resources, None, user.id, request(conversation_id), config
         ) as iterator:
             encoded = [part async for part in iterator]
         assert any('"RUN_FINISHED"' in part for part in encoded)
-        state = await agents.graph(resources, user, config, provider).aget_state(
+        state = await agents.graph(resources, user.id, config, provider).aget_state(
             {"configurable": {"thread_id": str(conversation_id)}}
         )
         assert not any(task.interrupts for task in state.tasks)

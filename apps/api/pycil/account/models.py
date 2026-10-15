@@ -31,7 +31,7 @@ class User(Base):
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
-    clerk_subject: Mapped[str] = mapped_column(String(255), unique=True)
+    clerk_id: Mapped[str] = mapped_column(String(255), unique=True)
     display_name: Mapped[str | None] = mapped_column(String(255))
     handle: Mapped[str | None] = mapped_column(String(30), unique=True)
     bio: Mapped[str | None] = mapped_column(String(500))
