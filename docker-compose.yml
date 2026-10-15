@@ -74,12 +74,12 @@ services:
         condition: service_healthy
     volumes:
       - type: bind
-        source: ./data/reference.jsonl
-        target: /app/data/reference.jsonl
+        source: ./data/reference.jsonl.gz
+        target: /app/data/reference.jsonl.gz
         read_only: true
         bind:
           create_host_path: false
-    command: ["python", "-m", "pycil.app.migrate", "--reference", "/app/data/reference.jsonl"]
+    command: ["python", "-m", "pycil.app.migrate", "--reference", "/app/data/reference.jsonl.gz"]
     restart: "no"
 
   api:

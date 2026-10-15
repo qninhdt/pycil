@@ -15,7 +15,7 @@ From `apps/api`, using an explicitly selected environment:
 
 ```sh
 uv run --locked --env-file /absolute/path/to/approved.env python -m pycil.app.migrate \
-  --reference /absolute/path/to/reference.jsonl
+  --reference /absolute/path/to/reference.jsonl.gz
 ```
 
 `DB_URL` must be a PostgreSQL async URL. `--database-url` can explicitly select the target
@@ -44,7 +44,7 @@ Manual generated-content imports require the same paused baseline procedure befo
 
 Content-history downgrade is deliberately refused because dropping history loses replay data.
 Restore a compatible release/backup through an explicit recovery decision instead. Do not prune
-the revision chain on a timer. A resumed baseline is safe after interruption.
+the revision chain on a timer. A resumed baseline is safe after a failed finite setup deadline.
 
 Search schema v3 uses its own derived directory, separate from cache payload versions and
 required Redis coordination namespaces. For reference replacement or older-DB restore,
@@ -54,9 +54,29 @@ ahead of the restored database is rejected. No user/content/history tables are r
 procedure; old schema directories are not automatically deleted. Backups/restores and deploy
 commands remain operator actions, not API startup behavior.
 
+## Serialization and deadlines
+
+The setup command acquires a session advisory lock for `pycil:migration` in the target
+database before running Alembic. A dedicated connection named `pycil-migrate-lock` holds
+ownership through native checkpoint setup, optional reference import and verification.
+Concurrent setup commands wait at most 60 seconds, then fail with a sanitized
+`migration_lock_timeout` event and exit 1. Closing the connection releases ownership on
+success or failure; PostgreSQL also releases it when the session ends after a process crash.
+Direct SQL or tools that do not acquire this lock are outside this coordination contract.
+
+Lock, Alembic and native checkpoint connections have five-second connect timeouts.
+Alembic and native setup SQL wait at most five seconds for a lock and have a 120-second
+per-statement timeout. The combined native checkpoint/import/verification stage has a
+cooperative 600-second asyncio deadline. These are stage/query limits, not a hard deadline
+for the entire command; deployment runners still need their own finite task timeout.
+Normal application pool settings are separate from these migration budgets.
+
+Logs record `migration_lock_waiting`, `migration_lock_acquired` and `migration_completed`.
+Completion does not mean the API has passed startup or a business smoke check.
+
 ## Reference artifact
 
-[reference.jsonl](../../../data/reference.jsonl) contains one retained word and its
+[reference.jsonl.gz](../../../data/reference.jsonl.gz) contains one retained word and its
 ordered senses per line. [Its manifest](../../../data/reference.manifest.json) records
 counts and checksum. Imported identities are retained for sense citations; unused source
 fields are excluded. Runtime reads use `reference_words` and `reference_senses`.
@@ -80,4 +100,5 @@ needed. This consolidation has not reset or migrated a production database.
 - [Setup command](../../../apps/api/pycil/app/migrate.py)
 - [Migration environment](../../../apps/api/migrations/env.py)
 - [Schema comparison](../../../apps/api/tests/integration/infrastructure/test_schema.py)
+- [Migration ownership, deadlines and recovery](../../../apps/api/tests/integration/infrastructure/test_migrations.py)
 - [Reference import tests](../../../apps/api/tests/integration/vocabulary/test_reference_import.py)

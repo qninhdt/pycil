@@ -7,11 +7,18 @@ from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
+from psycopg import Connection
+from psycopg.errors import LockNotAvailable
 
-from pycil.assistant.checkpoints import setup_checkpoints
+from pycil.assistant.checkpoints import checkpoint_dsn, setup_checkpoints
 from pycil.infrastructure.database import connect, verify_schema
 from pycil.infrastructure.observability import configure_logging, get_logger
 from pycil.vocabulary.references.importer import import_reference
+
+logger = get_logger(__name__)
+MIGRATION_LOCK_KEY = "pycil:migration"
+LOCK_WAIT_SECONDS = 60
+SETUP_TIMEOUT_SECONDS = 600
 
 
 def migration_config(url: str) -> Config:
@@ -23,23 +30,45 @@ def migration_config(url: str) -> Config:
 def migrate(url: str, *, reference_path: Path | None = None, baseline_content: bool = False):
     if not url.startswith("postgresql+asyncpg://"):
         raise ValueError("Explicit PostgreSQL application URL required")
-    command.upgrade(migration_config(url), "head")
 
     async def finish():
-        await setup_checkpoints(url)
-        engine, sessions = connect(url)
+        async with asyncio.timeout(SETUP_TIMEOUT_SECONDS):
+            await setup_checkpoints(url)
+            engine, sessions = connect(url)
+            try:
+                if reference_path is not None:
+                    await import_reference(sessions, reference_path)
+                if baseline_content:
+                    from pycil.infrastructure.content_revisions import baseline
+
+                    await baseline(sessions)
+                await verify_schema(engine, require_reference=reference_path is not None)
+            finally:
+                await engine.dispose()
+
+    # A dedicated session keeps ownership across DDL and native autocommit boundaries.
+    with Connection.connect(
+        checkpoint_dsn(url),
+        autocommit=True,
+        connect_timeout=5,
+        application_name="pycil-migrate-lock",
+        options=(
+            f"-c lock_timeout={LOCK_WAIT_SECONDS}s "
+            f"-c statement_timeout={LOCK_WAIT_SECONDS + 5}s -c idle_session_timeout=0"
+        ),
+    ) as ownership:
+        logger.info("migration_lock_waiting")
         try:
-            if reference_path is not None:
-                await import_reference(sessions, reference_path)
-            if baseline_content:
-                from pycil.infrastructure.content_revisions import baseline
-
-                await baseline(sessions)
-            await verify_schema(engine, require_reference=reference_path is not None)
-        finally:
-            await engine.dispose()
-
-    asyncio.run(finish())
+            ownership.execute(
+                "SELECT pg_advisory_lock(hashtextextended(%s, 0))", (MIGRATION_LOCK_KEY,)
+            )
+        except LockNotAvailable:
+            logger.error("migration_lock_timeout")
+            raise TimeoutError("Migration ownership wait timed out") from None
+        logger.info("migration_lock_acquired")
+        command.upgrade(migration_config(url), "head")
+        asyncio.run(finish())
+        logger.info("migration_completed")
 
 
 def main():

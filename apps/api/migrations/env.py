@@ -47,7 +47,14 @@ async def run():
         url,
         poolclass=pool.NullPool,
         hide_parameters=True,
-        connect_args={"server_settings": {"search_path": "public"}},
+        connect_args={
+            "timeout": 5,
+            "server_settings": {
+                "search_path": "public",
+                "lock_timeout": "5s",
+                "statement_timeout": "120s",
+            },
+        },
     )
     try:
         async with engine.begin() as connection:

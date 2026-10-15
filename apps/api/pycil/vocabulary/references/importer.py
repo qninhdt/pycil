@@ -1,8 +1,10 @@
+import gzip
 from hashlib import sha256
 from pathlib import Path
 from time import perf_counter
+from typing import Any, cast
 
-from sqlalchemy import select
+from sqlalchemy import CursorResult, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -19,15 +21,21 @@ async def _insert_identical(
     rows: list[dict[str, object]],
 ) -> None:
     table = model.__table__
-    await session.execute(insert(model).values(rows).on_conflict_do_nothing(index_elements=["id"]))
-    stored = {
-        row["id"]: dict(row)
-        for row in (
-            await session.execute(select(table).where(table.c.id.in_([row["id"] for row in rows])))
-        ).mappings()
-    }
-    if any(stored.get(row["id"]) != row for row in rows):
-        raise ValueError("reference identity conflicts with existing content")
+    result = await session.execute(
+        insert(model).values(rows).on_conflict_do_nothing(index_elements=["id"])
+    )
+    cursor_result = cast(CursorResult[Any], result)
+    if cursor_result.rowcount < len(rows):
+        stored = {
+            row["id"]: dict(row)
+            for row in (
+                await session.execute(
+                    select(table).where(table.c.id.in_([row["id"] for row in rows]))
+                )
+            ).mappings()
+        }
+        if any(stored.get(row["id"]) != row for row in rows):
+            raise ValueError("reference identity conflicts with existing content")
 
 
 async def import_reference(
@@ -52,7 +60,8 @@ async def import_reference(
     try:
         async with sessions() as session, session.begin():
             await transaction_lock(session, "reference_import")
-            with path.open("rb") as source:
+            stream = gzip.open(path, "rb") if path.suffix == ".gz" else path.open("rb")
+            with stream as source:
                 for number, line in enumerate(source, 1):
                     digest.update(line)
                     if not line.strip():

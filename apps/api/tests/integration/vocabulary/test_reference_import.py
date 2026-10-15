@@ -1,3 +1,5 @@
+import gzip
+
 import pytest
 from sqlalchemy import func, select
 
@@ -62,3 +64,18 @@ async def test_empty_reference_artifact_is_rejected(database, tmp_path):
     path = reference_file(tmp_path / "reference.jsonl", [])
     with pytest.raises(ValueError):
         await import_reference(database.sessions, path)
+
+
+async def test_import_gzip_compressed_artifact(database, tmp_path):
+    raw_path = reference_file(tmp_path / "reference.jsonl", [reference_word()])
+    gz_path = tmp_path / "reference.jsonl.gz"
+    with raw_path.open("rb") as src, gzip.open(gz_path, "wb") as dst:
+        dst.write(src.read())
+    first = await import_reference(database.sessions, gz_path)
+    assert first["words"] == first["senses"] == 1
+    assert await import_reference(database.sessions, gz_path) == first
+    async with database.sessions() as session:
+        word = await session.get(ReferenceWord, 1)
+        sense = await session.get(ReferenceSense, 101)
+        assert word is not None and sense is not None
+        assert word.lemma == "bank"

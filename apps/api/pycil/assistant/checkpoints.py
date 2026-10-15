@@ -56,6 +56,7 @@ async def checkpoint_connection(
     connection = await AsyncConnection[DictRow].connect(
         checkpoint_dsn(url),
         autocommit=True,
+        connect_timeout=5,
         prepare_threshold=0,
         row_factory=dict_row,
         options="-c search_path=public",
@@ -68,4 +69,6 @@ async def setup_checkpoints(url: str) -> None:
     # Native setup uses autocommit (including CREATE INDEX CONCURRENTLY).
     # No DDL or local substitute checkpoint tables appear in Pycil's Alembic history.
     async with checkpoint_connection(url) as connection:
+        await connection.execute("SET lock_timeout = '5s'")
+        await connection.execute("SET statement_timeout = '120s'")
         await AsyncPostgresSaver(connection).setup()

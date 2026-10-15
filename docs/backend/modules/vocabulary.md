@@ -7,7 +7,7 @@ translation and Tantivy search. Study owns question banks and grading. HTTP adap
 and assistant tools call these application functions directly. There is no external
 library facade, duplicate ORM base or separately deployed vocabulary service.
 
-The required immutable reference is imported from `data/reference.jsonl` into two
+The required immutable reference is imported from `data/reference.jsonl.gz` into two
 PostgreSQL tables. API runtime reads those rows; it does not open distribution artifacts.
 WordNet is optional local evidence. Generated content is optional and imported manually
 as PostgreSQL data; setup does not ship or automatically load a generated-content seed.

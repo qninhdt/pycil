@@ -53,8 +53,6 @@ jobs:
       DECISION_BASE_URL: ${{ secrets.DECISION_BASE_URL }}
     steps:
       - uses: actions/checkout@v7.0.1
-        with:
-          lfs: true
       - uses: actions/setup-node@v7.1.0
         with:
           node-version: "24.21.0"

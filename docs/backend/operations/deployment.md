@@ -20,7 +20,7 @@ WordNet is optional. There is no separate vocabulary package or service.
 ## Compose topology
 
 [Compose](../../../docker-compose.yml) runs PostgreSQL, Redis, an explicit one-shot
-migration service, API and Caddy. Migration imports `data/reference.jsonl` through a
+migration service, API and Caddy. Migration imports `data/reference.jsonl.gz` through a
 read-only bind mount, applies the application baseline and runs native checkpoint setup.
 The API waits for stores and migration success. It neither migrates nor imports on startup.
 

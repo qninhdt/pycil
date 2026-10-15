@@ -2,19 +2,11 @@
 
 ## Prerequisites
 
-Python 3.14, uv, Git LFS, PostgreSQL 18, Redis, and Docker for Testcontainers or the Compose
+Python 3.14, uv, PostgreSQL 18, Redis, and Docker for Testcontainers or the Compose
 workflow. Use committed dependency locks. A complete runtime also requires Clerk and
 model provider configuration. Tests never call paid providers.
 
 ## Install and configure
-
-The reference artifact is tracked with Git LFS. From the repository root, download
-its full contents before database setup or E2E testing:
-
-```sh
-git lfs install
-git lfs pull
-```
 
 From `apps/api`:
 
@@ -32,7 +24,7 @@ See [configuration](configuration.md).
 From `apps/api`, with the intended stores already running:
 
 ```sh
-uv run --locked --env-file /absolute/path/to/development.env python -m pycil.app.migrate --reference ../../data/reference.jsonl
+uv run --locked --env-file /absolute/path/to/development.env python -m pycil.app.migrate --reference ../../data/reference.jsonl.gz
 ```
 
 This applies the single application baseline, sets up native checkpoints in `public`,
@@ -60,7 +52,7 @@ python scripts/compose.py --env-file /absolute/path/to/development.env config -q
 python scripts/compose.py --env-file /absolute/path/to/development.env up --build --remove-orphans
 ```
 
-Compose mounts `data/reference.jsonl` read-only into its one-shot migration service.
+Compose mounts `data/reference.jsonl.gz` read-only into its one-shot migration service.
 The API reads reference rows from PostgreSQL and has no artifact mount. The wrapper
 derives store addresses; use it instead of raw Compose. This workflow writes the selected
 database. Review its target before running it.
