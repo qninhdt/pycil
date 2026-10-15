@@ -35,6 +35,12 @@ class WordSearch(Strict):
     include: list[VocabularyInclude] = Field(default_factory=list[VocabularyInclude])
 
 
+class WordGeneration(Strict):
+    reference_ids: list[Annotated[str, StringConstraints(min_length=1, max_length=64)]] = Field(
+        min_length=1, max_length=10
+    )
+
+
 class VocabularyRead(Strict):
     word_ids: list[PositiveID] = Field(default_factory=list[PositiveID], max_length=30)
     sense_ids: list[PositiveID] = Field(default_factory=list[PositiveID], max_length=100)

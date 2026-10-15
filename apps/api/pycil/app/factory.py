@@ -8,9 +8,11 @@ from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy import text
 from starlette.exceptions import HTTPException
+from taskiq.middlewares.opentelemetry_middleware import OpenTelemetryMiddleware
 
 from pycil.account.api import public_router
 from pycil.account.api import router as account_router
+from pycil.app.broker import create_broker
 from pycil.app.config import load_config
 from pycil.app.http import (
     HttpTelemetry,
@@ -22,11 +24,12 @@ from pycil.app.http import (
     problem_response,
     validation_response,
 )
-from pycil.app.resources import process_resources
-from pycil.app.settings import Deployment
+from pycil.app.resources import api_resources
+from pycil.app.settings import ApiSettings
 from pycil.assistant.api import router as assistant_router
 from pycil.infrastructure.clerk import Identity
 from pycil.infrastructure.observability import configure_logging, get_logger
+from pycil.jobs.api import router as jobs_router
 from pycil.library.api import router as library_router
 from pycil.library.search import router as discovery_router
 from pycil.study.api import router as study_router
@@ -42,8 +45,8 @@ def create_app() -> FastAPI:
     async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         configure_logging()
         config = load_config()
-        deployment = Deployment.from_environment()
-        async with process_resources(config, deployment) as resources:
+        deployment = ApiSettings.from_environment()
+        async with api_resources(config, deployment) as resources:
             app.state.config = config
             app.state.deployment = deployment
             app.state.identity = Identity(
@@ -53,13 +56,20 @@ def create_app() -> FastAPI:
             )
             for name, value in vars(resources).items():
                 setattr(app.state, name, value)
+            app.state.broker = create_broker(config, deployment)
+            app.state.broker.add_middlewares(OpenTelemetryMiddleware())
             try:
+                await app.state.broker.startup()
                 logger.info("app_startup_completed")
                 yield
             finally:
-                # Closed clients must not remain accessible after shutdown/restart.
-                for name in (*vars(resources), "identity", "config", "deployment"):
-                    delattr(app.state, name)
+                try:
+                    await app.state.broker.shutdown()
+                finally:
+                    del app.state.broker
+                    # Closed clients must not remain accessible after shutdown/restart.
+                    for name in (*vars(resources), "identity", "config", "deployment"):
+                        delattr(app.state, name)
         logger.info("app_shutdown_completed")
 
     app = FastAPI(
@@ -96,6 +106,7 @@ def create_app() -> FastAPI:
     app.include_router(library_router)
     app.include_router(discovery_router)
     app.include_router(vocabulary_router)
+    app.include_router(jobs_router)
     app.include_router(study_router)
     app.include_router(assistant_router)
 

@@ -1,7 +1,4 @@
-from uuid import UUID
-
-from fastapi import APIRouter, Query, Request
-from pydantic import BaseModel, ConfigDict, Field
+from fastapi import APIRouter, Query, Request, Response
 from sqlalchemy import select
 
 from pycil.account.auth import UserId, Viewer
@@ -17,31 +14,16 @@ from pycil.app.projections import (
     word_context,
     word_previews,
 )
+from pycil.jobs.schemas import Accepted
 from pycil.library.models import Node, NodeRole
 from pycil.library.schemas import Sources
 from pycil.library.senses import sources_page
-from pycil.vocabulary.enums import GenerationStage, JobState
 from pycil.vocabulary.errors import InvalidResourceError
-from pycil.vocabulary.schemas import SearchResult, Word
+from pycil.vocabulary.generation.tasks import request_generation
+from pycil.vocabulary.schemas import GenerateWord, SearchResult, Word
 from pycil.vocabulary.words import get_word
 
 router = APIRouter(prefix="/v1", tags=["vocabulary"])
-
-
-class GenerationRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    reference_id: str = Field(min_length=1, max_length=255)
-    target: str = Field(min_length=1, max_length=512)
-
-
-class GenerationResult(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    task_id: UUID
-    status: JobState
-    word_id: int | None
-    stage: GenerationStage | None
-    error: str | None
-    status_url: str
 
 
 @router.get("/words:search", response_model=SearchResult, openapi_extra={"security": [{}]})
@@ -103,11 +85,17 @@ async def containing_decks(
     return await sources_page(session, root, sense_id, user, config, cursor, limit)
 
 
-@router.post("/words:generate", status_code=202, response_model=GenerationResult)
-async def generate(data: GenerationRequest, user: UserId, request: Request):
-    return await request.app.state.generations.submit(data.target, reference_id=data.reference_id)
-
-
-@router.get("/word-tasks/{task_id}", response_model=GenerationResult)
-async def status(task_id: UUID, user: UserId, request: Request):
-    return await request.app.state.generations.status(task_id)
+@router.post("/words:generate", response_model=Accepted, status_code=202)
+async def generate(
+    data: GenerateWord, user: UserId, config: Config, resources: Runtime, response: Response
+):
+    accepted = await request_generation(
+        resources.sessions,
+        resources.redis,
+        resources.broker,
+        config,
+        user,
+        data.reference_id,
+    )
+    response.headers.update({"Location": accepted.status_url, "Retry-After": "2"})
+    return accepted

@@ -14,6 +14,7 @@ from pycil.app.config import load_config
 from pycil.app.factory import create_app
 from pycil.assistant import graph as agents
 from pycil.assistant.checkpoints import checkpoint_pool
+from pycil.assistant.stream import assistant_rate_limit_pattern
 from tests.support.account import account
 
 
@@ -128,6 +129,6 @@ async def test_conversation_http_stream_state_pagination_and_delete_enforce_owne
         async with database.sessions() as session:
             assert await session.scalar(select(func.count()).select_from(UsageEvent)) == 1
     finally:
-        keys = [key async for key in redis.scan_iter(match=f"pycil:assistant:starts:{owner.id}:*")]
+        keys = [key async for key in redis.scan_iter(match=assistant_rate_limit_pattern(owner.id))]
         if keys:
             await redis.delete(*keys)

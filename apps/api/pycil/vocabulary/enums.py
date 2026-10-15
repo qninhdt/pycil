@@ -17,17 +17,6 @@ class GenerationState(StrEnum):
     ERROR = "error"
 
 
-class JobState(StrEnum):
-    RUNNING = "running"
-    SUCCEEDED = "succeeded"
-    FAILED = "failed"
-
-
-class GenerationStage(StrEnum):
-    WORD = "word"
-    READY = "ready"
-
-
 class PartOfSpeech(StrEnum):
     NOUN = "noun"
     VERB = "verb"

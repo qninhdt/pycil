@@ -10,16 +10,16 @@ from psycopg_pool import AsyncConnectionPool
 from redis.asyncio import Redis
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+from taskiq import AsyncBroker
 
 from pycil.app.config import AppConfig
 from pycil.app.http import Problem
-from pycil.app.settings import Deployment
-from pycil.infrastructure.cache import MemoryCache
+from pycil.app.settings import ApiSettings
 from pycil.infrastructure.clerk import Identity
-from pycil.infrastructure.llm import DecisionLLM, StructuredLLM
+from pycil.infrastructure.cache import MemoryCache
+from pycil.infrastructure.llm import DecisionLLM
 from pycil.infrastructure.observability import get_logger
 from pycil.study.artifacts.schemas import Artifact
-from pycil.vocabulary.generation.jobs import Generations
 from pycil.vocabulary.schemas import CachedWord, Sense
 from pycil.vocabulary.search import SearchIndex
 
@@ -28,20 +28,19 @@ logger = get_logger(__name__)
 
 class AppState(Protocol):
     config: AppConfig
-    deployment: Deployment
+    broker: AsyncBroker
+    deployment: ApiSettings
     identity: Identity
     engine: AsyncEngine
     sessions: async_sessionmaker[AsyncSession]
     redis: Redis
     user_id_cache: MemoryCache[str, UUID]
     http: httpx.AsyncClient
-    structured_llm: StructuredLLM
     decision_llm: DecisionLLM
     search: SearchIndex
     word_cache: MemoryCache[int, CachedWord]
     sense_cache: MemoryCache[int, Sense]
     artifact_cache: MemoryCache[int, Artifact]
-    generations: Generations
     checkpoint_pool: AsyncConnectionPool[AsyncConnection[DictRow]]
 
 

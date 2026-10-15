@@ -119,3 +119,67 @@ async def test_unusable_generated_increment_leaves_bank_empty(database):
         )
     async with database.sessions() as session:
         assert await session.scalar(select(func.count()).select_from(QuestionArtifact)) == 0
+
+
+@pytest.mark.parametrize("singleton", [False, True])
+async def test_concurrent_preparations_generate_without_waiting_and_preserve_increments(
+    database, singleton
+):
+    import asyncio
+
+    from pycil.study.artifacts.generation import retrieve_artifacts
+    from pycil.study.enums import QuestionType
+
+    _, sense_id = await neutral_word(database.sessions)
+    all_started = asyncio.Event()
+
+    class Provider:
+        calls = 0
+
+        async def complete(self, instruction, data, schema):
+            self.calls += 1
+            number = self.calls
+            if number == 4:
+                all_started.set()
+            await all_started.wait()
+            payload = (
+                {
+                    "corrects": [f"a financial institution serving customer {number}"],
+                    "distractors": [{"word": "shop", "definition": "a retail business"}],
+                }
+                if singleton
+                else {
+                    "context": f"Customer {number} deposited money at the _.",
+                    "correct": {"expression": "bank", "meaning": "a financial institution"},
+                    "distractors": [{"expression": "shop", "meaning": "a retail business"}],
+                }
+            )
+            return schema.model_validate({"artifacts": [payload]})
+
+    provider = Provider()
+    question_type = QuestionType.WORD_TO_DEFINITION if singleton else QuestionType.CLOZE_TO_WORD
+    async with asyncio.timeout(5):
+        results = await asyncio.gather(
+            *(
+                retrieve_artifacts(
+                    database.sessions,
+                    provider,
+                    None,
+                    [(sense_id, question_type, 1)],
+                    distractor_count=1,
+                )
+                for _ in range(4)
+            )
+        )
+    assert provider.calls == 4
+    assert all(len(result) == 1 for result in results)
+    async with database.sessions() as session:
+        rows = list(await session.scalars(select(QuestionArtifact)))
+    if singleton:
+        import orjson
+
+        assert len(rows) == 1
+        assert len(orjson.loads(rows[0].payload)["corrects"]) == 4
+    else:
+        assert len(rows) == 4
+        assert len({row.payload_hash for row in rows}) == 4

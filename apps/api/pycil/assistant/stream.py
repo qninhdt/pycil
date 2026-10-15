@@ -23,8 +23,8 @@ from pycil.account.settings import preferences
 from pycil.account.usage import admit, settle
 from pycil.app.config import AppConfig
 from pycil.app.http import Problem
-from pycil.app.resources import RuntimeState
-from pycil.app.settings import Deployment
+from pycil.app.resources import ApiResources
+from pycil.app.settings import ApiSettings
 from pycil.assistant import graph as agents
 from pycil.assistant.config import ModelPolicy
 from pycil.assistant.conversations import guard, owned
@@ -37,6 +37,14 @@ from pycil.vocabulary.enums import GenerationState, HitKind
 from pycil.vocabulary.models import Word
 
 logger = get_logger(__name__)
+
+
+def assistant_rate_limit_key(user: UUID | str, minute: int) -> str:
+    return f"pycil:assistant:rate-limit:starts:{user}:{minute}"
+
+
+def assistant_rate_limit_pattern(user: UUID | str) -> str:
+    return f"pycil:assistant:rate-limit:starts:{user}:*"
 
 
 def validate_input(
@@ -114,8 +122,8 @@ def validate_input(
 
 @asynccontextmanager
 async def prepare_turn(
-    resources: RuntimeState,
-    deployment: Deployment,
+    resources: ApiResources,
+    deployment: ApiSettings,
     user: UUID,
     data: RunAgentInput,
     config: AppConfig,
@@ -234,7 +242,7 @@ async def prepare_turn(
                         "local n=redis.call('INCR',KEYS[1]); "
                         "if n==1 then redis.call('EXPIRE',KEYS[1],120) end; return n",
                         1,
-                        f"pycil:assistant:starts:{user}:{minute}",
+                        assistant_rate_limit_key(user, minute),
                     )
                     or 0
                 )

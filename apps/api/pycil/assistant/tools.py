@@ -10,7 +10,11 @@ from uuid import UUID
 from fastapi.encoders import jsonable_encoder
 from langchain_core.tools import BaseTool, ToolException, tool
 from pydantic import BaseModel, ValidationError
+from redis.asyncio import Redis
+from redis.exceptions import RedisError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from taskiq import AsyncBroker, AsyncTaskiqTask
+from taskiq.exceptions import TaskiqResultTimeoutError
 
 from pycil.account.profiles import profile
 from pycil.account.schemas import PreferencesPatch
@@ -33,10 +37,10 @@ from pycil.assistant.schemas import (
     NodeSearch,
     NodeUpdate,
     VocabularyRead,
+    WordGeneration,
     WordSearch,
 )
 from pycil.infrastructure.cache import MemoryCache
-from pycil.infrastructure.llm import StructuredLLM
 from pycil.infrastructure.observability import get_logger
 from pycil.library import nodes
 from pycil.library.access import readable
@@ -49,9 +53,9 @@ from pycil.library.senses import sense_page
 from pycil.library.tree import roots
 from pycil.study.progress import activity, schedules, summaries
 from pycil.vocabulary.errors import InvalidResourceError
+from pycil.vocabulary.generation.tasks import request_generation
 from pycil.vocabulary.schemas import Example, Sense
 from pycil.vocabulary.search import ReferenceHit, SearchIndex, WordHit
-from pycil.vocabulary.words import CachedWord
 
 logger = get_logger(__name__)
 # Search previews carry one sample; expanded context uses the projection policy.
@@ -65,15 +69,16 @@ MUTATION_TOOLS = {
     "copy_nodes",
     "delete_nodes",
     "update_preferences",
+    "generate_words",
 }
 
 
 class AssistantResources(Protocol):
+    redis: Redis
+    broker: AsyncBroker
     sessions: async_sessionmaker[AsyncSession]
     search: SearchIndex
     sense_cache: MemoryCache[int, Sense]
-    word_cache: MemoryCache[int, CachedWord]
-    structured_llm: StructuredLLM
 
 
 def validation_message(error: ValidationError | Exception | object) -> str:
@@ -119,8 +124,9 @@ def tools(
 ) -> list[BaseTool]:
     @task_tool(WordSearch)
     async def search_words(**values: Any) -> Any:
-        """Search existing Words for up to 10 terms. Limit is per query; hits include all
-        sense IDs/definitions. Optional include adds examples,
+        """Search Words and dictionary references for up to 10 terms. Limit is per query;
+        Words include sense IDs/definitions; references include reference_id for generate_words.
+        Optional include adds examples,
         lexical_details, personal learning or containing decks. Search is lexical, not semantic.
         """
         data = WordSearch(**values)
@@ -128,21 +134,25 @@ def tools(
 
         async def search(query: str) -> Sequence[WordHit | ReferenceHit]:
             try:
-                return (await resources.search.search(query)).items
+                return (await resources.search.search(query, include_reference=True)).items
             except InvalidResourceError:
                 raise Problem(422, "invalid_lexical_query") from None
 
         pages: list[Sequence[WordHit | ReferenceHit]] = list(
             await asyncio.gather(*(search(q) for q in queries))
         )
-        merged: dict[int, dict[str, object]] = {}
+        merged: dict[tuple[str, int | str], dict[str, object]] = {}
         unmatched: list[str] = []
         for query, hits in zip(queries, pages, strict=True):
             if not hits:
                 unmatched.append(query)
             for hit in hits[: data.limit]:
                 item: dict[str, object] = hit.model_dump(mode="json")
-                identity: int = int(cast(int, item["word_id"]))
+                identity = (
+                    ("word", hit.word_id)
+                    if isinstance(hit, WordHit)
+                    else ("reference", hit.reference_id)
+                )
                 default_item: dict[str, object] = dict(item) | {
                     "matched_queries": cast(list[str], [])
                 }
@@ -150,7 +160,9 @@ def tools(
                     list[str], merged.setdefault(identity, default_item)["matched_queries"]
                 )
                 matched.append(query)
-        word_ids: list[int] = [int(cast(int, item["word_id"])) for item in merged.values()]
+        word_ids = [
+            int(cast(int, item["word_id"])) for item in merged.values() if "word_id" in item
+        ]
         senses = (
             (await vocabulary(resources, user, config, word_ids=word_ids, include=data.include))[
                 "senses"
@@ -162,6 +174,8 @@ def tools(
         for sense in senses:
             groups.setdefault(int(cast(int, sense["word_id"])), []).append(sense)
         for item in merged.values():
+            if "word_id" not in item:
+                continue
             item["senses"] = groups.get(int(cast(int, item["word_id"])), [])
         return {"items": list(merged.values()), "unmatched_queries": unmatched}
 
@@ -433,8 +447,61 @@ def tools(
             updated = await save_preferences(session, user, PreferencesPatch(**values), config)
             return preference_projection(await profile(updated.id, config, session))
 
+    @task_tool(WordGeneration)
+    async def generate_words(**values: Any) -> Any:
+        """Generate up to 10 entries using reference_ids from search_words. Waits for
+        jobs concurrently and returns completed Word IDs and senses, or per-entry errors.
+        Pending means the wait deadline expired; the job continues and is not a failure.
+        """
+        data = WordGeneration(**values)
+
+        async def generate(reference_id: str) -> dict[str, object]:
+            try:
+                job = await request_generation(
+                    resources.sessions,
+                    resources.redis,
+                    resources.broker,
+                    config,
+                    user,
+                    reference_id,
+                )
+            except Problem as error:
+                return {"reference_id": reference_id, "status": "failed", "error": error.code}
+            item = {"reference_id": reference_id, **job.model_dump(mode="json")}
+            handle = AsyncTaskiqTask(str(job.job_id), resources.broker.result_backend)
+            try:
+                async with asyncio.timeout(config.runtime.jobs.timeout_seconds):
+                    result = await handle.wait_result(
+                        check_interval=1, timeout=config.runtime.jobs.timeout_seconds
+                    )
+            except TimeoutError, TaskiqResultTimeoutError:
+                return item | {"status": "pending"}
+            except RedisError:
+                return item | {"status": "pending", "error": "job_status_unavailable"}
+            if result.is_err:
+                return item | {"status": "failed", "error": "job_failed"}
+            word_id = (
+                result.return_value.get("word_id")
+                if isinstance(result.return_value, dict)
+                else None
+            )
+            if type(word_id) is not int or word_id <= 0:
+                return item | {"status": "failed", "error": "invalid_generation_result"}
+            try:
+                senses = (await vocabulary(resources, user, config, word_ids=[word_id]))["senses"]
+            except Problem as error:
+                return item | {"status": "failed", "error": error.code}
+            return item | {"status": "succeeded", "word_id": word_id, "senses": senses}
+
+        return {
+            "items": await asyncio.gather(
+                *(generate(ref) for ref in dict.fromkeys(data.reference_ids))
+            )
+        }
+
     return [
         search_words,
+        generate_words,
         read_vocabulary,
         search_nodes,
         read_library,

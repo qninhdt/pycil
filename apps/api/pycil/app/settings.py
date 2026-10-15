@@ -1,29 +1,21 @@
-"""Deployment addresses and secrets, validated before resource creation."""
+"""Process environment settings, validated before resource creation."""
 
 import os
-from typing import Literal, cast
+from typing import ClassVar, Literal, Self
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 from sqlalchemy.engine import make_url
 
 
-class Deployment(BaseModel):
+class ProcessSettings(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     db_url: SecretStr
     redis_url: SecretStr
-    clerk_jwks_url: str
-    clerk_issuer: str
-    clerk_audience: str | None
-    clerk_secret_key: SecretStr
-    allowed_origins: list[str]
     llm_api_key: SecretStr
     llm_base_url: str
-    decision_api_key: SecretStr
-    decision_base_url: str
-    search_index_path: str | None = None
     otel_endpoint: str | None = None
-    otel_service_name: str = Field(default="pycil-api", min_length=1)
+    otel_service_name: str = Field(min_length=1)
     service_version: str | None = None
     git_sha: str | None = None
     deployment_environment: Literal["local", "vps-docker", "aws-fargate"] | None = None
@@ -59,12 +51,12 @@ class Deployment(BaseModel):
         redis = urlsplit(self.redis_url.get_secret_value())
         if redis.scheme not in {"redis", "rediss"} or not redis.hostname:
             raise ValueError("REDIS_URL must identify a Redis server")
-        for value in (
-            self.clerk_jwks_url,
-            self.clerk_issuer,
-            self.llm_base_url,
-            self.decision_base_url,
-        ):
+        self.validate_service_urls(self.llm_base_url)
+        return self
+
+    @staticmethod
+    def validate_service_urls(*values: str) -> None:
+        for value in values:
             parsed = urlsplit(value)
             if (
                 parsed.scheme not in {"http", "https"}
@@ -73,6 +65,60 @@ class Deployment(BaseModel):
                 or parsed.password
             ):
                 raise ValueError("service URLs must be HTTP(S) without embedded credentials")
+
+    environment_names: ClassVar[dict[str, str]] = {
+        "otel_endpoint": "OTEL_EXPORTER_OTLP_ENDPOINT",
+        "otel_sample_ratio": "OTEL_TRACES_SAMPLER_ARG",
+    }
+
+    @classmethod
+    def from_environment(cls) -> Self:
+        values = {
+            name: os.getenv(cls.environment_names.get(name, name.upper()))
+            for name in cls.model_fields
+        }
+        missing = [
+            cls.environment_names.get(name, name.upper())
+            for name, field in cls.model_fields.items()
+            if field.is_required() and not (values[name] or "").strip()
+        ]
+        if missing:
+            raise ValueError("Missing deployment variables: " + ", ".join(sorted(missing)))
+        try:
+            provided: dict[str, object] = {name: value for name, value in values.items() if value}
+            return cls.model_validate(provided)
+        except ValueError, TypeError:
+            # Validation errors may embed raw input, including database passwords.
+            raise ValueError(
+                "Invalid deployment configuration; check environment addresses"
+            ) from None
+
+
+class WorkerSettings(ProcessSettings):
+    otel_service_name: str = Field(default="pycil-worker", min_length=1)
+
+
+class ApiSettings(ProcessSettings):
+    clerk_jwks_url: str
+    clerk_issuer: str
+    clerk_audience: str | None = None
+    clerk_secret_key: SecretStr
+    allowed_origins: list[str] = Field(default_factory=list)
+    decision_api_key: SecretStr
+    decision_base_url: str
+    search_index_path: str | None = None
+    otel_service_name: str = Field(default="pycil-api", min_length=1)
+
+    @field_validator("allowed_origins", mode="before")
+    @classmethod
+    def parse_origins(cls, value: object) -> object:
+        if isinstance(value, str):
+            return [origin.strip() for origin in value.split(",") if origin.strip()]
+        return value
+
+    @model_validator(mode="after")
+    def validate_api_addresses(self):
+        self.validate_service_urls(self.clerk_jwks_url, self.clerk_issuer, self.decision_base_url)
         for value in self.allowed_origins:
             parsed = urlsplit(value)
             if (
@@ -86,51 +132,3 @@ class Deployment(BaseModel):
             ):
                 raise ValueError("ALLOWED_ORIGINS must contain explicit HTTP(S) origins")
         return self
-
-    @classmethod
-    def from_environment(cls):
-        required = {
-            "db_url": "DB_URL",
-            "redis_url": "REDIS_URL",
-            "clerk_jwks_url": "CLERK_JWKS_URL",
-            "clerk_issuer": "CLERK_ISSUER",
-            "clerk_secret_key": "CLERK_SECRET_KEY",
-            "llm_api_key": "LLM_API_KEY",
-            "llm_base_url": "LLM_BASE_URL",
-            "decision_api_key": "DECISION_API_KEY",
-            "decision_base_url": "DECISION_BASE_URL",
-        }
-        missing = [key for key in required.values() if not os.getenv(key, "").strip()]
-        if missing:
-            raise ValueError("Missing deployment variables: " + ", ".join(sorted(missing)))
-        try:
-            return cls(
-                db_url=SecretStr(os.environ["DB_URL"]),
-                redis_url=SecretStr(os.environ["REDIS_URL"]),
-                clerk_jwks_url=os.environ["CLERK_JWKS_URL"],
-                clerk_issuer=os.environ["CLERK_ISSUER"],
-                clerk_audience=os.getenv("CLERK_AUDIENCE") or None,
-                clerk_secret_key=SecretStr(os.environ["CLERK_SECRET_KEY"]),
-                allowed_origins=[
-                    s.strip() for s in os.environ.get("ALLOWED_ORIGINS", "").split(",") if s.strip()
-                ],
-                llm_api_key=SecretStr(os.environ["LLM_API_KEY"]),
-                llm_base_url=os.environ["LLM_BASE_URL"],
-                decision_api_key=SecretStr(os.environ["DECISION_API_KEY"]),
-                decision_base_url=os.environ["DECISION_BASE_URL"],
-                search_index_path=os.getenv("SEARCH_INDEX_PATH") or None,
-                otel_endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT") or None,
-                otel_service_name=os.getenv("OTEL_SERVICE_NAME", "pycil-api"),
-                service_version=os.getenv("SERVICE_VERSION") or None,
-                git_sha=os.getenv("GIT_SHA") or None,
-                deployment_environment=cast(
-                    Literal["local", "vps-docker", "aws-fargate"] | None,
-                    os.getenv("DEPLOYMENT_ENVIRONMENT") or None,
-                ),
-                otel_sample_ratio=float(os.getenv("OTEL_TRACES_SAMPLER_ARG", "0.1")),
-            )
-        except ValueError, TypeError:
-            # Validation errors may embed raw input, including database passwords.
-            raise ValueError(
-                "Invalid deployment configuration; check environment addresses"
-            ) from None

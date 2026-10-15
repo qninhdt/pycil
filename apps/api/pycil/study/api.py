@@ -3,7 +3,7 @@ from typing import Annotated
 from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, Header, Request
+from fastapi import APIRouter, Header, Request, Response
 from openai import APIError
 from sqlalchemy import select
 
@@ -15,10 +15,10 @@ from pycil.app.http import Problem
 from pycil.app.pagination import strict_query
 from pycil.infrastructure.observability import get_logger
 from pycil.infrastructure.retry import ProviderOutputError
+from pycil.jobs.schemas import Accepted
 from pycil.study.enums import ResponseFormat
 from pycil.study.errors import QuestionArtifactNotFoundError, UnsupportedQuestionFormatError
 from pycil.study.grading import grade_answer
-from pycil.study.preparation import prepare
 from pycil.study.progress import activity, progress, schedule, summaries
 from pycil.study.reviews import review
 from pycil.study.schemas import (
@@ -26,13 +26,13 @@ from pycil.study.schemas import (
     BatchResult,
     Grade,
     GradeResult,
-    Preparation,
     Prepare,
     ReviewBatch,
     Schedule,
     Summary,
     SummaryBatch,
 )
+from pycil.study.tasks import request_preparation
 from pycil.vocabulary.errors import VocabularyError
 
 logger = get_logger(__name__)
@@ -40,23 +40,24 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/v1/study", tags=["study"])
 
 
-@router.post(":prepare", response_model=Preparation)
+@router.post(":prepare", response_model=Accepted, status_code=202)
 async def preparation(
-    data: Prepare, user: UserId, session: Session, config: Config, resources: Runtime
+    data: Prepare,
+    user: UserId,
+    config: Config,
+    resources: Runtime,
+    response: Response,
 ):
-    return await prepare(
-        session,
+    accepted = await request_preparation(
         resources.sessions,
-        resources.structured_llm,
-        resources.artifact_cache,
-        user,
-        data.node_id,
+        resources.redis,
+        resources.broker,
         config,
-        sense_cache=resources.sense_cache,
-        selection=data.selection,
-        max_sense_count=data.max_sense_count,
-        questions_per_sense=data.questions_per_sense,
+        user,
+        data,
     )
+    response.headers.update({"Location": accepted.status_url, "Retry-After": "2"})
+    return accepted
 
 
 @router.post(":grade", response_model=GradeResult)

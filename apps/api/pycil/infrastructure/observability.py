@@ -24,7 +24,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
 
-from pycil.app.settings import Deployment
+from pycil.app.settings import ProcessSettings
 
 if TYPE_CHECKING:
     from pycil.app.config import TelemetryRuntime
@@ -97,7 +97,7 @@ _database_histograms = {
 
 
 @asynccontextmanager
-async def telemetry(deployment: Deployment, policy: TelemetryRuntime) -> AsyncGenerator[None]:
+async def telemetry(deployment: ProcessSettings, policy: TelemetryRuntime) -> AsyncGenerator[None]:
     global _telemetry_started
     if deployment.otel_endpoint is None:
         yield

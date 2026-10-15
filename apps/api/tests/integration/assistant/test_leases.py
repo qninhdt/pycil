@@ -5,7 +5,7 @@ import pytest
 from anyio import sleep
 
 from pycil.app.http import Problem
-from pycil.assistant.conversations import guard
+from pycil.assistant.conversations import conversation_lease_key, guard
 
 
 async def test_lease_contention_and_exception_cleanup_use_real_redis(redis_store):
@@ -19,8 +19,8 @@ async def test_lease_contention_and_exception_cleanup_use_real_redis(redis_store
             assert error.value.code == "conversation_busy"
             raise RuntimeError("work failed")
     async with guard(redis, identifier, ttl=0.9):
-        assert await redis.exists(f"pycil:conversation:{identifier}") == 1
-    assert await redis.exists(f"pycil:conversation:{identifier}") == 0
+        assert await redis.exists(conversation_lease_key(identifier)) == 1
+    assert await redis.exists(conversation_lease_key(identifier)) == 0
 
 
 async def test_cancelled_lease_owner_joins_cleanup_before_reacquisition(redis_store):
@@ -39,7 +39,7 @@ async def test_cancelled_lease_owner_joins_cleanup_before_reacquisition(redis_st
         with pytest.raises(asyncio.CancelledError):
             await task
         async with guard(redis, identifier, ttl=0.9):
-            assert await redis.exists(f"pycil:conversation:{identifier}") == 1
+            assert await redis.exists(conversation_lease_key(identifier)) == 1
     finally:
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
@@ -48,7 +48,7 @@ async def test_cancelled_lease_owner_joins_cleanup_before_reacquisition(redis_st
 async def test_old_holder_never_releases_replacement_holders_lease(redis_store):
     redis, _ = redis_store
     identifier = uuid4()
-    key = f"pycil:conversation:{identifier}"
+    key = conversation_lease_key(identifier)
     try:
         with pytest.raises(Problem) as error:
             async with guard(redis, identifier, ttl=0.9):
@@ -62,7 +62,7 @@ async def test_old_holder_never_releases_replacement_holders_lease(redis_store):
 async def test_lease_is_renewed_past_original_expiry(redis_store):
     redis, _ = redis_store
     identifier = uuid4()
-    key = f"pycil:conversation:{identifier}"
+    key = conversation_lease_key(identifier)
     async with asyncio.timeout(5), guard(redis, identifier, ttl=0.9):
         owner = await redis.get(key)
         # Wait past the actual initial Redis expiry, while native renewal runs.
@@ -79,7 +79,7 @@ async def test_lease_is_renewed_past_original_expiry(redis_store):
 async def test_renewal_loss_cancels_running_work_without_deleting_new_holder(redis_store):
     redis, _ = redis_store
     identifier, cleaned = uuid4(), asyncio.Event()
-    key = f"pycil:conversation:{identifier}"
+    key = conversation_lease_key(identifier)
     try:
         with pytest.raises(Problem) as error:
             async with asyncio.timeout(5), guard(redis, identifier, ttl=0.9):

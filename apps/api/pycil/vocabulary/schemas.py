@@ -127,3 +127,8 @@ class SearchResult(BaseModel):
     items: list[Annotated[WordHit | ReferenceHit, Field(discriminator="kind")]] = Field(
         default_factory=lambda: []
     )
+
+
+class GenerateWord(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reference_id: str = Field(min_length=1, max_length=64)

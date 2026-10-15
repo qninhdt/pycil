@@ -119,6 +119,9 @@ async def test_preparation_selects_ordered_scope_and_never_changes_learning_stat
 ):
     user, deck, ids, config = prepared_library
     async with database.sessions() as session:
+        preferences = await preparation.normalize_preparation(
+            session, user.id, config, selection=selection
+        )
         result = await preparation.prepare(
             session,
             database.sessions,
@@ -128,6 +131,7 @@ async def test_preparation_selects_ordered_scope_and_never_changes_learning_stat
             deck["id"],
             config,
             selection=selection,
+            preferences=preferences,
         )
     assert [bundle["sense"].id for bundle in result["bundles"]] == [
         ids[index] for index in expected_indices
@@ -149,6 +153,9 @@ async def test_preparation_uses_fresh_plan_preserves_saved_preferences_and_appli
         (await session.get(User, user.id)).plan = Plan.PRO
     assert user.plan is Plan.FREE
     async with database.sessions() as session:
+        preferences = await preparation.normalize_preparation(
+            session, user.id, config, max_sense_count=1
+        )
         result = await preparation.prepare(
             session,
             database.sessions,
@@ -157,7 +164,7 @@ async def test_preparation_uses_fresh_plan_preserves_saved_preferences_and_appli
             user.id,
             deck["id"],
             config,
-            max_sense_count=1,
+            preferences=preferences,
         )
     assert result["actual_sense_count"] == 1
     assert result["bundles"][0]["sense"].id == ids[2]
@@ -174,6 +181,13 @@ async def test_preparation_cannot_read_foreign_private_scope(database, prepared_
     async with database.sessions() as session:
         with pytest.raises(Problem) as error:
             await preparation.prepare(
-                session, database.sessions, UnusedProvider(), None, foreign.id, deck["id"], config
+                session,
+                database.sessions,
+                UnusedProvider(),
+                None,
+                foreign.id,
+                deck["id"],
+                config,
+                preferences=await preparation.normalize_preparation(session, foreign.id, config),
             )
         assert error.value.status == 404

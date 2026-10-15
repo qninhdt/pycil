@@ -2,7 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 from pycil.app.config import AppConfig, load_config
-from pycil.app.settings import Deployment
+from pycil.app.settings import ApiSettings, ProcessSettings, WorkerSettings
 
 
 def test_duplicate_yaml_keys_and_invalid_policy_are_safe_failures(tmp_path):
@@ -80,7 +80,7 @@ def test_deployment_rejects_nonserver_addresses_and_credentials_in_service_urls(
         decision_base_url="https://decision.test",
     )
     with pytest.raises(ValidationError):
-        Deployment(**(values | {field: value}))
+        ApiSettings(**(values | {field: value}))
 
 
 @pytest.mark.parametrize("missing", [None, "LLM_API_KEY", "LLM_BASE_URL"])
@@ -109,9 +109,9 @@ def test_deployment_loads_llm_environment_and_requires_both_values(monkeypatch, 
     if missing is not None:
         monkeypatch.delenv(missing)
         with pytest.raises(ValueError, match=f"Missing deployment variables: {missing}"):
-            Deployment.from_environment()
+            ApiSettings.from_environment()
     else:
-        deployment = Deployment.from_environment()
+        deployment = ApiSettings.from_environment()
         assert deployment.llm_api_key.get_secret_value() == "llm-test-only"
         assert deployment.llm_base_url == "https://provider.test/v1"
         assert "llm-test-only" not in repr(deployment)
@@ -151,4 +151,36 @@ def test_telemetry_configuration_requires_safe_destination_and_identity(override
         deployment_environment="local",
     )
     with pytest.raises(ValidationError):
-        Deployment(**(values | overrides))
+        ApiSettings(**(values | overrides))
+
+
+def test_api_and_worker_settings_are_siblings_and_cors_parsing_is_api_owned(monkeypatch):
+    variables = {
+        "DB_URL": "postgresql+asyncpg://test:test@db.test/app",
+        "REDIS_URL": "redis://redis.test/0",
+        "LLM_API_KEY": "test-only",
+        "LLM_BASE_URL": "https://provider.test/v1",
+    }
+    for name in ProcessSettings.model_fields:
+        monkeypatch.delenv(ProcessSettings.environment_names.get(name, name.upper()), raising=False)
+    for name, value in variables.items():
+        monkeypatch.setenv(name, value)
+    worker = WorkerSettings.from_environment()
+    assert worker.otel_service_name == "pycil-worker"
+    assert issubclass(ApiSettings, ProcessSettings) and issubclass(WorkerSettings, ProcessSettings)
+    assert not issubclass(ApiSettings, WorkerSettings)
+    assert (
+        not {"allowed_origins", "clerk_secret_key", "decision_api_key"}
+        & WorkerSettings.model_fields.keys()
+    )
+    api = ApiSettings(
+        **worker.model_dump(exclude={"otel_service_name"}),
+        clerk_jwks_url="https://identity.test/jwks",
+        clerk_issuer="https://identity.test",
+        clerk_secret_key="test-only",
+        decision_api_key="test-only",
+        decision_base_url="https://decision.test",
+        allowed_origins=" https://web.test, ,http://localhost:3000 ",
+    )
+    assert api.allowed_origins == ["https://web.test", "http://localhost:3000"]
+    assert api.otel_service_name == "pycil-api"

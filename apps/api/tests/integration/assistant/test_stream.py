@@ -14,8 +14,9 @@ from pycil.app.config import load_config
 from pycil.app.http import Problem
 from pycil.assistant import graph as agents
 from pycil.assistant.checkpoints import checkpoint_pool
+from pycil.assistant.conversations import conversation_lease_key
 from pycil.assistant.models import Conversation
-from pycil.assistant.stream import prepare_turn
+from pycil.assistant.stream import assistant_rate_limit_pattern, prepare_turn
 from tests.support.account import account
 
 
@@ -31,7 +32,7 @@ async def stream_account(database, redis_store):
         yield user
     finally:
         redis, _ = redis_store
-        keys = [key async for key in redis.scan_iter(match=f"pycil:assistant:starts:{user.id}:*")]
+        keys = [key async for key in redis.scan_iter(match=assistant_rate_limit_pattern(user.id))]
         if keys:
             await redis.delete(*keys)
 
@@ -122,7 +123,7 @@ async def test_native_stream_emits_text_or_interrupt_persists_state_and_settles_
         assert await session.scalar(select(func.count()).select_from(UsageEvent)) == 1
         usage = await session.scalar(select(UsageEvent))
         assert usage.units == 0 and usage.unmetered_calls == 1
-    assert not await redis.exists(f"pycil:conversation:{identifier}")
+    assert not await redis.exists(conversation_lease_key(identifier))
 
 
 @pytest.mark.parametrize("cancel", [False, True])
@@ -185,7 +186,7 @@ async def test_provider_failure_or_disconnect_closes_stream_and_settles_once(
                     provider.finish.set()
                     await task
             assert provider.cleaned.is_set()
-            assert not await redis.exists(f"pycil:conversation:{identifier}")
+            assert not await redis.exists(conversation_lease_key(identifier))
             if not cancel:
                 errors = [
                     json.loads(line.removeprefix("data: "))
@@ -390,7 +391,7 @@ async def test_rate_limit_rejects_second_turn_and_releases_lease_without_extra_s
             async with prepare_turn(resources, None, user.id, request(identifier), config):
                 pytest.fail("minute limit must reject additional turns")
         assert error.value.status == 429 and error.value.code == "assistant_start_limit"
-        assert not await redis.exists(f"pycil:conversation:{identifier}")
+        assert not await redis.exists(conversation_lease_key(identifier))
     async with database.sessions() as session:
         assert await session.scalar(select(func.count()).select_from(UsageEvent)) == 1
 

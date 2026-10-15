@@ -83,27 +83,30 @@ def plan_pairs(
     return result
 
 
-async def prepare(
+async def normalize_preparation(
     session: AsyncSession,
-    sessions: async_sessionmaker[AsyncSession],
-    structured_llm: StructuredLLMProtocol,
-    artifact_cache: MemoryCache[int, Artifact] | None,
     user: UUID,
-    node_id: UUID,
     config: AppConfig,
     *,
-    sense_cache: MemoryCache[int, Sense] | None = None,
     selection: Selection = Selection.AUTO,
     max_sense_count: int | None = None,
     questions_per_sense: int | None = None,
-) -> dict[str, object]:
+    preferences: LearningPreferences | None = None,
+) -> LearningPreferences:
     async with session.begin():
         current = await session.scalar(
             select(User).where(User.id == user).execution_options(populate_existing=True)
         )
     if current is None:
         raise Problem(404, "account_not_found")
-    preferences = effective_learning(current.settings, current.plan, config)
+    if preferences is not None:
+        current_preferences = effective_learning(
+            {"learning": preferences.model_dump(mode="json")}, current.plan, config
+        )
+        if current_preferences != preferences:
+            raise Problem(403, "advanced_grading_not_available")
+    else:
+        preferences = effective_learning(current.settings, current.plan, config)
     target = max_sense_count if max_sense_count is not None else preferences.max_sense_count
     k = questions_per_sense if questions_per_sense is not None else preferences.questions_per_sense
     preferences = preferences.model_copy(
@@ -115,6 +118,23 @@ async def prepare(
         config.product.study.validate_preferences(preferences)
     except ValueError as exc:
         raise Problem(422, "invalid_preparation") from exc
+    return preferences
+
+
+async def prepare(
+    session: AsyncSession,
+    sessions: async_sessionmaker[AsyncSession],
+    structured_llm: StructuredLLMProtocol,
+    artifact_cache: MemoryCache[int, Artifact] | None,
+    user: UUID,
+    node_id: UUID,
+    config: AppConfig,
+    *,
+    sense_cache: MemoryCache[int, Sense] | None = None,
+    preferences: LearningPreferences,
+    selection: Selection = Selection.AUTO,
+) -> dict[str, object]:
+    target, k = preferences.max_sense_count, preferences.questions_per_sense
     logger.info(
         "study_preparation_started",
         user_id=str(user),
@@ -200,7 +220,7 @@ async def prepare(
         )
         raise Problem(503, "question_generation_unavailable") from None
     senses: dict[int, Sense] = {
-        s.id: s for s in await get_senses(sessions, list(plans), cache=sense_cache)
+        s.id: s for s in await get_senses(sessions, list(plans), store=sense_cache)
     }
     facts: dict[int, SensePreview] = {
         s["sense_id"]: s for s in await get_sense_previews(sessions, list(plans))

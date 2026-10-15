@@ -3,9 +3,8 @@ from sqlalchemy import func, select
 
 from pycil.app.config import load_config
 from pycil.infrastructure.cache import MemoryCache
-from pycil.vocabulary.enums import GenerationStage, GenerationState, HitKind, JobState, MatchKind
+from pycil.vocabulary.enums import HitKind, MatchKind
 from pycil.vocabulary.errors import InvalidOutputError
-from pycil.vocabulary.generation.jobs import Generations
 from pycil.vocabulary.generation.pipeline import generate_word
 from pycil.vocabulary.models import Sense, SenseReference, Word
 from pycil.vocabulary.references.importer import import_reference
@@ -30,10 +29,8 @@ async def test_generation_publishes_content_and_consumes_reference_search_hit(da
         assert before.items[0].kind is HitKind.REFERENCE
         word = await generate_word(
             database.sessions,
-            index,
             provider,
             cache,
-            "bank",
             reference_id=encode_reference_id(1),
             example_count=1,
             enrichment_batch_size=8,
@@ -46,6 +43,7 @@ async def test_generation_publishes_content_and_consumes_reference_search_hit(da
         assert word.related[0].to_word_lemma == "banking"
         assert word.senses[0].relations[0].rel_type.value == "synonym"
         assert word.senses[0].relations[0].to_word_lemma == "lender"
+        await index.update(word.id)
         after = await index.search("bank", include_reference=True)
         assert after.items[0].kind is HitKind.WORD
         assert all(item.kind is not HitKind.REFERENCE for item in after.items)
@@ -54,10 +52,8 @@ async def test_generation_publishes_content_and_consumes_reference_search_hit(da
         assert inflected.items[0].match_kind is MatchKind.EXACT
         reused = await generate_word(
             database.sessions,
-            index,
             provider,
             cache,
-            "bank",
             reference_id=encode_reference_id(1),
             example_count=1,
             enrichment_batch_size=8,
@@ -143,10 +139,9 @@ async def test_native_instructor_reasks_for_semantic_defects_before_publication(
             )
             word = await generate_word(
                 database.sessions,
-                index,
                 llm,
                 MemoryCache(max_entries=1024, ttl=30),
-                "bank",
+                reference_id=encode_reference_id(1),
                 example_count=1,
                 enrichment_batch_size=8,
             )
@@ -155,119 +150,6 @@ async def test_native_instructor_reasks_for_semantic_defects_before_publication(
         retry = requests[1 if defect == "citation" else 2]
         assert feedback in retry["messages"][-1]["content"]
     finally:
-        await index.close()
-
-
-async def test_index_failure_keeps_committed_content_and_retry_reuses_it(
-    database, tmp_path, monkeypatch, redis_store
-):
-    await import_reference(
-        database.sessions, reference_file(tmp_path / "reference.jsonl", [reference_word()])
-    )
-    index, provider, cache = (
-        SearchIndex(database.sessions),
-        WordProvider(),
-        MemoryCache(max_entries=1024, ttl=30),
-    )
-
-    redis, namespace = redis_store
-    jobs = Generations(
-        database.sessions,
-        index,
-        provider,
-        cache,
-        load_config(),
-        redis=redis,
-        prefix=namespace + ":word-tasks",
-    )
-
-    async def failed_update(word_id):
-        raise RuntimeError("private index error")
-
-    try:
-        await index.start()
-        with monkeypatch.context() as patch:
-            patch.setattr(index, "update", failed_update)
-            submitted = await jobs.submit("bank", reference_id=encode_reference_id(1))
-            await jobs.wait([submitted["task_id"]])
-            failed = await jobs.status(submitted["task_id"])
-            assert failed["status"] is JobState.FAILED
-            assert failed["stage"] is not GenerationStage.READY
-            assert failed["error"] == "generation_failed"
-        async with database.sessions() as session:
-            persisted = await session.scalar(select(Word).where(Word.lemma == "bank"))
-            assert persisted.generation_state is GenerationState.DONE
-            word_id = persisted.id
-            assert await session.scalar(select(func.count()).select_from(Sense)) == 1
-        retry = await jobs.submit("bank", reference_id=encode_reference_id(1))
-        await jobs.wait([retry["task_id"]])
-        completed = await jobs.status(retry["task_id"])
-        assert completed["status"] is JobState.SUCCEEDED
-        assert completed["stage"] is GenerationStage.READY
-        assert completed["word_id"] == word_id
-        assert provider.calls == 2
-        found = (await index.search("bank", include_reference=True)).items
-        assert found[0].word_id == word_id
-        assert all(item.kind is HitKind.WORD for item in found)
-    finally:
-        await jobs.close()
-        await index.close()
-
-
-async def test_assistant_generation_tools_share_status_and_reuse_content(database, redis_store):
-    from types import SimpleNamespace
-
-    from pycil.assistant.tools import tools
-    from tests.support.account import account
-    from tests.support.vocabulary import neutral_word
-
-    user, _ = await account(database.sessions)
-    word_id, sense_id = await neutral_word(database.sessions)
-    config = load_config()
-    redis, namespace = redis_store
-    store = redis
-    index, provider, cache = (
-        SearchIndex(database.sessions),
-        WordProvider(),
-        MemoryCache(max_entries=1024, ttl=30),
-    )
-    owner = Generations(
-        database.sessions,
-        index,
-        provider,
-        cache,
-        config,
-        redis=store,
-        prefix=namespace + ":word-tasks",
-    )
-    observer = Generations(
-        database.sessions,
-        index,
-        provider,
-        cache,
-        config,
-        redis=store,
-        prefix=namespace + ":word-tasks",
-    )
-
-    def surface(generations):
-        resources = SimpleNamespace(
-            sessions=database.sessions, sense_cache=MemoryCache(1024, 30), generations=generations
-        )
-        return {tool.name: tool for tool in tools(resources, user.id, config)}
-
-    try:
-        await index.start()
-        generated = await surface(owner)["generate_words"].ainvoke({"words": ["bank"]})
-        item = generated["items"][0]
-        assert item["status"] == "succeeded" and item["word_id"] == word_id
-        assert item["senses"][0]["sense_id"] == sense_id
-        polled = await surface(observer)["get_generations"].ainvoke({"task_ids": [item["task_id"]]})
-        assert polled["items"][0] == {key: value for key, value in item.items() if key != "target"}
-        assert not observer.flights and provider.calls == 0
-    finally:
-        await owner.close()
-        await observer.close()
         await index.close()
 
 
@@ -281,10 +163,8 @@ async def test_invented_citation_never_publishes_word_or_sense(database, tmp_pat
         with pytest.raises(InvalidOutputError):
             await generate_word(
                 database.sessions,
-                index,
                 WordProvider(invalid_citation=True),
                 MemoryCache(max_entries=1024, ttl=30),
-                "bank",
                 reference_id=encode_reference_id(1),
                 example_count=1,
                 enrichment_batch_size=8,
@@ -316,10 +196,9 @@ async def test_enrichment_cannot_publish_examples_marked_for_another_word(databa
         with pytest.raises(InvalidOutputError):
             await generate_word(
                 database.sessions,
-                search,
                 WrongTarget(),
                 MemoryCache(max_entries=1024, ttl=30),
-                "bank",
+                reference_id=encode_reference_id(1),
                 example_count=1,
                 enrichment_batch_size=8,
             )
@@ -372,10 +251,9 @@ async def test_enrichment_failure_cancels_sibling_batches_and_publishes_nothing(
             async with asyncio.timeout(5):
                 await generate_word(
                     database.sessions,
-                    index,
                     FailingBatch(),
                     MemoryCache(max_entries=1024, ttl=30),
-                    "bank",
+                    reference_id=encode_reference_id(1),
                     example_count=1,
                     enrichment_batch_size=8,
                 )

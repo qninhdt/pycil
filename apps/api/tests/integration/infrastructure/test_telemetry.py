@@ -10,7 +10,7 @@ from opentelemetry.proto.collector.metrics.v1.metrics_service_pb2 import ExportM
 from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest
 
 from pycil.app.config import load_config
-from pycil.app.settings import Deployment
+from pycil.app.settings import ApiSettings
 from pycil.infrastructure.observability import telemetry
 
 
@@ -38,7 +38,7 @@ async def test_no_endpoint_does_not_install_or_start_sdk():
 
     before = metrics.get_meter_provider(), trace.get_tracer_provider()
     workers = set(threading.enumerate())
-    async with telemetry(Deployment(**deployment_values()), load_config().runtime.telemetry):
+    async with telemetry(ApiSettings(**deployment_values()), load_config().runtime.telemetry):
         assert before == (metrics.get_meter_provider(), trace.get_tracer_provider())
     assert set(threading.enumerate()) == workers
 
@@ -158,12 +158,12 @@ from httpx import ASGITransport, AsyncClient
 from opentelemetry import trace
 from pycil.app.config import load_config
 from pycil.app.factory import create_app
-from pycil.app.resources import process_resources
-from pycil.app.settings import Deployment
+from pycil.app.resources import api_resources
+from pycil.app.settings import ApiSettings
 from pycil.infrastructure.observability import record_database_duration, telemetry
 
 async def main():
-    deployment = Deployment(**json.load(sys.stdin))
+    deployment = ApiSettings(**json.load(sys.stdin))
     config = load_config()
     if sys.argv[2] == "1":
         data = config.model_dump()
@@ -182,7 +182,7 @@ async def main():
     closing_at = None
     if sys.argv[1] == "1":
         try:
-            async with process_resources(config, deployment):
+            async with api_resources(config, deployment):
                 raise AssertionError("unreachable database unexpectedly initialized")
         except RuntimeError as error:
             assert "Runtime initialization failed" in str(error)

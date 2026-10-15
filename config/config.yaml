@@ -500,34 +500,16 @@ runtime:
       # Configured value: 2048. Applies after API restart.
       max_entries: 2048
   generation:
-    # Concurrent running generation jobs.
-    # Positive count per API process; higher values increase provider/DB/memory demand.
-    # Configured value: 8. Applies after API restart.
-    active_jobs: 8
-    # Additional queued generation jobs.
-    # Integer >= 0 per process; higher values permit longer queues; jobs are not durable.
-    # Configured value: 16. Applies after API restart.
-    pending_jobs: 16
-    # Deadline for the owning operation.
-    # Positive seconds including waits/retries where applicable; higher values retain resources longer.
-    # Configured value: 600. Applies after API restart.
-    timeout_seconds: 600
-    # Redis generation status retention after each write.
-    # Positive seconds; 86400 is one day, independent of read-cache TTL.
-    # Configured value: 86400. Applies after API restart.
-    status_retention_seconds: 86400
-    # Maximum assistant wait for generation jobs.
-    # Positive seconds; effective wait is min(value, generation timeout).
-    # Configured value: 30. Applies after API restart.
-    tool_wait_seconds: 30
-    # Senses sent in each enrichment operation.
-    # Integer 1..8, bounded by provider schema; higher values grow provider input/output.
-    # Configured value: 8. Applies after API restart.
     enrichment_batch_size: 8
     # Study artifacts requested per generation batch.
     # Integer 1..20; higher values grow provider requests.
     # Configured value: 8. Applies after API restart.
     artifact_batch_size: 8
+  jobs:
+    timeout_seconds: 300
+    # Finite lock expiry exceeds the native task deadline; no renewal service.
+    lock_timeout_seconds: 330
+    result_ttl_seconds: 86400
   assistant:
     # Assistant model request deadline.
     # Positive seconds; higher values allow slower providers but longer resource occupancy.
@@ -627,6 +609,8 @@ runtime:
     # Positive seconds per operation; higher values delay required failures and optional cache fallback.
     # Configured value: 5. Applies after API restart.
     operation_timeout_seconds: 5
+    # Per process/client pool; broker and native result pools have this bound too.
+    max_connections: 16
   identity:
     # Clerk profile HTTP request deadline.
     # Positive seconds per lookup; higher values delay provisioning failure.

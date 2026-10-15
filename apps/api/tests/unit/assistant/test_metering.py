@@ -67,11 +67,16 @@ async def test_invalid_measurements_are_unmetered_instead_of_fabricated(usage):
 
 
 async def test_failed_call_preserves_known_charge_and_records_unknown_usage_safely(monkeypatch):
+    import structlog
     from structlog.testing import capture_logs
+
+    from pycil.assistant import metering
 
     meter = Meter(rates())
     await meter.on_llm_end(response({"input_tokens": 10, "output_tokens": 0}))
     with capture_logs() as logs:
+        # Earlier integration tests can have cached the production logger processors.
+        monkeypatch.setattr(metering, "logger", structlog.get_logger(__name__))
         await meter.on_llm_error(RuntimeError("private upstream payload"))
     assert meter.total == 1 and meter.units == 1
     assert meter.unmetered_calls == 1

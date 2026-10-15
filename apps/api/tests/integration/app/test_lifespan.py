@@ -4,7 +4,7 @@ from httpx import ASGITransport, AsyncClient
 from pycil.app import resources
 from pycil.app.config import load_config
 from pycil.app.factory import create_app
-from pycil.app.settings import Deployment
+from pycil.app.settings import ApiSettings
 from pycil.infrastructure.observability import ObservedAsyncClient
 from pycil.vocabulary.references.importer import import_reference
 from tests.support.reference import reference_file, reference_word
@@ -93,9 +93,15 @@ async def test_real_lifespan_checks_search_readiness_and_cleans_owned_resources(
     }
     for key, value in variables.items():
         monkeypatch.setenv(key, value)
+
+    def forbidden_generation_client(*args, **kwargs):
+        pytest.fail("API must not initialize the worker generation client")
+
+    monkeypatch.setattr(resources, "StructuredLLM", forbidden_generation_client)
     app = create_app()
     async with app.router.lifespan_context(app):
         search, client = app.state.search, app.state.http
+        assert not hasattr(app.state, "structured_llm")
         assert isinstance(client, ObservedAsyncClient)
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://api.example.test"
@@ -120,7 +126,6 @@ async def test_real_lifespan_checks_search_readiness_and_cleans_owned_resources(
     assert client.is_closed
     assert search.snapshot is None
     assert not hasattr(app.state, "engine")
-    assert not hasattr(app.state, "generations")
 
 
 async def test_schema_startup_failure_disposes_the_acquired_engine(database, monkeypatch):
@@ -135,7 +140,7 @@ async def test_schema_startup_failure_disposes_the_acquired_engine(database, mon
     monkeypatch.setattr(resources, "connect", captured_connection)
     deployment = deployment_for(database.url, "redis://127.0.0.1:1/0")
     with pytest.raises(RuntimeError, match="Runtime initialization failed"):
-        async with resources.process_resources(load_config(), deployment):
+        async with resources.api_resources(load_config(), deployment):
             pytest.fail("An empty reference must prevent startup")
     assert len(acquired) == 1
     engine, previous_pool = acquired[0]
@@ -144,7 +149,7 @@ async def test_schema_startup_failure_disposes_the_acquired_engine(database, mon
 
 
 def deployment_for(db_url, redis_url):
-    return Deployment(
+    return ApiSettings(
         db_url=db_url,
         redis_url=redis_url,
         clerk_jwks_url="https://identity.invalid/jwks",
@@ -200,7 +205,7 @@ async def test_failed_redis_closer_does_not_prevent_engine_cleanup(
     try:
         with pytest.raises(RuntimeError, match="^Runtime resource cleanup failed$"):
             async with asyncio.timeout(2):
-                async with resources.process_resources(
+                async with resources.api_resources(
                     config, deployment_for(database.url, "redis://127.0.0.1:1/0")
                 ):
                     pytest.fail("empty reference dataset must prevent startup")
@@ -238,7 +243,7 @@ async def test_startup_cancellation_closes_acquired_resources_before_return(
         closed.append(True)
 
     async def initialize():
-        async with resources.process_resources(
+        async with resources.api_resources(
             load_config(), deployment_for(database.url, "redis://127.0.0.1:1/0")
         ):
             pytest.fail("cancelled initialization must never publish resources")
@@ -263,50 +268,44 @@ async def test_startup_cancellation_closes_acquired_resources_before_return(
         monkeypatch.setattr(redis, "aclose", close_redis)
 
 
-async def test_shutdown_joins_generation_before_closing_its_native_dependencies(
-    database, redis_container, monkeypatch, tmp_path
+async def test_api_specific_startup_failure_redacts_details_and_closes_shared_resources(
+    database,
+    redis_container,
+    monkeypatch,
+    tmp_path,
 ):
-    import asyncio
-
-    from sqlalchemy import func, select, text
-
-    from pycil.vocabulary.generation.schemas import EnrichmentBatch
-    from pycil.vocabulary.models import Word
-    from pycil.vocabulary.references.reference import encode_reference_id
-    from tests.support.inference import WordProvider
-
     await import_reference(
-        database.sessions, reference_file(tmp_path / "reference.jsonl", [reference_word()])
+        database.sessions,
+        reference_file(tmp_path / "reference.jsonl", [reference_word()]),
     )
-    started, cancelled = asyncio.Event(), asyncio.Event()
-    provider = WordProvider()
-    runtime = None
+    acquired = []
+    connect = resources.connect
 
-    async def complete(self, instruction, data, schema, **options):
-        if issubclass(schema, EnrichmentBatch):
-            started.set()
-            try:
-                await asyncio.Event().wait()
-            finally:
-                assert not runtime.http.is_closed
-                runtime.search.ready()
-                assert await runtime.redis.ping()
-                async with runtime.sessions() as session:
-                    assert await session.scalar(text("SELECT 1")) == 1
-                cancelled.set()
-        return await provider.complete(instruction, data, schema)
+    def captured_connection(url, **policy):
+        engine, sessions = connect(url, **policy)
+        acquired.append((engine, engine.pool))
+        return engine, sessions
 
-    monkeypatch.setattr(resources.StructuredLLM, "complete", complete)
-    address = redis_container.get_container_host_ip()
-    port = redis_container.get_exposed_port(6379)
-    async with asyncio.timeout(10):
-        async with resources.process_resources(
-            load_config(), deployment_for(database.url, f"redis://{address}:{port}/0")
-        ) as runtime:
-            await runtime.generations.submit("bank", reference_id=encode_reference_id(1))
-            await started.wait()
-        assert cancelled.is_set()
-        assert runtime.generations.closed and not runtime.generations.flights
-        assert runtime.http.is_closed and runtime.search.snapshot is None
-    async with database.sessions() as session:
-        assert await session.scalar(select(func.count()).select_from(Word)) == 0
+    async def failed_search(self):
+        raise RuntimeError("private-search-startup-detail")
+
+    monkeypatch.setattr(resources, "connect", captured_connection)
+    monkeypatch.setattr(resources.SearchIndex, "start", failed_search)
+    deployment = deployment_for(
+        database.url,
+        f"redis://{redis_container.get_container_host_ip()}:{redis_container.get_exposed_port(6379)}/0",
+    )
+    from structlog.testing import capture_logs
+
+    with capture_logs() as logs:
+        with pytest.raises(
+            RuntimeError, match="^Runtime initialization failed; verify API dependencies$"
+        ):
+            async with resources.api_resources(load_config(), deployment):
+                pytest.fail("failed index must prevent API startup")
+    events = [record["event"] for record in logs]
+    assert "resources_initialized" not in events
+    assert events.count("resources_initialization_failed") == 1
+    assert events.count("resources_closed") == 1
+    engine, previous_pool = acquired[0]
+    assert engine.pool is not previous_pool and previous_pool.checkedout() == 0

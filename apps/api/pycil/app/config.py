@@ -83,13 +83,20 @@ class CachesPolicy(Policy):
 
 
 class GenerationRuntime(Policy):
-    active_jobs: PositiveInt
-    pending_jobs: NonnegativeInt
-    timeout_seconds: PositiveSeconds
-    status_retention_seconds: PositiveInt
-    tool_wait_seconds: PositiveSeconds
     enrichment_batch_size: Annotated[int, Field(strict=True, ge=1, le=8)]
     artifact_batch_size: Annotated[int, Field(strict=True, ge=1, le=20)]
+
+
+class JobsRuntime(Policy):
+    timeout_seconds: PositiveInt
+    lock_timeout_seconds: PositiveInt
+    result_ttl_seconds: PositiveInt
+
+    @model_validator(mode="after")
+    def deadlines(self):
+        if self.lock_timeout_seconds <= self.timeout_seconds:
+            raise ValueError("job lock expiry must exceed execution timeout")
+        return self
 
 
 class AssistantRuntime(Policy):
@@ -130,6 +137,7 @@ class DatabaseRuntime(Policy):
 class RedisRuntime(Policy):
     connect_timeout_seconds: PositiveSeconds
     operation_timeout_seconds: PositiveSeconds
+    max_connections: PositiveInt
 
 
 class IdentityRuntime(Policy):
@@ -197,6 +205,7 @@ class TelemetryRuntime(Policy):
 class RuntimePolicy(Policy):
     caches: CachesPolicy
     generation: GenerationRuntime
+    jobs: JobsRuntime
     assistant: AssistantRuntime
     providers: ProvidersPolicy
     database: DatabaseRuntime

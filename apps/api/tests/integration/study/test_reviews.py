@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 
 from pycil.app.config import load_config
 from pycil.app.http import Problem
-from pycil.infrastructure.cache import MemoryCache
+from pycil.infrastructure.kv_store import InMemoryStore
 from pycil.library.models import NodeType
 from pycil.library.nodes import create_node
 from pycil.library.schemas import NodeCreate
@@ -21,7 +21,7 @@ from pycil.study.enums import (
     Selection,
 )
 from pycil.study.models import DailyActivity, ReviewReceipt, UserSense
-from pycil.study.preparation import prepare
+from pycil.study.preparation import normalize_preparation, prepare
 from pycil.study.reviews import review
 from pycil.study.schemas import Preparation, Review, ReviewBatch
 from pycil.vocabulary.enums import EntryType, GenerationState, PartOfSpeech, Tier
@@ -179,20 +179,22 @@ async def test_prepare_review_replay_is_atomic_and_changes_selection(database):
             )
         ],
     )
-    cache = MemoryCache(max_entries=1024, ttl=30)
+    store = InMemoryStore(max_entries=1024, ttl=30)
 
     async def prepared(selection):
         async with database.sessions() as session:
+            preferences = await normalize_preparation(session, user.id, config, selection=selection)
             return Preparation.model_validate(
                 await prepare(
                     session,
                     database.sessions,
                     None,
-                    cache,
+                    store,
                     user.id,
                     deck["id"],
                     config,
                     selection=selection,
+                    preferences=preferences,
                 )
             )
 

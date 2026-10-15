@@ -2,7 +2,6 @@ import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
-from hashlib import sha256
 from time import perf_counter
 from uuid import UUID
 
@@ -14,14 +13,13 @@ from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from pycil.app.config import AppConfig
-from pycil.app.settings import Deployment
+from pycil.app.settings import ApiSettings, ProcessSettings, WorkerSettings
 from pycil.assistant.checkpoints import checkpoint_pool
-from pycil.infrastructure.cache import MemoryCache
 from pycil.infrastructure.database import connect, verify_schema
+from pycil.infrastructure.cache import MemoryCache
 from pycil.infrastructure.llm import DecisionLLM, StructuredLLM
 from pycil.infrastructure.observability import ObservedAsyncClient, get_logger, telemetry
 from pycil.study.artifacts.schemas import Artifact
-from pycil.vocabulary.generation.jobs import Generations
 from pycil.vocabulary.schemas import CachedWord, Sense
 from pycil.vocabulary.search import SearchIndex
 
@@ -29,127 +27,34 @@ logger = get_logger(__name__)
 
 
 @dataclass
-class RuntimeState:
+class ProcessResources:
     engine: AsyncEngine
     sessions: async_sessionmaker[AsyncSession]
     redis: Redis
-    user_id_cache: MemoryCache[str, UUID]
     http: httpx.AsyncClient
-    structured_llm: StructuredLLM
-    decision_llm: DecisionLLM
-    search: SearchIndex
     word_cache: MemoryCache[int, CachedWord]
     sense_cache: MemoryCache[int, Sense]
     artifact_cache: MemoryCache[int, Artifact]
-    generations: Generations
+
+
+@dataclass
+class WorkerResources(ProcessResources):
+    structured_llm: StructuredLLM
+
+
+@dataclass
+class ApiResources(ProcessResources):
+    user_id_cache: MemoryCache[str, UUID]
+    decision_llm: DecisionLLM
+    search: SearchIndex
     checkpoint_pool: AsyncConnectionPool[AsyncConnection[DictRow]]
 
 
 @asynccontextmanager
-async def process_resources(
-    config: AppConfig, deployment: Deployment
-) -> AsyncGenerator[RuntimeState]:
-    """One set of owned, explicitly closed native resources per API process."""
+async def _resource_stack(config: AppConfig) -> AsyncGenerator[AsyncExitStack]:
     stack = AsyncExitStack()
-    started = perf_counter()
     try:
-        try:
-            await stack.enter_async_context(telemetry(deployment, config.runtime.telemetry))
-            url = deployment.db_url.get_secret_value()
-            engine, sessions = connect(url, **config.runtime.database.application_pool.model_dump())
-            stack.push_async_callback(engine.dispose)
-            redis = Redis.from_url(  # pyright: ignore[reportUnknownMemberType]
-                deployment.redis_url.get_secret_value(),
-                socket_connect_timeout=config.runtime.redis.connect_timeout_seconds,
-                socket_timeout=config.runtime.redis.operation_timeout_seconds,
-            )
-            stack.push_async_callback(redis.aclose)
-            await verify_schema(engine)
-            await redis.ping()  # pyright: ignore[reportUnknownMemberType]
-            namespace = (
-                "pycil:cache:v3:"
-                + sha256((url + "\0" + deployment.clerk_issuer).encode()).hexdigest()
-            )
-            cache_policy = config.runtime.caches
-            user_id_cache = MemoryCache[str, UUID](
-                cache_policy.user_id.max_entries, cache_policy.user_id.ttl_seconds
-            )
-            stack.callback(user_id_cache.clear)
-            sessions.configure(info={"user_id_cache": user_id_cache})
-            http = await stack.enter_async_context(
-                ObservedAsyncClient(timeout=config.runtime.http.client_timeout_seconds)
-            )
-            pool = await stack.enter_async_context(
-                checkpoint_pool(url, **config.runtime.database.checkpoint_pool.model_dump())
-            )
-            policy = config.runtime.providers.vocabulary
-            structured_llm = StructuredLLM(
-                policy,
-                api_key=deployment.llm_api_key.get_secret_value(),
-                base_url=deployment.llm_base_url,
-                http_client=http,
-            )
-            decision_llm = DecisionLLM(
-                policy,
-                api_key=deployment.decision_api_key.get_secret_value(),
-                endpoint=deployment.decision_base_url,
-                http_client=http,
-            )
-            word_cache = MemoryCache[int, CachedWord](
-                cache_policy.words.max_entries, cache_policy.words.ttl_seconds
-            )
-            sense_cache = MemoryCache[int, Sense](
-                cache_policy.senses.max_entries, cache_policy.senses.ttl_seconds
-            )
-            artifact_cache = MemoryCache[int, Artifact](
-                cache_policy.artifacts.max_entries, cache_policy.artifacts.ttl_seconds
-            )
-            stack.callback(word_cache.clear)
-            stack.callback(sense_cache.clear)
-            stack.callback(artifact_cache.clear)
-            search = SearchIndex(
-                sessions,
-                deployment.search_index_path,
-                policy=config.runtime.search,
-                query_policy=config.product.vocabulary.search,
-            )
-            stack.push_async_callback(search.close)
-            await search.start()
-            generations = Generations(
-                sessions,
-                search,
-                structured_llm,
-                word_cache,
-                config,
-                sense_cache=sense_cache,
-                redis=redis,
-                prefix=namespace + ":word-tasks",
-            )
-            stack.push_async_callback(generations.close)
-            logger.info(
-                "resources_initialized", duration_ms=round((perf_counter() - started) * 1000, 2)
-            )
-        except Exception as exc:
-            logger.error("resources_initialization_failed", error_type=type(exc).__name__)
-            raise RuntimeError(
-                "Runtime initialization failed; verify deployment, reference dataset, "
-                "PostgreSQL/Redis and explicit migration gate"
-            ) from None
-        yield RuntimeState(
-            engine=engine,
-            sessions=sessions,
-            redis=redis,
-            user_id_cache=user_id_cache,
-            http=http,
-            structured_llm=structured_llm,
-            decision_llm=decision_llm,
-            search=search,
-            word_cache=word_cache,
-            sense_cache=sense_cache,
-            artifact_cache=artifact_cache,
-            generations=generations,
-            checkpoint_pool=pool,
-        )
+        yield stack
     finally:
         started = perf_counter()
         try:
@@ -160,3 +65,115 @@ async def process_resources(
         except Exception as exc:
             logger.error("resources_cleanup_failed", error_type=type(exc).__name__)
             raise RuntimeError("Runtime resource cleanup failed") from None
+
+
+async def _open_process_resources(
+    stack: AsyncExitStack, config: AppConfig, settings: ProcessSettings
+) -> ProcessResources:
+    await stack.enter_async_context(telemetry(settings, config.runtime.telemetry))
+    engine, sessions = connect(
+        settings.db_url.get_secret_value(), **config.runtime.database.application_pool.model_dump()
+    )
+    stack.push_async_callback(engine.dispose)
+    redis = Redis.from_url(  # pyright: ignore[reportUnknownMemberType]
+        settings.redis_url.get_secret_value(),
+        max_connections=config.runtime.redis.max_connections,
+        socket_connect_timeout=config.runtime.redis.connect_timeout_seconds,
+        socket_timeout=config.runtime.redis.operation_timeout_seconds,
+    )
+    stack.push_async_callback(redis.aclose)
+    await verify_schema(engine)
+    await redis.ping()  # pyright: ignore[reportUnknownMemberType]
+    http = await stack.enter_async_context(
+        ObservedAsyncClient(timeout=config.runtime.http.client_timeout_seconds)
+    )
+    policy = config.runtime.caches
+    word_cache = MemoryCache[int, CachedWord](policy.words.max_entries, policy.words.ttl_seconds)
+    sense_cache = MemoryCache[int, Sense](policy.senses.max_entries, policy.senses.ttl_seconds)
+    artifact_cache = MemoryCache[int, Artifact](
+        policy.artifacts.max_entries, policy.artifacts.ttl_seconds
+    )
+    stack.callback(word_cache.clear)
+    stack.callback(sense_cache.clear)
+    stack.callback(artifact_cache.clear)
+    return ProcessResources(
+        engine=engine,
+        sessions=sessions,
+        redis=redis,
+        http=http,
+        word_cache=word_cache,
+        sense_cache=sense_cache,
+        artifact_cache=artifact_cache,
+    )
+
+
+@asynccontextmanager
+async def worker_resources(
+    config: AppConfig, settings: WorkerSettings
+) -> AsyncGenerator[WorkerResources]:
+    async with _resource_stack(config) as stack:
+        started = perf_counter()
+        try:
+            shared = await _open_process_resources(stack, config, settings)
+            llm = StructuredLLM(
+                config.runtime.providers.vocabulary,
+                api_key=settings.llm_api_key.get_secret_value(),
+                base_url=settings.llm_base_url,
+                http_client=shared.http,
+            )
+            resources = WorkerResources(**vars(shared), structured_llm=llm)
+        except Exception as exc:
+            logger.error("resources_initialization_failed", error_type=type(exc).__name__)
+            raise RuntimeError(
+                "Runtime initialization failed; verify worker dependencies"
+            ) from None
+        logger.info(
+            "resources_initialized", duration_ms=round((perf_counter() - started) * 1000, 2)
+        )
+        yield resources
+
+
+@asynccontextmanager
+async def api_resources(config: AppConfig, settings: ApiSettings) -> AsyncGenerator[ApiResources]:
+    async with _resource_stack(config) as stack:
+        started = perf_counter()
+        try:
+            shared = await _open_process_resources(stack, config, settings)
+            policy = config.runtime.caches.user_id
+            user_id_cache = MemoryCache[str, UUID](policy.max_entries, policy.ttl_seconds)
+            stack.callback(user_id_cache.clear)
+            shared.sessions.configure(info={"user_id_cache": user_id_cache})
+            pool = await stack.enter_async_context(
+                checkpoint_pool(
+                    settings.db_url.get_secret_value(),
+                    **config.runtime.database.checkpoint_pool.model_dump(),
+                )
+            )
+            decision_llm = DecisionLLM(
+                config.runtime.providers.vocabulary,
+                api_key=settings.decision_api_key.get_secret_value(),
+                endpoint=settings.decision_base_url,
+                http_client=shared.http,
+            )
+            search = SearchIndex(
+                shared.sessions,
+                settings.search_index_path,
+                policy=config.runtime.search,
+                query_policy=config.product.vocabulary.search,
+            )
+            stack.push_async_callback(search.close)
+            await search.start()
+            resources = ApiResources(
+                **vars(shared),
+                user_id_cache=user_id_cache,
+                decision_llm=decision_llm,
+                search=search,
+                checkpoint_pool=pool,
+            )
+        except Exception as exc:
+            logger.error("resources_initialization_failed", error_type=type(exc).__name__)
+            raise RuntimeError("Runtime initialization failed; verify API dependencies") from None
+        logger.info(
+            "resources_initialized", duration_ms=round((perf_counter() - started) * 1000, 2)
+        )
+        yield resources

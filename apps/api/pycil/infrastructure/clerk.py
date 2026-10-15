@@ -10,7 +10,7 @@ import jwt
 from pycil.infrastructure.observability import get_logger
 
 if TYPE_CHECKING:
-    from pycil.app.settings import Deployment
+    from pycil.app.settings import ApiSettings
 
 logger = get_logger(__name__)
 
@@ -38,7 +38,7 @@ class IdentityServiceUnavailable(RuntimeError):
 
 class Identity:
     def __init__(
-        self, deployment: Deployment, *, timeout: float = 30, lifespan: float = 300
+        self, deployment: ApiSettings, *, timeout: float = 30, lifespan: float = 300
     ) -> None:
         self.deployment = deployment
         self.keys = jwt.PyJWKClient(deployment.clerk_jwks_url, timeout=timeout, lifespan=lifespan)
@@ -67,7 +67,7 @@ class Identity:
 
 
 async def clerk_user(
-    http: httpx.AsyncClient, deployment: Deployment, subject: str, *, timeout: float
+    http: httpx.AsyncClient, deployment: ApiSettings, subject: str, *, timeout: float
 ) -> ClerkUserProfile:
     try:
         response = await http.request(
