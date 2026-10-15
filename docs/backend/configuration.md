@@ -141,6 +141,95 @@ the native span processor has a fixed 30-second join budget, followed by the con
 metric reader shutdown budget (5 seconds initially). These are cooperative limits,
 not preemption of blocked native/DNS code; the container stop deadline remains the hard bound.
 
+HTTP requests use the official OTel ASGI middleware through the existing FastAPI
+assembly. It receives a sanitized telemetry scope: route templates (or `unmatched`),
+bounded methods and a fixed service host. The application still receives the original
+scope for routing, authentication, headers and bodies. FastAPI's native telemetry
+and environment-based SDK auto-configuration are disabled so this boundary and the
+existing resource owner remain the sole HTTP/SDK owners. Only trace propagation headers
+reach the telemetry scope; body/query/header capture is disabled. Do not additionally
+enable FastAPI/ASGI auto-instrumentation, which would duplicate server spans.
+
+With the default HTTP semantic conventions, `http.server.duration` is a histogram
+in milliseconds (its count supplies completed requests) and
+`http.server.active_requests` tracks in-flight requests. Duration dimensions use
+templated `http.target`; spans also carry `http.route`. No extra per-request counter
+duplicates the histogram count. Per-message ASGI send/receive spans are excluded.
+HTTP completion is not proof that a streamed business operation succeeded.
+
+Structured logs include current valid trace/span IDs, even when a span is unsampled;
+outside a trace they omit these IDs. Configured service/version/environment fields
+are added by a processor, independently of cleared request context. Request logs use
+`route` rather than raw `path`. HTTPX/HTTPCore transport diagnostics below WARNING
+are suppressed because they include raw URLs. Continue using `--no-access-log` in
+Uvicorn to avoid its separate raw request lines.
+
+Application query spans reuse `database.py`'s existing `engine.sync_engine` cursor
+events and the process-owned OTel SDK. The pinned contrib instrumentation `0.66b0`
+declares SQLAlchemy `<2.1.0`, while this application uses `2.1.3`; it is not installed
+and its dependency check is not bypassed. Do not add overlapping SQLAlchemy/asyncpg
+auto-instrumentation to these hooks.
+
+Each cursor execution produces one CLIENT span under the active request/operation.
+Names and `db.operation.name` use a bounded operation set, falling back to `SQL`;
+`db.system.name` is `postgresql`. Failure/cancellation ends the span with ERROR and
+only the exception class in `error.type`. SQL text, bind values, connection URLs,
+result content and exception messages/stack traces are never added. The span covers
+the cursor round trip, excluding pool acquisition and later result consumption;
+use the existing acquisition histogram to investigate the earlier wait. An executemany
+call is one execution span, not one span per row. SQL statements hidden inside the
+driver and transaction completion are outside this boundary.
+
+The separate checkpoint pool sets psycopg's public `cursor_factory` to
+[`CheckpointCursor`](../../apps/api/pycil/assistant/checkpoints.py). Its `execute`
+and `executemany` calls create CLIENT spans through the same SDK under the active
+request/operation, with instrumentation scope `pycil.checkpoints`. Each call has one
+span, including an executemany batch. String queries use the same bounded operation
+set; bytes, SQL composables and templates fall back to `SQL` without rendering input.
+Attributes include `pycil.db.pool=checkpoint` and `pycil.db.execution.mode` (`direct`
+or `pipeline`). Only the operation, PostgreSQL identity, execution mode and error
+class are recorded; statement/parameter/result content and exception text/events
+are excluded. Errors and cancellation are re-raised unchanged. Native row factories,
+binary cursors, prepared statements and pipeline behavior remain owned by psycopg.
+
+These spans measure driver calls after checkout, not PostgreSQL server execution time.
+LangGraph's pipeline writes can enqueue work before synchronization; their spans
+may end before the database finishes, and errors first raised on later sync/fetch
+are outside the earlier execute span. An unset span status is not proof that the
+pipeline committed successfully. Inspect the enclosing assistant/request outcome
+for that result. Pool acquisition remains a separate histogram. Migration-only
+connections and native fetch/sync/commit operations do not get separate spans.
+Do not enable additional psycopg auto-instrumentation on this pool: the contrib
+DB-API integration captures SQL text and would duplicate this boundary.
+
+The shared HTTPX client (Clerk profile reads, structured/decision LLM calls) and
+assistant's OpenRouter async client use `ObservedAsyncClient` in the existing
+[`observability.py`](../../apps/api/pycil/infrastructure/observability.py). It delegates
+public `AsyncClient.send` calls to HTTPX with the original request/options and creates
+one CLIENT span per send under the current context, using scope `pycil.http.client`.
+Redirects/auth flows inside one send are not separate spans. Existing provider retries
+produce separate send spans; instrumentation adds no retries, providers or workers.
+The assistant owns and closes its supplied async client; SDK retry/timeout policy and
+redirect behavior are preserved.
+
+Only bounded method names (`_OTHER` for unknown methods), status codes,
+`pycil.http.stream` and error classes/status codes are recorded. URLs, hosts, headers,
+payloads and exception text/events are never attached. The native HTTPX instrumentor
+collects URL attributes before its request hook, so it is not enabled alongside this
+boundary. No propagation headers or baggage are automatically sent to external services.
+HTTP error responses remain responses; transport failures and cancellation are re-raised
+unchanged after closing the span with ERROR.
+
+Duration covers `send`, including connection acquisition and existing hooks. Non-streamed
+sends include body reading; streamed sends normally return after headers and hooks.
+Instrumentation does not consume or wrap the response stream. Later stream-read errors
+are outside that send span: a 200/unset span status does not prove a completed generation.
+Use the enclosing operation's outcome for that result. PyJWT's separate synchronous
+JWKS fetch is not an HTTPX call and is outside this boundary.
+
+This connects HTTP server/client and query spans, log correlation and existing DB
+histograms. Selected job/cache/search measurements remain later work.
+
 Application body limits must agree with ingress/web upload bounds. Application cleanup must
 fit inside server/container shutdown grace. Deployment owners remain Compose/Caddy; this
 YAML does not configure processes, hosts or collector endpoints.

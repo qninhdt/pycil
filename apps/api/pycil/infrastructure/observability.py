@@ -7,10 +7,13 @@ import sys
 from collections.abc import AsyncGenerator, Generator
 from contextlib import ExitStack, asynccontextmanager, contextmanager
 from enum import StrEnum
+from threading import Lock
 from time import perf_counter
 from typing import TYPE_CHECKING, Any, Literal
 from uuid import uuid4
 
+import httpx
+import orjson
 import structlog
 from opentelemetry import metrics, trace
 from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
@@ -28,6 +31,133 @@ if TYPE_CHECKING:
     from pycil.app.config import TelemetryRuntime
 
 _telemetry_started = False
+_log_resource: dict[str, str] = {}
+_http_tracer = trace.get_tracer("pycil.http.client")
+
+
+class ObservedAsyncClient(httpx.AsyncClient):
+    """Measure public send calls without collecting URLs, headers or content."""
+
+    async def send(
+        self, request: httpx.Request, *, stream: bool = False, **kwargs: Any
+    ) -> httpx.Response:
+        method = (
+            request.method
+            if request.method
+            in {"CONNECT", "DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT", "TRACE"}
+            else "_OTHER"
+        )
+        # Hooks run after native instrumentation has already collected request data.
+        with _http_tracer.start_as_current_span(
+            method,
+            kind=trace.SpanKind.CLIENT,
+            attributes={"http.request.method": method, "pycil.http.stream": stream},
+            record_exception=False,
+            set_status_on_exception=False,
+        ) as span:
+            try:
+                response = await super().send(request, stream=stream, **kwargs)
+            except BaseException as exc:
+                span.set_attribute("error.type", type(exc).__name__)
+                span.set_status(trace.StatusCode.ERROR)
+                raise
+            span.set_attribute("http.response.status_code", response.status_code)
+            if response.status_code >= 400:
+                span.set_attribute("error.type", str(response.status_code))
+                span.set_status(trace.StatusCode.ERROR)
+            return response
+
+
+_job_tracer = trace.get_tracer("pycil.generation")
+_job_meter = metrics.get_meter("pycil.generation")
+_job_counts = _job_meter.create_up_down_counter(
+    "pycil.generation.jobs",
+    unit="{job}",
+    description="Admitted word jobs by pending/active phase",
+)
+_job_queue_duration = _job_meter.create_histogram(
+    "pycil.generation.queue.duration",
+    unit="s",
+    description="Admission to slot acquisition or cancellation",
+)
+_job_run_duration = _job_meter.create_histogram(
+    "pycil.generation.run.duration",
+    unit="s",
+    description="Word pipeline duration after slot acquisition",
+)
+_job_completed = _job_meter.create_counter("pycil.generation.completed", unit="{job}")
+_job_rejected = _job_meter.create_counter("pycil.generation.rejected", unit="{job}")
+_pending_jobs: dict[object, float] = {}
+_pending_jobs_lock = Lock()
+
+
+def _oldest_pending_job(_options: metrics.CallbackOptions) -> list[metrics.Observation]:
+    with _pending_jobs_lock:
+        oldest = min(_pending_jobs.values(), default=None)
+    age = max(0, perf_counter() - oldest) if oldest is not None else 0
+    return [metrics.Observation(age, {"kind": "word"})]
+
+
+_job_meter.create_observable_gauge(
+    "pycil.generation.pending.oldest.age", callbacks=[_oldest_pending_job], unit="s"
+)
+
+
+class WordJobObservation:
+    """One admitted job, including cancellation before its coroutine first runs."""
+
+    def __init__(self) -> None:
+        self.queued_at = perf_counter()
+        self.started_at: float | None = None
+        self.stopped_at: float | None = None
+        self.finished = False
+        self.span = _job_tracer.start_span("word.generate", attributes={"job.kind": "word"})
+        with _pending_jobs_lock:
+            _pending_jobs[self] = self.queued_at
+        _job_counts.add(1, {"kind": "word", "state": "pending"})
+
+    def start_run(self) -> None:
+        self.started_at = perf_counter()
+        with _pending_jobs_lock:
+            del _pending_jobs[self]
+        _job_counts.add(-1, {"kind": "word", "state": "pending"})
+        _job_queue_duration.record(
+            self.started_at - self.queued_at, {"kind": "word", "outcome": "started"}
+        )
+        _job_counts.add(1, {"kind": "word", "state": "active"})
+
+    def stop_run(self) -> None:
+        if self.started_at is not None and self.stopped_at is None:
+            self.stopped_at = perf_counter()
+            _job_counts.add(-1, {"kind": "word", "state": "active"})
+
+    def finish(self, outcome: Literal["succeeded", "failed", "timeout", "cancelled"]) -> None:
+        if self.finished:
+            return
+        self.finished = True
+        self.stop_run()
+        if self.started_at is None:
+            with _pending_jobs_lock:
+                del _pending_jobs[self]
+            _job_counts.add(-1, {"kind": "word", "state": "pending"})
+            _job_queue_duration.record(
+                perf_counter() - self.queued_at, {"kind": "word", "outcome": outcome}
+            )
+        else:
+            _job_run_duration.record(
+                self.stopped_at - self.started_at, {"kind": "word", "outcome": outcome}
+            )
+        _job_completed.add(1, {"kind": "word", "outcome": outcome})
+        self.span.set_attribute("job.outcome", outcome)
+        if outcome != "succeeded":
+            self.span.set_attribute("error.type", outcome)
+            self.span.set_status(trace.StatusCode.ERROR)
+        self.span.end()
+
+
+def record_word_job_rejection() -> None:
+    _job_rejected.add(1, {"kind": "word", "reason": "overloaded"})
+
 
 _database_histograms = {
     operation: metrics.get_meter("pycil.database").create_histogram(
@@ -78,6 +208,10 @@ async def telemetry(deployment: Deployment, policy: TelemetryRuntime) -> AsyncGe
     if deployment.git_sha:
         attributes["vcs.ref.head.revision"] = deployment.git_sha
     resource = Resource.create(attributes)
+    _log_resource.update(
+        {key: str(value) for key, value in attributes.items() if value is not None}
+    )
+    _log_resource["deployment.environment"] = str(deployment.deployment_environment)
     stack = ExitStack()
     try:
         reader = PeriodicExportingMetricReader(
@@ -179,6 +313,7 @@ def configure_logging(
 
     shared_processors: list[structlog.types.Processor] = [
         structlog.contextvars.merge_contextvars,
+        telemetry_context,
         structlog.stdlib.add_logger_name,
         structlog.stdlib.add_log_level,
         structlog.stdlib.PositionalArgumentsFormatter(),
@@ -200,7 +335,13 @@ def configure_logging(
     )
 
     if log_format == "json":
-        renderer: structlog.types.Processor = structlog.processors.JSONRenderer()
+
+        def _orjson_serializer(record: Any, **_: Any) -> str:
+            return orjson.dumps(record).decode()
+
+        renderer: structlog.types.Processor = structlog.processors.JSONRenderer(
+            serializer=_orjson_serializer
+        )
     else:
         renderer = structlog.dev.ConsoleRenderer(colors=sys.stdout.isatty())
 
@@ -229,6 +370,21 @@ def configure_logging(
         sub_logger.handlers.clear()
         sub_logger.propagate = True
         sub_logger.setLevel(logging.NOTSET)
+    # Transport diagnostics include raw URLs; application boundaries own safe outcomes.
+    for logger_name in ("httpx", "httpcore"):
+        logging.getLogger(logger_name).setLevel(logging.WARNING)
+
+
+def telemetry_context(_logger, _method, event: dict[str, Any]) -> dict[str, Any]:
+    event.update(_log_resource)
+    context = trace.get_current_span().get_span_context()
+    if context.is_valid:
+        event["trace_id"] = f"{context.trace_id:032x}"
+        event["span_id"] = f"{context.span_id:016x}"
+    else:
+        event.pop("trace_id", None)
+        event.pop("span_id", None)
+    return event
 
 
 def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:

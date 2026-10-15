@@ -120,7 +120,13 @@ def test_real_otlp_transport_and_resource_cleanup(response_status, startup_failu
         for scope in batch.scope_spans
         for span in scope.spans
     ]
-    assert {span.name for span in spans} == {"controlled-work"}
+    assert {span.name for span in spans} == {"controlled-work", "GET /livez"}
+    http_span = next(span for span in spans if span.name == "GET /livez")
+    logs = [json.loads(line) for line in result.stdout.splitlines() if line.startswith("{")]
+    completion = next(event for event in logs if event.get("event") == "http_request_completed")
+    assert completion["trace_id"] == http_span.trace_id.hex()
+    assert completion["span_id"] == http_span.span_id.hex()
+    assert completion["service.version"] == "test-release-immutable"
     resource = {
         item.key: item.value.string_value
         for item in traces[0].resource_spans[0].resource.attributes
@@ -148,8 +154,10 @@ import json
 import sys
 import threading
 from time import perf_counter
+from httpx import ASGITransport, AsyncClient
 from opentelemetry import trace
 from pycil.app.config import load_config
+from pycil.app.factory import create_app
 from pycil.app.resources import process_resources
 from pycil.app.settings import Deployment
 from pycil.infrastructure.observability import record_database_duration, telemetry
@@ -186,6 +194,15 @@ async def main():
                 business_result = 6 * 7
             assert trace.get_tracer_provider() is provider
             assert perf_counter() - started < 1, "export blocked business work"
+            app = create_app()
+            app.state.config = load_config()
+            app.state.deployment = deployment
+            async with AsyncClient(
+                transport=ASGITransport(app), base_url="http://api.test"
+            ) as http:
+                response = await http.get("/livez")
+                assert response.status_code == 200
+                assert response.headers["x-request-id"]
             if sys.argv[2] == "1":
                 await asyncio.sleep(0.5)
             closing_at = perf_counter()

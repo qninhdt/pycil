@@ -17,6 +17,16 @@ lives in the `search` volume (`SEARCH_INDEX_PATH`) and is shared safely by proce
 requires PostgreSQL with imported reference, Redis, Clerk and model provider configuration.
 WordNet is optional. There is no separate vocabulary package or service.
 
+The image starts one Uvicorn worker with a 75-second HTTP drain deadline,
+five-second keep-alive and a concurrency limit of 64 connections or tasks; excess
+traffic receives 503. Uvicorn access logs are disabled because the application
+already emits structured request logs. Compose gives the API 120 seconds after
+SIGTERM before SIGKILL. Long streams can be interrupted; the HTTP drain deadline
+does not include lifespan cleanup. The exit stack has a cooperative 40-second
+cleanup budget; cancellation requests remaining closers to run. Code that blocks
+the event loop or suppresses cancellation can still reach the container's hard
+stop deadline.
+
 ## Compose topology
 
 [Compose](../../../docker-compose.yml) runs PostgreSQL, Redis, an explicit one-shot
@@ -44,8 +54,8 @@ retrying. No production deployment was performed as part of this rewrite.
 
 ## Operational signals
 
-- `/health` checks process liveness.
-- `/ready` checks current PostgreSQL, Redis and initialized search within a bounded deadline.
+- `/livez` checks process liveness.
+- `/readyz` checks current PostgreSQL, Redis and initialized search within a bounded deadline.
 - Startup verifies schema and reference without repairing either.
 - Generation status remains in Redis for 24 hours after each initial/final write. Graceful
   shutdown records interruption; a worker crash loses unfinished jobs and can leave

@@ -1,21 +1,90 @@
 """Safe errors, correlation, CORS and bounded bodies without buffering responses."""
 
 import time
+from types import SimpleNamespace
 from typing import Any, cast
 from uuid import UUID, uuid7
 
 from fastapi import Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from fastapi.routing import iter_route_contexts
+from opentelemetry.instrumentation.asgi import OpenTelemetryMiddleware
 from pydantic import BaseModel, ConfigDict
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.exceptions import HTTPException
 from starlette.middleware.cors import CORSMiddleware
+from starlette.routing import Match
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from pycil.infrastructure.observability import bind_contextvars, clear_contextvars, get_logger
 
 logger = get_logger("pycil.app.http")
+
+
+class HttpTelemetry:
+    def __init__(self, app: ASGIApp):
+        self.app = app
+        self.instrumented = OpenTelemetryMiddleware(
+            self.dispatch,
+            default_span_details=lambda scope: (
+                f"{scope['method']} {scope['path']}",
+                {"http.route": scope["path"]},
+            ),
+            # A nonempty never-match pattern also overrides capture-header env settings.
+            http_capture_headers_server_request=["(?!)"],
+            http_capture_headers_server_response=["(?!)"],
+            exclude_spans=["receive", "send"],
+        )
+
+    async def dispatch(self, scope: Scope, receive: Receive, send: Send):
+        await self.app(scope["pycil.original_scope"], receive, send)
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        route = "unmatched"
+        for candidate in iter_route_contexts(scope["app"].routes):
+            match, _ = candidate.matches(scope)
+            if match != Match.NONE:
+                route = candidate.path
+                if match == Match.FULL:
+                    break
+        method = scope["method"]
+        if method not in {
+            "GET",
+            "POST",
+            "PUT",
+            "PATCH",
+            "DELETE",
+            "HEAD",
+            "OPTIONS",
+            "CONNECT",
+            "TRACE",
+        }:
+            method = "_OTHER"
+        scope.setdefault("state", {})["telemetry_route"] = route
+        scope["state"]["telemetry_method"] = method
+        # Instrument a sanitized scope; routing/auth/body handling retain the original.
+        safe = dict(
+            scope,
+            path=route,
+            raw_path=route.encode(),
+            root_path="",
+            query_string=b"",
+            method=method,
+            scheme="https" if scope.get("scheme") == "https" else "http",
+            server=("pycil-api", 0),
+            client=None,
+            headers=[
+                (k, v)
+                for k, v in scope.get("headers", [])
+                if k.lower() in {b"traceparent", b"tracestate"}
+            ],
+            route=SimpleNamespace(path_format=route),
+        )
+        safe["pycil.original_scope"] = scope
+        await self.instrumented(safe, receive, send)
 
 
 class Problem(Exception):
@@ -68,8 +137,8 @@ class RequestBoundary:
         scope.setdefault("state", {})["request_id"] = request_id
         bind_contextvars(
             request_id=request_id,
-            method=scope.get("method"),
-            path=scope.get("path"),
+            method=scope.get("state", {}).get("telemetry_method", scope.get("method")),
+            route=scope.get("state", {}).get("telemetry_route", "unmatched"),
         )
         started_at = time.perf_counter()
         started = False

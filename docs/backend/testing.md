@@ -1,7 +1,7 @@
 # Backend testing
 
 The backend suite was rebuilt for the consolidation described in
-[the redesign](../../redesign.md). Historical verification records describe earlier
+[the redesign](../../plans/260924-0608-pycil-complete-redesign/plan.md). Historical verification records describe earlier
 revisions and are not evidence for the current implementation.
 
 ## Structure and boundaries
@@ -16,7 +16,8 @@ apps/api/tests/
 
 Unit and integration tests use domain directories when there are tests for that domain.
 Application lifecycle tests belong in `integration/app`; infrastructure contracts belong
-in `integration/infrastructure`. There is no backend system, performance or E2E suite.
+in `integration/infrastructure`. There is no backend system or browser E2E suite. Small explicit cache/search benchmarks
+are in `tests/benchmarks`; they report declared local workloads, not production capacity.
 
 | Layer | What runs | External services |
 | --- | --- | --- |
@@ -38,7 +39,7 @@ identity. Its fixtures do not import backend integration fixtures.
 PostgreSQL and Redis containers. Selecting only unit tests starts neither container.
 The same fixtures run locally and in CI; CI does not provision duplicate services.
 
-Each PostgreSQL test creates a unique database, applies the single application baseline
+Each PostgreSQL test creates a unique database, applies the application baseline and additive migrations
 and native checkpoint setup, disposes its engine and drops that database. Redis fixtures
 use unique key namespaces and remove only their own keys. Clients and pools close before
 their stores are stopped. Testcontainers cleanup support stays enabled.
@@ -70,6 +71,17 @@ uv run --locked pytest tests/integration/study -q
 uv run --locked pytest tests/integration/assistant -q
 uv run --locked pytest tests/unit/infrastructure -q
 ```
+
+For local cache-only and small revision/index cost measurements (no live credentials):
+
+```sh
+uv run --locked pytest -s tests/benchmarks -q
+```
+
+RAM versus Redis uses the same verified-ID-sized UUID, with no SQL in either timed path.
+Capacity measurements decode independent DTOs rather than sharing nested objects.
+Search failure tests use real disk indexes, four spawned processes, owner SIGKILL and
+crashes immediately before/after native commit; all child processes are joined/terminated.
 
 `pytest` owns fixture setup and cleanup directly. There is no custom Compose test runner.
 

@@ -1,0 +1,33 @@
+# EditorConfig is awesome: https://EditorConfig.org
+
+# Top-most EditorConfig file
+root = true
+
+# Default rules for all files
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Python files (PEP 8 / apps/api)
+[*.py]
+indent_size = 4
+
+# Shell scripts
+[*.sh]
+indent_size = 2
+
+# Makefiles strictly require hard tabs
+[Makefile]
+indent_style = tab
+
+# Markdown (preserve trailing spaces if used for hard line breaks)
+[*.md]
+trim_trailing_whitespace = false
+
+# YAML / JSON / TOML configs
+[*.{yaml,yml,json,toml}]
+indent_size = 2

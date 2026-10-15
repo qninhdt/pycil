@@ -4,6 +4,7 @@ from pydantic import SecretStr
 
 from pycil.app.config import load_config
 from pycil.assistant.graph import model
+from pycil.infrastructure.observability import ObservedAsyncClient
 
 
 async def test_assistant_disables_native_sdk_retries_and_closes_its_client():
@@ -16,5 +17,6 @@ async def test_assistant_disables_native_sdk_retries_and_closes_its_client():
         assert sdk.sdk_configuration.retry_config is None
         assert sdk.sdk_configuration.timeout_ms == 3000
         http = sdk.sdk_configuration.async_client
+        assert isinstance(http, ObservedAsyncClient) and http.follow_redirects
         assert not http.is_closed
     assert http.is_closed

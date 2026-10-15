@@ -8,6 +8,8 @@ from fsrs_rs_python import DEFAULT_PARAMETERS, FSRS, MemoryState
 from pycil.app.config import AppConfig
 from pycil.study.models import UserSense
 
+_DEFAULT_FSRS = FSRS(DEFAULT_PARAMETERS)
+
 
 def next_state(
     memory: UserSense | None,
@@ -16,12 +18,10 @@ def next_state(
     config: AppConfig,
 ) -> tuple[float, float, datetime]:
     policy = config.product.study.fsrs
-    fsrs = FSRS(DEFAULT_PARAMETERS)
+    fsrs = _DEFAULT_FSRS
     observed = [r for r in recalls if r is not None]
     if observed:
-        elapsed = (
-            max(0, int((now - memory.last_exposure_at).total_seconds() // 86400)) if memory else 0
-        )
+        elapsed = max(0, (now - memory.last_exposure_at).days) if memory else 0
         current = MemoryState(memory.stability, memory.difficulty) if memory else None
         states = fsrs.next_states(current, policy.desired_retention, elapsed)
         branch = states.again if 0 in observed else states.good

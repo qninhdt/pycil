@@ -5,6 +5,7 @@ from enum import StrEnum
 from time import perf_counter
 from typing import Any
 
+from opentelemetry import trace
 from sqlalchemy import (
     Enum,
     FromClause,
@@ -36,6 +37,8 @@ from pycil.infrastructure.observability import (
 )
 
 logger = get_logger(__name__)
+_query_tracer = trace.get_tracer("pycil.database")
+_sql_operations = frozenset("SELECT INSERT UPDATE DELETE WITH SET SHOW".split())
 
 
 class ApplicationPool(AsyncAdaptedQueuePool):
@@ -98,13 +101,22 @@ def connect(
     def query_started(
         _connection: Connection,
         _cursor: Any,
-        _statement: str,
+        statement: str,
         _parameters: Any,
         context: ExecutionContext | None,
         _executemany: bool,
     ) -> None:
         if context is not None:
             context._pycil_query_started = perf_counter()  # pyright: ignore[reportAttributeAccessIssue]
+            operation = statement.split(None, 1)[0].upper() if statement.strip() else "SQL"
+            if operation not in _sql_operations:
+                operation = "SQL"
+            # Contrib 0.66b0 excludes SQLAlchemy 2.1; reuse these hooks without SQL capture.
+            context._pycil_query_span = _query_tracer.start_span(  # pyright: ignore[reportAttributeAccessIssue]
+                operation,
+                kind=trace.SpanKind.CLIENT,
+                attributes={"db.system.name": "postgresql", "db.operation.name": operation},
+            )
 
     def query_finished(
         context: ExecutionContext | None,
@@ -118,6 +130,13 @@ def connect(
                 except AttributeError:
                     pass
                 record_database_duration("query", "application", started, error)
+            span = getattr(context, "_pycil_query_span", None)
+            if span is not None:
+                delattr(context, "_pycil_query_span")
+                if error is not None:
+                    span.set_attribute("error.type", type(error).__name__)
+                    span.set_status(trace.Status(trace.StatusCode.ERROR))
+                span.end()
 
     @event.listens_for(engine.sync_engine, "after_cursor_execute")
     def query_succeeded(

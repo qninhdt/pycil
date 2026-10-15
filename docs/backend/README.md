@@ -1,6 +1,6 @@
 # Backend documentation
 
-The backend is being consolidated according to [the redesign](../../redesign.md).
+The backend is being consolidated according to [the redesign](../../plans/260924-0608-pycil-complete-redesign/plan.md).
 These pages describe the current rewrite. Local verification is recorded separately
 from deployment and live-provider evidence.
 
@@ -22,16 +22,17 @@ Final local checks and phase-to-test mapping: [verification record](verification
 | Work on preparation, grading, and progress | [Study](modules/study.md) |
 | Work on conversations and approvals | [Assistant](modules/assistant.md) |
 | Deploy or diagnose a service | [Deployment](operations/deployment.md) |
-| Plan VPS/AWS observability and deployment | [Platform design proposal](../operations/README.md) |
+| Plan VPS/AWS observability and deployment | [DevSecOps architecture design](../devops-architecture/00-architecture-overview-and-standards.md) |
+| Learn and implement that design through guided Pycil labs | [DevOps course](../../devops-course/README.md) |
 | Upgrade or recover a database | [Migrations](operations/migrations.md) |
 | Verify a change | [Testing](testing.md) |
-| Follow the approved consolidation | [Redesign](../../redesign.md) |
+| Follow the approved consolidation | [Redesign](../../plans/260924-0608-pycil-complete-redesign/plan.md) |
 
 ## Current inventory
 
 - One Python application under `apps/api`, with an API entry point and finite migration gate.
 - Six business domains: account, library, vocabulary, study, themes and assistant.
-- 39 business API operations; `/health` and `/ready` are operational routes.
+- 39 business API operations; `/livez` and `/readyz` are operational routes.
 - PostgreSQL `public`, one application baseline and native checkpoint setup.
 - Redis for optional cached values and required coordination.
 - Application-owned vocabulary, immutable reference JSONL and configured model/decision services.

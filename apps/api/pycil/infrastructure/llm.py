@@ -45,6 +45,21 @@ class TokenUsage(BaseModel):
     cache_write_tokens: int | None
     output_tokens: int | None
 
+    def __add__(self, other: object) -> TokenUsage:
+        if not isinstance(other, TokenUsage) or self.model_id != other.model_id:
+            return NotImplemented
+
+        def _add(a: int | None, b: int | None) -> int | None:
+            return None if a is None or b is None else a + b
+
+        return TokenUsage(
+            model_id=self.model_id,
+            input_tokens=_add(self.input_tokens, other.input_tokens),
+            cache_read_tokens=_add(self.cache_read_tokens, other.cache_read_tokens),
+            cache_write_tokens=_add(self.cache_write_tokens, other.cache_write_tokens),
+            output_tokens=_add(self.output_tokens, other.output_tokens),
+        )
+
 
 records: ContextVar[list[TokenUsage] | None] = ContextVar("provider_usage", default=None)
 
@@ -117,14 +132,7 @@ def merge_usage(values: list[TokenUsage]) -> list[TokenUsage]:
         if value.model_id not in grouped:
             grouped[value.model_id] = value
             continue
-        previous = grouped[value.model_id]
-        counts: dict[str, int | None] = {}
-        for name in TokenUsage.model_fields:
-            if name == "model_id":
-                continue
-            a, b = getattr(previous, name), getattr(value, name)
-            counts[name] = None if a is None or b is None else a + b
-        grouped[value.model_id] = TokenUsage(model_id=value.model_id, **counts)
+        grouped[value.model_id] = grouped[value.model_id] + value
     return [grouped[key] for key in sorted(grouped, key=lambda key: (key is None, key or ""))]
 
 

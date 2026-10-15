@@ -2,6 +2,7 @@
 
 from collections.abc import Sequence
 from hashlib import sha256
+from itertools import batched
 from typing import Any, cast
 
 from sqlalchemy import and_, func, literal, select
@@ -133,13 +134,13 @@ async def get_senses(
     )
     if missing:
         async with sessions() as session:
-            for offset in range(0, len(missing), 500):
+            for batch in batched(missing, 500, strict=False):
                 payload = await session.scalar(
                     select(
                         json_collection(
                             rows.Sense.__table__,
                             sense_fields(theme_id),
-                            rows.Sense.id.in_(missing[offset : offset + 500]),
+                            rows.Sense.id.in_(batch),
                             order_by=(rows.Sense.id,),
                         )
                     )
@@ -250,7 +251,7 @@ async def get_sense_previews(
 ) -> list[SensePreview]:
     result: dict[int, SensePreview] = {}
     async with sessions() as session:
-        for offset in range(0, len(identifiers), 500):
+        for batch in batched(identifiers, 500, strict=False):
             values = (
                 await session.execute(
                     select(
@@ -274,7 +275,7 @@ async def get_sense_previews(
                             rows.Definition.theme_id.is_(None),
                         ),
                     )
-                    .where(rows.Sense.id.in_(identifiers[offset : offset + 500]))
+                    .where(rows.Sense.id.in_(batch))
                 )
             ).mappings()
             result.update((item["sense_id"], cast(SensePreview, dict(item))) for item in values)

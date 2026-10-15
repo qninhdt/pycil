@@ -1,31 +1,73 @@
+# ─────────────────────────────────────────────────────────────
+# Pycil Docker Build Ignore
+# Build context is repo root, targeting apps/api/Dockerfile.
+# Exclude everything not needed by the backend Python service.
+# ─────────────────────────────────────────────────────────────
+
+# Version control & CI
 .git
-**/*.py[cod]
+.github
+
+# Exclude web frontend, e2e, and courses (not needed in API image)
+apps/web
+e2e
+devops-course
+
+# Documentation & planning scratch
 docs
 plans
+*.md
 
-# Dependencies are installed from the lockfile inside the image. Copying the
-# host tree in would overwrite that install with whatever the developer happens
-# to have, and platform-specific binaries built for the host would not run.
-node_modules
+# Large data files (mounted at runtime via volume / bind mount)
+data
+
+# Python build artifacts & caches
+**/__pycache__
+**/*.py[cod]
+**/*.egg-info
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+**/.coverage
+**/coverage
+apps/api/tests
+
+# Virtual environments
+**/.venv
+**/venv
+**/env
+
+# Node.js artifacts & caches
 **/node_modules
-
-# Secrets. `.?env` is a single-character wildcard, so it matches `.venv` but not
-# `.env` or `.env.local`; those need rules of their own or they are copied into a
-# build layer and stay in the image history even if a later layer deletes them.
-# The example file is re-included because it holds placeholders, not values.
-**/.env
-**/.env.*
-!**/.env.example
-**/.?env
-
-# Build output and caches. Stale artifacts from a host build otherwise shadow
-# what the image builds for itself.
 **/.next
 **/storybook-static
 **/tsconfig.tsbuildinfo
 **/.turbo
 **/build
-**/*.egg-info
-**/.pytest_cache
-**/.ruff_cache
-apps/api/tests
+**/dist
+**/out
+
+# Secrets & Local Environment
+**/.env
+**/.env.*
+**/.env.local
+!**/.env.example
+
+# Local databases & dumps
+*.dump
+*.sql
+*.sql.gz
+backup-manifest-*.json
+
+# Agent & editor scratch
+.agents
+.agent
+.codegraph
+.codex
+.impeccable
+.claude
+.gemini
+.vscode
+.idea
+*.log
+logs

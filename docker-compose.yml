@@ -85,6 +85,7 @@ services:
   api:
     <<: *backend
     restart: unless-stopped
+    stop_grace_period: 120s
     environment: *runtime-env
     volumes:
       - search:/var/lib/pycil/search
@@ -92,7 +93,7 @@ services:
       - "${API_HOST_PORT:-127.0.0.1:8000}:8000"
     depends_on: *stores-ready
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/ready').read()"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/readyz').read()"]
       interval: 10s
       timeout: 5s
       retries: 6

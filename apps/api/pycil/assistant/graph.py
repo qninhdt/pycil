@@ -26,7 +26,7 @@ from pycil.app.http import Problem
 from pycil.app.settings import Deployment
 from pycil.assistant.config import ModelPolicy
 from pycil.assistant.tools import MUTATION_TOOLS, tools, validation_message
-from pycil.infrastructure.observability import get_logger
+from pycil.infrastructure.observability import ObservedAsyncClient, get_logger
 
 create_agent: Callable[..., Any] = cast(Any, lc_agents).create_agent
 trim_messages: Callable[..., list[BaseMessage]] = cast(Any, lc_messages).trim_messages
@@ -149,29 +149,31 @@ class Boundary(AgentMiddleware[Any, Any, Any]):
 async def model(
     deployment: Deployment, policy: ModelPolicy, effort: str, timeout_seconds: float
 ) -> AsyncGenerator[ChatOpenRouter]:
-    selected = ChatOpenRouter(
-        model=policy.id,
-        api_key=deployment.llm_api_key,
-        base_url=deployment.llm_base_url,
-        timeout=int(timeout_seconds * 1000),
-        app_url=None,
-        app_title=None,
-        max_tokens=policy.max_output_tokens,
-        max_retries=0,
-        # LangChain's zero leaves the SDK's default 5xx retry policy enabled.
-        client=OpenRouter(
-            api_key=deployment.llm_api_key.get_secret_value(),
-            server_url=deployment.llm_base_url,
-            timeout_ms=int(timeout_seconds * 1000),
-            retry_config=None,
-        ),
-        reasoning={"effort": effort, "exclude": False},
-        streaming=True,
-        output_version="v1",
-        stream_usage=True,
-    )
-    async with selected.client:
-        yield selected
+    async with ObservedAsyncClient(follow_redirects=True) as http:
+        selected = ChatOpenRouter(
+            model=policy.id,
+            api_key=deployment.llm_api_key,
+            base_url=deployment.llm_base_url,
+            timeout=int(timeout_seconds * 1000),
+            app_url=None,
+            app_title=None,
+            max_tokens=policy.max_output_tokens,
+            max_retries=0,
+            # LangChain's zero leaves the SDK's default 5xx retry policy enabled.
+            client=OpenRouter(
+                api_key=deployment.llm_api_key.get_secret_value(),
+                server_url=deployment.llm_base_url,
+                timeout_ms=int(timeout_seconds * 1000),
+                retry_config=None,
+                async_client=http,
+            ),
+            reasoning={"effort": effort, "exclude": False},
+            streaming=True,
+            output_version="v1",
+            stream_usage=True,
+        )
+        async with selected.client:
+            yield selected
 
 
 def graph(

@@ -1,5 +1,7 @@
 import asyncio
+from collections.abc import Sequence
 from dataclasses import dataclass
+from itertools import batched
 from typing import Protocol, Self
 
 from pydantic import BaseModel, model_validator
@@ -200,7 +202,7 @@ async def _generate(
             await publish(session, before)
             return existing.id
 
-    async def enrich(batch: list[tuple[int, InventorySense]]) -> list[Enrichment]:
+    async def enrich(batch: Sequence[tuple[int, InventorySense]]) -> list[Enrichment]:
         class GroundedEnrichment(EnrichmentBatch):
             @model_validator(mode="after")
             def supplied_senses(self) -> Self:
@@ -235,8 +237,8 @@ async def _generate(
 
     seeds: list[tuple[int, InventorySense]] = list(enumerate(inventory.senses, 1))
     tasks: list[asyncio.Task[list[Enrichment]]] = [
-        asyncio.create_task(enrich(seeds[offset : offset + enrichment_batch_size]))
-        for offset in range(0, len(seeds), enrichment_batch_size)
+        asyncio.create_task(enrich(batch))
+        for batch in batched(seeds, enrichment_batch_size, strict=False)
     ]
     try:
         details: dict[int, Enrichment] = {

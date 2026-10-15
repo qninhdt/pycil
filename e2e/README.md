@@ -3,7 +3,7 @@
 The root package owns production-stack public, authentication, account, Library,
 vocabulary, Study, Assistant and rendering journeys. Frontend unit/browser
 integration and backend unit/integration retain their separate owners.
-See [the execution plan](../e2e.md) for the full coverage and cutover criteria.
+See [the execution plan and handoff](../plans/reports/e2e-handoff.md) for the full coverage and cutover criteria.
 
 ## Prerequisites
 
@@ -42,7 +42,7 @@ containers, identities, or frontend processes.
 
 ## Ownership and diagnostics
 
-Each test actor has a fresh Clerk identity and session. Actor setup and auth
+Each test user has a fresh Clerk identity and session. User setup and auth
 journeys share the real custom-form sign-in/verification flow. The native Clerk
 testing helper handles its JSON endpoints; the handshake redirect continues through
 the actual browser network because it can legitimately return HTML. Exact owned emails/IDs are

@@ -1,0 +1,60 @@
+# ─────────────────────────────────────────────────────────────
+# Line Endings (Force LF normalization across OS)
+# ─────────────────────────────────────────────────────────────
+* text=auto eol=lf
+
+# Explicit text files
+*.py text diff=python
+*.ts text
+*.tsx text
+*.js text
+*.jsx text
+*.json text
+*.yaml text
+*.yml text
+*.toml text
+*.md text
+*.css text
+*.html text
+*.sql text
+*.sh text eol=lf
+
+# ─────────────────────────────────────────────────────────────
+# Binaries & Compressed Archives
+# ─────────────────────────────────────────────────────────────
+*.gz binary
+*.tar binary
+*.tar.gz binary
+*.zip binary
+*.dump binary
+data/reference.jsonl.gz binary
+
+# Media & Fonts
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.svg text
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.pdf binary
+
+# ─────────────────────────────────────────────────────────────
+# Diff Suppression for Lockfiles and Generated Files
+# ─────────────────────────────────────────────────────────────
+uv.lock linguist-generated=true
+pnpm-lock.yaml linguist-generated=true
+package-lock.json linguist-generated=true
+*.tsbuildinfo linguist-generated=true
+*.min.js linguist-generated=true
+*.min.css linguist-generated=true
+
+# ─────────────────────────────────────────────────────────────
+# Export Ignore (for git archive)
+# ─────────────────────────────────────────────────────────────
+.git* export-ignore
+.github export-ignore

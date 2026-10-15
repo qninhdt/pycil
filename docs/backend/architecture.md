@@ -39,7 +39,7 @@ open the Tantivy projection and start one owner/standby task per worker. An exit
 failure and shutdown; jobs close before the resources they use. Closed resources are
 removed from application state.
 
-`/health` reports process liveness. `/ready` checks PostgreSQL, Redis and the published
+`/livez` reports process liveness. `/readyz` checks PostgreSQL, Redis and the published
 search snapshot within a bounded deadline; failures return a sanitized 503 response.
 Startup never runs migrations or downloads reference data.
 

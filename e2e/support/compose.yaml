@@ -67,12 +67,13 @@ services:
       migration: {condition: service_completed_successfully}
   api:
     <<: *api
+    stop_grace_period: 120s
     ports: [127.0.0.1:8100:8000]
     depends_on:
       baseline: {condition: service_completed_successfully}
       redis: {condition: service_healthy}
     healthcheck:
-      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3)"]
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=3)"]
       interval: 1s
       timeout: 5s
       retries: 90

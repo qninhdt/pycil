@@ -5,7 +5,7 @@
 	@assistant_sse path /v1/assistant:run
 	@non_sse not path /v1/assistant:run
 	encode @non_sse zstd gzip
-	@api path /v1/* /health /ready /openapi.json /docs* /redoc*
+	@api path /v1/* /livez /readyz /openapi.json /docs* /redoc*
 	# Exact byte cap mirrors config/config.yaml for both streaming and JSON routes.
 	request_body @api {
 		max_size 15000000

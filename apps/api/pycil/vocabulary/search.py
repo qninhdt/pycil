@@ -3,6 +3,7 @@
 import asyncio
 import fcntl
 import random
+import re
 from collections import defaultdict
 from collections.abc import Callable, Generator, Iterable, Sequence
 from datetime import UTC, datetime
@@ -627,7 +628,7 @@ class SearchIndex:
             )
             ranked[identity] = (order, hit)
 
-        literal = "".join("\\" + char if char in r"\.^$|?*+(){}[]" else char for char in key)
+        literal = re.escape(key)
         for kind in MatchKind:
             if kind is MatchKind.PREFIX:
                 heads = tantivy.Query.boolean_query(

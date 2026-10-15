@@ -3,6 +3,7 @@
 import random
 from collections.abc import Sequence
 from hashlib import sha256
+from itertools import batched
 from typing import Any, cast
 
 import orjson
@@ -57,11 +58,9 @@ async def get_many(
         dict.fromkeys(identifier for identifier in identifiers if identifier not in found)
     )
     async with sessions() as session:
-        for offset in range(0, len(missing), 500):
+        for batch in batched(missing, 500, strict=False):
             for row in await session.scalars(
-                select(QuestionArtifact).where(
-                    QuestionArtifact.id.in_(missing[offset : offset + 500])
-                )
+                select(QuestionArtifact).where(QuestionArtifact.id.in_(batch))
             ):
                 value = artifact_value(row)
                 found[value.id] = value
@@ -138,8 +137,7 @@ async def append(
         )
         if found != set(ids):
             raise InvalidResourceError("artifact sense was removed")
-        for offset in range(0, len(prepared), 500):
-            batch = prepared[offset : offset + 500]
+        for batch in batched(prepared, 500, strict=False):
             scopes = {
                 (artifact.sense_id, artifact.theme_id or 0, artifact.artifact_type)
                 for artifact, *_rest in batch
@@ -252,12 +250,12 @@ async def bank_sizes(
     async with sessions() as session:
         if not await session.scalar(select(valid)):
             raise InvalidResourceError("unknown theme")
-        for offset in range(0, len(requests), 500):
+        for batch in batched(requests, 500, strict=False):
             banks = (
                 values(
                     column("sense_id", Integer), column("kind", QuestionArtifact.artifact_type.type)
                 )
-                .data(requests[offset : offset + 500])
+                .data(batch)
                 .cte("requested_banks")
             )
             last = (
@@ -304,7 +302,7 @@ async def retrieve_many(
     identifier, _valid = theme_scope(theme_key=theme_key)
     ids: list[int] = []
     async with sessions() as session:
-        for offset in range(0, len(slots), 500):
+        for batch in batched(slots, 500, strict=False):
             ids.extend(
                 await session.scalars(
                     select(QuestionArtifact.id).where(
@@ -313,7 +311,7 @@ async def retrieve_many(
                             QuestionArtifact.sense_id,
                             QuestionArtifact.artifact_type,
                             QuestionArtifact.type_position,
-                        ).in_(slots[offset : offset + 500]),
+                        ).in_(batch),
                     )
                 )
             )

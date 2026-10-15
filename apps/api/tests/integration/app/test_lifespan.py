@@ -5,6 +5,7 @@ from pycil.app import resources
 from pycil.app.config import load_config
 from pycil.app.factory import create_app
 from pycil.app.settings import Deployment
+from pycil.infrastructure.observability import ObservedAsyncClient
 from pycil.vocabulary.references.importer import import_reference
 from tests.support.reference import reference_file, reference_word
 
@@ -54,12 +55,12 @@ async def test_readiness_dependency_failures_return_safe_503_and_preserve_health
             if failed_component == "redis_timeout":
                 await redis.execute_command("CLIENT", "PAUSE", 1500, "ALL")
             started = perf_counter()
-            response = await client.get("/ready")
+            response = await client.get("/readyz")
             if failed_component == "redis_timeout":
                 assert perf_counter() - started < 1
             assert response.status_code == 503 and response.json() == {"error": "not_ready"}
             assert "private-readiness-marker" not in response.text
-            assert (await client.get("/health")).json() == {"status": "ok"}
+            assert (await client.get("/livez")).json() == {"status": "ok"}
         assert database.engine.pool.checkedout() == 0
     finally:
         await index.close()
@@ -95,21 +96,27 @@ async def test_real_lifespan_checks_search_readiness_and_cleans_owned_resources(
     app = create_app()
     async with app.router.lifespan_context(app):
         search, client = app.state.search, app.state.http
+        assert isinstance(client, ObservedAsyncClient)
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://api.example.test"
         ) as http:
-            assert (await http.get("/ready")).status_code == 200
+            assert (await http.get("/readyz")).status_code == 200
             response = await http.get(
                 "/v1/words:search", params={"query": "bank", "include_reference": "true"}
             )
             assert response.status_code == 200
             assert response.json()["items"][0]["kind"] == "reference"
             search.snapshot = None
-            response = await http.get("/ready", headers={"Origin": "http://web.example.test"})
+            response = await http.get("/readyz", headers={"Origin": "http://web.example.test"})
             assert response.status_code == 503
             assert response.json()["error"] == "not_ready"
             assert response.headers["access-control-allow-origin"] == "http://web.example.test"
-            assert (await http.get("/health")).json() == {"status": "ok"}
+            assert (await http.get("/livez")).json() == {"status": "ok"}
+            for removed_path in ("/health", "/ready", "/health/live", "/health/ready"):
+                assert (await http.get(removed_path)).status_code == 404
+            schema = (await http.get("/openapi.json")).json()
+            assert "/livez" not in schema["paths"]
+            assert "/readyz" not in schema["paths"]
     assert client.is_closed
     assert search.snapshot is None
     assert not hasattr(app.state, "engine")

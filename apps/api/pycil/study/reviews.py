@@ -1,13 +1,13 @@
 """Atomic diagnostic tracking, grouped Sense updates and immutable receipts."""
 
 import hashlib
-import json
 from collections import defaultdict
 from datetime import UTC, datetime
 from typing import Any, cast
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
+import orjson
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,10 +38,8 @@ logger = get_logger(__name__)
 
 
 def request_hash(data: ReviewBatch) -> str:
-    encoded = json.dumps(
-        data.model_dump(mode="json"), sort_keys=True, separators=(",", ":"), ensure_ascii=False
-    )
-    return hashlib.sha256(encoded.encode()).hexdigest()
+    encoded = orjson.dumps(data.model_dump(mode="json"), option=orjson.OPT_SORT_KEYS)
+    return hashlib.sha256(encoded).hexdigest()
 
 
 async def review(

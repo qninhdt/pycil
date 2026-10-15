@@ -60,8 +60,8 @@ database. Review its target before running it.
 ## Check runtime and code
 
 ```sh
-curl --fail http://127.0.0.1:8000/health
-curl --fail http://127.0.0.1:8000/ready
+curl --fail http://127.0.0.1:8000/livez
+curl --fail http://127.0.0.1:8000/readyz
 ```
 
 Health checks liveness. Readiness checks PostgreSQL, Redis and the initialized search

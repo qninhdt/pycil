@@ -3,7 +3,7 @@
 ## Contract discovery
 
 Business routes use `/v1`. The working tree has 39 business operations.
-`/health` and `/ready` are excluded from OpenAPI; generated `/docs`, `/redoc`,
+`/livez` and `/readyz` are excluded from OpenAPI; generated `/docs`, `/redoc`,
 and `/openapi.json` remain available with FastAPI defaults.
 
 Use the generated schema for required fields and native vocabulary/AG-UI types. The declared

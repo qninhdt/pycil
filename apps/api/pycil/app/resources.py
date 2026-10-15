@@ -19,7 +19,7 @@ from pycil.assistant.checkpoints import checkpoint_pool
 from pycil.infrastructure.cache import MemoryCache
 from pycil.infrastructure.database import connect, verify_schema
 from pycil.infrastructure.llm import DecisionLLM, StructuredLLM
-from pycil.infrastructure.observability import get_logger, telemetry
+from pycil.infrastructure.observability import ObservedAsyncClient, get_logger, telemetry
 from pycil.study.artifacts.schemas import Artifact
 from pycil.vocabulary.generation.jobs import Generations
 from pycil.vocabulary.schemas import CachedWord, Sense
@@ -77,7 +77,7 @@ async def process_resources(
             stack.callback(user_id_cache.clear)
             sessions.configure(info={"user_id_cache": user_id_cache})
             http = await stack.enter_async_context(
-                httpx.AsyncClient(timeout=config.runtime.http.client_timeout_seconds)
+                ObservedAsyncClient(timeout=config.runtime.http.client_timeout_seconds)
             )
             pool = await stack.enter_async_context(
                 checkpoint_pool(url, **config.runtime.database.checkpoint_pool.model_dump())

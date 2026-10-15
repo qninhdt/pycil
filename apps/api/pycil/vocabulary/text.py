@@ -30,7 +30,6 @@ class SenseLike(Protocol):
 
 MAX_LEMMA_LENGTH = 256
 MAX_TEXT_LENGTH = 16000
-SPACES = re.compile(r"\s+")
 SLOT = re.compile(r"\{[^{}]*\}")
 TAG = re.compile(r"\[([^\[\]|]+)(?:\|([a-z0-9]+))?\]", re.I)
 
@@ -49,7 +48,7 @@ def validate_lemma(value: str) -> str:
         raise ValueError("unknown or malformed expression slot")
     if "(" in value or ")" in value or re.search(r"\betc\.(?:\s|$)", value, re.I):
         raise ValueError("citation includes optional/alternative notation")
-    return SPACES.sub(" ", unicodedata.normalize("NFKC", value)).strip()
+    return " ".join(unicodedata.normalize("NFKC", value).split())
 
 
 def match_key(value: str) -> str:
@@ -59,7 +58,7 @@ def match_key(value: str) -> str:
 def answer_key(value: str) -> str:
     if not value.strip() or len(value) > MAX_TEXT_LENGTH:
         raise ValueError("invalid answer")
-    return SPACES.sub(" ", unicodedata.normalize("NFKC", value)).strip().casefold()
+    return " ".join(unicodedata.normalize("NFKC", value).split()).casefold()
 
 
 def content_hash(value: str) -> str:

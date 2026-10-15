@@ -15,6 +15,7 @@ from pycil.app.config import load_config
 from pycil.app.http import (
     BodyLimit,
     ErrorResponse,
+    HttpTelemetry,
     Problem,
     RequestBoundary,
     RuntimeCORS,
@@ -63,6 +64,14 @@ def create_app() -> FastAPI:
         logger.info("app_shutdown_completed")
 
     app = FastAPI(
+        # Our sanitized ASGI boundary owns HTTP signals and the SDK lifecycle.
+        telemetry={
+            "auto_configure": False,
+            "tracing": False,
+            "metrics": False,
+            "logs": False,
+            "operation_spans": False,
+        },
         title="Pycil",
         version="1.0.0",
         lifespan=lifespan,
@@ -86,11 +95,11 @@ def create_app() -> FastAPI:
     app.include_router(study_router)
     app.include_router(assistant_router)
 
-    @app.get("/health", include_in_schema=False)
+    @app.get("/livez", include_in_schema=False)
     async def health():
         return {"status": "ok"}
 
-    @app.get("/ready", include_in_schema=False)
+    @app.get("/readyz", include_in_schema=False)
     async def ready():
         component = "lifecycle"
         try:
@@ -116,4 +125,5 @@ def create_app() -> FastAPI:
     app.add_middleware(RequestBoundary)
     # CORS wraps safe-error middleware, including its 500/413 responses.
     app.add_middleware(RuntimeCORS)
+    app.add_middleware(HttpTelemetry)
     return app

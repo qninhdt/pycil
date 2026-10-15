@@ -1,6 +1,6 @@
 # Consolidation verification
 
-The backend implementation of the approved [redesign](../../redesign.md) is complete. This record covers
+The backend implementation of the approved [redesign](../../plans/260924-0608-pycil-complete-redesign/plan.md) is complete. This record covers
 local backend checks, not deployment or frontend acceptance. The old backend suite was
 deleted without reading it; current tests were written from behavior and source contracts.
 
@@ -37,7 +37,7 @@ The application wheel was rebuilt after the Pydantic decision migration. It incl
 16 remaining local prompt assets and no retired decision JSON templates or SQLite files.
 The earlier Docker image build and quiet Compose validation used placeholder credentials;
 they were not repeated for the provider migration.
-The initial 50-case result predates the additional [test plan](../../test.md) and is not
+The initial 50-case result predates the additional [test plan](testing.md) and is not
 evidence that the expanded plan is complete. Resource startup and identity callers use the user-updated typed Redis adapter;
 the obsolete constructor argument and unused admission/value-size settings were removed.
 [OpenAPI](openapi.json) exports without resource/provider startup. Exact test results

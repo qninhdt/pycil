@@ -1,6 +1,7 @@
 """Compact, batched context for the Assistant's task tools."""
 
 from collections.abc import Mapping, Sequence
+from itertools import batched
 from typing import Any, Protocol, cast
 from uuid import UUID
 
@@ -172,12 +173,8 @@ async def node_cards(
     counts: list[dict[str, Any]] = []
     size = config.product.study.limits.max_summary_nodes
     budget = ScopeBudget(user_id)
-    for start in range(0, len(identifiers), size):
-        counts.extend(
-            await summaries(
-                session, user_id, config, identifiers[start : start + size], budget=budget
-            )
-        )
+    for batch in batched(identifiers, size, strict=False):
+        counts.extend(await summaries(session, user_id, config, batch, budget=budget))
     return [
         node_projection(row, user_id)
         | {
