@@ -1,5 +1,5 @@
 import { getApiBaseUrl } from './services/config'
-import { ApiError } from './error'
+import { ApiError, type ProblemDetailsPayload } from './error'
 
 export async function apiRequest<T>(path: string, token: string | null, parse: (value: unknown) => T, signal: AbortSignal, body?: unknown, method?: 'POST' | 'PATCH' | 'DELETE', extraHeaders?: Record<string, string>): Promise<T> {
   const url = `${getApiBaseUrl()}/${path.replace(/^\//, '')}`
@@ -9,7 +9,22 @@ export async function apiRequest<T>(path: string, token: string | null, parse: (
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   })
   const value: unknown = await response.json().catch(() => null)
-  if (!response.ok) throw new ApiError(response.status, value && typeof value === 'object' && 'error' in value && typeof value.error === 'string' ? value.error : 'request_failed')
+  if (!response.ok) {
+    const payload = (value && typeof value === 'object' ? value : null) as ProblemDetailsPayload | null
+    const code =
+      payload && typeof payload.code === 'string'
+        ? payload.code
+        : payload && typeof payload.error === 'string'
+          ? payload.error
+          : 'request_failed'
+    const requestId =
+      response.headers.get('x-request-id') ??
+      (payload && typeof payload.request_id === 'string' ? payload.request_id : undefined)
+    const detail = payload && typeof payload.detail === 'string' ? payload.detail : undefined
+    const instance = payload && typeof payload.instance === 'string' ? payload.instance : undefined
+    const invalidParams = payload && Array.isArray(payload.invalid_params) ? payload.invalid_params : undefined
+    throw new ApiError(response.status, code, detail, requestId, instance, invalidParams)
+  }
   return parse(value)
 }
 

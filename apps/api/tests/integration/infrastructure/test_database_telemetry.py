@@ -106,7 +106,7 @@ async def test_real_word_read_has_one_safe_child_span_per_statement(
         for mode in (1, 2):
             response = await client.get(f"/controlled/sql/{mode}")
             assert response.status_code == 500
-            assert response.json() == {"error": "internal_error"}
+            assert response.json()["code"] == "internal_error"
     assert signals.provider.force_flush()
     spans = signals.exporter.get_finished_spans()
     servers = [span for span in spans if span.kind == trace.SpanKind.SERVER]

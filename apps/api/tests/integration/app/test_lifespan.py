@@ -58,7 +58,7 @@ async def test_readiness_dependency_failures_return_safe_503_and_preserve_health
             response = await client.get("/readyz")
             if failed_component == "redis_timeout":
                 assert perf_counter() - started < 1
-            assert response.status_code == 503 and response.json() == {"error": "not_ready"}
+            assert response.status_code == 503 and response.json()["code"] == "not_ready"
             assert "private-readiness-marker" not in response.text
             assert (await client.get("/livez")).json() == {"status": "ok"}
         assert database.engine.pool.checkedout() == 0

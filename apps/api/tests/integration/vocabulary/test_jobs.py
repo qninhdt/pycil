@@ -213,7 +213,7 @@ async def test_polling_another_instance_reads_running_and_completed_status(
             }
             missing = await poll.get(f"/v1/word-tasks/{uuid7()}")
             assert missing.status_code == 404
-            assert missing.json() == {"error": "generation_not_found"}
+            assert missing.json()["code"] == "generation_not_found"
     finally:
         await owner.close()
         await observer.close()

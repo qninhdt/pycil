@@ -1,6 +1,7 @@
 """Safe errors, correlation, CORS and bounded bodies without buffering responses."""
 
 import time
+from http import HTTPStatus
 from types import SimpleNamespace
 from typing import Any, cast
 from uuid import UUID, uuid7
@@ -87,38 +88,117 @@ class HttpTelemetry:
         await self.instrumented(safe, receive, send)
 
 
+class ProblemResponse(JSONResponse):
+    media_type = "application/problem+json"
+
+
+def _http_status_phrase(status: int) -> str:
+    try:
+        return HTTPStatus(status).phrase
+    except ValueError:
+        return "Error"
+
+
 class Problem(Exception):
-    def __init__(self, status: int, code: str):
+    def __init__(
+        self,
+        status: int,
+        code: str,
+        *,
+        detail: str | None = None,
+        title: str | None = None,
+    ):
         self.status = status
         self.code = code
+        self.detail = detail
+        self.title = title or _http_status_phrase(status)
         super().__init__(code)
 
 
-class ErrorResponse(BaseModel):
+class InvalidParam(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    name: str
+    reason: str
+
+
+class ProblemDetails(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    type: str = "about:blank"
+    title: str
+    status: int
+    detail: str | None = None
+    instance: str | None = None
+    code: str
+    request_id: str | None = None
+    invalid_params: list[InvalidParam] | None = None
     error: str
 
 
-async def problem_response(request: Request, error: Problem):
+ErrorResponse = ProblemDetails
+
+
+async def problem_response(request: Request, error: Problem) -> ProblemResponse:
     headers = {"WWW-Authenticate": "Bearer"} if error.status == 401 else None
-    return JSONResponse({"error": error.code}, status_code=error.status, headers=headers)
+    request_id = getattr(request.state, "request_id", None)
+    payload: dict[str, Any] = {
+        "type": "about:blank",
+        "title": error.title,
+        "status": error.status,
+        "detail": error.detail,
+        "instance": request.url.path,
+        "code": error.code,
+        "request_id": request_id,
+        "invalid_params": None,
+        "error": error.code,
+    }
+    return ProblemResponse(payload, status_code=error.status, headers=headers)
 
 
-async def validation_response(request: Request, error: RequestValidationError):
+async def validation_response(request: Request, error: RequestValidationError) -> ProblemResponse:
     # FastAPI's default includes input values, which can contain credentials/content.
     logger.warning(
         "http_validation_failed", fields=[list(e.get("loc", [])) for e in error.errors()]
     )
-    return JSONResponse({"error": "invalid_request"}, status_code=422)
+    request_id = getattr(request.state, "request_id", None)
+    invalid_params = [
+        InvalidParam(
+            name=".".join(str(loc) for loc in e.get("loc", []) if loc != "body") or "body",
+            reason=str(e.get("msg", "Invalid value")),
+        ).model_dump()
+        for e in error.errors()
+    ]
+    payload: dict[str, Any] = {
+        "type": "about:blank",
+        "title": "Unprocessable Content",
+        "status": 422,
+        "detail": "Request validation failed.",
+        "instance": request.url.path,
+        "code": "invalid_request",
+        "request_id": request_id,
+        "invalid_params": invalid_params,
+        "error": "invalid_request",
+    }
+    return ProblemResponse(payload, status_code=422)
 
 
-async def http_error_response(request: Request, error: HTTPException):
+async def http_error_response(request: Request, error: HTTPException) -> ProblemResponse:
     codes = {404: "not_found", 405: "method_not_allowed", 401: "authentication_required"}
-    return JSONResponse(
-        {"error": codes.get(error.status_code, "request_failed")},
-        status_code=error.status_code,
-        headers=error.headers,
-    )
+    code = codes.get(error.status_code, "request_failed")
+    title = _http_status_phrase(error.status_code)
+    request_id = getattr(request.state, "request_id", None)
+    detail = error.detail if isinstance(error.detail, str) and error.detail != title else None
+    payload: dict[str, Any] = {
+        "type": "about:blank",
+        "title": title,
+        "status": error.status_code,
+        "detail": detail,
+        "instance": request.url.path,
+        "code": code,
+        "request_id": request_id,
+        "invalid_params": None,
+        "error": code,
+    }
+    return ProblemResponse(payload, status_code=error.status_code, headers=error.headers)
 
 
 class RequestBoundary:
@@ -161,9 +241,18 @@ class RequestBoundary:
                 if started:
                     # Never send a second status or turn a truncated stream into success.
                     raise RuntimeError(f"Response interrupted; request_id={request_id}") from None
-                await JSONResponse({"error": "internal_error"}, status_code=500)(
-                    scope, receive, correlated_send
-                )
+                payload = {
+                    "type": "about:blank",
+                    "title": "Internal Server Error",
+                    "status": 500,
+                    "detail": "An internal error occurred.",
+                    "instance": scope.get("path", ""),
+                    "code": "internal_error",
+                    "request_id": request_id,
+                    "invalid_params": None,
+                    "error": "internal_error",
+                }
+                await ProblemResponse(payload, status_code=500)(scope, receive, correlated_send)
             if status_code is not None:
                 logger.info(
                     "http_request_completed",
@@ -218,9 +307,19 @@ class BodyLimit:
                     raise ValueError
             except ValueError:
                 logger.warning("http_invalid_content_length", content_length_raw=declared)
-                return await JSONResponse({"error": "invalid_request"}, status_code=400)(
-                    scope, receive, send
-                )
+                req_id = scope.get("state", {}).get("request_id")
+                payload = {
+                    "type": "about:blank",
+                    "title": "Bad Request",
+                    "status": 400,
+                    "detail": "Invalid Content-Length header.",
+                    "instance": scope.get("path", ""),
+                    "code": "invalid_request",
+                    "request_id": req_id,
+                    "invalid_params": None,
+                    "error": "invalid_request",
+                }
+                return await ProblemResponse(payload, status_code=400)(scope, receive, send)
             if length > max_bytes:
                 logger.warning(
                     "http_body_limit_exceeded",
@@ -228,9 +327,19 @@ class BodyLimit:
                     content_length=length,
                     phase="header",
                 )
-                return await JSONResponse({"error": "body_too_large"}, status_code=413)(
-                    scope, receive, send
-                )
+                req_id = scope.get("state", {}).get("request_id")
+                payload = {
+                    "type": "about:blank",
+                    "title": "Content Too Large",
+                    "status": 413,
+                    "detail": "Request body exceeds allowed limit.",
+                    "instance": scope.get("path", ""),
+                    "code": "body_too_large",
+                    "request_id": req_id,
+                    "invalid_params": None,
+                    "error": "body_too_large",
+                }
+                return await ProblemResponse(payload, status_code=413)(scope, receive, send)
         # Bound the request before routing/streaming: chunked bodies cannot bypass it.
         body = bytearray()
         size = 0
@@ -246,9 +355,19 @@ class BodyLimit:
                     content_length=size,
                     phase="stream",
                 )
-                return await JSONResponse({"error": "body_too_large"}, status_code=413)(
-                    scope, receive, send
-                )
+                req_id = scope.get("state", {}).get("request_id")
+                payload = {
+                    "type": "about:blank",
+                    "title": "Content Too Large",
+                    "status": 413,
+                    "detail": "Request body exceeds allowed limit.",
+                    "instance": scope.get("path", ""),
+                    "code": "body_too_large",
+                    "request_id": req_id,
+                    "invalid_params": None,
+                    "error": "body_too_large",
+                }
+                return await ProblemResponse(payload, status_code=413)(scope, receive, send)
             body.extend(message.get("body", b""))
             if not message.get("more_body", False):
                 break

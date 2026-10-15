@@ -73,16 +73,35 @@ inspect current state first. Review-specific replay is documented in [Study](mod
 
 ## Errors and correlation
 
-The common JSON error shape is:
+Error responses follow [RFC 9457 (Problem Details for HTTP APIs)](https://datatracker.ietf.org/doc/html/rfc9457) with media type `application/problem+json`:
 
 ```json
-{"error": "node_not_found"}
+{
+  "type": "about:blank",
+  "title": "Not Found",
+  "status": 404,
+  "detail": "This material could not be found.",
+  "instance": "/v1/nodes/018f2f45-0000-7000-8000-000000000001",
+  "code": "node_not_found",
+  "request_id": "018f2f45-0000-7000-8000-000000000002",
+  "invalid_params": null,
+  "error": "node_not_found"
+}
 ```
 
-Validation details and raw input are not reflected back. Invalid schemas/query parameters
-normally return 422 `invalid_request`. The request boundary gives each HTTP response an
-`X-Request-ID`: a valid incoming UUID is retained, otherwise a fresh UUID is generated.
-Use it for support and log correlation; it is not an idempotency key.
+- Standard RFC 9457 members:
+  - `type`: URI identifying problem type (defaults to `"about:blank"`).
+  - `title`: Short HTTP status phrase (e.g., `"Not Found"`).
+  - `status`: HTTP status code integer matching the status header.
+  - `detail`: Safe human-readable explanation (sanitized).
+  - `instance`: Request URL path.
+- Extension members:
+  - `code`: Machine-readable error discriminator (e.g., `node_not_found`).
+  - `request_id`: Request correlation ID matching `X-Request-ID`.
+  - `invalid_params`: For 422 `invalid_request`, lists field locations and reasons without echoing raw input values.
+  - `error`: Backward-compatible alias for `code`.
+
+Raw provider/DB exceptions and secret inputs are never reflected back. The request boundary gives each HTTP response an `X-Request-ID`: a valid incoming UUID is retained, otherwise a fresh UUID is generated. Use it for support and log correlation; it is not an idempotency key.
 
 | Status | Typical meaning |
 | --- | --- |

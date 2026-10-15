@@ -14,9 +14,9 @@ from pycil.account.api import router as account_router
 from pycil.app.config import load_config
 from pycil.app.http import (
     BodyLimit,
-    ErrorResponse,
     HttpTelemetry,
     Problem,
+    ProblemDetails,
     RequestBoundary,
     RuntimeCORS,
     http_error_response,
@@ -28,6 +28,7 @@ from pycil.app.settings import Deployment
 from pycil.assistant.api import router as assistant_router
 from pycil.infrastructure.clerk import Identity
 from pycil.infrastructure.observability import configure_logging, get_logger
+from pycil.jobs.api import router as jobs_router
 from pycil.library.api import router as library_router
 from pycil.library.search import router as discovery_router
 from pycil.study.api import router as study_router
@@ -76,7 +77,12 @@ def create_app() -> FastAPI:
         version="1.0.0",
         lifespan=lifespan,
         responses={
-            status: {"model": ErrorResponse}
+            status: {
+                "model": ProblemDetails,
+                "content": {
+                    "application/problem+json": {"schema": ProblemDetails.model_json_schema()}
+                },
+            }
             for status in (400, 401, 403, 404, 405, 409, 413, 422, 429, 500, 503)
         },
     )
@@ -93,6 +99,7 @@ def create_app() -> FastAPI:
     app.include_router(discovery_router)
     app.include_router(vocabulary_router)
     app.include_router(study_router)
+    app.include_router(jobs_router)
     app.include_router(assistant_router)
 
     @app.get("/livez", include_in_schema=False)
