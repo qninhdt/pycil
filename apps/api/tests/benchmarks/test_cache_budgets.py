@@ -12,7 +12,7 @@ from uuid import UUID, uuid4
 from pydantic import TypeAdapter
 
 from pycil.app.config import load_config
-from pycil.infrastructure.cache import MemoryCache, RedisCache
+from pycil.infrastructure.kv_store import InMemoryStore, RedisStore
 from pycil.study.artifacts.schemas import Artifact
 from pycil.study.enums import QuestionArtifactType
 from pycil.vocabulary.schemas import CachedWord, Word, sense_adapter
@@ -97,7 +97,7 @@ def test_representative_cache_capacity():
         gc.collect()
         tracemalloc.start()
         before, _ = tracemalloc.get_traced_memory()
-        cache = MemoryCache(capacity, ttl)
+        cache = InMemoryStore(capacity, ttl)
         for i in range(capacity):
             key = f"user_{i:032x}" if name == "user_id" else i
             cache.put(key, make())
@@ -120,8 +120,8 @@ def test_representative_cache_capacity():
 async def test_equivalent_uuid_hit_latency_has_no_database_work(redis_store):
     redis, namespace = redis_store
     value, key = uuid4(), "user_00000000000000000000000000000001"
-    memory = MemoryCache[str, UUID](10000, 60)
-    external = RedisCache(redis, UUID, f"{namespace}:uuid:v1", 60)
+    memory = InMemoryStore[str, UUID](10000, 60)
+    external = RedisStore(redis, UUID, f"{namespace}:uuid:v1", 60)
     memory.put(key, value)
     await external.put(key, value)
     samples = {"memory_ns": [], "redis_ns": []}

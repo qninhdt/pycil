@@ -21,7 +21,7 @@ class StructuredLLMProtocol(Protocol):
     async def complete[T: BaseModel](self, instruction: str, data: str, schema: type[T]) -> T: ...
 
 
-class CacheProtocol(Protocol):
+class StoreProtocol(Protocol):
     def clear(self) -> None: ...
 
 
@@ -96,9 +96,9 @@ async def delete_theme(
     sessions: async_sessionmaker[AsyncSession],
     key: str,
     *,
-    word_cache: CacheProtocol | None = None,
-    sense_cache: CacheProtocol | None = None,
-    artifact_cache: CacheProtocol | None = None,
+    word_store: StoreProtocol | None = None,
+    sense_store: StoreProtocol | None = None,
+    artifact_store: StoreProtocol | None = None,
 ) -> bool:
     async with sessions() as session, session.begin():
         theme = await session.scalar(
@@ -130,7 +130,7 @@ async def delete_theme(
         await publish(session, before)
         removed = True
     if removed:
-        for cache in (word_cache, sense_cache, artifact_cache):
-            if cache is not None:
-                cache.clear()
+        for store in (word_store, sense_store, artifact_store):
+            if store is not None:
+                store.clear()
     return removed

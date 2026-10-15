@@ -11,7 +11,7 @@ from pycil.vocabulary.errors import InvalidOutputError
 from pycil.vocabulary.relations.decisions import RELATION_RULES, relation_selection_model
 from pycil.vocabulary.relations.storage import (
     Candidate,
-    ClearableCache,
+    ClearableStore,
     PendingLink,
     apply_resolution,
     pending_relations,
@@ -36,7 +36,7 @@ async def resolve_relations(
     decision_llm: DecisionLLM,
     batch_size: int = 20,
     *,
-    cache: ClearableCache | None = None,
+    store: ClearableStore | None = None,
 ) -> list[Resolution]:
     pending = await pending_relations(sessions, batch_size)
 
@@ -68,7 +68,7 @@ async def resolve_relations(
                     if choice not in candidates:
                         raise InvalidOutputError("decision selected unavailable relation evidence")
                     selected = candidates[choice]
-            applied = await apply_resolution(sessions, link, selected, cache=cache)
+            applied = await apply_resolution(sessions, link, selected, store=store)
             state = (
                 ResolutionState.NOOP
                 if not applied

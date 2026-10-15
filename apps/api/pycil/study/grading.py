@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from pycil.infrastructure.cache import MemoryCache
+from pycil.infrastructure.kv_store import InMemoryStore
 from pycil.infrastructure.observability import get_logger, observe_operation
 from pycil.study.artifacts.schemas import Artifact
 from pycil.study.artifacts.storage import get_many
@@ -100,7 +100,7 @@ async def grade_answer(
     sessions: async_sessionmaker[AsyncSession],
     search: SearchProtocol,
     decision_llm: DecisionLLM,
-    cache: MemoryCache[int, Artifact] | None,
+    store: InMemoryStore[int, Artifact] | None,
     artifact_id: int,
     kind: QuestionType,
     fmt: ResponseFormat,
@@ -116,7 +116,7 @@ async def grade_answer(
         question_type=kind.value,
         format=fmt.value,
     ):
-        artifacts = await get_many(sessions, [artifact_id], cache=cache)
+        artifacts = await get_many(sessions, [artifact_id], store=store)
         if not artifacts:
             raise QuestionArtifactNotFoundError("artifact not found")
         artifact = artifacts[0]

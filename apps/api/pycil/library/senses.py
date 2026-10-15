@@ -10,7 +10,7 @@ from sqlalchemy.sql import Select
 from pycil.app.config import AppConfig
 from pycil.app.http import Problem
 from pycil.app.pagination import decode, encode, includes, page_limit
-from pycil.infrastructure.cache import MemoryCache
+from pycil.infrastructure.kv_store import InMemoryStore
 from pycil.library.models import DeckSense, Node, NodeSpace
 from pycil.library.schemas import SenseSort
 from pycil.library.scope import ScopeBudget, bounded, resolve_scopes, scope_ids
@@ -164,7 +164,7 @@ async def sense_page(
     sort: SenseSort = SenseSort.SENSE_ID_ASC,
     limit: int | None = None,
     include: str | None = None,
-    sense_cache: MemoryCache[int, NativeSense] | None = None,
+    sense_store: InMemoryStore[int, NativeSense] | None = None,
 ) -> dict[str, object]:
     if (
         state != LearningState.ALL or sort in {SenseSort.LAST_REVIEWED_DESC, SenseSort.MASTERY_ASC}
@@ -286,7 +286,7 @@ async def sense_page(
         fact["sense_id"]: dict(fact) for fact in await get_sense_previews(sessions, identifiers)
     }
     native = (
-        {s.id: s for s in await get_senses(sessions, identifiers, cache=sense_cache)}
+        {s.id: s for s in await get_senses(sessions, identifiers, store=sense_store)}
         if "examples" in enrichment
         else {}
     )

@@ -23,8 +23,8 @@ from pydantic import ValidationError
 
 from pycil.app.config import AppConfig
 from pycil.app.http import Problem
-from pycil.app.resources import RuntimeState
-from pycil.app.settings import Deployment
+from pycil.app.resources import ApiResources
+from pycil.app.settings import ApiSettings
 from pycil.assistant.config import ModelPolicy
 from pycil.assistant.tools import MUTATION_TOOLS, tools, validation_message
 from pycil.infrastructure.observability import ObservedAsyncClient, get_logger
@@ -148,7 +148,7 @@ class Boundary(AgentMiddleware[Any, Any, Any]):
 
 @asynccontextmanager
 async def model(
-    deployment: Deployment, policy: ModelPolicy, effort: str, timeout_seconds: float
+    deployment: ApiSettings, policy: ModelPolicy, effort: str, timeout_seconds: float
 ) -> AsyncGenerator[ChatOpenRouter]:
     async with ObservedAsyncClient(follow_redirects=True) as http:
         selected = ChatOpenRouter(
@@ -178,7 +178,7 @@ async def model(
 
 
 def graph(
-    resources: RuntimeState,
+    resources: ApiResources,
     user: UUID,
     config: AppConfig,
     selected_model: ChatOpenRouter,

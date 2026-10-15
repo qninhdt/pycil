@@ -120,11 +120,11 @@ async def generate_word_task(
                 word = await generate_word(
                     resources.sessions,
                     resources.structured_llm,
-                    resources.word_cache,
+                    resources.word_store,
                     reference_id=reference_id,
                     example_count=config.product.vocabulary.generation.examples_per_sense,
                     enrichment_batch_size=config.runtime.generation.enrichment_batch_size,
-                    sense_cache=resources.sense_cache,
+                    sense_store=resources.sense_store,
                 )
                 return {"word_id": word.id}
         except RetryableJobError:

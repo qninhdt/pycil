@@ -51,7 +51,7 @@ async def test_study_http_grading_rechecks_plan_and_review_header_controls_repla
     app.state.config = load_config()
     app.state.identity = Identity(user.clerk_id)
     app.state.deployment = SimpleNamespace(allowed_origins=[])
-    app.state.search = app.state.artifact_cache = None
+    app.state.search = app.state.artifact_store = None
 
     class FailedProvider:
         async def decide(self, *args, **kwargs):

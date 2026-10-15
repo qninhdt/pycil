@@ -7,7 +7,7 @@ from pycil.account.models import User
 from pycil.account.plans import Plan
 from pycil.app.config import load_config
 from pycil.app.http import Problem
-from pycil.infrastructure.cache import MemoryCache
+from pycil.infrastructure.kv_store import InMemoryStore
 from pycil.library.models import NodeType
 from pycil.library.nodes import create_node
 from pycil.library.schemas import NodeCreate
@@ -126,7 +126,7 @@ async def test_preparation_selects_ordered_scope_and_never_changes_learning_stat
             session,
             database.sessions,
             UnusedProvider(),
-            MemoryCache(max_entries=1024, ttl=30),
+            InMemoryStore(max_entries=1024, ttl=30),
             user.id,
             deck["id"],
             config,

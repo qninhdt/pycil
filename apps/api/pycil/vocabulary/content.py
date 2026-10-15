@@ -5,9 +5,9 @@ from collections.abc import Sequence
 from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from pycil.infrastructure.cache import MemoryCache
 from pycil.infrastructure.content_revisions import GRAPH_KEY, capture, publish
 from pycil.infrastructure.database import transaction_lock
+from pycil.infrastructure.kv_store import InMemoryStore
 from pycil.study.artifacts.schemas import Artifact
 from pycil.study.models import QuestionArtifact
 from pycil.vocabulary import models as v
@@ -21,8 +21,8 @@ async def edit_word(
     *,
     lemma: str | None = None,
     aliases: Sequence[str] | None = None,
-    word_cache: MemoryCache[int, CachedWord] | None = None,
-    sense_cache: MemoryCache[int, Sense] | None = None,
+    word_store: InMemoryStore[int, CachedWord] | None = None,
+    sense_store: InMemoryStore[int, Sense] | None = None,
 ) -> int | None:
     normalized = validate_lemma(lemma) if lemma is not None else None
     names = [validate_lemma(alias) for alias in aliases] if aliases is not None else None
@@ -52,9 +52,9 @@ async def edit_word(
                     session.add(v.WordAlias(word_id=identifier, content=name, match_key=key))
         revision = await publish(session, before)
     if revision is not None:
-        for cache in (word_cache, sense_cache):
-            if cache is not None:
-                cache.clear()
+        for store in (word_store, sense_store):
+            if store is not None:
+                store.clear()
     return revision
 
 
@@ -62,9 +62,9 @@ async def delete_word(
     sessions: async_sessionmaker[AsyncSession],
     identifier: int,
     *,
-    word_cache: MemoryCache[int, CachedWord] | None = None,
-    sense_cache: MemoryCache[int, Sense] | None = None,
-    artifact_cache: MemoryCache[int, Artifact] | None = None,
+    word_store: InMemoryStore[int, CachedWord] | None = None,
+    sense_store: InMemoryStore[int, Sense] | None = None,
+    artifact_store: InMemoryStore[int, Artifact] | None = None,
 ) -> int | None:
     async with sessions() as session, session.begin():
         # Stabilize inbound edges before choosing owners; publishers take this lock first too.
@@ -103,7 +103,7 @@ async def delete_word(
         )
         await session.execute(delete(v.Word).where(v.Word.id == identifier))
         revision = await publish(session, before)
-    for cache in (word_cache, sense_cache, artifact_cache):
-        if cache is not None:
-            cache.clear()
+    for store in (word_store, sense_store, artifact_store):
+        if store is not None:
+            store.clear()
     return revision

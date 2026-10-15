@@ -16,7 +16,7 @@ from pycil.app.config import AppConfig
 from pycil.app.settings import ApiSettings, ProcessSettings, WorkerSettings
 from pycil.assistant.checkpoints import checkpoint_pool
 from pycil.infrastructure.database import connect, verify_schema
-from pycil.infrastructure.cache import MemoryCache
+from pycil.infrastructure.kv_store import InMemoryStore
 from pycil.infrastructure.llm import DecisionLLM, StructuredLLM
 from pycil.infrastructure.observability import ObservedAsyncClient, get_logger, telemetry
 from pycil.study.artifacts.schemas import Artifact
@@ -32,9 +32,9 @@ class ProcessResources:
     sessions: async_sessionmaker[AsyncSession]
     redis: Redis
     http: httpx.AsyncClient
-    word_cache: MemoryCache[int, CachedWord]
-    sense_cache: MemoryCache[int, Sense]
-    artifact_cache: MemoryCache[int, Artifact]
+    word_store: InMemoryStore[int, CachedWord]
+    sense_store: InMemoryStore[int, Sense]
+    artifact_store: InMemoryStore[int, Artifact]
 
 
 @dataclass
@@ -44,7 +44,7 @@ class WorkerResources(ProcessResources):
 
 @dataclass
 class ApiResources(ProcessResources):
-    user_id_cache: MemoryCache[str, UUID]
+    user_id_store: InMemoryStore[str, UUID]
     decision_llm: DecisionLLM
     search: SearchIndex
     checkpoint_pool: AsyncConnectionPool[AsyncConnection[DictRow]]
@@ -88,22 +88,22 @@ async def _open_process_resources(
         ObservedAsyncClient(timeout=config.runtime.http.client_timeout_seconds)
     )
     policy = config.runtime.caches
-    word_cache = MemoryCache[int, CachedWord](policy.words.max_entries, policy.words.ttl_seconds)
-    sense_cache = MemoryCache[int, Sense](policy.senses.max_entries, policy.senses.ttl_seconds)
-    artifact_cache = MemoryCache[int, Artifact](
+    word_store = InMemoryStore[int, CachedWord](policy.words.max_entries, policy.words.ttl_seconds)
+    sense_store = InMemoryStore[int, Sense](policy.senses.max_entries, policy.senses.ttl_seconds)
+    artifact_store = InMemoryStore[int, Artifact](
         policy.artifacts.max_entries, policy.artifacts.ttl_seconds
     )
-    stack.callback(word_cache.clear)
-    stack.callback(sense_cache.clear)
-    stack.callback(artifact_cache.clear)
+    stack.callback(word_store.clear)
+    stack.callback(sense_store.clear)
+    stack.callback(artifact_store.clear)
     return ProcessResources(
         engine=engine,
         sessions=sessions,
         redis=redis,
         http=http,
-        word_cache=word_cache,
-        sense_cache=sense_cache,
-        artifact_cache=artifact_cache,
+        word_store=word_store,
+        sense_store=sense_store,
+        artifact_store=artifact_store,
     )
 
 
@@ -140,9 +140,9 @@ async def api_resources(config: AppConfig, settings: ApiSettings) -> AsyncGenera
         try:
             shared = await _open_process_resources(stack, config, settings)
             policy = config.runtime.caches.user_id
-            user_id_cache = MemoryCache[str, UUID](policy.max_entries, policy.ttl_seconds)
-            stack.callback(user_id_cache.clear)
-            shared.sessions.configure(info={"user_id_cache": user_id_cache})
+            user_id_store = InMemoryStore[str, UUID](policy.max_entries, policy.ttl_seconds)
+            stack.callback(user_id_store.clear)
+            shared.sessions.configure(info={"user_id_store": user_id_store})
             pool = await stack.enter_async_context(
                 checkpoint_pool(
                     settings.db_url.get_secret_value(),
@@ -165,7 +165,7 @@ async def api_resources(config: AppConfig, settings: ApiSettings) -> AsyncGenera
             await search.start()
             resources = ApiResources(
                 **vars(shared),
-                user_id_cache=user_id_cache,
+                user_id_store=user_id_store,
                 decision_llm=decision_llm,
                 search=search,
                 checkpoint_pool=pool,

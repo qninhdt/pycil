@@ -4,8 +4,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from pycil.infrastructure.cache import MemoryCache
 from pycil.infrastructure.content_revisions import capture, publish
+from pycil.infrastructure.kv_store import InMemoryStore
 from pycil.infrastructure.llm import render_prompt
 from pycil.themes.models import Theme
 from pycil.themes.namespace import normalize_key
@@ -48,8 +48,8 @@ async def ensure_word_theme(
     key: str,
     example_count: int,
     *,
-    word_cache: MemoryCache[int, CachedWord] | None = None,
-    sense_cache: MemoryCache[int, Sense] | None = None,
+    word_store: InMemoryStore[int, CachedWord] | None = None,
+    sense_store: InMemoryStore[int, Sense] | None = None,
 ) -> WordSchema | None:
     if type(example_count) is not int or not 1 <= example_count <= 20:
         raise ValueError("invalid example count")
@@ -112,7 +112,7 @@ async def ensure_word_theme(
                 for example in group.examples
             )
         await publish(session, before)
-    for cache in (word_cache, sense_cache):
-        if cache is not None:
-            cache.clear()
+    for store in (word_store, sense_store):
+        if store is not None:
+            store.clear()
     return await get_word(sessions, word_id, theme_key=key)

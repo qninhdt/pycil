@@ -30,5 +30,5 @@ async def require_user(session: AsyncSession, user_id: UUID) -> User:
 
 
 def invalidate_user_id(session: AsyncSession, clerk_id: str) -> None:
-    if (cache := session.info.get("user_id_cache")) is not None:
-        cache.discard(clerk_id)
+    if (store := session.info.get("user_id_store")) is not None:
+        store.discard(clerk_id)

@@ -39,8 +39,8 @@ async def word(word_id: int, viewer: Viewer, resources: Runtime):
     value = await get_word(
         resources.sessions,
         word_id,
-        word_cache=resources.word_cache,
-        sense_cache=resources.sense_cache,
+        word_store=resources.word_store,
+        sense_store=resources.sense_store,
     )
     if value is None:
         raise Problem(404, "word_not_found")
@@ -54,7 +54,7 @@ async def previews(
     data: WordIDs, viewer: Viewer, session: Session, resources: Runtime, config: Config
 ):
     return await word_previews(
-        session, resources.sessions, data.word_ids, config, sense_cache=resources.sense_cache
+        session, resources.sessions, data.word_ids, config, sense_store=resources.sense_store
     )
 
 

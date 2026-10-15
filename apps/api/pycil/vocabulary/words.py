@@ -11,9 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.sql.elements import ColumnElement
 from sqlalchemy.sql.expression import ColumnExpressionArgument
 
-from pycil.infrastructure.cache import MemoryCache
 from pycil.infrastructure.content_revisions import EntityKey, Snapshot, capture
 from pycil.infrastructure.database import json_collection, transaction_lock
+from pycil.infrastructure.kv_store import InMemoryStore
 from pycil.themes.namespace import theme_scope
 from pycil.vocabulary import models as rows
 from pycil.vocabulary.enums import EntryType, GenerationState, ResolutionState
@@ -120,16 +120,16 @@ async def get_senses(
     identifiers: Sequence[int],
     *,
     theme_id: int | None = None,
-    cache: MemoryCache[int, Sense] | None = None,
+    store: InMemoryStore[int, Sense] | None = None,
 ) -> list[Sense]:
     if theme_id is not None:
-        cache = None
+        store = None
     found: dict[int, Sense] = {}
-    if cache is not None:
+    if store is not None:
         found = {
             identifier: cached
             for identifier in identifiers
-            if (cached := cache.get(identifier)) is not None
+            if (cached := store.get(identifier)) is not None
         }
     missing = list(
         dict.fromkeys(identifier for identifier in identifiers if identifier not in found)
@@ -151,8 +151,8 @@ async def get_senses(
                     for item in cast(list[dict[str, object]], payload):
                         value = sense_value(item)
                         found[value.id] = value
-                        if cache is not None:
-                            cache.put(value.id, value)
+                        if store is not None:
+                            store.put(value.id, value)
     return [found[identifier] for identifier in identifiers if identifier in found]
 
 
@@ -161,14 +161,14 @@ async def get_word(
     identifier: int,
     *,
     theme_key: str | None = None,
-    word_cache: MemoryCache[int, CachedWord] | None = None,
-    sense_cache: MemoryCache[int, Sense] | None = None,
+    word_store: InMemoryStore[int, CachedWord] | None = None,
+    sense_store: InMemoryStore[int, Sense] | None = None,
 ) -> Word | None:
     if theme_key is not None:
-        word_cache = None
-        sense_cache = None
-    if word_cache is not None and (cached := word_cache.get(identifier)) is not None:
-        senses = await get_senses(sessions, cached.sense_ids, cache=sense_cache)
+        word_store = None
+        sense_store = None
+    if word_store is not None and (cached := word_store.get(identifier)) is not None:
+        senses = await get_senses(sessions, cached.sense_ids, store=sense_store)
         if len(senses) == len(cached.sense_ids):
             return Word(
                 id=cached.id,
@@ -179,7 +179,7 @@ async def get_word(
                 related=list(cached.related),
                 senses=senses,
             )
-        word_cache.discard(identifier)
+        word_store.discard(identifier)
     theme_id, valid = theme_scope(theme_key=theme_key)
     source = rows.Word.__table__
     edge = rows.WordRelation.__table__
@@ -229,11 +229,11 @@ async def get_word(
     data["aliases"] = [item["content"] for item in data["aliases"]]
     data["type"] = data.pop("entry_type")
     value = Word.model_validate(data)
-    if sense_cache is not None:
+    if sense_store is not None:
         for sense in value.senses:
-            sense_cache.put(sense.id, sense)
-    if word_cache is not None:
-        word_cache.put(
+            sense_store.put(sense.id, sense)
+    if word_store is not None:
+        word_store.put(
             value.id,
             CachedWord(
                 id=value.id,

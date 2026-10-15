@@ -16,7 +16,7 @@ from pycil.account.models import User
 from pycil.account.settings import effective_learning
 from pycil.app.config import AppConfig
 from pycil.app.http import Problem
-from pycil.infrastructure.cache import MemoryCache
+from pycil.infrastructure.kv_store import InMemoryStore
 from pycil.infrastructure.observability import get_logger
 from pycil.infrastructure.retry import ProviderOutputError
 from pycil.library.access import readable
@@ -125,12 +125,12 @@ async def prepare(
     session: AsyncSession,
     sessions: async_sessionmaker[AsyncSession],
     structured_llm: StructuredLLMProtocol,
-    artifact_cache: MemoryCache[int, Artifact] | None,
+    artifact_store: InMemoryStore[int, Artifact] | None,
     user: UUID,
     node_id: UUID,
     config: AppConfig,
     *,
-    sense_cache: MemoryCache[int, Sense] | None = None,
+    sense_store: InMemoryStore[int, Sense] | None = None,
     preferences: LearningPreferences,
     selection: Selection = Selection.AUTO,
 ) -> dict[str, object]:
@@ -194,7 +194,7 @@ async def prepare(
             await retrieve_artifacts(
                 sessions,
                 structured_llm,
-                artifact_cache,
+                artifact_store,
                 [(sense_id, kind, count) for (sense_id, kind), count in demand.items()],
                 generation_batch_size=config.runtime.generation.artifact_batch_size,
                 correct_count=config.product.study.artifacts.correct_count,
@@ -220,7 +220,7 @@ async def prepare(
         )
         raise Problem(503, "question_generation_unavailable") from None
     senses: dict[int, Sense] = {
-        s.id: s for s in await get_senses(sessions, list(plans), store=sense_cache)
+        s.id: s for s in await get_senses(sessions, list(plans), store=sense_store)
     }
     facts: dict[int, SensePreview] = {
         s["sense_id"]: s for s in await get_sense_previews(sessions, list(plans))

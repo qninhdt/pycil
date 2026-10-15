@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from pycil.infrastructure.content_revisions import GRAPH_KEY, capture, publish
 from pycil.infrastructure.database import transaction_lock
-from pycil.infrastructure.cache import MemoryCache
+from pycil.infrastructure.kv_store import InMemoryStore
 from pycil.infrastructure.llm import render_prompt
 from pycil.infrastructure.observability import get_logger, observe_operation
 from pycil.vocabulary import models as rows
@@ -71,9 +71,9 @@ class StructuredLLMProtocol(Protocol):
 async def generate_word(
     sessions: async_sessionmaker[AsyncSession],
     structured_llm: StructuredLLMProtocol,
-    word_cache: MemoryCache[int, CachedWord],
+    word_store: InMemoryStore[int, CachedWord],
     *,
-    sense_cache: MemoryCache[int, Sense] | None = None,
+    sense_store: InMemoryStore[int, Sense] | None = None,
     reference_id: str,
     example_count: int,
     enrichment_batch_size: int,
@@ -91,10 +91,10 @@ async def generate_word(
             identifier = await _generate(
                 sessions, structured_llm, source, target, example_count, enrichment_batch_size
             )
-        word_cache.clear()
-        if sense_cache is not None:
-            sense_cache.clear()
-        word = await get_word(sessions, identifier, word_cache=word_cache, sense_cache=sense_cache)
+        word_store.clear()
+        if sense_store is not None:
+            sense_store.clear()
+        word = await get_word(sessions, identifier, word_store=word_store, sense_store=sense_store)
         if word is None:
             raise InvalidResourceError("published word is unavailable")
         logger.info("word_publication_completed", word_id=identifier, reference_word_id=source.id)

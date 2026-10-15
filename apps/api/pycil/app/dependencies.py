@@ -16,7 +16,7 @@ from pycil.app.config import AppConfig
 from pycil.app.http import Problem
 from pycil.app.settings import ApiSettings
 from pycil.infrastructure.clerk import Identity
-from pycil.infrastructure.cache import MemoryCache
+from pycil.infrastructure.kv_store import InMemoryStore
 from pycil.infrastructure.llm import DecisionLLM
 from pycil.infrastructure.observability import get_logger
 from pycil.study.artifacts.schemas import Artifact
@@ -34,13 +34,13 @@ class AppState(Protocol):
     engine: AsyncEngine
     sessions: async_sessionmaker[AsyncSession]
     redis: Redis
-    user_id_cache: MemoryCache[str, UUID]
+    user_id_store: InMemoryStore[str, UUID]
     http: httpx.AsyncClient
     decision_llm: DecisionLLM
     search: SearchIndex
-    word_cache: MemoryCache[int, CachedWord]
-    sense_cache: MemoryCache[int, Sense]
-    artifact_cache: MemoryCache[int, Artifact]
+    word_store: InMemoryStore[int, CachedWord]
+    sense_store: InMemoryStore[int, Sense]
+    artifact_store: InMemoryStore[int, Artifact]
     checkpoint_pool: AsyncConnectionPool[AsyncConnection[DictRow]]
 
 

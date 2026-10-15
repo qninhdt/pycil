@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from pycil.app.config import AppConfig
 from pycil.app.http import Problem
-from pycil.infrastructure.cache import MemoryCache
+from pycil.infrastructure.kv_store import InMemoryStore
 from pycil.library.schemas import LearningPreview, SourceDeck
 from pycil.library.scope import ScopeBudget, bounded, resolve_scopes
 from pycil.library.senses import learning_preview, source_batch
@@ -73,7 +73,7 @@ async def word_previews(
     identifiers: Sequence[int],
     config: AppConfig,
     *,
-    sense_cache: MemoryCache[int, NativeSense] | None = None,
+    sense_store: InMemoryStore[int, NativeSense] | None = None,
 ) -> list[dict[str, object]]:
     if len(identifiers) > config.product.projections.max_word_ids:
         raise Problem(422, "lexical_batch_too_large")
@@ -94,7 +94,7 @@ async def word_previews(
     )
     if len(rows) > config.product.projections.max_word_senses:
         raise Problem(422, "lexical_batch_too_large")
-    native = {s.id: s for s in await get_senses(sessions, [r.id for r in rows], cache=sense_cache)}
+    native = {s.id: s for s in await get_senses(sessions, [r.id for r in rows], store=sense_store)}
     if set(native) != {r.id for r in rows}:
         raise Problem(409, "learning_content_changed")
     groups: dict[int, list[NativeSense]] = {i: [] for i in identifiers}

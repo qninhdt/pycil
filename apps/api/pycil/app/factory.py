@@ -122,7 +122,7 @@ def create_app() -> FastAPI:
                 component = "database"
                 async with app.state.engine.connect() as connection:
                     await connection.execute(text("SELECT 1"))
-                component = "redis"
+                component = "kv_store"
                 async with asyncio.timeout(app.state.config.runtime.health.redis_timeout_seconds):
                     await app.state.redis.ping()
                 component = "search"

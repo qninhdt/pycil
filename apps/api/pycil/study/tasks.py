@@ -127,13 +127,13 @@ async def prepare_task(
                     session,
                     resources.sessions,
                     resources.structured_llm,
-                    resources.artifact_cache,
+                    resources.artifact_store,
                     UUID(user_id),
                     UUID(node_id),
                     config,
                     selection=Selection(selection),
                     preferences=normalized,
-                    sense_cache=resources.sense_cache,
+                    sense_store=resources.sense_store,
                 )
             return Preparation.model_validate(result).model_dump(mode="json")
         except RetryableJobError:

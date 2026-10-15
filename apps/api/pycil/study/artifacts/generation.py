@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field, create_model, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from pycil.infrastructure.cache import MemoryCache
+from pycil.infrastructure.kv_store import InMemoryStore
 from pycil.infrastructure.llm import render_prompt
 from pycil.infrastructure.observability import get_logger, observe_operation
 from pycil.study.artifacts.schemas import (
@@ -18,7 +18,12 @@ from pycil.study.artifacts.schemas import (
     Strict,
     validate_artifact,
 )
-from pycil.study.artifacts.storage import append, bank_sizes, generation_context, retrieve_many
+from pycil.study.artifacts.storage import (
+    append,
+    bank_sizes,
+    generation_context,
+    retrieve_many,
+)
 from pycil.study.enums import (
     QUESTION_ARTIFACT_MAP,
     SINGLETON_ARTIFACT_TYPES,
@@ -39,7 +44,7 @@ class StructuredLLMProtocol(Protocol):
 async def generate_artifacts(
     sessions: async_sessionmaker[AsyncSession],
     structured_llm: StructuredLLMProtocol,
-    cache: MemoryCache[int, Artifact] | None,
+    store: InMemoryStore[int, Artifact] | None,
     sense_id: int,
     kind: QuestionArtifactType | str,
     batch_size: int = 1,
@@ -100,7 +105,10 @@ async def generate_artifacts(
             context["collocations"] = sense.collocations
         if (
             artifact_kind
-            in {QuestionArtifactType.WORD_TO_USAGE, QuestionArtifactType.DIALOGUE_COMPLETION}
+            in {
+                QuestionArtifactType.WORD_TO_USAGE,
+                QuestionArtifactType.DIALOGUE_COMPLETION,
+            }
             and sense.register_
         ):
             context["register"] = sense.register_
@@ -120,7 +128,12 @@ async def generate_artifacts(
                 try:
                     payload = payload_schema.model_validate(raw)
                     validate_artifact(
-                        payload, artifact_kind, word, sense, distractor_count, correct_count
+                        payload,
+                        artifact_kind,
+                        word,
+                        sense,
+                        distractor_count,
+                        correct_count,
                     )
                 except ValueError, InvalidOutputError:
                     continue
@@ -158,7 +171,7 @@ async def generate_artifacts(
                 )
                 for payload in raw_output_artifacts
             ],
-            cache=cache,
+            store=store,
         )
         logger.info("artifact_generation_completed", artifacts=len(saved))
         return saved
@@ -167,7 +180,7 @@ async def generate_artifacts(
 async def retrieve_artifacts(
     sessions: async_sessionmaker[AsyncSession],
     structured_llm: StructuredLLMProtocol,
-    cache: MemoryCache[int, Artifact] | None,
+    store: InMemoryStore[int, Artifact] | None,
     requests: Sequence[tuple[int, QuestionType, int]],
     *,
     generation_batch_size: int = 1,
@@ -183,12 +196,13 @@ async def retrieve_artifacts(
         q = 1 if kind in SINGLETON_ARTIFACT_TYPES else quantity
         demands[sense_id, kind] = max(demands.get((sense_id, kind), 0), q)
     sizes = await bank_sizes(sessions, list(demands), theme_key=theme_key)
+
     tasks = [
         asyncio.create_task(
             generate_artifacts(
                 sessions,
                 structured_llm,
-                cache,
+                store,
                 sense_id,
                 kind,
                 max(quantity - sizes[sense_id, kind], generation_batch_size),
@@ -211,5 +225,5 @@ async def retrieve_artifacts(
         sessions,
         [(sense_id, kind, quantity) for (sense_id, kind), quantity in demands.items()],
         theme_key=theme_key,
-        cache=cache,
+        store=store,
     )

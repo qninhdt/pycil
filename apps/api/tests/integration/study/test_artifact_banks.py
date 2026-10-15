@@ -4,11 +4,13 @@ import pytest
 from pydantic import ValidationError
 from sqlalchemy import delete, func, select
 
+from pycil.infrastructure.kv_store import InMemoryStore
 from pycil.study.artifacts.schemas import Artifact
-from pycil.study.artifacts.storage import append, bank_sizes, retrieve_many
+from pycil.study.artifacts.storage import append, bank_sizes, get_many, retrieve_many
 from pycil.study.enums import QuestionArtifactType
 from pycil.study.models import QuestionArtifact
 from pycil.vocabulary.enums import EntryType, GenerationState, PartOfSpeech, Tier
+from pycil.vocabulary.errors import InvalidResourceError
 from pycil.vocabulary.models import Sense, Word
 
 
@@ -108,20 +110,16 @@ async def test_invalid_payload_never_partially_publishes_a_batch(database, sense
 async def test_missing_sense_rolls_back_whole_batch_and_preserves_existing_cache(
     database, sense_id
 ):
-    from pycil.infrastructure.cache import MemoryCache
-    from pycil.study.artifacts.storage import get_many
-    from pycil.vocabulary.errors import InvalidResourceError
-
-    cache = MemoryCache(max_entries=1024, ttl=30)
+    store = InMemoryStore(max_entries=1024, ttl=30)
     original = await append(database.sessions, [singleton(sense_id, "a financial institution")])
-    cached = await get_many(database.sessions, [original[0].id], cache=cache)
+    cached = await get_many(database.sessions, [original[0].id], store=store)
     with pytest.raises(InvalidResourceError):
         await append(
             database.sessions,
             [singleton(sense_id, "an institution holding deposits"), context(999999, 1)],
-            cache=cache,
+            store=store,
         )
-    assert await get_many(database.sessions, [original[0].id], cache=cache) == cached
+    assert await get_many(database.sessions, [original[0].id], store=store) == cached
     async with database.sessions() as session:
         assert await session.scalar(select(func.count()).select_from(QuestionArtifact)) == 1
         row = await session.get(QuestionArtifact, original[0].id)
@@ -129,17 +127,14 @@ async def test_missing_sense_rolls_back_whole_batch_and_preserves_existing_cache
 
 
 async def test_successful_singleton_merge_invalidates_cached_payload(database, sense_id):
-    from pycil.infrastructure.cache import MemoryCache
-    from pycil.study.artifacts.storage import get_many
-
-    cache = MemoryCache(max_entries=1024, ttl=30)
+    store = InMemoryStore(max_entries=1024, ttl=30)
     saved = await append(database.sessions, [singleton(sense_id, "a financial institution")])
-    before = (await get_many(database.sessions, [saved[0].id], cache=cache))[0]
+    before = (await get_many(database.sessions, [saved[0].id], store=store))[0]
     changed = await append(
-        database.sessions, [singleton(sense_id, "an institution holding deposits")], cache=cache
+        database.sessions, [singleton(sense_id, "an institution holding deposits")], store=store
     )
     assert changed[0].id == before.id
-    after = (await get_many(database.sessions, [before.id], cache=cache))[0]
+    after = (await get_many(database.sessions, [before.id], store=store))[0]
     assert after.payload["corrects"] == [
         "a financial institution",
         "an institution holding deposits",

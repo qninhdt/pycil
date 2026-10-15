@@ -15,8 +15,8 @@ from pycil.account.auth import current_user_id, optional_user_id
 from pycil.account.models import User
 from pycil.app.config import load_config
 from pycil.app.http import Problem
-from pycil.infrastructure.cache import MemoryCache
 from pycil.infrastructure.clerk import Identity
+from pycil.infrastructure.kv_store import InMemoryStore
 from pycil.library.models import Node, NodePath
 
 
@@ -44,7 +44,7 @@ async def test_verified_identity_provisions_once_and_invalid_tokens_cannot_use_c
         "exp": datetime.now(UTC) + timedelta(minutes=5),
     }
     token = jwt.encode(claims, private_key, algorithm="RS256")
-    cache = MemoryCache(max_entries=100, ttl=60)
+    store = InMemoryStore(max_entries=100, ttl=60)
     calls = 0
     both_requested = asyncio.Event()
 
@@ -71,7 +71,7 @@ async def test_verified_identity_provisions_once_and_invalid_tokens_cannot_use_c
             )
             credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=value)
             async with database.sessions() as session:
-                session.info["user_id_cache"] = cache
+                session.info["user_id_store"] = store
                 return await current_user_id(request, session, credentials)
 
         first, second = await asyncio.gather(authenticate(token), authenticate(token))

@@ -160,7 +160,7 @@ async def senses(
         sort=sort,
         include=include,
         limit=limit,
-        sense_cache=resources.sense_cache,
+        sense_store=resources.sense_store,
     )
 
 

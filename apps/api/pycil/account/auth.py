@@ -36,8 +36,8 @@ async def current_user_id(request: Request, session: Session, credentials: Crede
         subject = await request.app.state.identity.subject(credentials.credentials)
     except InvalidIdentityError:
         raise Problem(401, "invalid_credentials") from None
-    cache = session.info.get("user_id_cache")
-    if cache is not None and (identifier := cache.get(subject)) is not None:
+    store = session.info.get("user_id_store")
+    if store is not None and (identifier := store.get(subject)) is not None:
         bind_contextvars(user_id=str(identifier))
         return identifier
     # Verify missing identities with Clerk before provisioning, preventing stale
@@ -97,8 +97,8 @@ async def current_user_id(request: Request, session: Session, credentials: Crede
             await provision_library(session, user.id)
             logger.info("account_provisioned", user_id=str(user.id))
     assert user is not None
-    if cache is not None:
-        cache.put(subject, user.id)
+    if store is not None:
+        store.put(subject, user.id)
     bind_contextvars(user_id=str(user.id))
     return user.id
 

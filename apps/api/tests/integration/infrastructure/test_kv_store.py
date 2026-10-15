@@ -1,30 +1,30 @@
 from pydantic import BaseModel
 
-from pycil.infrastructure.cache import RedisCache
+from pycil.infrastructure.kv_store import RedisStore
 
 
-async def test_typed_cache_expiry_invalidation_and_corrupt_values(redis_store):
+async def test_typed_store_expiry_invalidation_and_corrupt_values(redis_store):
     class Profile(BaseModel):
         name: str
 
     redis, namespace = redis_store
-    cache = RedisCache(redis, Profile, namespace, 60)
+    store = RedisStore(redis, Profile, namespace, 60)
     value = Profile(name="Learner")
-    await cache.put("profile", value)
-    assert await cache.get("profile") == value
+    await store.put("profile", value)
+    assert await store.get("profile") == value
     assert 0 < await redis.ttl(f"{namespace}:profile") <= 60
-    await cache.discard("profile")
-    assert await cache.get("profile") is None
+    await store.discard("profile")
+    assert await store.get("profile") is None
 
     for payload in (b"invalid JSON", b'{"name": null}', b"\xff"):
         await redis.set(f"{namespace}:profile", payload)
-        assert await cache.get("profile") is None
+        assert await store.get("profile") is None
     await redis.delete(f"{namespace}:profile")
     await redis.lpush(f"{namespace}:profile", "wrong Redis type")
-    assert await cache.get("profile") is None
-    await cache.discard("profile")
-    await cache.put("profile", value)
-    assert await cache.get("profile") == value
+    assert await store.get("profile") is None
+    await store.discard("profile")
+    await store.put("profile", value)
+    assert await store.get("profile") == value
 
 
 async def test_native_redis_failure_degrades_to_cache_miss_without_publishing(
@@ -45,16 +45,16 @@ async def test_native_redis_failure_degrades_to_cache_miss_without_publishing(
         socket_timeout=1,
         socket_connect_timeout=1,
     )
-    cache = RedisCache(rejected, Profile, namespace, 60)
+    store = RedisStore(rejected, Profile, namespace, 60)
     try:
         with capture_logs() as logs:
-            assert await cache.get("profile") is None
-            await cache.put("profile", Profile(name="private profile data"))
-            await cache.discard("profile")
+            assert await store.get("profile") is None
+            await store.put("profile", Profile(name="private profile data"))
+            await store.discard("profile")
         assert [record["event"] for record in logs] == [
-            "cache_read_failed",
-            "cache_write_failed",
-            "cache_invalidation_failed",
+            "kv_store_read_failed",
+            "kv_store_write_failed",
+            "kv_store_invalidation_failed",
         ]
         assert "private profile data" not in str(logs)
         assert "invalid-test-only" not in str(logs)
@@ -70,8 +70,8 @@ async def test_uuid_instances_are_isolated_and_serialization_errors_propagate(re
     from pydantic_core import PydanticSerializationError
 
     redis, namespace = redis_store
-    first = RedisCache(redis, UUID, f"{namespace}:user-id:v1", 60)
-    other = RedisCache(redis, UUID, f"{namespace}:other-user-id:v1", 60)
+    first = RedisStore(redis, UUID, f"{namespace}:user-id:v1", 60)
+    other = RedisStore(redis, UUID, f"{namespace}:other-user-id:v1", 60)
     value = uuid4()
     await first.put("clerk", value)
     assert await first.get("clerk") == value

@@ -82,7 +82,7 @@ async def grade(data: Grade, user: UserId, config: Config, resources: Runtime, s
             resources.sessions,
             resources.search,
             resources.decision_llm,
-            resources.artifact_cache,
+            resources.artifact_store,
             data.question_artifact_id,
             data.question_type,
             data.format,

@@ -83,7 +83,7 @@ async def test_real_word_read_has_one_safe_child_span_per_statement(
     app.state.config = load_config()
     app.state.deployment = SimpleNamespace(allowed_origins=[])
     app.state.sessions = signals.sessions
-    app.state.word_cache = app.state.sense_cache = None
+    app.state.word_store = app.state.sense_store = None
 
     @app.get("/controlled/sql/{mode}")
     async def query(mode: int):

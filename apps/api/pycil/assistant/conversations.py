@@ -24,6 +24,10 @@ from pycil.infrastructure.observability import get_logger
 logger = get_logger(__name__)
 
 
+def conversation_lease_key(conversation_id: UUID | str) -> str:
+    return f"pycil:assistant:conversation:lease:{conversation_id}"
+
+
 class ConversationResources(Protocol):
     sessions: async_sessionmaker[AsyncSession]
     redis: Redis
@@ -43,7 +47,7 @@ async def owned(session: AsyncSession, user_id: UUID, identifier: UUID) -> Conve
 async def guard(redis: Redis, conversation_id: UUID, *, ttl: float) -> AsyncGenerator[None]:
     """A renewable native lease; no DB connection is held while work runs."""
     lock: Lock = redis.lock(
-        f"pycil:conversation:{conversation_id}",
+        conversation_lease_key(conversation_id),
         timeout=ttl,
         blocking=False,
         thread_local=False,

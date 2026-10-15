@@ -10,9 +10,9 @@ import orjson
 from sqlalchemy import Integer, column, delete, func, literal, or_, select, tuple_, values
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from pycil.infrastructure.cache import MemoryCache
 from pycil.infrastructure.content_revisions import capture, lock_owners, publish
 from pycil.infrastructure.database import json_collection
+from pycil.infrastructure.kv_store import InMemoryStore
 from pycil.study.artifacts.schemas import ARTIFACT_SCHEMAS, Artifact
 from pycil.study.enums import SINGLETON_ARTIFACT_TYPES, QuestionArtifactType
 from pycil.study.errors import QuestionArtifactBankChangedError
@@ -46,14 +46,14 @@ async def get_many(
     sessions: async_sessionmaker[AsyncSession],
     identifiers: Sequence[int],
     *,
-    cache: MemoryCache[int, Artifact] | None = None,
+    store: InMemoryStore[int, Artifact] | None = None,
 ) -> list[Artifact]:
     found: dict[int, Artifact] = {}
-    if cache is not None:
+    if store is not None:
         found = {
             identifier: value
             for identifier in identifiers
-            if (value := cache.get(identifier)) is not None
+            if (value := store.get(identifier)) is not None
         }
     missing = list(
         dict.fromkeys(identifier for identifier in identifiers if identifier not in found)
@@ -65,8 +65,8 @@ async def get_many(
             ):
                 value = artifact_value(row)
                 found[value.id] = value
-                if cache is not None:
-                    cache.put(value.id, value)
+                if store is not None:
+                    store.put(value.id, value)
     return [found[identifier] for identifier in dict.fromkeys(identifiers) if identifier in found]
 
 
@@ -115,7 +115,7 @@ async def append(
     sessions: async_sessionmaker[AsyncSession],
     artifacts: Sequence[Artifact],
     *,
-    cache: MemoryCache[int, Artifact] | None = None,
+    store: InMemoryStore[int, Artifact] | None = None,
 ) -> list[Artifact]:
     if not artifacts:
         return []
@@ -208,8 +208,8 @@ async def append(
             before.setdefault(("question_artifact", row.id), None)
         await publish(session, before)
         result = [artifact_value(row) for row in saved.values()]
-    if cache is not None:
-        cache.clear()
+    if store is not None:
+        store.clear()
     return result
 
 
@@ -217,7 +217,7 @@ async def remove(
     sessions: async_sessionmaker[AsyncSession],
     identifier: int,
     *,
-    cache: MemoryCache[int, Artifact] | None = None,
+    store: InMemoryStore[int, Artifact] | None = None,
 ) -> int | None:
     async with sessions() as session, session.begin():
         scope = (
@@ -245,8 +245,8 @@ async def remove(
         before = await capture(session, [("question_artifact", value) for value in identifiers])
         await session.execute(delete(QuestionArtifact).where(QuestionArtifact.id == identifier))
         revision = await publish(session, before)
-    if cache is not None:
-        cache.clear()
+    if store is not None:
+        store.clear()
     return revision
 
 
@@ -292,7 +292,7 @@ async def retrieve_many(
     requests: Sequence[tuple[int, QuestionArtifactType, int]],
     *,
     theme_key: str | None = None,
-    cache: MemoryCache[int, Artifact] | None = None,
+    store: InMemoryStore[int, Artifact] | None = None,
 ) -> list[Artifact]:
     pairs = [(sense_id, kind) for sense_id, kind, _quantity in requests]
     if len(set(pairs)) != len(pairs) or any(
@@ -326,7 +326,7 @@ async def retrieve_many(
                     )
                 )
             )
-    artifacts = await get_many(sessions, ids, cache=cache)
+    artifacts = await get_many(sessions, ids, store=store)
     if len(artifacts) != len(slots):
         raise QuestionArtifactBankChangedError("bank changed during sampling")
     return artifacts

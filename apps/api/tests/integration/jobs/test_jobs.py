@@ -22,7 +22,7 @@ from pycil.app.broker import (
 from pycil.app.config import load_config
 from pycil.app.factory import create_app
 from pycil.app.settings import WorkerSettings
-from pycil.infrastructure.cache import MemoryCache
+from pycil.infrastructure.kv_store import InMemoryStore
 from pycil.jobs.metadata import owner_key
 from pycil.library.models import NodeRole
 from pycil.study.schemas import Prepare
@@ -118,8 +118,8 @@ async def test_database_connection_refusal_retries_before_domain_work(
     provider = WordProvider()
     resources = native.state.resources
     resources.structured_llm = provider
-    resources.word_cache = MemoryCache(max_entries=10, ttl=30)
-    resources.artifact_cache = resources.sense_cache = None
+    resources.word_store = InMemoryStore(max_entries=10, ttl=30)
+    resources.artifact_store = resources.sense_store = None
     if kind == "word":
         await import_reference(
             database.sessions, reference_file(tmp_path / "reference.jsonl", [reference_word()])
@@ -219,7 +219,7 @@ async def test_preparation_request_coalesces_effective_options_and_native_result
     # Native Context supplies live resources; preparation has no eligible senses/LLM calls.
     resources = native.state.resources
     resources.structured_llm = object()
-    resources.artifact_cache = resources.sense_cache = None
+    resources.artifact_store = resources.sense_store = None
     await execute_one(native)
     result = await native.result_backend.get_result(str(first.job_id))
     assert not result.is_err and result.return_value["actual_question_count"] == 0
@@ -371,8 +371,8 @@ async def test_word_tasks_keep_owner_private_and_singleflight_cross_user_work(
     assert jobs[0].job_id != jobs[1].job_id
     provider = WordProvider()
     native.state.resources.structured_llm = provider
-    native.state.resources.word_cache = MemoryCache(max_entries=10, ttl=30)
-    native.state.resources.sense_cache = None
+    native.state.resources.word_store = InMemoryStore(max_entries=10, ttl=30)
+    native.state.resources.sense_store = None
     listener = native.listen()
     try:
         messages = [await anext(listener) for _ in range(2)]
@@ -599,7 +599,7 @@ async def test_http_preparation_accepts_then_exposes_native_result_and_safe_stor
     app.state.sessions = database.sessions
     app.dependency_overrides[current_user_id] = lambda: user.id
     native.state.resources.structured_llm = object()
-    native.state.resources.artifact_cache = native.state.resources.sense_cache = None
+    native.state.resources.artifact_store = native.state.resources.sense_store = None
     async with AsyncClient(transport=ASGITransport(app), base_url="http://api.test") as client:
         accepted = await client.post(
             "/v1/study:prepare",
@@ -652,8 +652,8 @@ async def test_provider_failure_is_private_and_does_not_retry_paid_work(
 
     provider = UnavailableProvider()
     native.state.resources.structured_llm = provider
-    native.state.resources.word_cache = MemoryCache(max_entries=10, ttl=30)
-    native.state.resources.sense_cache = None
+    native.state.resources.word_store = InMemoryStore(max_entries=10, ttl=30)
+    native.state.resources.sense_store = None
     accepted = await request_generation(
         database.sessions,
         redis,
@@ -704,8 +704,8 @@ async def test_assistant_generation_waits_for_batch_and_returns_partial_results(
     resources = native.state.resources
     resources.broker = native
     resources.structured_llm = WordProvider()
-    resources.word_cache = MemoryCache(max_entries=10, ttl=30)
-    resources.sense_cache = MemoryCache(max_entries=10, ttl=30)
+    resources.word_store = InMemoryStore(max_entries=10, ttl=30)
+    resources.sense_store = InMemoryStore(max_entries=10, ttl=30)
     index = resources.search = SearchIndex(database.sessions)
     await index.start()
     invocation = None

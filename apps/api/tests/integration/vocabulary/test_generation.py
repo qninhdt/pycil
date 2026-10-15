@@ -2,7 +2,7 @@ import pytest
 from sqlalchemy import func, select
 
 from pycil.app.config import load_config
-from pycil.infrastructure.cache import MemoryCache
+from pycil.infrastructure.kv_store import InMemoryStore
 from pycil.vocabulary.enums import HitKind, MatchKind
 from pycil.vocabulary.errors import InvalidOutputError
 from pycil.vocabulary.generation.pipeline import generate_word
@@ -21,7 +21,7 @@ async def test_generation_publishes_content_and_consumes_reference_search_hit(da
     index, provider, cache = (
         SearchIndex(database.sessions),
         WordProvider(),
-        MemoryCache(max_entries=1024, ttl=30),
+        InMemoryStore(max_entries=1024, ttl=30),
     )
     try:
         await index.start()
@@ -140,7 +140,7 @@ async def test_native_instructor_reasks_for_semantic_defects_before_publication(
             word = await generate_word(
                 database.sessions,
                 llm,
-                MemoryCache(max_entries=1024, ttl=30),
+                InMemoryStore(max_entries=1024, ttl=30),
                 reference_id=encode_reference_id(1),
                 example_count=1,
                 enrichment_batch_size=8,
@@ -164,7 +164,7 @@ async def test_invented_citation_never_publishes_word_or_sense(database, tmp_pat
             await generate_word(
                 database.sessions,
                 WordProvider(invalid_citation=True),
-                MemoryCache(max_entries=1024, ttl=30),
+                InMemoryStore(max_entries=1024, ttl=30),
                 reference_id=encode_reference_id(1),
                 example_count=1,
                 enrichment_batch_size=8,
@@ -197,7 +197,7 @@ async def test_enrichment_cannot_publish_examples_marked_for_another_word(databa
             await generate_word(
                 database.sessions,
                 WrongTarget(),
-                MemoryCache(max_entries=1024, ttl=30),
+                InMemoryStore(max_entries=1024, ttl=30),
                 reference_id=encode_reference_id(1),
                 example_count=1,
                 enrichment_batch_size=8,
@@ -252,7 +252,7 @@ async def test_enrichment_failure_cancels_sibling_batches_and_publishes_nothing(
                 await generate_word(
                     database.sessions,
                     FailingBatch(),
-                    MemoryCache(max_entries=1024, ttl=30),
+                    InMemoryStore(max_entries=1024, ttl=30),
                     reference_id=encode_reference_id(1),
                     example_count=1,
                     enrichment_batch_size=8,

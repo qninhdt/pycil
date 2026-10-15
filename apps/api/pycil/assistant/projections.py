@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from pycil.app.config import AppConfig
 from pycil.app.http import Problem
 from pycil.app.projections import viewer_context
-from pycil.infrastructure.cache import MemoryCache
+from pycil.infrastructure.kv_store import InMemoryStore
 from pycil.library.access import reference_visible, visible
 from pycil.library.models import Node, NodePath, NodeRole, NodeType
 from pycil.library.scope import ScopeBudget
@@ -25,7 +25,7 @@ from pycil.vocabulary.words import get_sense_previews, get_senses
 
 class ProjectionsResources(Protocol):
     sessions: async_sessionmaker[AsyncSession]
-    sense_cache: MemoryCache[int, SenseSchema]
+    sense_store: InMemoryStore[int, SenseSchema]
 
 
 async def vocabulary(
@@ -81,7 +81,7 @@ async def vocabulary(
     native = (
         {
             s.id: s
-            for s in await get_senses(resources.sessions, identifiers, cache=resources.sense_cache)
+            for s in await get_senses(resources.sessions, identifiers, store=resources.sense_store)
         }
         if set(include) & {"examples", "lexical_details"}
         else {}

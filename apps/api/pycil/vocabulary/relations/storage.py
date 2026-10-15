@@ -16,7 +16,7 @@ from pycil.vocabulary.enums import GenerationState, PartOfSpeech, SenseRelationT
 from pycil.vocabulary.models import Definition, Sense, SenseRelation, Word
 
 
-class ClearableCache(Protocol):
+class ClearableStore(Protocol):
     def clear(self) -> None: ...
 
 
@@ -135,7 +135,7 @@ async def apply_resolution(
     expected: PendingLink,
     selected: Candidate | None,
     *,
-    cache: ClearableCache | None = None,
+    store: ClearableStore | None = None,
 ) -> bool:
     async with sessions() as session, session.begin():
         await transaction_lock(session, GRAPH_KEY)
@@ -163,6 +163,6 @@ async def apply_resolution(
         edge.target_hash = selected.fingerprint if selected is not None else None
         edge.resolve_attempted_at = datetime.now(UTC).isoformat()
         await publish(session, before)
-    if cache is not None:
-        cache.clear()
+    if store is not None:
+        store.clear()
     return True

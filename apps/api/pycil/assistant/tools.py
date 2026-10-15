@@ -40,7 +40,7 @@ from pycil.assistant.schemas import (
     WordGeneration,
     WordSearch,
 )
-from pycil.infrastructure.cache import MemoryCache
+from pycil.infrastructure.kv_store import InMemoryStore
 from pycil.infrastructure.observability import get_logger
 from pycil.library import nodes
 from pycil.library.access import readable
@@ -78,7 +78,7 @@ class AssistantResources(Protocol):
     broker: AsyncBroker
     sessions: async_sessionmaker[AsyncSession]
     search: SearchIndex
-    sense_cache: MemoryCache[int, Sense]
+    sense_store: InMemoryStore[int, Sense]
 
 
 def validation_message(error: ValidationError | Exception | object) -> str:
@@ -273,7 +273,7 @@ def tools(
                     sort=data.sort,
                     limit=data.limit,
                     include="examples",
-                    sense_cache=resources.sense_cache,
+                    sense_store=resources.sense_store,
                 )
                 senses_list = cast(list[dict[str, object]], senses_page["senses"])
                 senses_page["senses"] = [
