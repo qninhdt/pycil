@@ -4,7 +4,7 @@ from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime
 from enum import Enum
 from time import perf_counter
-from typing import Any, Literal, cast
+from typing import Literal, cast
 
 import jsonpatch
 import orjson
@@ -21,7 +21,7 @@ logger = get_logger(__name__)
 
 EntityType = Literal["word", "question_artifact", "theme"]
 type EntityKey = tuple[EntityType, int]
-type Snapshot = dict[str, Any] | None
+type Snapshot = dict[str, object] | None
 GRAPH_KEY = "pycil:content-revisions:word-graph"
 PUBLICATION_KEY = "pycil:content-revisions:publication"
 ENTITY_ORDER = {"theme": 0, "word": 1, "question_artifact": 2}
@@ -44,13 +44,13 @@ class ContentRevision(Base):
     )
     entity_type: Mapped[str] = mapped_column(Text)
     entity_id: Mapped[int] = mapped_column(BigInteger)
-    op: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
+    op: Mapped[list[dict[str, object]]] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
 
     @validates("op")
-    def validate_patch(self, key: str, patch: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def validate_patch(self, key: str, patch: list[dict[str, object]]) -> list[dict[str, object]]:
         if not isinstance(patch, list) or not patch:  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("A nonempty JSON Patch array is required")
         for operation in patch:
@@ -72,7 +72,9 @@ class ContentRevision(Base):
         return patch
 
 
-def _values(row: Mapping[str, Any] | RowMapping, exclude: Iterable[str] = ()) -> dict[str, Any]:
+def _values(
+    row: Mapping[str, object] | RowMapping, exclude: Iterable[str] = ()
+) -> dict[str, object]:
     return {
         str(k): v.value if isinstance(v, Enum) else v
         for k, v in row.items()
@@ -99,7 +101,7 @@ async def serialize(session: AsyncSession, kind: EntityType, identifier: int) ->
         return _values(row)
     if kind == "question_artifact":
         value = _values(row, ("payload_hash",))
-        value["payload"] = orjson.loads(value["payload"])
+        value["payload"] = orjson.loads(cast(str | bytes, value["payload"]))
         return value
     value = _values(row, ("match_key", "generation_state"))
     senses = (
@@ -171,7 +173,7 @@ async def publish(session: AsyncSession, before: Mapping[EntityKey, Snapshot]) -
             patch = [{"op": "replace", "path": "", "value": None}]
         else:
             patch = cast(
-                list[dict[str, Any]],
+                list[dict[str, object]],
                 jsonpatch.make_patch(previous, current).patch,  # pyright: ignore[reportUnknownMemberType]
             )
         # Imported adoption-time data must have an explicit baseline before edits.

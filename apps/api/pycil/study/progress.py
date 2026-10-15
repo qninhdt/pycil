@@ -2,7 +2,7 @@
 
 from collections.abc import Iterable, Sequence
 from datetime import UTC, date, datetime, timedelta
-from typing import Any, cast
+from typing import cast
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -16,6 +16,7 @@ from pycil.app.http import Problem
 from pycil.library.models import DeckSense, NodeType
 from pycil.library.scope import Scope, ScopeBudget, bounded, resolve_scopes
 from pycil.study.models import DailyActivity, UserSense
+from pycil.study.types import ActivityDayDict, ScopeSummaryRow, SummaryDict
 
 
 def scope_mapping(
@@ -46,7 +47,7 @@ async def summaries(
     node_ids: Sequence[UUID | None],
     *,
     budget: ScopeBudget | None = None,
-) -> list[dict[str, Any]]:
+) -> list[SummaryDict]:
     if (
         not node_ids
         or len(node_ids) > config.product.study.limits.max_summary_nodes
@@ -58,7 +59,7 @@ async def summaries(
         scopes = await resolve_scopes(session, node_ids, viewer_id, config, budget=budget)
         now = datetime.now(UTC)
         group_ids, mapping = scope_mapping(scopes.values(), budget, config)
-        aggregated: dict[int, dict[str, Any]] = {}
+        aggregated: dict[int, dict[str, object]] = {}
         if mapping:
             # Arrays avoid PostgreSQL's parameter count limit for a large bounded deck mapping.
             mapped = (
@@ -91,11 +92,12 @@ async def summaries(
                 .group_by(unique.c.grp)
             )
             aggregated = {int(r["grp"]): dict(r) for r in (await session.execute(query)).mappings()}
-        result: list[dict[str, Any]] = []
+        result: list[SummaryDict] = []
+        empty_row: ScopeSummaryRow = {"total": 0, "studied": 0, "due": 0, "last_studied_at": None}
         for scope in scopes.values():
-            row = aggregated.get(
-                group_ids[scope.root.id],
-                {"total": 0, "studied": 0, "due": 0, "last_studied_at": None},
+            row: ScopeSummaryRow = cast(
+                ScopeSummaryRow,
+                aggregated.get(group_ids[scope.root.id], empty_row),
             )
             parent: UUID = (
                 scope.root.reference_id
@@ -127,7 +129,7 @@ async def summaries(
                     "reachable_decks": len(scope.decks),
                 }
             )
-        by_id = {r["node_id"]: r for r in result}
+        by_id: dict[UUID | None, SummaryDict] = {r["node_id"]: r for r in result}
         return result if node_ids == [None] else [by_id[i] for i in node_ids]
 
 
@@ -136,7 +138,7 @@ async def progress(
     user: UUID,
     config: AppConfig,
     node_id: UUID | None = None,
-) -> dict[str, Any]:
+) -> SummaryDict:
     return (await summaries(session, user, config, [node_id]))[0]
 
 
@@ -179,7 +181,7 @@ async def activity(
     config: AppConfig,
     start_date: date | None = None,
     end_date: date | None = None,
-) -> dict[str, Any]:
+) -> dict[str, object]:
     timezone, now, today = await reporting(session, user_id, config)
     start, end = window(start_date, end_date, today, config.product.study.limits.max_activity_days)
     rows = list(
@@ -192,7 +194,7 @@ async def activity(
         ).all()
     )
     by_day = {r.day: r for r in rows}
-    days: list[dict[str, Any]] = []
+    days: list[ActivityDayDict] = []
     for offset in range((end - start).days + 1):
         day = start + timedelta(days=offset)
         row = by_day.get(day)
@@ -259,7 +261,7 @@ async def schedule(
     node_id: UUID | None = None,
     start_date: date | None = None,
     end_date: date | None = None,
-) -> dict[str, Any]:
+) -> dict[str, object]:
     return (await schedules(session, user_id, config, [node_id], start_date, end_date))[0]
 
 
@@ -272,7 +274,7 @@ async def schedules(
     end_date: date | None = None,
     *,
     budget: ScopeBudget | None = None,
-) -> list[dict[str, Any]]:
+) -> list[dict[str, object]]:
     if (
         not node_ids
         or len(node_ids) > config.product.study.limits.max_summary_nodes

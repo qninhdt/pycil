@@ -1,13 +1,10 @@
 """Typed data structures and dictionaries for vocabulary domain."""
 
 from typing import TypedDict
-from uuid import UUID
 
 from pycil.vocabulary.enums import (
     CEFRLevel,
     EntryType,
-    GenerationStage,
-    JobState,
     PartOfSpeech,
     Register,
     Tier,
@@ -46,10 +43,10 @@ class WordNetSense(TypedDict):
     definition: str
 
 
-class GenerationTaskState(TypedDict):
-    task_id: UUID
-    status: JobState
-    word_id: int | None
-    stage: GenerationStage | None
-    error: str | None
-    status_url: str
+class WordAliasInsert(TypedDict):
+    word_id: int
+    content: str
+    match_key: str
+
+
+type SearchPayload = tuple[str, str, str, str, int, dict[str, list[str]] | None]

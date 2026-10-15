@@ -1,6 +1,6 @@
 from collections.abc import Sequence
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import cast
 from uuid import UUID
 
 from sqlalchemy import and_, func, or_, select, tuple_
@@ -14,6 +14,12 @@ from pycil.infrastructure.cache import MemoryCache
 from pycil.library.models import DeckSense, Node, NodeSpace
 from pycil.library.schemas import SenseSort
 from pycil.library.scope import ScopeBudget, bounded, resolve_scopes, scope_ids
+from pycil.library.types import (
+    LearningPreviewDict,
+    SenseSourcesSummary,
+    SourceDeckDict,
+    SourcesPageDict,
+)
 from pycil.study.enums import LearningState
 from pycil.study.models import UserSense
 from pycil.vocabulary.models import Sense, Word
@@ -32,7 +38,7 @@ def learning_preview(
     now: datetime,
     viewer_id: UUID | None,
     config: AppConfig,
-) -> dict[str, Any] | None:
+) -> LearningPreviewDict | None:
     if viewer_id is None:
         return None
     return {
@@ -50,7 +56,7 @@ def learning_preview(
 
 def source_dict(
     node_id: UUID, name: str, owner_id: UUID | None, space: NodeSpace, viewer_id: UUID | None
-) -> dict[str, Any]:
+) -> SourceDeckDict:
     return {
         "id": node_id,
         "name": name,
@@ -60,7 +66,7 @@ def source_dict(
     }
 
 
-def source(row: Node, viewer_id: UUID | None) -> dict[str, Any]:
+def source(row: Node, viewer_id: UUID | None) -> SourceDeckDict:
     return source_dict(row.id, row.name, row.owner_id, row.space, viewer_id)
 
 
@@ -70,7 +76,7 @@ async def source_batch(
     identifiers: Sequence[int],
     viewer_id: UUID | None,
     config: AppConfig,
-) -> dict[int, dict[str, Any]]:
+) -> dict[int, SenseSourcesSummary]:
     ranked = (
         select(
             DeckSense.sense_id,
@@ -87,9 +93,7 @@ async def source_batch(
         .where(DeckSense.deck_id.in_(decks), DeckSense.sense_id.in_(identifiers))
         .subquery()
     )
-    result: dict[int, dict[str, Any]] = {
-        i: {"decks": cast(list[dict[str, Any]], []), "count": 0} for i in identifiers
-    }
+    result: dict[int, SenseSourcesSummary] = {i: {"decks": [], "count": 0} for i in identifiers}
     for row in (
         await session.execute(
             select(ranked).where(ranked.c.position <= config.product.projections.inline_sources)
@@ -101,9 +105,7 @@ async def source_batch(
         owner_id: UUID | None = cast(UUID | None, row[3])
         space: NodeSpace = cast(NodeSpace, row[4])
         total: int = int(row[6])
-        cast(list[dict[str, Any]], result[sense_id]["decks"]).append(
-            source_dict(node_id, name, owner_id, space, viewer_id)
-        )
+        result[sense_id]["decks"].append(source_dict(node_id, name, owner_id, space, viewer_id))
         result[sense_id]["count"] = total
     return result
 
@@ -116,7 +118,7 @@ async def sources_page(
     config: AppConfig,
     cursor: str | None = None,
     limit: int | None = None,
-) -> dict[str, Any]:
+) -> SourcesPageDict:
     limit = page_limit(limit, config)
     binding = {
         "kind": "sources",
@@ -163,7 +165,7 @@ async def sense_page(
     limit: int | None = None,
     include: str | None = None,
     sense_cache: MemoryCache[int, NativeSense] | None = None,
-) -> dict[str, Any]:
+) -> dict[str, object]:
     if (
         state != LearningState.ALL or sort in {SenseSort.LAST_REVIEWED_DESC, SenseSort.MASTERY_ASC}
     ) and viewer_id is None:
@@ -288,11 +290,11 @@ async def sense_page(
         if "examples" in enrichment
         else {}
     )
-    items: list[dict[str, Any]] = []
+    items: list[dict[str, object]] = []
     for identifier in identifiers:
         if identifier not in facts or "examples" in enrichment and identifier not in native:
             raise Problem(409, "learning_content_changed")
-        item: dict[str, Any] = dict(facts[identifier]) | {
+        item: dict[str, object] = dict(facts[identifier]) | {
             "learning": learning_preview(memories.get(identifier), now, viewer_id, config)
         }
         if "examples" in enrichment:

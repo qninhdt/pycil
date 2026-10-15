@@ -1,6 +1,5 @@
-"""Live-authorized PostgreSQL FTS and public catalog, with bounded optional cards."""
-
-from typing import Any, cast
+from datetime import datetime
+from typing import cast
 from uuid import UUID
 
 from fastapi import APIRouter, Query, Request
@@ -17,6 +16,7 @@ from pycil.library.access import reference_visible, visible
 from pycil.library.models import Node, NodeRole, NodeSpace, NodeType
 from pycil.library.schemas import NodePage
 from pycil.library.scope import ScopeBudget, bounded, resolve_scopes
+from pycil.library.types import NodePageDict
 
 router = APIRouter(prefix="/v1/discovery", tags=["discovery"])
 
@@ -34,7 +34,7 @@ async def search_nodes(
     limit: int | None = None,
     include: str | None = None,
     budget: ScopeBudget | None = None,
-) -> dict[str, Any]:
+) -> NodePageDict:
     limit = page_limit(limit, config)
     enrichment = includes(include, {"summary"})
     if q is not None:
@@ -93,7 +93,7 @@ async def search_nodes(
             ordering = [rank.desc(), Node.id]
         else:
             ordering = [Node.created_at.desc(), Node.id.desc()]
-        rows: list[tuple[Node, Any]] = []
+        rows: list[tuple[Node, float | datetime]] = []
         batch_size = max(50, 2 * (limit + 1))
         candidate_seek = seek
         while len(rows) <= limit:
@@ -145,7 +145,7 @@ async def search_nodes(
             last_id, last_rank = candidates[-1]
             candidate_seek = (last_rank, last_id)
         page = rows[:limit]
-        items: list[dict[str, Any]] = [row_data(row[0]) for row in page]
+        items: list[dict[str, object]] = [row_data(row[0]) for row in page]
         parents: set[UUID] = {
             cast(UUID, item["parent_id"]) for item in items if item.get("parent_id") is not None
         }
@@ -193,7 +193,7 @@ async def discovery(
     cursor: str | None = Query(default=None, max_length=2048),
     limit: int | None = Query(default=None, ge=1, le=100),
     include: str | None = None,
-) -> dict[str, Any]:
+) -> NodePageDict:
     strict_query(request, {"q", "type", "owner_id", "cursor", "limit", "include"})
     return await search_nodes(
         session,

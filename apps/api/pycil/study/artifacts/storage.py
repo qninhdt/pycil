@@ -4,7 +4,7 @@ import random
 from collections.abc import Sequence
 from hashlib import sha256
 from itertools import batched
-from typing import Any, cast
+from typing import cast
 
 import orjson
 from sqlalchemy import Integer, column, delete, func, literal, or_, select, tuple_, values
@@ -17,6 +17,7 @@ from pycil.study.artifacts.schemas import ARTIFACT_SCHEMAS, Artifact
 from pycil.study.enums import SINGLETON_ARTIFACT_TYPES, QuestionArtifactType
 from pycil.study.errors import QuestionArtifactBankChangedError
 from pycil.study.models import QuestionArtifact
+from pycil.study.types import ThemeContext
 from pycil.themes.models import Theme
 from pycil.themes.namespace import theme_scope
 from pycil.vocabulary.enums import EntryType, GenerationState
@@ -70,26 +71,36 @@ async def get_many(
 
 
 def _merge_singleton(
-    existing: dict[str, Any],
-    increment: dict[str, Any],
+    existing: dict[str, object],
+    increment: dict[str, object],
     kind: QuestionArtifactType,
-) -> dict[str, Any]:
-    payload: dict[str, Any] = {name: list(existing[name]) for name in ("corrects", "distractors")}
+) -> dict[str, object]:
+    existing_corrects = cast(list[object], existing["corrects"])
+    existing_distractors = cast(list[object], existing["distractors"])
+    payload: dict[str, list[object]] = {
+        "corrects": list(existing_corrects),
+        "distractors": list(existing_distractors),
+    }
     paired = kind is QuestionArtifactType.WORD_DEFINITION
 
     def key(text: str) -> str:
         return answer_key(strip_markup(text))
 
-    texts = {key(text) for text in payload["corrects"]}
-    texts.update(key(value["definition"] if paired else value) for value in payload["distractors"])
+    texts = {key(cast(str, text)) for text in payload["corrects"]}
+    texts.update(
+        key(cast(dict[str, str], value)["definition"] if paired else cast(str, value))
+        for value in payload["distractors"]
+    )
     words: set[str] = (
-        {key(value["word"]) for value in payload["distractors"]} if paired else set[str]()
+        {key(cast(dict[str, str], value)["word"]) for value in payload["distractors"]}
+        if paired
+        else set[str]()
     )
     for name in ("corrects", "distractors"):
-        for value in increment[name]:
+        for value in cast(list[object], increment[name]):
             pair = paired and name == "distractors"
-            identity = key(value["definition"] if pair else value)
-            word = key(value["word"]) if pair else None
+            identity = key(cast(dict[str, str], value)["definition"] if pair else cast(str, value))
+            word = key(cast(dict[str, str], value)["word"]) if pair else None
             if identity not in texts and (word is None or word not in words):
                 payload[name].append(value)
                 texts.add(identity)
@@ -97,7 +108,7 @@ def _merge_singleton(
                     words.add(word)
     if not payload["corrects"] or not payload["distractors"]:
         raise InvalidResourceError("singleton bank needs both answer sets")
-    return payload
+    return cast(dict[str, object], payload)
 
 
 async def append(
@@ -108,7 +119,7 @@ async def append(
 ) -> list[Artifact]:
     if not artifacts:
         return []
-    prepared: list[tuple[Artifact, dict[str, Any], str, str]] = []
+    prepared: list[tuple[Artifact, dict[str, object], str, str]] = []
     for artifact in artifacts:
         kind = artifact.artifact_type
         payload = ARTIFACT_SCHEMAS[kind].model_validate(artifact.payload).model_dump()
@@ -169,10 +180,10 @@ async def append(
             key = (artifact.sense_id, artifact.theme_id, kind, None if singleton else fingerprint)
             row = existing.get(key)
             if singleton:
-                current: dict[str, Any] = (
-                    cast(dict[str, Any], orjson.loads(row.payload))
+                current: dict[str, object] = (
+                    cast(dict[str, object], orjson.loads(row.payload))
                     if row
-                    else {"corrects": cast(list[Any], []), "distractors": cast(list[Any], [])}
+                    else {"corrects": [], "distractors": []}
                 )
                 payload = _merge_singleton(current, payload, kind)
                 encoded = orjson.dumps(payload, option=orjson.OPT_SORT_KEYS).decode()
@@ -326,7 +337,7 @@ async def generation_context(
     sense_id: int,
     *,
     theme_key: str | None = None,
-) -> tuple[WordValue, SenseSchema, dict[str, Any] | None]:
+) -> tuple[WordValue, SenseSchema, ThemeContext | None]:
     identifier, valid = theme_scope(theme_key=theme_key)
     fields = sense_fields(identifier, relations=False)
     sense = func.jsonb_build_object(
@@ -364,8 +375,8 @@ async def generation_context(
     lemma = str(value[1])
     entry_type = cast(EntryType, value[2])
     alias_rows = cast(list[dict[str, str]], value[3])
-    payload = cast(dict[str, Any], value[4])
-    theme_data = cast(dict[str, Any] | None, value[5])
+    payload = cast(dict[str, object], value[4])
+    theme_data = cast(ThemeContext | None, value[5])
 
     sense_obj = sense_value(payload)
     if sense_obj.definition is None or theme_key is not None and not sense_obj.examples:

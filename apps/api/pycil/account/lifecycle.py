@@ -1,6 +1,3 @@
-"""Identity verification and short-lived account existence checks."""
-
-from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
@@ -8,11 +5,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from pycil.account.models import User
 from pycil.app.http import Problem
+from pycil.infrastructure.database import Base
 
 
-def row_data(row: Any) -> dict[str, Any]:
+def row_data(row: Base) -> dict[str, object]:
     return {
-        str(column.name): getattr(row, column.name)
+        str(column.name): getattr(row, str(column.name))
         for column in row.__table__.columns
         if column.computed is None
     }

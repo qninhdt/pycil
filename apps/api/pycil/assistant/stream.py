@@ -2,10 +2,10 @@
 
 import base64
 import json
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator, Sequence
 from contextlib import aclosing, asynccontextmanager
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import cast
 from uuid import UUID, uuid7
 from zoneinfo import ZoneInfo
 
@@ -23,6 +23,7 @@ from pycil.account.settings import preferences
 from pycil.account.usage import admit, settle
 from pycil.app.config import AppConfig
 from pycil.app.http import Problem
+from pycil.app.resources import RuntimeState
 from pycil.app.settings import Deployment
 from pycil.assistant import graph as agents
 from pycil.assistant.config import ModelPolicy
@@ -48,7 +49,9 @@ def validate_input(
     props_raw = data.forwarded_props
     if not isinstance(props_raw, dict) and props_raw is not None:
         raise Problem(422, "invalid_assistant_options")
-    props: dict[str, Any] = cast(dict[str, Any], props_raw) if isinstance(props_raw, dict) else {}
+    props: dict[str, object] = (
+        cast(dict[str, object], props_raw) if isinstance(props_raw, dict) else {}
+    )
     if set(props) - {"model_id", "effort", "current_view"}:
         raise Problem(422, "invalid_assistant_options")
     if props.get("current_view") is not None:
@@ -77,7 +80,7 @@ def validate_input(
         if isinstance(content, str):
             chars += len(content)
         elif isinstance(content, list):
-            for part in cast(list[Any], content):
+            for part in cast(Sequence[object], content):
                 part_type = getattr(part, "type", None)
                 if part_type == "text":
                     chars += len(getattr(part, "text", "") or "")
@@ -111,7 +114,7 @@ def validate_input(
 
 @asynccontextmanager
 async def prepare_turn(
-    resources: Any,
+    resources: RuntimeState,
     deployment: Deployment,
     user: UUID,
     data: RunAgentInput,
@@ -135,9 +138,9 @@ async def prepare_turn(
             raise Problem(404, "account_not_found")
         settings = preferences(current.settings, config)
         auto_approve = settings.assistant.auto_approve and not data.resume
-        view: dict[str, Any] | None = None
+        view: dict[str, object] | None = None
         props_in: object = data.forwarded_props
-        props_dict = cast(dict[str, Any], props_in) if isinstance(props_in, dict) else {}
+        props_dict = cast(dict[str, object], props_in) if isinstance(props_in, dict) else {}
         hint: object | None = props_dict.get("current_view")
         if hint is not None:
             selected = CurrentView.model_validate(hint)
@@ -193,10 +196,10 @@ async def prepare_turn(
                 if entry.status != "resolved" or entry.metadata:
                     raise Problem(422, "invalid_approval")
                 payload: object = entry.payload
-                actions = cast(list[dict[str, Any]], interrupts[0].value["action_requests"])
+                actions = cast(list[dict[str, object]], interrupts[0].value["action_requests"])
                 if not isinstance(payload, dict):
                     raise Problem(422, "invalid_approval")
-                value = cast(dict[str, Any], payload)
+                value = cast(dict[str, object], payload)
                 if set(value) != {"decisions"}:
                     raise Problem(422, "invalid_approval")
                 decisions_val: object = value.get("decisions")

@@ -147,7 +147,7 @@ async def grade_answer(
         if fmt is ResponseFormat.SINGLE_WORD:
             payload_dict = artifact.payload
             correct = (
-                cast(str, payload_dict["correct"]["expression"])
+                cast(str, cast(dict[str, object], payload_dict["correct"])["expression"])
                 if kind is QuestionType.CLOZE_TO_WORD
                 else lemma
             )

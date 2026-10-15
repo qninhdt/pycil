@@ -2,7 +2,7 @@
 
 import re
 from collections.abc import Iterable
-from typing import Annotated, Any, Self, cast
+from typing import Annotated, Self, cast
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -91,7 +91,7 @@ class Artifact(Strict):
     sense_id: int
     theme_id: int | None
     artifact_type: QuestionArtifactType
-    payload: dict[str, Any]
+    payload: dict[str, object]
 
 
 type ArtifactPayload = (

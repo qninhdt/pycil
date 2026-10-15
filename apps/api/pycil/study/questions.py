@@ -1,7 +1,7 @@
 """Build public runtime exercises from persisted artifacts without inference."""
 
 import random
-from typing import Any, cast
+from typing import cast
 
 from pycil.app.config import AppConfig
 from pycil.app.http import Problem
@@ -9,6 +9,7 @@ from pycil.study.artifacts.schemas import Artifact
 from pycil.study.enums import QuestionType, ResponseFormat, TargetPlacement
 from pycil.study.models import QuestionArtifact
 from pycil.study.schemas import DialogueTurn, Option, PreparedQuestion, Question
+from pycil.study.types import CompletionPointDict
 from pycil.vocabulary.enums import INFLECTION_CODES
 from pycil.vocabulary.schemas import Sense
 from pycil.vocabulary.text import answer_key
@@ -33,7 +34,7 @@ def build_question(
     lemma: str,
     config: AppConfig,
 ) -> PreparedQuestion:
-    payload = cast(dict[str, Any], artifact.payload)
+    payload = cast(dict[str, object], artifact.payload)
     count = config.product.study.artifacts.distractor_count
     placement: TargetPlacement | None = None
     content: str | list[DialogueTurn]
@@ -72,16 +73,16 @@ def build_question(
             correct = pair["meaning"]
             wrong = [p["meaning"] for p in distractor_pairs]
     elif question_type == QuestionType.DIALOGUE_COMPLETION:
-        points = cast(list[dict[str, Any]], payload["completion_points"])
+        points = cast(list[CompletionPointDict], payload["completion_points"])
         point = randomness.choice(points)
-        index = cast(int, point["turn_index"])
+        index = point["turn_index"]
         raw_conversation = cast(list[dict[str, str | None]], payload["conversation"])
         turns = [
             DialogueTurn(speaker=next(iter(t)), text=next(iter(t.values())))
             for t in raw_conversation
         ]
         correct = turns[index].text or ""
-        wrong = cast(list[str], point["distractors"])
+        wrong = point["distractors"]
         placement = TargetPlacement.OPTIONS if "[" in correct else TargetPlacement.DIALOGUE
         turns[index].text = None
         content = turns

@@ -66,7 +66,7 @@ async def test_invalid_measurements_are_unmetered_instead_of_fabricated(usage):
     assert meter.total == 0
 
 
-async def test_failed_call_preserves_known_charge_and_records_unknown_usage_safely():
+async def test_failed_call_preserves_known_charge_and_records_unknown_usage_safely(monkeypatch):
     from structlog.testing import capture_logs
 
     meter = Meter(rates())

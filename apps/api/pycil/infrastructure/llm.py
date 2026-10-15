@@ -64,19 +64,19 @@ class TokenUsage(BaseModel):
 records: ContextVar[list[TokenUsage] | None] = ContextVar("provider_usage", default=None)
 
 
-def field(value: Any, name: str, default: Any = None) -> Any:
+def field(value: object, name: str, default: object = None) -> object:
     return (
-        cast(Mapping[str, Any], value).get(name, default)
+        cast(Mapping[str, object], value).get(name, default)
         if isinstance(value, Mapping)
         else getattr(value, name, default)
     )
 
 
-def count(value: Any) -> int | None:
+def count(value: object) -> int | None:
     return value if type(value) is int and value >= 0 else None
 
 
-def openai_usage(response: Any, model_override: str | None = None) -> TokenUsage:
+def openai_usage(response: object, model_override: str | None = None) -> TokenUsage:
     """Extract standard TokenUsage from a ChatCompletion, raw dict, or exception completion."""
     if response is None:
         return TokenUsage(
@@ -86,7 +86,7 @@ def openai_usage(response: Any, model_override: str | None = None) -> TokenUsage
             cache_read_tokens=None,
             cache_write_tokens=None,
         )
-    usage: Any = field(response, "usage")
+    usage: object = field(response, "usage")
     details = field(usage, "prompt_tokens_details", field(usage, "input_tokens_details", {}))
     inputs = count(
         field(
@@ -150,9 +150,9 @@ class UsageRecorder:
     ) -> None:
         records.reset(self.token)
         if error is not None:
-            cast(Any, error).usage = merge_usage(self.records)
+            setattr(error, "usage", merge_usage(self.records))  # noqa: B010
 
-    def finish(self, value: Any) -> tuple[Any, list[TokenUsage]]:
+    def finish[T](self, value: T) -> tuple[T, list[TokenUsage]]:
         return value, merge_usage(self.records)
 
 
@@ -184,7 +184,7 @@ def _prompt(name: str):
     ), environment.from_string(source[markers[1].end() :])
 
 
-def render_prompt(name: str, **context: Any) -> tuple[str, str]:
+def render_prompt(name: str, **context: object) -> tuple[str, str]:
     instruction, data = _prompt(name)
     return instruction.render(**context).strip(), data.render(**context).strip()
 
@@ -250,7 +250,7 @@ class _ProviderCall:
                 record(measured)
             usage = merge_usage(self.measurements)
             if error is not None:
-                cast(Any, error).usage = usage
+                setattr(error, "usage", usage)  # noqa: B010
             logger.info(
                 "provider_operation_completed",
                 operation=self.operation,
@@ -292,11 +292,11 @@ async def _measure_response(response: httpx.Response) -> None:
     call.measurements.append(openai_usage(raw, call.model))
     choices = field(raw, "choices")
     if isinstance(choices, list) and choices and isinstance(choices[0], dict):
-        choice = cast(dict[str, Any], choices[0])
+        choice = cast(dict[str, object], choices[0])
         message = choice.get("message")
         call.refused = bool(
             isinstance(message, dict)
-            and field(message, "refusal")
+            and cast(dict[str, object], message).get("refusal")
             or choice.get("finish_reason") == "content_filter"
         )
 
@@ -406,7 +406,7 @@ class DecisionLLM:
             timeout=policy.timeout_seconds,
         )
 
-    async def decide[T: BaseModel](self, schema: type[T], context: dict[str, Any]) -> T:
+    async def decide[T: BaseModel](self, schema: type[T], context: dict[str, object]) -> T:
         with _ProviderCall(self.client.model, "decision").observe() as call:
             async with asyncio.timeout(self.policy.timeout_seconds):
                 # Decisions has no native retry support; keep its request and parser native.

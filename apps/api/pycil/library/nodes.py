@@ -1,6 +1,6 @@
 from collections.abc import Sequence
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import cast
 from uuid import UUID, uuid7
 
 from sqlalchemy import delete, func, insert, or_, select, tuple_
@@ -17,6 +17,7 @@ from pycil.library.models import DeckSense, Node, NodePath, NodeRole, NodeSpace,
 from pycil.library.schemas import NodeCreate, NodeDestination, NodeMove, NodePatch, SenseDelta
 from pycil.library.scope import ScopeBudget
 from pycil.library.tree import add_paths, delete_subtree, move_paths, roots, subtree
+from pycil.library.types import NodePageDict
 from pycil.vocabulary.models import Sense
 
 logger = get_logger(__name__)
@@ -189,7 +190,7 @@ async def validate_publication(
 
 async def create_node(
     session: AsyncSession, owner_id: UUID, data: NodeCreate, config: AppConfig
-) -> dict[str, Any]:
+) -> dict[str, object]:
     async with session.begin():
         await lock_owner(session, owner_id)
         if (
@@ -270,7 +271,7 @@ async def move_locked(
 
 async def patch_node(
     session: AsyncSession, owner_id: UUID, node_id: UUID, data: NodePatch, config: AppConfig
-) -> dict[str, Any]:
+) -> dict[str, object]:
     return await update_node(session, owner_id, node_id, data, None, config)
 
 
@@ -281,7 +282,7 @@ async def update_node(
     metadata: NodePatch | None,
     membership: SenseDelta | None,
     config: AppConfig,
-) -> dict[str, Any]:
+) -> dict[str, object]:
     """Apply metadata and membership together under the existing owner lock."""
     async with session.begin():
         await lock_owner(session, owner_id)
@@ -290,7 +291,7 @@ async def update_node(
         if metadata is not None:
             for field, value in metadata.model_dump(exclude_unset=True).items():
                 setattr(node, field, value)
-        changes: dict[str, Any] = {}
+        changes: dict[str, object] = {}
         if membership is not None:
             if node.type is not NodeType.DECK:
                 raise Problem(422, "membership_is_deck_only")
@@ -316,14 +317,14 @@ async def update_node(
 
 async def patch_senses(
     session: AsyncSession, owner_id: UUID, node_id: UUID, data: SenseDelta, config: AppConfig
-) -> dict[str, Any]:
+) -> dict[str, object]:
     result = await update_node(session, owner_id, node_id, None, data, config)
     return {k: v for k, v in result.items() if k not in {"added_count", "removed_count"}}
 
 
 async def move_node(
     session: AsyncSession, owner_id: UUID, node_id: UUID, data: NodeMove, config: AppConfig
-) -> dict[str, Any]:
+) -> dict[str, object]:
     async with session.begin():
         await lock_owner(session, owner_id)
         node = await owned(session, node_id, owner_id, config)
@@ -349,7 +350,7 @@ async def copy_node(
     node_id: UUID,
     data: NodeDestination,
     config: AppConfig,
-) -> dict[str, Any]:
+) -> dict[str, object]:
     async with session.begin():
         await lock_owner(session, owner_id)
         source = await owned(session, node_id, owner_id, config)
@@ -541,7 +542,7 @@ async def list_nodes(
     *,
     limit: int | None = None,
     include: str | None = None,
-) -> dict[str, Any]:
+) -> NodePageDict:
     budget = ScopeBudget(viewer_id)
     limit = page_limit(limit, config)
     enrichment = includes(include, {"summary"})
@@ -582,7 +583,7 @@ async def list_nodes(
         (await session.scalars(statement.order_by(Node.created_at, Node.id).limit(limit + 1))).all()
     )
     page = rows[:limit]
-    data: list[dict[str, Any]] = [row_data(n) for n in page]
+    data: list[dict[str, object]] = [row_data(n) for n in page]
     if parent.role is NodeRole.LIBRARY_ROOT:
         for item in data:
             if item["owner_id"] != viewer_id:
@@ -657,7 +658,7 @@ async def replace_membership(
 
 async def node_details(
     session: AsyncSession, node_id: UUID, viewer_id: UUID | None, config: AppConfig
-) -> dict[str, Any]:
+) -> dict[str, object]:
     node, ancestors = await readable_path(session, node_id, viewer_id, config)
     data = row_data(node)
     if node.parent_id not in {n.id for n in ancestors}:

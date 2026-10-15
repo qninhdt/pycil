@@ -3,7 +3,7 @@
 from collections.abc import Sequence
 from hashlib import sha256
 from itertools import batched
-from typing import Any, cast
+from typing import cast
 
 from sqlalchemy import and_, func, literal, select
 from sqlalchemy.dialects.postgresql import insert
@@ -20,7 +20,7 @@ from pycil.vocabulary.enums import EntryType, GenerationState, ResolutionState
 from pycil.vocabulary.errors import InvalidResourceError, WordCollisionError
 from pycil.vocabulary.schemas import CachedWord, Sense, Word, sense_adapter
 from pycil.vocabulary.text import match_key
-from pycil.vocabulary.types import MeaningInventory, SensePreview
+from pycil.vocabulary.types import MeaningInventory, SensePreview, WordAliasInsert
 
 
 def sense_fields(
@@ -90,21 +90,23 @@ def sense_fields(
     return fields
 
 
-def sense_value(data: dict[str, Any]) -> Sense:
+def sense_value(data: dict[str, object]) -> Sense:
     data = dict(data)
     for name in ("patterns", "collocations"):
-        data[name] = [item["content"] for item in data[name]]
-    relations: list[dict[str, Any]] = []
-    for edge in data.pop("relations", []):
-        content = edge.pop("evidence")
-        fingerprint = edge.pop("target_hash")
-        attempted = edge.pop("attempted")
+        items = cast(list[dict[str, str]], data.get(name) or [])
+        data[name] = [item["content"] for item in items]
+    relations: list[dict[str, object]] = []
+    edges = cast(list[dict[str, object]], data.pop("relations", []))
+    for edge in edges:
+        content = cast(str | None, edge.pop("evidence"))
+        fingerprint = cast(str | None, edge.pop("target_hash"))
+        attempted = bool(edge.pop("attempted"))
         resolved = content is not None and sha256(content.encode()).hexdigest() == fingerprint
         edge["resolution_state"] = (
             ResolutionState.RESOLVED
             if resolved
             else ResolutionState.UNRESOLVABLE
-            if edge["to_sense_id"] is None and attempted
+            if edge.get("to_sense_id") is None and attempted
             else ResolutionState.PENDING
         )
         if not resolved:
@@ -146,7 +148,7 @@ async def get_senses(
                     )
                 )
                 if isinstance(payload, list):
-                    for item in cast(list[dict[str, Any]], payload):
+                    for item in cast(list[dict[str, object]], payload):
                         value = sense_value(item)
                         found[value.id] = value
                         if cache is not None:
@@ -332,12 +334,12 @@ async def publish_identity(
         return word, previous
     word.lemma, word.entry_type = lemma, entry_type
     seen: set[str] = {key}
-    values: list[dict[str, Any]] = []
+    values: list[WordAliasInsert] = []
     for alias in aliases:
         normalized = match_key(alias)
         if normalized not in seen:
             seen.add(normalized)
-            values.append(dict(word_id=word.id, content=alias, match_key=normalized))
+            values.append({"word_id": word.id, "content": alias, "match_key": normalized})
     if values:
         await session.execute(insert(rows.WordAlias).on_conflict_do_nothing(), values)
     return word, previous

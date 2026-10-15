@@ -4,7 +4,7 @@ import asyncio
 import json
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from functools import wraps
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 from uuid import UUID
 
 from fastapi.encoders import jsonable_encoder
@@ -25,7 +25,6 @@ from pycil.assistant.projections import (
     vocabulary,
 )
 from pycil.assistant.schemas import (
-    GenerationRead,
     LearningOverview,
     LibraryRead,
     NodeBatch,
@@ -34,9 +33,10 @@ from pycil.assistant.schemas import (
     NodeSearch,
     NodeUpdate,
     VocabularyRead,
-    WordGeneration,
     WordSearch,
 )
+from pycil.infrastructure.cache import MemoryCache
+from pycil.infrastructure.llm import StructuredLLM
 from pycil.infrastructure.observability import get_logger
 from pycil.library import nodes
 from pycil.library.access import readable
@@ -48,8 +48,10 @@ from pycil.library.search import search_nodes as search_service
 from pycil.library.senses import sense_page
 from pycil.library.tree import roots
 from pycil.study.progress import activity, schedules, summaries
-from pycil.vocabulary.enums import JobState
 from pycil.vocabulary.errors import InvalidResourceError
+from pycil.vocabulary.schemas import Example, Sense
+from pycil.vocabulary.search import ReferenceHit, SearchIndex, WordHit
+from pycil.vocabulary.words import CachedWord
 
 logger = get_logger(__name__)
 # Search previews carry one sample; expanded context uses the projection policy.
@@ -62,22 +64,22 @@ MUTATION_TOOLS = {
     "move_nodes",
     "copy_nodes",
     "delete_nodes",
-    "generate_words",
     "update_preferences",
 }
 
 
 class AssistantResources(Protocol):
     sessions: async_sessionmaker[AsyncSession]
-    search: Any
-    sense_cache: Any
-    generations: Any
+    search: SearchIndex
+    sense_cache: MemoryCache[int, Sense]
+    word_cache: MemoryCache[int, CachedWord]
+    structured_llm: StructuredLLM
 
 
-def validation_message(error: Any) -> str:
+def validation_message(error: ValidationError | Exception | object) -> str:
     details = (
         error.errors(include_input=False, include_context=False, include_url=False)
-        if hasattr(error, "errors")
+        if isinstance(error, ValidationError)
         else str(error)
     )
     return json.dumps(
@@ -118,31 +120,37 @@ def tools(
     @task_tool(WordSearch)
     async def search_words(**values: Any) -> Any:
         """Search existing Words for up to 10 terms. Limit is per query; hits include all
-        sense IDs/definitions. Use generate_words for missing words. Optional include adds examples,
+        sense IDs/definitions. Optional include adds examples,
         lexical_details, personal learning or containing decks. Search is lexical, not semantic.
         """
         data = WordSearch(**values)
         queries = list(dict.fromkeys(data.queries))
 
-        async def search(query: str) -> list[Any]:
+        async def search(query: str) -> Sequence[WordHit | ReferenceHit]:
             try:
                 return (await resources.search.search(query)).items
             except InvalidResourceError:
                 raise Problem(422, "invalid_lexical_query") from None
 
-        pages: list[list[Any]] = list(await asyncio.gather(*(search(q) for q in queries)))
-        merged: dict[int, dict[str, Any]] = {}
+        pages: list[Sequence[WordHit | ReferenceHit]] = list(
+            await asyncio.gather(*(search(q) for q in queries))
+        )
+        merged: dict[int, dict[str, object]] = {}
         unmatched: list[str] = []
         for query, hits in zip(queries, pages, strict=True):
             if not hits:
                 unmatched.append(query)
             for hit in hits[: data.limit]:
-                item: dict[str, Any] = hit.model_dump(mode="json")
-                identity: int = item["word_id"]
-                merged.setdefault(identity, item | {"matched_queries": []})[
-                    "matched_queries"
-                ].append(query)
-        word_ids: list[int] = [item["word_id"] for item in merged.values()]
+                item: dict[str, object] = hit.model_dump(mode="json")
+                identity: int = int(cast(int, item["word_id"]))
+                default_item: dict[str, object] = dict(item) | {
+                    "matched_queries": cast(list[str], [])
+                }
+                matched = cast(
+                    list[str], merged.setdefault(identity, default_item)["matched_queries"]
+                )
+                matched.append(query)
+        word_ids: list[int] = [int(cast(int, item["word_id"])) for item in merged.values()]
         senses = (
             (await vocabulary(resources, user, config, word_ids=word_ids, include=data.include))[
                 "senses"
@@ -150,11 +158,11 @@ def tools(
             if word_ids
             else []
         )
-        groups: dict[int, list[dict[str, Any]]] = {}
+        groups: dict[int, list[dict[str, object]]] = {}
         for sense in senses:
-            groups.setdefault(sense["word_id"], []).append(sense)
+            groups.setdefault(int(cast(int, sense["word_id"])), []).append(sense)
         for item in merged.values():
-            item["senses"] = groups.get(item["word_id"], [])
+            item["senses"] = groups.get(int(cast(int, item["word_id"])), [])
         return {"items": list(merged.values()), "unmatched_queries": unmatched}
 
     @task_tool(VocabularyRead)
@@ -175,7 +183,7 @@ def tools(
         query. Returns one merged list with safe paths, editability and exact summaries.
         """
         data = NodeSearch(**values)
-        merged: dict[UUID, dict[str, Any]] = {}
+        merged: dict[UUID, dict[str, object]] = {}
         unmatched: list[str] = []
         budget = ScopeBudget(user)
         async with resources.sessions() as session:
@@ -196,9 +204,14 @@ def tools(
                 if not page["nodes"]:
                     unmatched.append(query)
                 for node in page["nodes"]:
-                    merged.setdefault(node["id"], node | {"matched_queries": []})[
-                        "matched_queries"
-                    ].append(query)
+                    node_id = cast(UUID, node["id"])
+                    default_node: dict[str, object] = dict(node) | {
+                        "matched_queries": cast(list[str], [])
+                    }
+                    matched_list = cast(
+                        list[str], merged.setdefault(node_id, default_node)["matched_queries"]
+                    )
+                    matched_list.append(query)
             cards = await node_cards(session, user, config, list(merged.values()))
         for card, node in zip(cards, merged.values(), strict=True):
             card["matched_queries"] = node["matched_queries"]
@@ -217,19 +230,24 @@ def tools(
         async with resources.sessions() as session:
             root = data.node_id or (await roots(session, user))[NodeRole.LIBRARY_ROOT].id
             detail = await nodes.node_details(session, root, user, config)
+            breadcrumbs = cast(list[dict[str, object]], detail["breadcrumbs"])
             node = node_projection(detail, user) | {
-                "path": [{"node_id": r["id"], "name": r["name"]} for r in detail["breadcrumbs"]],
+                "path": [{"node_id": r["id"], "name": r["name"]} for r in breadcrumbs],
                 "reference_available": detail["reference_available"],
             }
             count = (await summaries(session, user, config, [root]))[0]
             if data.view == LibraryView.STRUCTURE:
-                page = await nodes.list_nodes(
+                structure_page = await nodes.list_nodes(
                     session, user, root, data.cursor, config, limit=data.limit
                 )
-                page["nodes"] = await node_cards(session, user, config, page["nodes"])
+                nodes_page: dict[str, object] = dict(structure_page)
+                nodes_page["nodes"] = await node_cards(
+                    session, user, config, structure_page["nodes"]
+                )
+                page = nodes_page
             else:
                 target = await readable(session, root, user, config)
-                page = await sense_page(
+                senses_page = await sense_page(
                     session,
                     target,
                     user,
@@ -243,14 +261,21 @@ def tools(
                     include="examples",
                     sense_cache=resources.sense_cache,
                 )
-                page["senses"] = [
+                senses_list = cast(list[dict[str, object]], senses_page["senses"])
+                senses_page["senses"] = [
                     {
                         k: s[k]
                         for k in ("sense_id", "word_id", "lemma", "pos", "definition", "learning")
                     }
-                    | {"examples": [e.content for e in s["examples"][:SEARCH_PREVIEW_EXAMPLES]]}
-                    for s in page["senses"]
+                    | {
+                        "examples": [
+                            e.content
+                            for e in cast(list[Example], s["examples"])[:SEARCH_PREVIEW_EXAMPLES]
+                        ]
+                    }
+                    for s in senses_list
                 ]
+                page = senses_page
             return {"node": node, "summary": count} | page
 
     @task_tool(LearningOverview)
@@ -264,7 +289,7 @@ def tools(
         ids = data.node_ids or [None]
         async with resources.sessions() as session:
             budget = ScopeBudget(user)
-            result: dict[str, Any] = {
+            result: dict[str, object] = {
                 "summaries": await summaries(session, user, config, ids, budget=budget)
             }
             if "activity" in data.include:
@@ -288,87 +313,6 @@ def tools(
                     budget=budget,
                 )
             return result
-
-    async def generation_items(results: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
-        completed: list[int] = [
-            int(r["word_id"]) for r in results if r["status"] == JobState.SUCCEEDED
-        ]
-        senses = (
-            (await vocabulary(resources, user, config, completed))["senses"] if completed else []
-        )
-        groups: dict[int, list[dict[str, Any]]] = {}
-        for sense in senses:
-            groups.setdefault(sense["word_id"], []).append(sense)
-        if set(completed) - groups.keys():
-            raise Problem(409, "learning_content_changed")
-        return [
-            {k: r[k] for k in ("task_id", "status", "word_id", "error")}
-            | (
-                {"lemma": groups[r["word_id"]][0]["lemma"], "senses": groups[r["word_id"]]}
-                if r["status"] == JobState.SUCCEEDED
-                else {}
-            )
-            for r in results
-        ]
-
-    @task_tool(WordGeneration)
-    async def generate_words(**values: Any) -> Any:
-        """Generate or reuse up to 10 words/expressions. Supply words as strings, not definitions
-        or a language name. Vocabulary generation selects sources and normalizes lemmas.
-        Returns completed senses or running task IDs; read unfinished tasks with get_generations
-        before adding senses.
-        """
-        data = WordGeneration(**values)
-        results: list[dict[str, Any]] = []
-        for word in dict.fromkeys(data.words):
-            try:
-                result = await resources.generations.submit(word)
-                results.append(result | {"target": word})
-            except Problem as exc:
-                logger.warning("assistant_word_generation_failed", word=word, error=exc.code)
-                results.append(
-                    {
-                        "target": word,
-                        "task_id": None,
-                        "status": JobState.FAILED,
-                        "word_id": None,
-                        "error": exc.code,
-                    }
-                )
-        await resources.generations.wait(
-            [r["task_id"] for r in results if r["task_id"] is not None]
-        )
-        for result in results:
-            if result["task_id"] is not None:
-                result.update(await resources.generations.status(result["task_id"]))
-        items = await generation_items(results)
-        return {
-            "items": [
-                item | {"target": r["target"]} for item, r in zip(items, results, strict=True)
-            ]
-        }
-
-    @task_tool(GenerationRead)
-    async def get_generations(**values: Any) -> Any:
-        """Read multiple Word-generation tasks and include completed lexical senses.
-        RUNNING means unfinished; do not claim success or repeatedly poll in a tight loop.
-        """
-        data = GenerationRead(**values)
-        await resources.generations.wait(data.task_ids)
-        results: list[dict[str, Any]] = []
-        for identifier in data.task_ids:
-            try:
-                results.append(await resources.generations.status(identifier))
-            except Problem as exc:
-                results.append(
-                    {
-                        "task_id": identifier,
-                        "status": JobState.FAILED,
-                        "word_id": None,
-                        "error": exc.code,
-                    }
-                )
-        return {"items": await generation_items(results)}
 
     @task_tool(NodeCreate)
     async def create_node(**values: Any) -> Any:
@@ -405,26 +349,24 @@ def tools(
 
     async def batch_nodes(
         data: NodeMove | NodeCopy | NodeBatch,
-        operation: Callable[[AsyncSession, UUID], Awaitable[Any]],
-    ) -> dict[str, Any]:
-        items: list[dict[str, Any]] = []
-        saved: list[tuple[dict[str, Any], Any]] = []
+        operation: Callable[[AsyncSession, UUID], Awaitable[object]],
+    ) -> dict[str, object]:
+        items: list[dict[str, object]] = []
+        saved: list[tuple[dict[str, object], Mapping[str, object]]] = []
         for identifier in data.node_ids:
             try:
                 async with resources.sessions() as session:
                     result = await operation(session, identifier)
-                items.append({"source_node_id": identifier, "status": JobState.SUCCEEDED})
-                if result:
-                    saved.append((items[-1], result))
+                items.append({"source_node_id": identifier, "status": "succeeded"})
+                if isinstance(result, Mapping):
+                    saved.append((items[-1], cast(Mapping[str, object], result)))
             except Problem as exc:
                 logger.warning(
                     "assistant_batch_node_failed",
                     node_id=str(identifier),
                     error=exc.code,
                 )
-                items.append(
-                    {"source_node_id": identifier, "status": JobState.FAILED, "error": exc.code}
-                )
+                items.append({"source_node_id": identifier, "status": "failed", "error": exc.code})
         if saved:
             enriched = await saved_nodes(resources, user, config, [r for _, r in saved])
             for (item, _), card in zip(saved, enriched, strict=True):
@@ -468,7 +410,7 @@ def tools(
             lambda session, identifier: nodes.delete_node(session, user, identifier, config),
         )
 
-    def preference_projection(result: Mapping[str, Any]) -> dict[str, Any]:
+    def preference_projection(result: Mapping[str, object]) -> dict[str, object]:
         return {
             k: result[k]
             for k in ("settings", "effective_learning", "learning_restriction", "learning_options")
@@ -497,8 +439,6 @@ def tools(
         search_nodes,
         read_library,
         learning_overview,
-        generate_words,
-        get_generations,
         create_node,
         update_node,
         move_nodes,

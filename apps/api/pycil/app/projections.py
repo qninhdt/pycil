@@ -1,7 +1,6 @@
 from collections.abc import Sequence
 from dataclasses import replace
 from datetime import UTC, datetime
-from typing import Any
 from uuid import UUID
 
 from pydantic import Field, model_validator
@@ -14,6 +13,7 @@ from pycil.infrastructure.cache import MemoryCache
 from pycil.library.schemas import LearningPreview, SourceDeck
 from pycil.library.scope import ScopeBudget, bounded, resolve_scopes
 from pycil.library.senses import learning_preview, source_batch
+from pycil.library.types import SenseSourcesSummary
 from pycil.study.models import UserSense
 from pycil.study.schemas import PositiveID, Strict
 from pycil.vocabulary.enums import EntryType
@@ -74,7 +74,7 @@ async def word_previews(
     config: AppConfig,
     *,
     sense_cache: MemoryCache[int, NativeSense] | None = None,
-) -> list[dict[str, Any]]:
+) -> list[dict[str, object]]:
     if len(identifiers) > config.product.projections.max_word_ids:
         raise Problem(422, "lexical_batch_too_large")
     words = {
@@ -124,7 +124,7 @@ async def viewer_context(
     *,
     include_sources: bool = True,
     max_senses: int | None = None,
-) -> dict[str, Any]:
+) -> dict[str, object]:
     if len(identifiers) > (max_senses or config.product.projections.max_context_senses) or len(
         set(identifiers)
     ) != len(identifiers):
@@ -153,7 +153,7 @@ async def viewer_context(
                 )
             ).all()
         }
-        membership: dict[int, dict[str, Any]] = (
+        membership: dict[int, SenseSourcesSummary] = (
             await source_batch(session, scope.decks, identifiers, user_id, config)
             if scope
             else {i: {"decks": [], "count": 0} for i in identifiers}
@@ -185,7 +185,7 @@ async def viewer_context(
 
 async def word_context(
     session: AsyncSession, user_id: UUID, config: AppConfig, word_id: int
-) -> dict[str, Any]:
+) -> dict[str, object]:
     if await session.get(Word, word_id) is None:
         raise Problem(404, "word_not_found")
     identifiers = list(

@@ -63,7 +63,7 @@ async def generate_artifacts(
             raise InvalidResourceError("invalid artifact generation limits")
         word, sense, theme = await generation_context(sessions, sense_id, theme_key=theme_key)
         assert sense.definition is not None, "sense definition is required"
-        context: dict[str, Any] = dict(
+        context: dict[str, object] = dict(
             word=word.lemma,
             pos=sense.pos,
             definition=sense.definition.content,
@@ -115,7 +115,7 @@ async def generate_artifacts(
             artifacts_list = raw_dict.get("artifacts")
             if not isinstance(artifacts_list, list):
                 return raw_dict
-            accepted: list[dict[str, Any]] = []
+            accepted: list[dict[str, object]] = []
             for raw in cast(list[object], artifacts_list):
                 try:
                     payload = payload_schema.model_validate(raw)

@@ -7,7 +7,6 @@ import sys
 from collections.abc import AsyncGenerator, Generator
 from contextlib import ExitStack, asynccontextmanager, contextmanager
 from enum import StrEnum
-from threading import Lock
 from time import perf_counter
 from typing import TYPE_CHECKING, Any, Literal
 from uuid import uuid4
@@ -66,97 +65,6 @@ class ObservedAsyncClient(httpx.AsyncClient):
                 span.set_attribute("error.type", str(response.status_code))
                 span.set_status(trace.StatusCode.ERROR)
             return response
-
-
-_job_tracer = trace.get_tracer("pycil.generation")
-_job_meter = metrics.get_meter("pycil.generation")
-_job_counts = _job_meter.create_up_down_counter(
-    "pycil.generation.jobs",
-    unit="{job}",
-    description="Admitted word jobs by pending/active phase",
-)
-_job_queue_duration = _job_meter.create_histogram(
-    "pycil.generation.queue.duration",
-    unit="s",
-    description="Admission to slot acquisition or cancellation",
-)
-_job_run_duration = _job_meter.create_histogram(
-    "pycil.generation.run.duration",
-    unit="s",
-    description="Word pipeline duration after slot acquisition",
-)
-_job_completed = _job_meter.create_counter("pycil.generation.completed", unit="{job}")
-_job_rejected = _job_meter.create_counter("pycil.generation.rejected", unit="{job}")
-_pending_jobs: dict[object, float] = {}
-_pending_jobs_lock = Lock()
-
-
-def _oldest_pending_job(_options: metrics.CallbackOptions) -> list[metrics.Observation]:
-    with _pending_jobs_lock:
-        oldest = min(_pending_jobs.values(), default=None)
-    age = max(0, perf_counter() - oldest) if oldest is not None else 0
-    return [metrics.Observation(age, {"kind": "word"})]
-
-
-_job_meter.create_observable_gauge(
-    "pycil.generation.pending.oldest.age", callbacks=[_oldest_pending_job], unit="s"
-)
-
-
-class WordJobObservation:
-    """One admitted job, including cancellation before its coroutine first runs."""
-
-    def __init__(self) -> None:
-        self.queued_at = perf_counter()
-        self.started_at: float | None = None
-        self.stopped_at: float | None = None
-        self.finished = False
-        self.span = _job_tracer.start_span("word.generate", attributes={"job.kind": "word"})
-        with _pending_jobs_lock:
-            _pending_jobs[self] = self.queued_at
-        _job_counts.add(1, {"kind": "word", "state": "pending"})
-
-    def start_run(self) -> None:
-        self.started_at = perf_counter()
-        with _pending_jobs_lock:
-            del _pending_jobs[self]
-        _job_counts.add(-1, {"kind": "word", "state": "pending"})
-        _job_queue_duration.record(
-            self.started_at - self.queued_at, {"kind": "word", "outcome": "started"}
-        )
-        _job_counts.add(1, {"kind": "word", "state": "active"})
-
-    def stop_run(self) -> None:
-        if self.started_at is not None and self.stopped_at is None:
-            self.stopped_at = perf_counter()
-            _job_counts.add(-1, {"kind": "word", "state": "active"})
-
-    def finish(self, outcome: Literal["succeeded", "failed", "timeout", "cancelled"]) -> None:
-        if self.finished:
-            return
-        self.finished = True
-        self.stop_run()
-        if self.started_at is None:
-            with _pending_jobs_lock:
-                del _pending_jobs[self]
-            _job_counts.add(-1, {"kind": "word", "state": "pending"})
-            _job_queue_duration.record(
-                perf_counter() - self.queued_at, {"kind": "word", "outcome": outcome}
-            )
-        else:
-            _job_run_duration.record(
-                self.stopped_at - self.started_at, {"kind": "word", "outcome": outcome}
-            )
-        _job_completed.add(1, {"kind": "word", "outcome": outcome})
-        self.span.set_attribute("job.outcome", outcome)
-        if outcome != "succeeded":
-            self.span.set_attribute("error.type", outcome)
-            self.span.set_status(trace.StatusCode.ERROR)
-        self.span.end()
-
-
-def record_word_job_rejection() -> None:
-    _job_rejected.add(1, {"kind": "word", "reason": "overloaded"})
 
 
 _database_histograms = {
@@ -336,7 +244,7 @@ def configure_logging(
 
     if log_format == "json":
 
-        def _orjson_serializer(record: Any, **_: Any) -> str:
+        def _orjson_serializer(record: object, **_: object) -> str:
             return orjson.dumps(record).decode()
 
         renderer: structlog.types.Processor = structlog.processors.JSONRenderer(
@@ -375,7 +283,9 @@ def configure_logging(
         logging.getLogger(logger_name).setLevel(logging.WARNING)
 
 
-def telemetry_context(_logger, _method, event: dict[str, Any]) -> dict[str, Any]:
+def telemetry_context(
+    _logger: structlog.types.WrappedLogger, _method: str, event: structlog.types.EventDict
+) -> structlog.types.EventDict:
     event.update(_log_resource)
     context = trace.get_current_span().get_span_context()
     if context.is_valid:
@@ -392,12 +302,12 @@ def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
     return structlog.get_logger(name)
 
 
-def bind_contextvars(**kwargs: Any) -> None:
+def bind_contextvars(**kwargs: object) -> None:
     """Binds key-values into async-local contextvars for all subsequent log events."""
     structlog.contextvars.bind_contextvars(**kwargs)
 
 
-def bound_contextvars(**kwargs: Any):
+def bound_contextvars(**kwargs: object):
     """Context manager binding key-values into contextvars, unbinding on exit."""
     return structlog.contextvars.bound_contextvars(**kwargs)
 

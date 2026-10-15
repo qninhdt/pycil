@@ -2,7 +2,6 @@
 
 from calendar import monthrange
 from datetime import UTC, datetime
-from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
@@ -11,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from pycil.account.lifecycle import require_user
 from pycil.account.models import UsageEvent, UsagePeriod, User
 from pycil.account.plans import Feature, Plan
+from pycil.account.types import AllowanceData
 from pycil.app.config import AppConfig
 from pycil.app.http import Problem
 from pycil.infrastructure.database import transaction_lock
@@ -37,7 +37,7 @@ def period_bounds(anchor: datetime, moment: datetime) -> tuple[datetime, datetim
 
 async def allowance(
     session: AsyncSession, user: User, config: AppConfig, moment: datetime
-) -> dict[str, Any]:
+) -> AllowanceData:
     start, end = period_bounds(user.cycle_anchor, moment)
     period = await session.scalar(
         select(UsagePeriod).where(

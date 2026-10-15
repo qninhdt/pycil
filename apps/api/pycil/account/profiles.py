@@ -1,6 +1,3 @@
-"""Personal and public profile projections."""
-
-from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
@@ -11,6 +8,7 @@ from pycil.account.models import User
 from pycil.account.plans import Feature
 from pycil.account.schemas import ProfilePatch
 from pycil.account.settings import effective_learning, preferences
+from pycil.account.types import ProfileData, PublicProfileData
 from pycil.app.config import AppConfig
 from pycil.app.http import Problem
 from pycil.infrastructure.observability import get_logger
@@ -20,7 +18,7 @@ from pycil.library.tree import roots
 logger = get_logger(__name__)
 
 
-async def profile(user_id: UUID, config: AppConfig, session: AsyncSession) -> dict[str, Any]:
+async def profile(user_id: UUID, config: AppConfig, session: AsyncSession) -> ProfileData:
     selected = await session.scalar(
         select(User).where(User.id == user_id).execution_options(populate_existing=True)
     )
@@ -30,7 +28,7 @@ async def profile(user_id: UUID, config: AppConfig, session: AsyncSession) -> di
     resolved = preferences(current_user.settings, config)
     try:
         effective = effective_learning(current_user.settings, current_user.plan, config)
-        learning: dict[str, Any] | None = effective.model_dump(mode="json")
+        learning: dict[str, object] | None = effective.model_dump(mode="json")
         restriction: str | None = None
     except Problem as exc:
         learning, restriction = None, exc.code
@@ -61,7 +59,7 @@ async def profile(user_id: UUID, config: AppConfig, session: AsyncSession) -> di
     }
 
 
-async def public_projection(user: User | None, session: AsyncSession) -> dict[str, Any]:
+async def public_projection(user: User | None, session: AsyncSession) -> PublicProfileData:
     if user is None:
         raise Problem(404, "account_not_found")
     system = await roots(session, user.id)

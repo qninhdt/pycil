@@ -9,7 +9,7 @@ from collections.abc import Callable, Generator, Iterable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from time import perf_counter
-from typing import Any, cast
+from typing import cast
 
 import orjson
 import tantivy
@@ -30,6 +30,7 @@ from pycil.vocabulary.references.models import ReferenceWord
 from pycil.vocabulary.references.reference import encode_reference_id
 from pycil.vocabulary.schemas import ReferenceHit, SearchResult, WordHit
 from pycil.vocabulary.text import answer_key
+from pycil.vocabulary.types import SearchPayload
 
 logger = get_logger(__name__)
 # Bump whenever fields or document contents change; a new directory forces a rebuild.
@@ -58,9 +59,9 @@ def _trigrams(value: str) -> set[str]:
     return {value[position : position + 3] for position in range(len(value) - 2)}
 
 
-def _payload(doc: tantivy.Document) -> list[Any]:
+def _payload(doc: tantivy.Document) -> SearchPayload:
     """`[identity, label, entry_type, matched_surface, surface_rank, forms | None]`."""
-    return cast(list[Any], orjson.loads(cast(bytes, doc["payload"][0])))
+    return cast(SearchPayload, tuple(orjson.loads(cast(bytes, doc["payload"][0]))))
 
 
 async def _native[T](call: Callable[[], T]) -> T:
@@ -390,8 +391,9 @@ class SearchIndex:
             reference_ids: set[int] = set(projection[4])
             # Restore references unlinked since the last committed checkpoint.
             for previous in (await replay_many(session, "word", word_ids, through=cursor)).values():
-                if previous:
-                    reference_ids.update(link["source_id"] for link in previous["reference_links"])
+                if previous and "reference_links" in previous:
+                    links = cast(list[dict[str, int]], previous["reference_links"])
+                    reference_ids.update(link["source_id"] for link in links)
             references = list(
                 await session.scalars(
                     select(ReferenceWord)
@@ -594,7 +596,7 @@ class SearchIndex:
         schema, key = snapshot.schema, answer_key(query)
         ranked: dict[str, tuple[tuple[int, int, int, str, int], WordHit | ReferenceHit]] = {}
 
-        def candidate(payload: list[Any], kind: MatchKind) -> None:
+        def candidate(payload: SearchPayload, kind: MatchKind) -> None:
             identity = payload[0]
             if identity in ranked:
                 return

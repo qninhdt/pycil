@@ -2,11 +2,17 @@
 
 import asyncio
 from threading import Lock
-from typing import Any, cast
+from typing import Protocol, cast
 
 from pycil.vocabulary.types import WordNetSense
 
 lock = Lock()
+
+
+class SynsetLike(Protocol):
+    def name(self) -> str: ...
+    def pos(self) -> str: ...
+    def definition(self) -> str: ...
 
 
 def _lookup(citation: str) -> list[WordNetSense]:
@@ -15,7 +21,11 @@ def _lookup(citation: str) -> list[WordNetSense]:
     # The lazy corpus reader shares seekable files between lookup threads.
     with lock:
         try:
-            synsets = cast(list[Any], wordnet.synsets(citation.replace(" ", "_"))[:20])  # pyright: ignore[reportUnknownMemberType]
+            synsets = cast(
+                list[SynsetLike | None],
+                wordnet.synsets(citation.replace(" ", "_"))[:20],  # pyright: ignore[reportUnknownMemberType]
+            )
+
             results: list[WordNetSense] = []
             for sense in synsets:
                 if sense is not None:

@@ -93,7 +93,7 @@ async def test_refusal_is_terminal_and_missing_usage_is_unknown():
     assert captured.value.usage[0].input_tokens is None
 
 
-async def test_cancelled_provider_attempt_is_observed_without_retry():
+async def test_cancelled_provider_attempt_is_observed_without_retry(monkeypatch):
     calls = 0
 
     async def respond(request):
@@ -106,6 +106,7 @@ async def test_cancelled_provider_attempt_is_observed_without_retry():
             policy(), api_key="test", base_url="https://provider.test", http_client=http
         )
         with structlog.testing.capture_logs() as logs:
+            monkeypatch.setattr("pycil.infrastructure.llm.logger", structlog.get_logger())
             with pytest.raises(asyncio.CancelledError):
                 await structured_llm.complete("rules", "input", Answer)
     assert calls == 1

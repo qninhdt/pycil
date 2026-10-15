@@ -1,7 +1,7 @@
 """Clerk verification and transport; account provisioning belongs to the account domain."""
 
 import asyncio
-from typing import TYPE_CHECKING, Any, TypedDict, cast
+from typing import TYPE_CHECKING, TypedDict, cast
 from urllib.parse import quote
 
 import httpx
@@ -15,11 +15,17 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+class ClerkEmailAddress(TypedDict, total=False):
+    id: str
+    email_address: str
+    verification: dict[str, object]
+
+
 class ClerkUserProfile(TypedDict, total=False):
     id: str
     first_name: str | None
     last_name: str | None
-    email_addresses: list[dict[str, Any]]
+    email_addresses: list[ClerkEmailAddress]
 
 
 class InvalidIdentityError(ValueError):
@@ -40,7 +46,7 @@ class Identity:
     async def subject(self, token: str) -> str:
         try:
             key = await asyncio.to_thread(self.keys.get_signing_key_from_jwt, token)
-            claims: dict[str, Any] = jwt.decode(
+            claims: dict[str, object] = jwt.decode(
                 token,
                 key.key,
                 algorithms=["RS256"],
@@ -51,7 +57,7 @@ class Identity:
                     "verify_aud": self.deployment.clerk_audience is not None,
                 },
             )
-            subject = claims["sub"]
+            subject = claims.get("sub")
             if not isinstance(subject, str) or not subject.strip() or len(subject) > 255:
                 raise jwt.InvalidTokenError("invalid subject")
             return subject

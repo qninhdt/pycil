@@ -2,7 +2,7 @@ import gzip
 from hashlib import sha256
 from pathlib import Path
 from time import perf_counter
-from typing import Any, cast
+from typing import cast
 
 from sqlalchemy import CursorResult, select
 from sqlalchemy.dialects.postgresql import insert
@@ -24,7 +24,7 @@ async def _insert_identical(
     result = await session.execute(
         insert(model).values(rows).on_conflict_do_nothing(index_elements=["id"])
     )
-    cursor_result = cast(CursorResult[Any], result)
+    cursor_result = cast(CursorResult[object], result)
     if cursor_result.rowcount < len(rows):
         stored = {
             row["id"]: dict(row)

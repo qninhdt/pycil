@@ -1,13 +1,13 @@
 "Typed grading questions; Instructor owns request encoding and answer validation."
 
-from collections.abc import Mapping
-from typing import Annotated, Any, Literal, overload
+from typing import Annotated, Literal, overload
 
 from instructor.decisions import Choice, Noul, Question
 from pydantic import BaseModel, create_model
 
 from pycil.infrastructure.llm import choice_model
 from pycil.study.enums import QuestionType
+from pycil.vocabulary.types import MeaningInventory
 
 AccuracyChoice = (
     Annotated[
@@ -274,20 +274,20 @@ class DefinedMeaning(BaseModel):
 @overload
 def sense_selection_model(
     field_name: Literal["matched_sense"],
-    word: Mapping[str, Any],
+    word: MeaningInventory,
 ) -> type[MatchedSense]: ...
 
 
 @overload
 def sense_selection_model(
     field_name: Literal["defined_meaning"],
-    word: Mapping[str, Any],
+    word: MeaningInventory,
 ) -> type[DefinedMeaning]: ...
 
 
 def sense_selection_model(
     field_name: Literal["matched_sense", "defined_meaning"],
-    word: Mapping[str, Any],
+    word: MeaningInventory,
 ) -> type[MatchedSense] | type[DefinedMeaning]:
     instructions, no_candidate = SENSE_QUESTIONS[field_name]
     criteria = {"no_candidate": no_candidate}

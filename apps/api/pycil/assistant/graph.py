@@ -23,6 +23,7 @@ from pydantic import ValidationError
 
 from pycil.app.config import AppConfig
 from pycil.app.http import Problem
+from pycil.app.resources import RuntimeState
 from pycil.app.settings import Deployment
 from pycil.assistant.config import ModelPolicy
 from pycil.assistant.tools import MUTATION_TOOLS, tools, validation_message
@@ -69,7 +70,7 @@ class Boundary(AgentMiddleware[Any, Any, Any]):
         messages: list[BaseMessage] = trimmed + current
         # A failed/disconnected tool run can leave a call without its result in history.
         history: list[BaseMessage] = []
-        pending: dict[str, Any] = {}
+        pending: dict[str, dict[str, object]] = {}
         for message in [*messages, None]:
             if message is None or getattr(message, "type", None) != "tool":
                 history.extend(
@@ -177,7 +178,7 @@ async def model(
 
 
 def graph(
-    resources: Any,
+    resources: RuntimeState,
     user: UUID,
     config: AppConfig,
     selected_model: ChatOpenRouter,

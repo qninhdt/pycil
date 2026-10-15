@@ -2,7 +2,7 @@
 
 from collections.abc import Mapping, Sequence
 from itertools import batched
-from typing import Any, Protocol, cast
+from typing import Protocol, cast
 from uuid import UUID
 
 from sqlalchemy import or_, select
@@ -11,18 +11,21 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from pycil.app.config import AppConfig
 from pycil.app.http import Problem
 from pycil.app.projections import viewer_context
+from pycil.infrastructure.cache import MemoryCache
 from pycil.library.access import reference_visible, visible
 from pycil.library.models import Node, NodePath, NodeRole, NodeType
 from pycil.library.scope import ScopeBudget
 from pycil.study.progress import summaries
+from pycil.study.types import SummaryDict
 from pycil.vocabulary.models import Sense, Word
+from pycil.vocabulary.schemas import Sense as SenseSchema
 from pycil.vocabulary.schemas import sense_adapter
 from pycil.vocabulary.words import get_sense_previews, get_senses
 
 
 class ProjectionsResources(Protocol):
     sessions: async_sessionmaker[AsyncSession]
-    sense_cache: Any
+    sense_cache: MemoryCache[int, SenseSchema]
 
 
 async def vocabulary(
@@ -32,7 +35,7 @@ async def vocabulary(
     word_ids: Sequence[int] = (),
     sense_ids: Sequence[int] = (),
     include: Sequence[str] = (),
-) -> dict[str, list[dict[str, Any]]]:
+) -> dict[str, list[dict[str, object]]]:
     word_ids_set = set(word_ids)
     sense_ids_set = set(sense_ids)
     async with resources.sessions() as session:
@@ -57,24 +60,21 @@ async def vocabulary(
         identifiers: list[int] = [int(r[0]) for r in rows]
         if not sense_ids_set <= set(identifiers):
             raise Problem(404, "sense_not_found")
+        context_data = await viewer_context(
+            session,
+            user,
+            config,
+            identifiers,
+            include_sources="sources" in include,
+            max_senses=config.product.projections.max_word_senses,
+        )
+        senses_list = cast(list[dict[str, object]], context_data["senses"])
         context = (
-            {
-                s["sense_id"]: s
-                for s in (
-                    await viewer_context(
-                        session,
-                        user,
-                        config,
-                        identifiers,
-                        include_sources="sources" in include,
-                        max_senses=config.product.projections.max_word_senses,
-                    )
-                )["senses"]
-            }
+            {cast(int, s["sense_id"]): s for s in senses_list}
             if identifiers and set(include) & {"learning", "sources"}
             else {}
         )
-    facts: dict[int, dict[str, Any]] = {
+    facts: dict[int, dict[str, object]] = {
         int(s["sense_id"]): dict(s)
         for s in await get_sense_previews(resources.sessions, identifiers)
     }
@@ -86,13 +86,13 @@ async def vocabulary(
         if set(include) & {"examples", "lexical_details"}
         else {}
     )
-    result: list[dict[str, Any]] = []
+    result: list[dict[str, object]] = []
     for identifier in identifiers:
         if identifier not in facts or (
             set(include) & {"examples", "lexical_details"} and identifier not in native
         ):
             raise Problem(409, "learning_content_changed")
-        item: dict[str, Any] = {
+        item: dict[str, object] = {
             k: facts[identifier][k]
             for k in (
                 "sense_id",
@@ -128,7 +128,7 @@ async def vocabulary(
     return {"senses": result}
 
 
-def node_projection(node: Mapping[str, Any], user_id: UUID) -> dict[str, Any]:
+def node_projection(node: Mapping[str, object], user_id: UUID) -> dict[str, object]:
     return {
         "node_id": node["id"],
         "name": node["name"],
@@ -145,13 +145,13 @@ async def node_cards(
     session: AsyncSession,
     user_id: UUID,
     config: AppConfig,
-    rows: Sequence[Mapping[str, Any]],
-) -> list[dict[str, Any]]:
+    rows: Sequence[Mapping[str, object]],
+) -> list[dict[str, object]]:
     if not rows:
         return []
     identifiers: list[UUID] = [cast(UUID, r["id"]) for r in rows]
     ancestor = Node.__table__.alias("ancestor")
-    paths: dict[UUID, list[dict[str, Any]]] = {i: [] for i in identifiers}
+    paths: dict[UUID, list[dict[str, object]]] = {i: [] for i in identifiers}
     for row in (
         await session.execute(
             select(NodePath.descendant_id, ancestor.c.id, ancestor.c.name)
@@ -170,7 +170,7 @@ async def node_cards(
             )
         ).all()
     )
-    counts: list[dict[str, Any]] = []
+    counts: list[SummaryDict] = []
     size = config.product.study.limits.max_summary_nodes
     budget = ScopeBudget(user_id)
     for batch in batched(identifiers, size, strict=False):
@@ -190,8 +190,8 @@ async def saved_node(
     resources: ProjectionsResources,
     user_id: UUID,
     config: AppConfig,
-    result: Mapping[str, Any],
-) -> dict[str, Any]:
+    result: Mapping[str, object],
+) -> dict[str, object]:
     return (await saved_nodes(resources, user_id, config, [result]))[0]
 
 
@@ -199,13 +199,13 @@ async def saved_nodes(
     resources: ProjectionsResources,
     user_id: UUID,
     config: AppConfig,
-    results: Sequence[Mapping[str, Any]],
-) -> list[dict[str, Any]]:
-    items: list[dict[str, Any]] = []
+    results: Sequence[Mapping[str, object]],
+) -> list[dict[str, object]]:
+    items: list[dict[str, object]] = []
     for result in results:
         item = node_projection(result, user_id)
         if "sense_ids" in result:
-            item["sense_count"] = len(cast(Sequence[Any], result["sense_ids"]))
+            item["sense_count"] = len(cast(Sequence[object], result["sense_ids"]))
         for key in ("added_count", "removed_count", "retained_reference_id"):
             if key in result:
                 item[key] = result[key]

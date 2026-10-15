@@ -3,7 +3,6 @@
 import hashlib
 from collections import defaultdict
 from datetime import UTC, datetime
-from typing import Any, cast
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -32,6 +31,7 @@ from pycil.study.schemas import (
     SingleWordDiagnostic,
     TrackedEvidence,
 )
+from pycil.study.types import UserSenseState
 from pycil.vocabulary.models import Sense
 
 logger = get_logger(__name__)
@@ -48,7 +48,7 @@ async def review(
     data: ReviewBatch,
     event_key: UUID,
     config: AppConfig,
-) -> dict[str, Any]:
+) -> dict[str, object]:
     if len(data.results) > config.product.study.limits.max_review_batch:
         raise Problem(422, "review_batch_too_large")
     digest = request_hash(data)
@@ -70,7 +70,7 @@ async def review(
                 user_id=str(user_id),
                 event_key=str(event_key),
             )
-            return cast(dict[str, Any], previous.result)
+            return previous.result
         ids = {r.question_artifact_id for r in data.results}
         artifacts = {
             a.id: a
@@ -151,7 +151,7 @@ async def review(
         saved = await session.scalar(select(User.settings).where(User.id == user_id))
         day = now.astimezone(ZoneInfo(preferences(saved, config).timezone)).date()
         results: list[ReviewResult] = []
-        states: list[dict[str, Any]] = []
+        states: list[UserSenseState] = []
         for sense_id, group in groups.items():
             memory = memories.get(sense_id)
             review_time = max(item.answered_at for item, _, _, _ in group)
@@ -183,20 +183,20 @@ async def review(
                     new_difficulty=round(difficulty, 4),
                     due_at=due.isoformat(),
                 )
-                state: dict[str, Any] = dict(
-                    user_id=user_id,
-                    sense_id=sense_id,
-                    elo=elo,
-                    stability=stability,
-                    difficulty=difficulty,
-                    last_exposure_at=review_time,
-                    due_at=due,
-                    review_count=(memory.review_count if memory else 0) + 1,
-                    lapse_count=(memory.lapse_count if memory else 0)
+                state: UserSenseState = {
+                    "user_id": user_id,
+                    "sense_id": sense_id,
+                    "elo": elo,
+                    "stability": stability,
+                    "difficulty": difficulty,
+                    "last_exposure_at": review_time,
+                    "due_at": due,
+                    "review_count": (memory.review_count if memory else 0) + 1,
+                    "lapse_count": (memory.lapse_count if memory else 0)
                     + int(memory is not None and any(r == 0 for _, r, _, _ in group)),
-                    created_at=memory.created_at if memory else now,
-                    updated_at=now,
-                )
+                    "created_at": memory.created_at if memory else now,
+                    "updated_at": now,
+                }
                 states.append(state)
             else:
                 assert memory is not None
@@ -216,8 +216,8 @@ async def review(
                     level=policy.level(elo_val),
                     stability=float(state["stability"]),
                     difficulty=float(state["difficulty"]),
-                    last_exposure_at=cast(datetime, state["last_exposure_at"]),
-                    due_after=cast(datetime, state["due_at"]),
+                    last_exposure_at=state["last_exposure_at"],
+                    due_after=state["due_at"],
                 )
             )
         if states:
@@ -237,7 +237,7 @@ async def review(
                     },
                 )
             )
-        result: dict[str, Any] = BatchResult(
+        result: dict[str, object] = BatchResult(
             accepted_at=now, activity_day=day, results=results, evidence=tracked
         ).model_dump(mode="json")
         session.add(

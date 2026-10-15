@@ -1,4 +1,4 @@
-from typing import Any
+from typing import cast
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -14,11 +14,17 @@ from pycil.study.config import LearningPreferences
 from pycil.study.enums import ResponseFormat
 
 
-def preferences(saved: dict[str, Any] | None, config: AppConfig) -> Preferences:
+def preferences(saved: dict[str, object] | None, config: AppConfig) -> Preferences:
     raw = saved or {}
     defaults = config.product.account.preferences.defaults.model_dump()
-    learning = config.product.study.defaults.model_dump() | raw.get("learning", {})
-    assistant = defaults["assistant"] | raw.get("assistant", {})
+    raw_learning = raw.get("learning")
+    learning = config.product.study.defaults.model_dump() | (
+        cast(dict[str, object], raw_learning) if isinstance(raw_learning, dict) else {}
+    )
+    raw_assistant = raw.get("assistant")
+    assistant = defaults["assistant"] | (
+        cast(dict[str, object], raw_assistant) if isinstance(raw_assistant, dict) else {}
+    )
     values = defaults | raw | {"learning": learning, "assistant": assistant}
     result = Preferences.model_validate(values)
     if result.locale not in config.product.account.preferences.locales:
@@ -33,7 +39,9 @@ def preferences(saved: dict[str, Any] | None, config: AppConfig) -> Preferences:
     return result
 
 
-def effective_learning(saved: dict[str, Any], plan: Plan, config: AppConfig) -> LearningPreferences:
+def effective_learning(
+    saved: dict[str, object], plan: Plan, config: AppConfig
+) -> LearningPreferences:
     selected = preferences(saved, config).learning
     formats = selected.formats
     if Feature.ADVANCED_GRADING not in config.product.account.plans[plan].features:
@@ -47,8 +55,8 @@ def effective_learning(saved: dict[str, Any], plan: Plan, config: AppConfig) -> 
 
 
 def merge_preferences(
-    saved: dict[str, Any], patch: PreferencesPatch, plan: Plan, config: AppConfig
-) -> dict[str, Any]:
+    saved: dict[str, object], patch: PreferencesPatch, plan: Plan, config: AppConfig
+) -> dict[str, object]:
     changes = patch.model_dump(exclude_unset=True)
     nested = changes.pop("learning", None)
     assistant = changes.pop("assistant", None)

@@ -1,11 +1,11 @@
 """Bounded task inputs, independent of HTTP response shapes."""
 
 from datetime import date, datetime
-from typing import Annotated, Any, Literal, Self
+from typing import Annotated, Literal, Self
 from uuid import UUID
 
 from ag_ui.core import Message
-from pydantic import Field, StringConstraints, model_validator
+from pydantic import Field, JsonValue, StringConstraints, model_validator
 
 from pycil.library.models import NodeSpace, NodeType
 from pycil.library.schemas import LibraryView, SenseDelta, SenseSort, Strict
@@ -132,16 +132,6 @@ class NodeMove(NodeCopy):
     retain_personal_reference: bool = False
 
 
-class WordGeneration(Strict):
-    words: list[
-        Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=512)]
-    ] = Field(min_length=1, max_length=10)
-
-
-class GenerationRead(Strict):
-    task_ids: list[UUID] = Field(min_length=1, max_length=10)
-
-
 class DateWindow(Strict):
     start_date: date
     end_date: date
@@ -190,7 +180,7 @@ class ConversationPage(Strict):
 
 class ApprovalAction(Strict):
     name: str
-    args: dict[str, Any]
+    args: dict[str, JsonValue]
     description: str | None = None
 
 

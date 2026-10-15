@@ -4,13 +4,15 @@ import json
 import math
 from collections.abc import Collection, Mapping, Sequence
 from datetime import datetime
-from typing import Any, cast
+from typing import cast
 from uuid import UUID
 
 from fastapi import Request
 
 from pycil.app.config import AppConfig
 from pycil.app.http import Problem
+
+type SeekValue = datetime | UUID | int | float | str | None
 
 
 def encode(
@@ -37,7 +39,7 @@ def decode(
     types: Sequence[str],
     *,
     timed: bool = False,
-) -> tuple[list[Any] | None, datetime | None]:
+) -> tuple[list[SeekValue] | None, datetime | None]:
     if token is None:
         return None, None
     try:
@@ -61,7 +63,7 @@ def decode(
         seek_list: list[object] = cast(list[object], seek_raw)
         if len(seek_list) != len(types):
             raise ValueError()
-        parsed: list[Any] = []
+        parsed: list[SeekValue] = []
         for value, kind in zip(seek_list, types, strict=True):
             if kind == "nullable_time" and value is None:
                 parsed.append(None)
@@ -100,7 +102,7 @@ def decode(
                     raise ValueError()
                 parsed.append(val_num)
             else:
-                parsed.append(value)
+                parsed.append(cast(SeekValue, value))
         as_of_val = data["as_of"]
         cutoff = datetime.fromisoformat(as_of_val) if timed and isinstance(as_of_val, str) else None
         if timed:

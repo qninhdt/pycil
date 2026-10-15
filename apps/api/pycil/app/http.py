@@ -26,12 +26,16 @@ logger = get_logger("pycil.app.http")
 class HttpTelemetry:
     def __init__(self, app: ASGIApp):
         self.app = app
+
+        def span_details(scope: dict[str, object]) -> tuple[str, dict[str, str]]:
+            return (
+                f"{scope['method']} {scope['path']}",
+                {"http.route": str(scope["path"])},
+            )
+
         self.instrumented = OpenTelemetryMiddleware(
             self.dispatch,
-            default_span_details=lambda scope: (
-                f"{scope['method']} {scope['path']}",
-                {"http.route": scope["path"]},
-            ),
+            default_span_details=span_details,
             # A nonempty never-match pattern also overrides capture-header env settings.
             http_capture_headers_server_request=["(?!)"],
             http_capture_headers_server_response=["(?!)"],
@@ -48,7 +52,7 @@ class HttpTelemetry:
         for candidate in iter_route_contexts(scope["app"].routes):
             match, _ = candidate.matches(scope)
             if match != Match.NONE:
-                route = candidate.path
+                route = candidate.path or "unmatched"
                 if match == Match.FULL:
                     break
         method = scope["method"]
@@ -140,7 +144,7 @@ ErrorResponse = ProblemDetails
 async def problem_response(request: Request, error: Problem) -> ProblemResponse:
     headers = {"WWW-Authenticate": "Bearer"} if error.status == 401 else None
     request_id = getattr(request.state, "request_id", None)
-    payload: dict[str, Any] = {
+    payload: dict[str, object] = {
         "type": "about:blank",
         "title": error.title,
         "status": error.status,
@@ -167,7 +171,7 @@ async def validation_response(request: Request, error: RequestValidationError) -
         ).model_dump()
         for e in error.errors()
     ]
-    payload: dict[str, Any] = {
+    payload: dict[str, object] = {
         "type": "about:blank",
         "title": "Unprocessable Content",
         "status": 422,
@@ -186,8 +190,8 @@ async def http_error_response(request: Request, error: HTTPException) -> Problem
     code = codes.get(error.status_code, "request_failed")
     title = _http_status_phrase(error.status_code)
     request_id = getattr(request.state, "request_id", None)
-    detail = error.detail if isinstance(error.detail, str) and error.detail != title else None
-    payload: dict[str, Any] = {
+    detail = error.detail if error.detail and error.detail != title else None
+    payload: dict[str, object] = {
         "type": "about:blank",
         "title": title,
         "status": error.status_code,

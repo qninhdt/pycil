@@ -3,7 +3,6 @@
 from collections.abc import Iterable, Mapping, Sequence
 from enum import StrEnum
 from time import perf_counter
-from typing import Any
 
 from opentelemetry import trace
 from sqlalchemy import (
@@ -100,9 +99,9 @@ def connect(
     @event.listens_for(engine.sync_engine, "before_cursor_execute")
     def query_started(
         _connection: Connection,
-        _cursor: Any,
+        _cursor: object,
         statement: str,
-        _parameters: Any,
+        _parameters: object,
         context: ExecutionContext | None,
         _executemany: bool,
     ) -> None:
@@ -123,27 +122,30 @@ def connect(
         error: BaseException | None = None,
     ) -> None:
         if context is not None:
-            started: Any = getattr(context, "_pycil_query_started", None)
+            started: object = getattr(context, "_pycil_query_started", None)
             if isinstance(started, float):
                 try:
                     delattr(context, "_pycil_query_started")
                 except AttributeError:
                     pass
                 record_database_duration("query", "application", started, error)
-            span = getattr(context, "_pycil_query_span", None)
-            if span is not None:
-                delattr(context, "_pycil_query_span")
+            span_val: object = getattr(context, "_pycil_query_span", None)
+            if isinstance(span_val, trace.Span):
+                try:
+                    delattr(context, "_pycil_query_span")
+                except AttributeError:
+                    pass
                 if error is not None:
-                    span.set_attribute("error.type", type(error).__name__)
-                    span.set_status(trace.Status(trace.StatusCode.ERROR))
-                span.end()
+                    span_val.set_attribute("error.type", type(error).__name__)
+                    span_val.set_status(trace.Status(trace.StatusCode.ERROR))
+                span_val.end()
 
     @event.listens_for(engine.sync_engine, "after_cursor_execute")
     def query_succeeded(
         _connection: Connection,
-        _cursor: Any,
+        _cursor: object,
         _statement: str,
-        _parameters: Any,
+        _parameters: object,
         context: ExecutionContext | None,
         _executemany: bool,
     ) -> None:

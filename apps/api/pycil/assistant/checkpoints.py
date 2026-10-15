@@ -1,11 +1,11 @@
 from collections.abc import AsyncGenerator, Generator, Iterable
 from contextlib import asynccontextmanager, contextmanager
-from typing import Self
+from typing import Self, cast
 
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from opentelemetry import trace
 from psycopg import AsyncConnection, AsyncCursor
-from psycopg.abc import Params, Query
+from psycopg.abc import Params, Query, QueryNoTemplate
 from psycopg.pq import PipelineStatus
 from psycopg.rows import DictRow, dict_row
 from psycopg_pool import AsyncConnectionPool
@@ -57,7 +57,9 @@ class CheckpointCursor[Row](AsyncCursor[Row]):
         binary: bool | None = None,
     ) -> Self:
         with self._observe(query):
-            return await super().execute(query, params, prepare=prepare, binary=binary)
+            return await super().execute(
+                cast(QueryNoTemplate, query), params, prepare=prepare, binary=binary
+            )
 
     async def executemany(
         self, query: Query, params_seq: Iterable[Params], *, returning: bool = False

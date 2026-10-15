@@ -4,7 +4,7 @@ import random
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, Protocol, cast
+from typing import Protocol, cast
 from uuid import UUID
 
 from openai import APIError
@@ -36,6 +36,7 @@ from pycil.study.errors import QuestionArtifactBankChangedError
 from pycil.study.models import UserSense
 from pycil.study.questions import build_question
 from pycil.study.schemas import PreparedQuestion
+from pycil.study.types import PreparationBundleDict
 from pycil.vocabulary.errors import VocabularyError
 from pycil.vocabulary.schemas import Sense
 from pycil.vocabulary.types import SensePreview
@@ -95,7 +96,7 @@ async def prepare(
     selection: Selection = Selection.AUTO,
     max_sense_count: int | None = None,
     questions_per_sense: int | None = None,
-) -> dict[str, Any]:
+) -> dict[str, object]:
     async with session.begin():
         current = await session.scalar(
             select(User).where(User.id == user).execution_options(populate_existing=True)
@@ -209,7 +210,7 @@ async def prepare(
     banks: dict[tuple[int, QuestionArtifactType], list[Artifact]] = defaultdict(list)
     for artifact in artifacts:
         banks[artifact.sense_id, artifact.artifact_type].append(artifact)
-    bundles: list[dict[str, Any]] = []
+    bundles: list[PreparationBundleDict] = []
     for row in rows:
         questions: list[PreparedQuestion] = []
         for kind, fmt in plans[row.sense_id]:
@@ -227,7 +228,9 @@ async def prepare(
                     config,
                 )
             )
-        bundles.append(dict(sense=senses[row.sense_id], reason=row.reason, questions=questions))
+        bundles.append(
+            {"sense": senses[row.sense_id], "reason": row.reason, "questions": questions}
+        )
     logger.info(
         "study_preparation_completed",
         user_id=str(user),

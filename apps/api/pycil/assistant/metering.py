@@ -76,15 +76,15 @@ class Meter(AsyncCallbackHandler):
             logger.warning("assistant_metering_missing_usage", unmetered_calls=self.unmetered_calls)
             return
 
-        reported_dict: dict[str, Any] = cast(dict[str, Any], reported)
+        reported_dict: dict[str, object] = cast(dict[str, object], reported)
         details = reported_dict.get("input_token_details")
         if details is not None and not isinstance(details, dict):
             self.unknown_calls += 1
             logger.warning("assistant_metering_missing_usage", unmetered_calls=self.unmetered_calls)
             return
 
-        details_dict: dict[str, Any] = (
-            cast(dict[str, Any], details) if isinstance(details, dict) else {}
+        details_dict: dict[str, int] = (
+            cast(dict[str, int], details) if isinstance(details, dict) else {}
         )
 
         incoming = reported_dict.get("input_tokens")
