@@ -19,7 +19,7 @@ from pycil.assistant.checkpoints import checkpoint_pool
 from pycil.infrastructure.cache import MemoryCache
 from pycil.infrastructure.database import connect, verify_schema
 from pycil.infrastructure.llm import DecisionLLM, StructuredLLM
-from pycil.infrastructure.observability import get_logger
+from pycil.infrastructure.observability import get_logger, telemetry
 from pycil.study.artifacts.schemas import Artifact
 from pycil.vocabulary.generation.jobs import Generations
 from pycil.vocabulary.schemas import CachedWord, Sense
@@ -54,6 +54,7 @@ async def process_resources(
     started = perf_counter()
     try:
         try:
+            await stack.enter_async_context(telemetry(deployment, config.runtime.telemetry))
             url = deployment.db_url.get_secret_value()
             engine, sessions = connect(url, **config.runtime.database.application_pool.model_dump())
             stack.push_async_callback(engine.dispose)

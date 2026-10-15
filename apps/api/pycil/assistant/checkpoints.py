@@ -7,6 +7,14 @@ from psycopg.rows import DictRow, dict_row
 from psycopg_pool import AsyncConnectionPool
 from sqlalchemy.engine import make_url
 
+from pycil.infrastructure.observability import observe_pool_acquisition
+
+
+class CheckpointPool(AsyncConnectionPool[AsyncConnection[DictRow]]):
+    async def getconn(self, timeout: float | None = None) -> AsyncConnection[DictRow]:
+        with observe_pool_acquisition("checkpoint"):
+            return await super().getconn(timeout=timeout)
+
 
 def checkpoint_dsn(url: str) -> str:
     parsed = make_url(url)
@@ -21,11 +29,14 @@ async def checkpoint_pool(
     *,
     min_size: int = 1,
     max_size: int = 3,
+    timeout_seconds: float = 30,
+    startup_timeout_seconds: float = 30,
 ) -> AsyncGenerator[AsyncConnectionPool[AsyncConnection[DictRow]]]:
-    async with AsyncConnectionPool[AsyncConnection[DictRow]](
+    async with CheckpointPool(
         checkpoint_dsn(url),
         min_size=min_size,
         max_size=max_size,
+        timeout=timeout_seconds,
         open=False,
         kwargs={
             "autocommit": True,
@@ -34,7 +45,7 @@ async def checkpoint_pool(
             "options": "-c search_path=public",
         },
     ) as pool:
-        await pool.wait()
+        await pool.wait(timeout=startup_timeout_seconds)
         yield pool
 
 

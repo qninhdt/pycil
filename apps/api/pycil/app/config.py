@@ -106,11 +106,14 @@ class ApplicationPool(Policy):
     size: PositiveInt
     max_overflow: NonnegativeInt
     timeout_seconds: PositiveSeconds
+    connect_timeout_seconds: PositiveSeconds
 
 
 class CheckpointPool(Policy):
     min_size: NonnegativeInt
     max_size: PositiveInt
+    timeout_seconds: PositiveSeconds
+    startup_timeout_seconds: PositiveSeconds
 
     @model_validator(mode="after")
     def pool_bounds(self):
@@ -167,6 +170,30 @@ class LifecycleRuntime(Policy):
     cleanup_timeout_seconds: PositiveSeconds
 
 
+class TracesRuntime(Policy):
+    max_queue_size: PositiveInt
+    max_export_batch_size: PositiveInt
+    schedule_delay_seconds: PositiveSeconds
+    export_timeout_seconds: PositiveSeconds
+
+    @model_validator(mode="after")
+    def batch_bounds(self):
+        if self.max_export_batch_size > self.max_queue_size:
+            raise ValueError("trace export batch exceeds queue capacity")
+        return self
+
+
+class MetricsRuntime(Policy):
+    export_interval_seconds: PositiveSeconds
+    export_timeout_seconds: PositiveSeconds
+    shutdown_timeout_seconds: PositiveSeconds
+
+
+class TelemetryRuntime(Policy):
+    traces: TracesRuntime
+    metrics: MetricsRuntime
+
+
 class RuntimePolicy(Policy):
     caches: CachesPolicy
     generation: GenerationRuntime
@@ -180,6 +207,7 @@ class RuntimePolicy(Policy):
     http: HTTPRuntime
     health: HealthRuntime
     lifecycle: LifecycleRuntime
+    telemetry: TelemetryRuntime
 
 
 class AppConfig(Policy):

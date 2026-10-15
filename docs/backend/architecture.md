@@ -96,8 +96,9 @@ and [migration/recovery](operations/migrations.md) for maintenance boundaries.
 
 Provider attempts share bounded concurrency, explicit timeouts/retries, validated output
 schemas and normalized token measurements. Structured observations bind correlation
-context and record operation outcome, duration and sanitized error category. Actual
-OpenTelemetry and Langfuse setup remains deferred.
+context and record operation outcome, duration and sanitized error category. The API owns
+optional OpenTelemetry trace/metric export; see [configuration](configuration.md) for SDK
+lifetime and export settings. Langfuse setup remains deferred.
 
 See [the redesign](../../plans/260924-0608-pycil-complete-redesign/plan.md) for accepted constraints, [testing](testing.md)
 for current verification boundaries and [database setup](operations/migrations.md)

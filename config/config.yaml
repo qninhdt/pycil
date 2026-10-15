@@ -52,6 +52,11 @@ product:
         # Configured value: [assistant, advanced_grading]. Applies after API restart.
         features: [assistant, advanced_grading]
   study:
+    grading:
+      # Minimum decision score accepted as true for grading diagnostics.
+      # Number 0..1, inclusive (score >= threshold); higher values require stronger confidence.
+      # Configured value: 0.5 preserves the previous fallback. Applies after API restart.
+      decision_threshold: 0.5
     defaults:
       # Default selected study question types.
       # Nonempty unique supported types; affects default question selection.
@@ -580,6 +585,10 @@ runtime:
       retry_max_seconds: 8
   database:
     application_pool:
+      # Deadline for opening a new PostgreSQL connection, separate from waiting for a pool slot.
+      # Seconds > 0; higher values tolerate slow connections but hold checkout work longer.
+      # Configured value: 60 preserves asyncpg's native default. Applies after API restart.
+      connect_timeout_seconds: 60
       # Persistent application database connections.
       # Positive count per process; multiply by workers and add overflow/checkpoint budgets.
       # Configured value: 5. Applies after API restart.
@@ -593,6 +602,14 @@ runtime:
       # Configured value: 2. Applies after API restart.
       timeout_seconds: 2
     checkpoint_pool:
+      # Default deadline to acquire a checkpoint connection; callers may explicitly override it.
+      # Seconds > 0, including connection availability waits; higher values delay pool exhaustion errors.
+      # Configured value: 30 preserves psycopg_pool's native default. Applies after API restart.
+      timeout_seconds: 30
+      # Startup deadline for the checkpoint pool to establish its minimum connection count.
+      # Seconds > 0; higher values allow slower startup. This is not a SQL execution deadline.
+      # Configured value: 30 preserves pool.wait()'s native default. Applies after API restart.
+      startup_timeout_seconds: 30
       # Minimum native checkpoint pool connections.
       # Integer >= 0 per process and <= max_size; higher values reserve more idle connections.
       # Configured value: 1. Applies after API restart.
@@ -696,3 +713,34 @@ runtime:
     # Positive seconds per shutdown; fit inside server/container drain budgets and join tasks before DB close.
     # Configured value: 40. Applies after API restart.
     cleanup_timeout_seconds: 40
+  telemetry:
+    traces:
+      # Maximum queued spans per API process before the native processor drops excess spans.
+      # Integer > 0 and >= max_export_batch_size; higher values retain more spans and use more RAM.
+      # Configured value: 2048 preserves the current queue. Applies after API restart.
+      max_queue_size: 2048
+      # Maximum spans sent in one export batch.
+      # Integer 1..max_queue_size; higher values produce larger collector requests.
+      # Configured value: 256 preserves the current batch. Applies after API restart.
+      max_export_batch_size: 256
+      # Delay between scheduled trace exports; a full batch can trigger an earlier export.
+      # Seconds > 0; lower values reduce delivery latency and increase export traffic.
+      # Configured value: 5 preserves the current schedule. Applies after API restart.
+      schedule_delay_seconds: 5
+      # Trace exporter transport/retry budget, also supplied to the batch processor.
+      # Seconds > 0; higher values tolerate slower collectors. This is not a hard shutdown deadline.
+      # Configured value: 2 preserves the current export budget. Applies after API restart.
+      export_timeout_seconds: 2
+    metrics:
+      # Interval between periodic metric collection/export attempts per API process.
+      # Seconds > 0; lower values increase telemetry traffic and collection work.
+      # Configured value: 15 preserves the current interval. Applies after API restart.
+      export_interval_seconds: 15
+      # Metric collection/export budget, also used as the exporter transport/retry timeout.
+      # Seconds > 0; higher values tolerate slower callbacks/collectors; SDK limits are cooperative.
+      # Configured value: 2 preserves the current export budget. Applies after API restart.
+      export_timeout_seconds: 2
+      # Cooperative metric reader shutdown budget within the overall application cleanup budget.
+      # Seconds > 0; higher values allow more cleanup time. Account for the native trace join first.
+      # Configured value: 5 preserves the current shutdown budget. Applies after API restart.
+      shutdown_timeout_seconds: 5

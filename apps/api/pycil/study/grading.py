@@ -7,11 +7,11 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from pycil.app.config import VocabularyPolicy
 from pycil.infrastructure.cache import MemoryCache
 from pycil.infrastructure.observability import get_logger, observe_operation
 from pycil.study.artifacts.schemas import Artifact
 from pycil.study.artifacts.storage import get_many
+from pycil.study.config import GradingPolicy
 from pycil.study.decisions import (
     DefinitionAssessment,
     RewriteAssessment,
@@ -105,7 +105,7 @@ async def grade_answer(
     kind: QuestionType,
     fmt: ResponseFormat,
     answer: str | None,
-    policy: VocabularyPolicy,
+    policy: GradingPolicy,
     *,
     allowed_pairs: set[tuple[QuestionType, ResponseFormat]],
 ) -> SingleWordDiagnostic | DefinitionDiagnostic | RewriteDiagnostic | UsageDiagnostic:
@@ -170,7 +170,7 @@ async def grade_answer(
                     sessions, search, decision_llm, context, kind, answer, policy
                 )
         elif kind is QuestionType.WORD_TO_DEFINITION:
-            result = await _definition(sessions, decision_llm, artifact.sense_id, answer, policy)
+            result = await _definition(sessions, decision_llm, artifact.sense_id, answer)
         else:
             payload_dict = artifact.payload
             source = (
@@ -187,14 +187,14 @@ async def _single_word(
     context: str,
     kind: QuestionType,
     answer: str,
-    policy: VocabularyPolicy,
+    policy: GradingPolicy,
 ) -> SingleWordDiagnostic:
     response = await decision_llm.decide(
         single_word_model(kind),
         {"question": context, "answer": answer},
     )
     single_word_resp = response
-    threshold = float(getattr(policy, "decision_threshold", 0.5))
+    threshold = policy.decision_threshold
     task_fit = bool(single_word_resp.task_fit >= threshold)
     spelling_error = bool(single_word_resp.spelling_error >= threshold)
     if len(answer.strip()) > 256:
@@ -223,7 +223,6 @@ async def _definition(
     decision_llm: DecisionLLM,
     sense_id: int,
     answer: str,
-    policy: VocabularyPolicy,
 ) -> DefinitionDiagnostic:
     meanings = await meaning_inventory(sessions, sense_id=sense_id)
     if not meanings or not meanings["senses"]:
@@ -251,11 +250,11 @@ async def _usage(
     lemma: str,
     meaning: str,
     answer: str,
-    policy: VocabularyPolicy,
+    policy: GradingPolicy,
     kind: QuestionType,
     source: str | None,
 ) -> RewriteDiagnostic | UsageDiagnostic:
-    threshold = float(getattr(policy, "decision_threshold", 0.5))
+    threshold = policy.decision_threshold
     use_resp = await decision_llm.decide(
         TargetUseAssessment,
         {"word": lemma, "answer": answer},

@@ -86,7 +86,7 @@ async def grade(data: Grade, user: UserId, config: Config, resources: Runtime, s
             data.question_type,
             data.format,
             data.answer,
-            policy=config.runtime.providers.vocabulary,
+            policy=config.product.study.grading,
             allowed_pairs={
                 (kind, fmt)
                 for kind, formats in config.product.study.pair_levels.items()

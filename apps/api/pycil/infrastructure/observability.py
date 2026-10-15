@@ -1,22 +1,159 @@
-"""Unified structured logging configuration combining structlog and standard library logging."""
+"""Structured logging, application measurements and process-owned OTel SDK export."""
 
 import asyncio
 import logging
 import os
 import sys
-from collections.abc import Generator
-from contextlib import contextmanager
+from collections.abc import AsyncGenerator, Generator
+from contextlib import ExitStack, asynccontextmanager, contextmanager
 from enum import StrEnum
 from time import perf_counter
-from typing import Any
+from typing import TYPE_CHECKING, Any, Literal
+from uuid import uuid4
 
 import structlog
+from opentelemetry import metrics, trace
+from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
+
+from pycil.app.settings import Deployment
+
+if TYPE_CHECKING:
+    from pycil.app.config import TelemetryRuntime
+
+_telemetry_started = False
+
+_database_histograms = {
+    operation: metrics.get_meter("pycil.database").create_histogram(
+        f"pycil.db.{operation}.duration",
+        unit="s",
+        description=description,
+        explicit_bucket_boundaries_advisory=(
+            0.001,
+            0.005,
+            0.01,
+            0.025,
+            0.05,
+            0.1,
+            0.25,
+            0.5,
+            1,
+            2,
+            5,
+        ),
+    )
+    for operation, description in (
+        (
+            "pool.acquire",
+            "Connection acquisition including queue, connection opening and validation",
+        ),
+        ("query", "SQLAlchemy cursor execution round trip, excluding pool acquisition"),
+    )
+}
+
+
+@asynccontextmanager
+async def telemetry(deployment: Deployment, policy: TelemetryRuntime) -> AsyncGenerator[None]:
+    global _telemetry_started
+    if deployment.otel_endpoint is None:
+        yield
+        return
+    # OTel global providers are set once; a new lifespan requires a new process.
+    if _telemetry_started:
+        raise RuntimeError("Telemetry already initialized; replace the API process")
+
+    endpoint = deployment.otel_endpoint.rstrip("/")
+    attributes = {
+        "service.name": deployment.otel_service_name,
+        "service.version": deployment.service_version,
+        "deployment.environment.name": deployment.deployment_environment,
+        "service.instance.id": str(uuid4()),
+    }
+    if deployment.git_sha:
+        attributes["vcs.ref.head.revision"] = deployment.git_sha
+    resource = Resource.create(attributes)
+    stack = ExitStack()
+    try:
+        reader = PeriodicExportingMetricReader(
+            OTLPMetricExporter(
+                endpoint=f"{endpoint}/v1/metrics", timeout=policy.metrics.export_timeout_seconds
+            ),
+            export_interval_millis=policy.metrics.export_interval_seconds * 1000,
+            export_timeout_millis=policy.metrics.export_timeout_seconds * 1000,
+        )
+        meter = MeterProvider(resource=resource, metric_readers=[reader], shutdown_on_exit=False)
+        stack.callback(
+            meter.shutdown, timeout_millis=policy.metrics.shutdown_timeout_seconds * 1000
+        )
+        tracer = TracerProvider(
+            resource=resource,
+            sampler=ParentBased(TraceIdRatioBased(deployment.otel_sample_ratio)),
+            shutdown_on_exit=False,
+            meter_provider=meter,
+        )
+        stack.callback(tracer.shutdown)
+        tracer.add_span_processor(
+            BatchSpanProcessor(
+                OTLPSpanExporter(
+                    endpoint=f"{endpoint}/v1/traces", timeout=policy.traces.export_timeout_seconds
+                ),
+                max_queue_size=policy.traces.max_queue_size,
+                max_export_batch_size=policy.traces.max_export_batch_size,
+                schedule_delay_millis=policy.traces.schedule_delay_seconds * 1000,
+                export_timeout_millis=policy.traces.export_timeout_seconds * 1000,
+                meter_provider=meter,
+            )
+        )
+        metrics.set_meter_provider(meter)
+        trace.set_tracer_provider(tracer)
+        _telemetry_started = True
+        yield
+    finally:
+        # Native shutdown joins export workers; keep blocking work off the event loop.
+        await asyncio.to_thread(stack.close)
 
 
 class OperationOutcome(StrEnum):
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     CANCELLED = "cancelled"
+
+
+def record_database_duration(
+    operation: Literal["pool.acquire", "query"],
+    pool: Literal["application", "checkpoint"],
+    started: float,
+    error: BaseException | None = None,
+) -> None:
+    outcome = (
+        OperationOutcome.SUCCEEDED
+        if error is None
+        else OperationOutcome.CANCELLED
+        if isinstance(error, asyncio.CancelledError)
+        else OperationOutcome.FAILED
+    )
+    _database_histograms[operation].record(
+        perf_counter() - started, {"pool": pool, "outcome": outcome.value}
+    )
+
+
+@contextmanager
+def observe_pool_acquisition(pool: Literal["application", "checkpoint"]) -> Generator[None]:
+    started = perf_counter()
+    error = None
+    try:
+        yield
+    except BaseException as caught:
+        error = caught
+        raise
+    finally:
+        record_database_duration("pool.acquire", pool, started, error)
 
 
 def configure_logging(

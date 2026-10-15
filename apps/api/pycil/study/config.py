@@ -64,8 +64,13 @@ class ArtifactPolicy(Policy):
     distractor_count: Annotated[int, Field(strict=True, ge=3, le=20)]
 
 
+class GradingPolicy(Policy):
+    decision_threshold: Annotated[float, Field(strict=True, ge=0, le=1)]
+
+
 class LearningPolicy(Policy):
     artifacts: ArtifactPolicy
+    grading: GradingPolicy
     defaults: LearningPreferences
     limits: LearningLimits
     pair_levels: dict[

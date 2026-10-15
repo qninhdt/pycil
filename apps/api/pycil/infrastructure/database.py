@@ -2,6 +2,8 @@
 
 from collections.abc import Iterable, Mapping, Sequence
 from enum import StrEnum
+from time import perf_counter
+from typing import Any
 
 from sqlalchemy import (
     Enum,
@@ -9,12 +11,14 @@ from sqlalchemy import (
     MetaData,
     ScalarSelect,
     cast,
+    event,
     func,
     literal,
     select,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.engine import Connection, ExceptionContext, ExecutionContext
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -22,11 +26,22 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.pool import AsyncAdaptedQueuePool, PoolProxiedConnection
 from sqlalchemy.sql.expression import ColumnExpressionArgument
 
-from pycil.infrastructure.observability import get_logger
+from pycil.infrastructure.observability import (
+    get_logger,
+    observe_pool_acquisition,
+    record_database_duration,
+)
 
 logger = get_logger(__name__)
+
+
+class ApplicationPool(AsyncAdaptedQueuePool):
+    def connect(self) -> PoolProxiedConnection:
+        with observe_pool_acquisition("application"):
+            return super().connect()
 
 
 class Base(DeclarativeBase):
@@ -56,19 +71,69 @@ def enum_column[E: StrEnum](enum: type[E]) -> Enum:
 
 
 def connect(
-    url: str, *, size: int = 5, max_overflow: int = 0, timeout_seconds: float = 2
+    url: str,
+    *,
+    size: int = 5,
+    max_overflow: int = 0,
+    timeout_seconds: float = 2,
+    connect_timeout_seconds: float = 60,
 ) -> tuple[AsyncEngine, async_sessionmaker[AsyncSession]]:
     if not url.startswith("postgresql+asyncpg://"):
         raise ValueError("Pycil requires an explicit PostgreSQL async URL")
     engine = create_async_engine(
         url,
+        poolclass=ApplicationPool,
         pool_pre_ping=True,
         pool_size=size,
         max_overflow=max_overflow,
         pool_timeout=timeout_seconds,
         hide_parameters=True,
-        connect_args={"server_settings": {"search_path": "public"}},
+        connect_args={
+            "timeout": connect_timeout_seconds,
+            "server_settings": {"search_path": "public"},
+        },
     )
+
+    @event.listens_for(engine.sync_engine, "before_cursor_execute")
+    def query_started(
+        _connection: Connection,
+        _cursor: Any,
+        _statement: str,
+        _parameters: Any,
+        context: ExecutionContext | None,
+        _executemany: bool,
+    ) -> None:
+        if context is not None:
+            context._pycil_query_started = perf_counter()  # pyright: ignore[reportAttributeAccessIssue]
+
+    def query_finished(
+        context: ExecutionContext | None,
+        error: BaseException | None = None,
+    ) -> None:
+        if context is not None:
+            started: Any = getattr(context, "_pycil_query_started", None)
+            if isinstance(started, float):
+                try:
+                    delattr(context, "_pycil_query_started")
+                except AttributeError:
+                    pass
+                record_database_duration("query", "application", started, error)
+
+    @event.listens_for(engine.sync_engine, "after_cursor_execute")
+    def query_succeeded(
+        _connection: Connection,
+        _cursor: Any,
+        _statement: str,
+        _parameters: Any,
+        context: ExecutionContext | None,
+        _executemany: bool,
+    ) -> None:
+        query_finished(context)
+
+    @event.listens_for(engine.sync_engine, "handle_error")
+    def query_failed(context: ExceptionContext) -> None:
+        query_finished(context.execution_context, context.original_exception)
+
     return engine, async_sessionmaker(engine, expire_on_commit=False)
 
 

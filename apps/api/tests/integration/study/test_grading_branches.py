@@ -32,8 +32,9 @@ class Decision:
     "answer, task_fit, spelling_error",
     [("lender", True, False), ("lenderr", True, True), ("lender", False, False)],
 )
+@pytest.mark.parametrize("threshold", [0.5, 0.7])
 async def test_single_word_grading_resolves_alternate_meaning_through_real_search(
-    database, answer, task_fit, spelling_error
+    database, answer, task_fit, spelling_error, threshold
 ):
     _, target_id = await neutral_word(database.sessions)
     async with database.sessions() as session, session.begin():
@@ -71,7 +72,7 @@ async def test_single_word_grading_resolves_alternate_meaning_through_real_searc
             index,
             Decision(
                 [
-                    ({}, {"task_fit": float(task_fit), "spelling_error": float(spelling_error)}),
+                    ({}, {"task_fit": 0.6 * task_fit, "spelling_error": 0.6 * spelling_error}),
                     ({"matched_sense": f"sense_{alternate.id}"}, {}),
                 ]
             ),
@@ -80,11 +81,15 @@ async def test_single_word_grading_resolves_alternate_meaning_through_real_searc
             QuestionType.CONTEXT_TO_WORD,
             ResponseFormat.SINGLE_WORD,
             answer,
-            load_config().runtime.providers.vocabulary,
+            load_config().product.study.grading.model_copy(
+                update={"decision_threshold": threshold}
+            ),
             allowed_pairs=ALLOWED_PAIRS,
         )
         assert result.model_dump() == dict(
-            task_fit=task_fit, spelling_error=spelling_error, sense_id=alternate.id
+            task_fit=task_fit and threshold <= 0.6,
+            spelling_error=spelling_error and threshold <= 0.6,
+            sense_id=alternate.id,
         )
     finally:
         await index.close()
@@ -122,7 +127,7 @@ async def test_null_answer_returns_unused_diagnostics_without_inference(database
         kind,
         fmt,
         None,
-        load_config().runtime.providers.vocabulary,
+        load_config().product.study.grading,
         allowed_pairs=ALLOWED_PAIRS,
     )
     if fmt is ResponseFormat.SINGLE_WORD:
@@ -173,6 +178,19 @@ async def test_null_answer_returns_unused_diagnostics_without_inference(database
             },
         ),
         (
+            QuestionType.WORD_TO_USAGE,
+            Kind.WORD_TO_USAGE,
+            [
+                ({}, {"used": 0.7}),
+                (
+                    {"meaning": "correct", "form": "correct"},
+                    {"construction": 0.6, "collocation": 0.7, "appropriacy": 0.8},
+                ),
+            ],
+            {"used": True, "construction": False, "collocation": True, "appropriacy": True},
+        ),
+        (QuestionType.WORD_TO_USAGE, Kind.WORD_TO_USAGE, [({}, {"used": 0.6})], {"used": False}),
+        (
             QuestionType.SENTENCE_REWRITE,
             Kind.SENTENCE_REWRITE,
             [
@@ -212,7 +230,7 @@ async def test_semantic_grading_branches_are_readonly(database, kind, bank, answ
             kind,
             ResponseFormat.SHORT_ANSWER,
             "The bank opens.",
-            load_config().runtime.providers.vocabulary,
+            load_config().product.study.grading.model_copy(update={"decision_threshold": 0.7}),
             allowed_pairs=ALLOWED_PAIRS,
         )
         assert result.model_dump(mode="json").items() >= expected.items()
@@ -245,7 +263,7 @@ async def test_out_of_inventory_decision_is_rejected_without_credit(database):
             QuestionType.WORD_TO_DEFINITION,
             ResponseFormat.SHORT_ANSWER,
             "meaning",
-            load_config().runtime.providers.vocabulary,
+            load_config().product.study.grading,
             allowed_pairs=ALLOWED_PAIRS,
         )
 
@@ -302,7 +320,7 @@ async def test_grading_failures_do_not_publish_content_or_learning_state(databas
             kind,
             fmt,
             "a financial institution",
-            load_config().runtime.providers.vocabulary,
+            load_config().product.study.grading,
             allowed_pairs=ALLOWED_PAIRS,
         )
     async with database.sessions() as session:

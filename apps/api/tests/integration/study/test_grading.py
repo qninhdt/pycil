@@ -1,10 +1,9 @@
-from types import SimpleNamespace
-
 import pytest
 from sqlalchemy import event
 
 from pycil.study.artifacts.schemas import Artifact
 from pycil.study.artifacts.storage import append
+from pycil.study.config import GradingPolicy
 from pycil.study.enums import (
     DefinitionAccuracy,
     DefinitionCoverage,
@@ -48,7 +47,7 @@ async def test_grading_uses_existing_meanings_without_writing_learning_or_conten
     )
     identifier = artifacts[0].id
     decision_llm = DefinitionDecision(sense_id)
-    policy = SimpleNamespace(decision_threshold=0.7)
+    policy = GradingPolicy(decision_threshold=0.7)
     pairs = {
         (QuestionType.DEFINITION_TO_WORD, ResponseFormat.SINGLE_WORD),
         (QuestionType.WORD_TO_DEFINITION, ResponseFormat.SHORT_ANSWER),
