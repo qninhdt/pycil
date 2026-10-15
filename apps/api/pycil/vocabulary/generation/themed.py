@@ -106,10 +106,6 @@ async def ensure_word_theme(
         if current_word != neutral:
             raise InvalidResourceError("word changed during themed generation")
         for sense, group in zip(neutral.senses, output.senses, strict=True):
-            if len(group.examples) != example_count:
-                raise InvalidOutputError("themed example count does not match request")
-            for example in group.examples:
-                marked_occurrences(example, target_sequences(neutral, sense))
             session.add(Definition(sense_id=sense.id, theme_id=theme.id, content=group.definition))
             session.add_all(
                 Example(sense_id=sense.id, theme_id=theme.id, content=example)

@@ -13,7 +13,6 @@ from pycil.account.api import public_router
 from pycil.account.api import router as account_router
 from pycil.app.config import load_config
 from pycil.app.http import (
-    BodyLimit,
     HttpTelemetry,
     Problem,
     ProblemDetails,
@@ -28,7 +27,6 @@ from pycil.app.settings import Deployment
 from pycil.assistant.api import router as assistant_router
 from pycil.infrastructure.clerk import Identity
 from pycil.infrastructure.observability import configure_logging, get_logger
-from pycil.jobs.api import router as jobs_router
 from pycil.library.api import router as library_router
 from pycil.library.search import router as discovery_router
 from pycil.study.api import router as study_router
@@ -99,7 +97,6 @@ def create_app() -> FastAPI:
     app.include_router(discovery_router)
     app.include_router(vocabulary_router)
     app.include_router(study_router)
-    app.include_router(jobs_router)
     app.include_router(assistant_router)
 
     @app.get("/livez", include_in_schema=False)
@@ -128,7 +125,6 @@ def create_app() -> FastAPI:
             raise Problem(503, "not_ready") from None
         return {"status": "ready"}
 
-    app.add_middleware(BodyLimit)
     app.add_middleware(RequestBoundary)
     # CORS wraps safe-error middleware, including its 500/413 responses.
     app.add_middleware(RuntimeCORS)

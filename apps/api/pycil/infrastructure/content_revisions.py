@@ -68,7 +68,10 @@ class ContentRevision(Base):
                 source = operation.get("from")
                 if not isinstance(source, str) or (source and not source.startswith("/")):
                     raise ValueError("Patch source is required")
-        jsonpatch.JsonPatch(patch)
+        try:
+            jsonpatch.JsonPatch(patch)
+        except Exception as err:
+            raise ValueError(f"Invalid JSON Patch: {err}") from err
         return patch
 
 

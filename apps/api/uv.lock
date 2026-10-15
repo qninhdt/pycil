@@ -432,15 +432,6 @@ wheels = [
 ]
 
 [[package]]
-name = "cloudpickle"
-version = "3.1.2"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/27/fb/576f067976d320f5f0114a8d9fa1215425441bb35627b1993e5afd8111e5/cloudpickle-3.1.2.tar.gz", hash = "sha256:7fda9eb655c9c230dab534f1983763de5835249750e85fbcef43aaa30a9a2414", size = 22330, upload-time = "2025-11-03T09:25:26.604Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/88/39/799be3f2f0f38cc727ee3b4f1445fe6d5e4133064ec2e4115069418a5bb6/cloudpickle-3.1.2-py3-none-any.whl", hash = "sha256:9acb47f6afd73f60dc1df93bb801b472f05ff42fa6c84167d25cb206be1fbf4a", size = 22228, upload-time = "2025-11-03T09:25:25.534Z" },
-]
-
-[[package]]
 name = "colorama"
 version = "0.4.6"
 source = { registry = "https://pypi.org/simple" }
@@ -510,15 +501,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/10/bf/8d6ebc7dded797bd0f0160d52188021211f011a2b164ef0ae1dac4587465/cryptography-50.0.2-cp39-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:7a8701d6b584d76e909e3d305b7d126b41439876a5aaf76cddc67fc230eafa2e", size = 4897738, upload-time = "2026-09-30T15:29:43.106Z" },
     { url = "https://files.pythonhosted.org/packages/d4/aa/f3f6e0de7e6253b8baa8b2d8fb9d50924fa75cee3d4624bd4bc1208ee923/cryptography-50.0.2-cp39-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:ce47f66801c20ec6c6632453bb5960fe38939e9306970b48b3a5a26de7745d94", size = 5058280, upload-time = "2026-09-30T15:29:44.827Z" },
     { url = "https://files.pythonhosted.org/packages/f6/b6/a1faf3a27ae9405fb34b1713cc73b2d8a26b04d5c561578fa2e6ef3e5bb9/cryptography-50.0.2-cp39-abi3-win_amd64.whl", hash = "sha256:4e81d95e5bafc2d6e34e4bed780e53e4d5b9a2f928573428aa4d35fbec1eb0de", size = 3854095, upload-time = "2026-09-30T15:29:46.782Z" },
-]
-
-[[package]]
-name = "defusedxml"
-version = "0.7.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/0f/d5/c66da9b79e5bdb124974bfe172b4daf3c984ebd9c2a06e2b8a4dc7331c72/defusedxml-0.7.1.tar.gz", hash = "sha256:1bb3032db185915b62d7c6209c5a8792be6a32ab2fedacc84e01b52c51aa3e69", size = 75520, upload-time = "2021-03-08T10:59:26.269Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/07/6c/aa3f2f849e01cb6a001cd8554a88d4c77c5c1a31c95bdf1cf9301e6d9ef4/defusedxml-0.7.1-py2.py3-none-any.whl", hash = "sha256:a352e7e428770286cc899e2542b6cdaedb2b4953ff269a210103ec58f6198a61", size = 25604, upload-time = "2021-03-08T10:59:24.45Z" },
 ]
 
 [[package]]
@@ -890,18 +872,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/97/f8/33d78c83bd93ae0c0af05293a6660f88a1977caef39a6d72a84afab94ce0/jiter-0.14.0-cp314-cp314t-win32.whl", hash = "sha256:2f7877ed45118de283786178eceaf877110abacd04fde31efff3940ae9672674", size = 207957, upload-time = "2026-04-10T14:27:59.285Z" },
     { url = "https://files.pythonhosted.org/packages/d6/ac/2b760516c03e2227826d1f7025d89bf6bf6357a28fe75c2a2800873c50bf/jiter-0.14.0-cp314-cp314t-win_amd64.whl", hash = "sha256:14c0cb10337c49f5eafe8e7364daca5e29a020ea03580b8f8e6c597fed4e1588", size = 204690, upload-time = "2026-04-10T14:28:00.962Z" },
     { url = "https://files.pythonhosted.org/packages/dc/2e/a44c20c58aeed0355f2d326969a181696aeb551a25195f47563908a815be/jiter-0.14.0-cp314-cp314t-win_arm64.whl", hash = "sha256:5419d4aa2024961da9fe12a9cfe7484996735dca99e8e090b5c88595ef1951ff", size = 191338, upload-time = "2026-04-10T14:28:02.853Z" },
-]
-
-[[package]]
-name = "joblib"
-version = "1.6.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "cloudpickle" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/d5/1d/537ab090f302b838943a1b56497dd53059b9a9b46a074936470173a2e207/joblib-1.6.0.tar.gz", hash = "sha256:2ccc96785b12046c08fd6d55839c12857831b54a3c1673ffadd2f04bfc4eda03", size = 327903, upload-time = "2026-08-31T09:39:04.122Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/18/53/84099323c2ec4be98d935f63c033ac4151ee83836ca1050ede3b3aadf155/joblib-1.6.0-py3-none-any.whl", hash = "sha256:3dbbf9f6e4b592a2357b854608e980fe6390d131d7a82f011a377ef2ebef7aba", size = 306115, upload-time = "2026-08-31T09:39:02.298Z" },
 ]
 
 [[package]]
@@ -1297,22 +1267,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/b3/ce/2efa1f32a07adfe041d48c6d04c08b6f9db66b8512c765983172399b2855/multidict-7.1.0-cp315-cp315t-win_amd64.whl", hash = "sha256:55392202cb374dd1a1f89a8ce1586644870d9e936752059d053e576acc50bc89", size = 99671, upload-time = "2026-10-09T20:31:31.282Z" },
     { url = "https://files.pythonhosted.org/packages/a9/b3/a44c301fe13716c5f2c08afd89a481018988cde4b337b36e28a2b0fcf3a3/multidict-7.1.0-cp315-cp315t-win_arm64.whl", hash = "sha256:f979a077d1c0a9a36dd4fab0d3a36b8de7b593bf935e13df85a380395b2c11ad", size = 98893, upload-time = "2026-10-09T20:31:33.62Z" },
     { url = "https://files.pythonhosted.org/packages/d0/86/a3de309c5e28ee85b314d0e3ba0e0dea6fd361c313322a05e67be4656e1e/multidict-7.1.0-py3-none-any.whl", hash = "sha256:d9ef29cfd98e17085b4f91bba8fa1570bec6787d5c52ce653ed33a58785585d0", size = 28087, upload-time = "2026-10-09T20:31:35.945Z" },
-]
-
-[[package]]
-name = "nltk"
-version = "3.10.3"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "click" },
-    { name = "defusedxml" },
-    { name = "joblib" },
-    { name = "regex" },
-    { name = "tqdm" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/e0/e6/fe51d2bb1a3b446f59c5c8165999a9fee208bc346af90a7cbf7657bc0d75/nltk-3.10.3.tar.gz", hash = "sha256:bb9327a461c3811c2fa4900e03840401f2126adfb30c0072827c433bd2444ea4", size = 5137152, upload-time = "2026-08-12T23:46:37.258Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/b6/6d/ebd2af4640b12168fdf0cb74b6118df2f32a2f62ec7e0c06fbfd80706639/nltk-3.10.3-py3-none-any.whl", hash = "sha256:ff9598a8e20518ee0d557745890cc4435b9578489e2dcbc69c4f81fa060caf7c", size = 1798643, upload-time = "2026-08-12T23:44:13.478Z" },
 ]
 
 [[package]]
@@ -1740,7 +1694,6 @@ dependencies = [
     { name = "langchain" },
     { name = "langchain-openrouter" },
     { name = "langgraph-checkpoint-postgres" },
-    { name = "nltk" },
     { name = "openai" },
     { name = "openrouter" },
     { name = "opentelemetry-api" },
@@ -1761,8 +1714,11 @@ dependencies = [
     { name = "sqlalchemy", extra = ["asyncio"] },
     { name = "structlog" },
     { name = "tantivy" },
+    { name = "taskiq" },
+    { name = "taskiq-redis" },
     { name = "tenacity" },
     { name = "uvicorn", extra = ["standard"] },
+    { name = "wn" },
 ]
 
 [package.dev-dependencies]
@@ -1790,7 +1746,6 @@ requires-dist = [
     { name = "langchain", specifier = ">=1.4.3" },
     { name = "langchain-openrouter", specifier = ">=0.2.9" },
     { name = "langgraph-checkpoint-postgres", specifier = ">=3.1.2" },
-    { name = "nltk", specifier = ">=3.10.3" },
     { name = "openai", specifier = ">=3.0.0,<3.24.0" },
     { name = "openrouter", specifier = ">=0.10.8" },
     { name = "opentelemetry-api", specifier = "==1.45.0" },
@@ -1811,8 +1766,11 @@ requires-dist = [
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.1.3" },
     { name = "structlog", specifier = ">=26.1.0" },
     { name = "tantivy", specifier = ">=0.26.2,<0.27" },
+    { name = "taskiq", specifier = "==0.12.6" },
+    { name = "taskiq-redis", specifier = "==1.2.3" },
     { name = "tenacity", specifier = ">=9.1.2" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.54.0" },
+    { name = "wn", specifier = ">=0.10.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -1831,6 +1789,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/1b/7d/92392ff7815c21062bea51aa7b87d45576f649f16458d78b7cf94b9ab2e6/pycparser-3.0.tar.gz", hash = "sha256:600f49d217304a5902ac3c37e1281c9fe94e4d0489de643a9504c5cdfdfc6b29", size = 103492, upload-time = "2026-01-21T14:26:51.89Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/0c/c3/44f3fbbfa403ea2a7c779186dc20772604442dde72947e7d01069cbe98e3/pycparser-3.0-py3-none-any.whl", hash = "sha256:b727414169a36b7d524c1c3e31839a521725078d7b2ff038656844266160a992", size = 48172, upload-time = "2026-01-21T14:26:50.693Z" },
+]
+
+[[package]]
+name = "pycron"
+version = "3.3.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/6a/bf/dc33987a3275ad7c9f7785d14bd5e9e58cd396e62ac15b6822576ffbeeb5/pycron-3.3.0.tar.gz", hash = "sha256:877017822a65b949713b4746dcd3a3ff5bbd8b26db55e20e472dc191ea539d69", size = 71121, upload-time = "2026-09-17T07:41:46.472Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/20/b2/520fca1c0f4fb0334721e2ea187a650074492df7112209d45acb40032100/pycron-3.3.0-py3-none-any.whl", hash = "sha256:ab04a1ffa01257cc809de777cad1bf2e1a329ec6986059585b730269b7a18806", size = 5006, upload-time = "2026-09-17T07:41:45.519Z" },
 ]
 
 [[package]]
@@ -2244,6 +2211,45 @@ wheels = [
 ]
 
 [[package]]
+name = "taskiq"
+version = "0.12.6"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "anyio" },
+    { name = "packaging" },
+    { name = "pycron" },
+    { name = "pydantic" },
+    { name = "taskiq-dependencies" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/dd/6b/a7df3a5d1e7bbfe75a41f378f71c16e89ac19fbab931f8e8d76a8e339357/taskiq-0.12.6.tar.gz", hash = "sha256:4667db6366cfda24d23f0e34151b118d71b0907229f8ff00db9dbc2465f7baf8", size = 408574, upload-time = "2026-08-29T08:07:44.052Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/68/89/949d2d26ae24a5282b37d39e7e05b714f960840166458c7bc78cfade83b5/taskiq-0.12.6-py3-none-any.whl", hash = "sha256:fa8c5071ecafc6a1891e5ede1dc580093d99bccaf0d258b1848d2e5f35d22250", size = 94895, upload-time = "2026-08-29T08:07:42.591Z" },
+]
+
+[[package]]
+name = "taskiq-dependencies"
+version = "1.5.7"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/47/90/47a627696e53bfdcacabc3e8c05b73bf1424685bcb5f17209cb8b12da1bf/taskiq_dependencies-1.5.7.tar.gz", hash = "sha256:0d3b240872ef152b719153b9526d866d2be978aeeaea6600e878414babc2dcb4", size = 14875, upload-time = "2025-02-26T22:07:39.876Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/99/6d/4a012f2de002c2e93273f5e7d3e3feea02f7fdbb7b75ca2ca1dd10703091/taskiq_dependencies-1.5.7-py3-none-any.whl", hash = "sha256:6fcee5d159bdb035ef915d4d848826169b6f06fe57cc2297a39b62ea3e76036f", size = 13801, upload-time = "2025-02-26T22:07:38.622Z" },
+]
+
+[[package]]
+name = "taskiq-redis"
+version = "1.2.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "redis" },
+    { name = "taskiq" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/99/09/8476b1b12db94d53eb8d0a5e8ffffd453af7626d477bfbd8ab12bf1d3445/taskiq_redis-1.2.3.tar.gz", hash = "sha256:da427db1f68bb71ee90d93c416b82d1bf4a1ed4087f4b0f95b61bf6d8bba3e67", size = 14657, upload-time = "2026-06-23T01:09:07.783Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/68/93/64d90e5ff71b0dbb3c5dc74d62fd74361586b972b4eb49b6a84c06b01091/taskiq_redis-1.2.3-py3-none-any.whl", hash = "sha256:bcab686287e23e0b9922e7809783ef2af8e8e8ce833e790308af40e96f67d549", size = 20904, upload-time = "2026-06-23T01:09:06.822Z" },
+]
+
+[[package]]
 name = "tenacity"
 version = "9.1.4"
 source = { registry = "https://pypi.org/simple" }
@@ -2529,6 +2535,18 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/49/b2/b6987faf330f5af5c787a2610124c2e8403d51724f9001ec4fff6311fe7a/websockets-16.1.1-cp314-cp314t-win32.whl", hash = "sha256:8483c2096363120eea8b07c06ae7304d520f686665fffd4811fad423930a65d7", size = 179729, upload-time = "2026-07-17T22:50:53.269Z" },
     { url = "https://files.pythonhosted.org/packages/a2/6e/fbac6ed878dd362fbad7d415fa4f84d38e3e33fed8cde45c64e783acf826/websockets-16.1.1-cp314-cp314t-win_amd64.whl", hash = "sha256:bcce07e23e5769375158f5efdcdafa8d5cd014b93c6683865b840ed65b96f231", size = 180072, upload-time = "2026-07-17T22:50:54.969Z" },
     { url = "https://files.pythonhosted.org/packages/be/4d/2d0d67834092e354d2b0498f014a41249a89556bc406cf86f3e1557bb463/websockets-16.1.1-py3-none-any.whl", hash = "sha256:6abbd3e82c731c8e531714466acd5d87b5e88ac3243465337ba71d68e23ae7e3", size = 173814, upload-time = "2026-07-17T22:51:04.184Z" },
+]
+
+[[package]]
+name = "wn"
+version = "1.1.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/12/a3/df602e01adb0b18a0b1720a87d5d761cc663ecbaa846ed5a4939a5357dc5/wn-1.1.1.tar.gz", hash = "sha256:0555ea875f13df648f343b9c622153e4f71ee42bc9d57a00f260e1928f86b128", size = 164076, upload-time = "2026-08-14T06:47:27.48Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c1/03/dd84df87acf1cdba5d6f9fb1770f8880fc9c4139c380118c8b35ad5b4d85/wn-1.1.1-py3-none-any.whl", hash = "sha256:feaea1ef53806729b4629daa769546adb55a45cd029fa8e524db2ada837f8d24", size = 95820, upload-time = "2026-08-14T06:47:26.265Z" },
 ]
 
 [[package]]

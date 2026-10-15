@@ -1,44 +1,44 @@
 """Optional, generation-only corpus evidence; missing local data is acceptable."""
 
 import asyncio
-from threading import Lock
-from typing import Protocol, cast
+from typing import Any
 
 from pycil.vocabulary.types import WordNetSense
 
-lock = Lock()
-
-
-class SynsetLike(Protocol):
-    def name(self) -> str: ...
-    def pos(self) -> str: ...
-    def definition(self) -> str: ...
-
 
 def _lookup(citation: str) -> list[WordNetSense]:
-    from nltk.corpus import wordnet  # pyright: ignore[reportMissingTypeStubs]
+    try:
+        import wn  # pyright: ignore[reportMissingImports]
+    except ImportError:
+        return []
 
-    # The lazy corpus reader shares seekable files between lookup threads.
-    with lock:
-        try:
-            synsets = cast(
-                list[SynsetLike | None],
-                wordnet.synsets(citation.replace(" ", "_"))[:20],  # pyright: ignore[reportUnknownMemberType]
-            )
+    try:
+        formatted = citation.replace(" ", "_")
+        synsets: list[Any] = wn.synsets(formatted)[:20]
+        if not synsets and " " in citation:
+            synsets = wn.synsets(citation)[:20]
 
-            results: list[WordNetSense] = []
-            for sense in synsets:
-                if sense is not None:
-                    results.append(
-                        WordNetSense(
-                            key=str(sense.name()),
-                            pos=str(sense.pos()),
-                            definition=str(sense.definition()),
-                        )
+        results: list[WordNetSense] = []
+        for sense in synsets:
+            if sense is not None:
+                if callable(getattr(sense, "name", None)):
+                    key = str(sense.name())
+                else:
+                    key = str(getattr(sense, "id", ""))
+                pos_attr = getattr(sense, "pos", "")
+                pos_val = str(pos_attr() if callable(pos_attr) else pos_attr)
+                defn_attr = getattr(sense, "definition", "")
+                defn_val = str(defn_attr() if callable(defn_attr) else defn_attr)
+                results.append(
+                    WordNetSense(
+                        key=key,
+                        pos=pos_val,
+                        definition=defn_val,
                     )
-            return results
-        except LookupError:
-            return []
+                )
+        return results
+    except Exception:
+        return []
 
 
 async def lookup(citation: str) -> list[WordNetSense]:

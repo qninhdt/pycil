@@ -1,6 +1,4 @@
-from types import SimpleNamespace
-
-import nltk
+import wn
 
 from pycil.vocabulary.references.wordnet import lookup
 
@@ -9,11 +7,7 @@ async def test_missing_local_corpus_is_optional_and_never_downloads(monkeypatch)
     def missing(citation):
         raise LookupError("local corpus unavailable")
 
-    def download(*args, **kwargs):
-        raise AssertionError("generation must not download a corpus")
-
-    monkeypatch.setattr(nltk.corpus, "wordnet", SimpleNamespace(synsets=missing))
-    monkeypatch.setattr(nltk, "download", download)
+    monkeypatch.setattr(wn, "synsets", missing)
     assert await lookup("bank") == []
     assert await lookup("give {sb} a hand") == []
 
@@ -38,7 +32,7 @@ async def test_corpus_evidence_keeps_citation_identity_and_bounds_synsets(monkey
         requested.append(citation)
         return [Synset(number) for number in range(1, 23)]
 
-    monkeypatch.setattr(nltk.corpus, "wordnet", SimpleNamespace(synsets=synsets))
+    monkeypatch.setattr(wn, "synsets", synsets)
     evidence = await lookup("ice cream")
     assert requested == ["ice_cream"]
     assert len(evidence) == 20

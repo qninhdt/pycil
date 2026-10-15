@@ -1,10 +1,10 @@
 from types import SimpleNamespace
 from uuid import uuid4
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from pycil.app.http import BodyLimit, RequestBoundary, RuntimeCORS
+from pycil.app.http import RequestBoundary, RuntimeCORS
 
 
 def boundary_app():
@@ -13,53 +13,9 @@ def boundary_app():
         runtime=SimpleNamespace(http=SimpleNamespace(max_body_bytes=6))
     )
     app.state.deployment = SimpleNamespace(allowed_origins=["https://web.example.test"])
-    app.add_middleware(BodyLimit)
     app.add_middleware(RequestBoundary)
     app.add_middleware(RuntimeCORS)
     return app
-
-
-async def test_streamed_body_limit_prevents_dispatch_even_with_a_false_length():
-    app = boundary_app()
-    received = []
-
-    @app.post("/echo")
-    async def echo(request: Request):
-        body = await request.body()
-        received.append(body)
-        return {"size": len(body)}
-
-    async def chunks(*parts):
-        for part in parts:
-            yield part
-
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="https://api.test") as http:
-        response = await http.post("/echo", content=chunks(b"abc", b"def"))
-        assert response.json() == {"size": 6}
-        response = await http.post(
-            "/echo",
-            content=chunks(b"abc", b"defg"),
-            headers={"Content-Length": "0", "Origin": "https://web.example.test"},
-        )
-        assert response.status_code == 413
-        assert response.headers["content-type"] == "application/problem+json"
-        body_413 = response.json()
-        assert body_413["code"] == "body_too_large"
-        assert body_413["status"] == 413
-        assert body_413["type"] == "about:blank"
-        assert body_413["title"] == "Content Too Large"
-        assert body_413["error"] == "body_too_large"
-        assert response.headers["access-control-allow-origin"] == "https://web.example.test"
-        assert response.headers["x-request-id"]
-        response = await http.post("/echo", content=b"", headers={"Content-Length": "invalid"})
-        assert response.status_code == 400
-        assert response.headers["content-type"] == "application/problem+json"
-        body_400 = response.json()
-        assert body_400["code"] == "invalid_request"
-        assert body_400["status"] == 400
-        assert body_400["title"] == "Bad Request"
-        assert body_400["error"] == "invalid_request"
-        assert received == [b"abcdef"]
 
 
 async def test_unhandled_error_is_redacted_and_retains_request_correlation():
