@@ -106,7 +106,12 @@ async def process_resources(
             stack.callback(word_cache.clear)
             stack.callback(sense_cache.clear)
             stack.callback(artifact_cache.clear)
-            search = SearchIndex(sessions, deployment.search_index_path)
+            search = SearchIndex(
+                sessions,
+                deployment.search_index_path,
+                policy=config.runtime.search,
+                query_policy=config.product.vocabulary.search,
+            )
             stack.push_async_callback(search.close)
             await search.start()
             generations = Generations(

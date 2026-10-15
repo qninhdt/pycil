@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from pycil.infrastructure.cache import MemoryCache
+from pycil.infrastructure.content_revisions import GRAPH_KEY, capture, publish
 from pycil.infrastructure.database import transaction_lock
 from pycil.infrastructure.llm import render_prompt
 from pycil.infrastructure.observability import get_logger, observe_operation
@@ -183,6 +184,7 @@ async def _generate(
         raise InvalidOutputError("invalid word inventory evidence") from None
     # Reuse an already completed canonical word before buying enrichment calls.
     async with sessions() as session, session.begin():
+        await transaction_lock(session, GRAPH_KEY)
         await transaction_lock(session, "word:" + match_key(inventory.lemma))
         existing = await session.scalar(
             select(rows.Word)
@@ -193,7 +195,9 @@ async def _generate(
             .with_for_update()
         )
         if existing is not None:
+            before = await capture(session, [("word", existing.id)])
             await link_reference(session, existing.id, source.id)
+            await publish(session, before)
             return existing.id
 
     async def enrich(batch: list[tuple[int, InventorySense]]) -> list[Enrichment]:
@@ -244,10 +248,12 @@ async def _generate(
                 task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
     async with sessions() as session, session.begin():
-        word = await publish_identity(
+        await transaction_lock(session, GRAPH_KEY)
+        word, before = await publish_identity(
             session, source.id, inventory.lemma, inventory.type, inventory.aliases
         )
         if word.generation_state == GenerationState.DONE:
+            await publish(session, before)
             return word.id
         groups: list[tuple[rows.Sense, InventorySense, Enrichment]] = []
         for index, seed in seeds:
@@ -292,10 +298,11 @@ async def _generate(
             for group in detail.relations
             for lemma in group.lemmas
         ]
-        targets = await target_words(
+        targets, created = await target_words(
             session,
             [lemma for lemma, _kind in word_edges] + [lemma for _id, lemma, _kind in sense_edges],
         )
+        before.update(created)
         for sense, seed, detail in groups:
             session.add(rows.Definition(sense_id=sense.id, content=seed.definition))
             session.add_all(
@@ -345,5 +352,6 @@ async def _generate(
         session.add_all(sense_relations)
         word.generation_state = GenerationState.DONE
         await session.flush()
+        await publish(session, before)
         identifier = word.id
     return identifier

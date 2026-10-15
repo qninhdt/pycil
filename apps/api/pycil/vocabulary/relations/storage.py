@@ -10,6 +10,8 @@ from sqlalchemy import and_, select, text, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import aliased
 
+from pycil.infrastructure.content_revisions import GRAPH_KEY, capture, publish
+from pycil.infrastructure.database import transaction_lock
 from pycil.vocabulary.enums import GenerationState, PartOfSpeech, SenseRelationType
 from pycil.vocabulary.models import Definition, Sense, SenseRelation, Word
 
@@ -136,6 +138,15 @@ async def apply_resolution(
     cache: ClearableCache | None = None,
 ) -> bool:
     async with sessions() as session, session.begin():
+        await transaction_lock(session, GRAPH_KEY)
+        owner_id = await session.scalar(
+            select(Sense.word_id)
+            .join(SenseRelation, SenseRelation.from_sense_id == Sense.id)
+            .where(SenseRelation.id == expected.edge_id)
+        )
+        if owner_id is None:
+            return False
+        before = await capture(session, [("word", owner_id)])
         edge = await session.scalar(
             select(SenseRelation).where(SenseRelation.id == expected.edge_id).with_for_update()
         )
@@ -151,6 +162,7 @@ async def apply_resolution(
         edge.to_sense_id = selected.id if selected is not None else None
         edge.target_hash = selected.fingerprint if selected is not None else None
         edge.resolve_attempted_at = datetime.now(UTC).isoformat()
+        await publish(session, before)
     if cache is not None:
         cache.clear()
     return True

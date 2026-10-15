@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from pycil.infrastructure.cache import MemoryCache
-from pycil.infrastructure.database import transaction_lock
+from pycil.infrastructure.content_revisions import capture, publish
 from pycil.infrastructure.llm import render_prompt
 from pycil.themes.models import Theme
 from pycil.themes.namespace import normalize_key
@@ -55,9 +55,8 @@ async def ensure_word_theme(
         raise ValueError("invalid example count")
     key = normalize_key(key)
     async with sessions() as session, session.begin():
-        await transaction_lock(session, f"word_theme:{word_id}:{key}")
-        theme = await session.scalar(select(Theme).where(Theme.key == key).with_for_update())
-        word = await session.scalar(select(Word).where(Word.id == word_id).with_for_update())
+        theme = await session.scalar(select(Theme).where(Theme.key == key))
+        word = await session.scalar(select(Word).where(Word.id == word_id))
         if theme is None or word is None:
             raise InvalidResourceError("unknown theme or word")
         existing = await get_word(sessions, word_id, theme_key=key)
@@ -83,9 +82,29 @@ async def ensure_word_theme(
             theme={"voice": theme.voice, "diction": theme.diction},
             generation_parameters={"examples_per_sense": example_count},
         )
-        output = await structured_llm.complete(instruction, data, ThemedWord)
-        if len(output.senses) != len(neutral.senses):
-            raise InvalidOutputError("themed inventory does not match neutral inventory")
+    output = await structured_llm.complete(instruction, data, ThemedWord)
+    if len(output.senses) != len(neutral.senses):
+        raise InvalidOutputError("themed inventory does not match neutral inventory")
+    for sense, group in zip(neutral.senses, output.senses, strict=True):
+        if len(group.examples) != example_count:
+            raise InvalidOutputError("themed example count does not match request")
+        for example in group.examples:
+            marked_occurrences(example, target_sequences(neutral, sense))
+    async with sessions() as session, session.begin():
+        before = await capture(session, [("theme", theme.id), ("word", word_id)])
+        current_theme = before["theme", theme.id]
+        if (
+            current_theme is None
+            or current_theme["voice"] != theme.voice
+            or current_theme["diction"] != theme.diction
+        ):
+            raise InvalidResourceError("theme changed during generation")
+        existing = await get_word(sessions, word_id, theme_key=key)
+        if existing is not None:
+            return existing
+        current_word = await get_word(sessions, word_id)
+        if current_word != neutral:
+            raise InvalidResourceError("word changed during themed generation")
         for sense, group in zip(neutral.senses, output.senses, strict=True):
             if len(group.examples) != example_count:
                 raise InvalidOutputError("themed example count does not match request")
@@ -96,6 +115,7 @@ async def ensure_word_theme(
                 Example(sense_id=sense.id, theme_id=theme.id, content=example)
                 for example in group.examples
             )
+        await publish(session, before)
     for cache in (word_cache, sense_cache):
         if cache is not None:
             cache.clear()

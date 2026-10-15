@@ -6,10 +6,11 @@ from hashlib import sha256
 from typing import Any, cast
 
 import orjson
-from sqlalchemy import Integer, column, func, literal, or_, select, tuple_, values
+from sqlalchemy import Integer, column, delete, func, literal, or_, select, tuple_, values
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from pycil.infrastructure.cache import MemoryCache
+from pycil.infrastructure.content_revisions import capture, lock_owners, publish
 from pycil.infrastructure.database import json_collection
 from pycil.study.artifacts.schemas import ARTIFACT_SCHEMAS, Artifact
 from pycil.study.enums import SINGLETON_ARTIFACT_TYPES, QuestionArtifactType
@@ -118,6 +119,18 @@ async def append(
     existing: dict[tuple[int, int | None, QuestionArtifactType, str | None], QuestionArtifact] = {}
     async with sessions() as session, session.begin():
         ids = sorted({artifact.sense_id for artifact in artifacts})
+        # Theme -> word -> artifact is the common cascade/mutation lock order.
+        await lock_owners(
+            session,
+            [
+                ("theme", identifier)
+                for identifier in sorted({a.theme_id for a in artifacts if a.theme_id is not None})
+            ],
+        )
+        owners = list(
+            await session.scalars(select(Sense.word_id).where(Sense.id.in_(ids)).distinct())
+        )
+        await lock_owners(session, [("word", identifier) for identifier in owners])
         found = set(
             await session.scalars(
                 select(Sense.id).where(Sense.id.in_(ids)).order_by(Sense.id).with_for_update()
@@ -149,6 +162,9 @@ async def append(
                     None if row.artifact_type in SINGLETON_ARTIFACT_TYPES else row.payload_hash
                 )
                 existing[row.sense_id, row.theme_id, row.artifact_type, fingerprint] = row
+        before = await capture(
+            session, [("question_artifact", row.id) for row in existing.values()]
+        )
         for artifact, payload, encoded, fingerprint in prepared:
             kind = artifact.artifact_type
             singleton = kind in SINGLETON_ARTIFACT_TYPES
@@ -179,10 +195,50 @@ async def append(
                 row.payload, row.payload_hash = encoded, fingerprint
             saved[key] = row
         await session.flush()
+        for row in saved.values():
+            before.setdefault(("question_artifact", row.id), None)
+        await publish(session, before)
         result = [artifact_value(row) for row in saved.values()]
     if cache is not None:
         cache.clear()
     return result
+
+
+async def remove(
+    sessions: async_sessionmaker[AsyncSession],
+    identifier: int,
+    *,
+    cache: MemoryCache[int, Artifact] | None = None,
+) -> int | None:
+    async with sessions() as session, session.begin():
+        scope = (
+            await session.execute(
+                select(QuestionArtifact.sense_id, QuestionArtifact.theme_id, Sense.word_id)
+                .join(Sense, Sense.id == QuestionArtifact.sense_id)
+                .where(QuestionArtifact.id == identifier)
+            )
+        ).one_or_none()
+        if scope is None:
+            return None
+        if scope.theme_id is not None:
+            await lock_owners(session, [("theme", scope.theme_id)])
+        await lock_owners(session, [("word", scope.word_id)])
+        await session.execute(select(Sense.id).where(Sense.id == scope.sense_id).with_for_update())
+        # The dense-position trigger can move another artifact in the same bank.
+        identifiers = list(
+            await session.scalars(
+                select(QuestionArtifact.id).where(
+                    QuestionArtifact.sense_id == scope.sense_id,
+                    QuestionArtifact.theme_id == scope.theme_id,
+                )
+            )
+        )
+        before = await capture(session, [("question_artifact", value) for value in identifiers])
+        await session.execute(delete(QuestionArtifact).where(QuestionArtifact.id == identifier))
+        revision = await publish(session, before)
+    if cache is not None:
+        cache.clear()
+    return revision
 
 
 async def bank_sizes(

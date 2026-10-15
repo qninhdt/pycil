@@ -11,6 +11,7 @@ from sqlalchemy.sql.elements import ColumnElement
 from sqlalchemy.sql.expression import ColumnExpressionArgument
 
 from pycil.infrastructure.cache import MemoryCache
+from pycil.infrastructure.content_revisions import EntityKey, Snapshot, capture
 from pycil.infrastructure.database import json_collection, transaction_lock
 from pycil.themes.namespace import theme_scope
 from pycil.vocabulary import models as rows
@@ -308,12 +309,13 @@ async def publish_identity(
     lemma: str,
     entry_type: EntryType | None,
     aliases: Sequence[str],
-) -> rows.Word:
+) -> tuple[rows.Word, dict[EntityKey, Snapshot]]:
     key = match_key(lemma)
     await transaction_lock(session, "word:" + key)
     word = await session.scalar(
         select(rows.Word).where(rows.Word.match_key == key).with_for_update()
     )
+    previous = await capture(session, [("word", word.id)]) if word is not None else {}
     if word is None:
         word = rows.Word(
             lemma=lemma,
@@ -323,9 +325,10 @@ async def publish_identity(
         )
         session.add(word)
         await session.flush()
+    previous.setdefault(("word", word.id), None)
     await link_reference(session, word.id, source_id)
     if word.generation_state == GenerationState.DONE:
-        return word
+        return word, previous
     word.lemma, word.entry_type = lemma, entry_type
     seen: set[str] = {key}
     values: list[dict[str, Any]] = []
@@ -336,24 +339,31 @@ async def publish_identity(
             values.append(dict(word_id=word.id, content=alias, match_key=normalized))
     if values:
         await session.execute(insert(rows.WordAlias).on_conflict_do_nothing(), values)
-    return word
+    return word, previous
 
 
-async def target_words(session: AsyncSession, lemmas: Sequence[str]) -> dict[str, int]:
+async def target_words(
+    session: AsyncSession, lemmas: Sequence[str]
+) -> tuple[dict[str, int], dict[EntityKey, Snapshot]]:
     unique = {match_key(lemma): lemma for lemma in lemmas}
     if not unique:
-        return {}
+        return {}, {}
     values = [
         dict(lemma=lemma, match_key=key, generation_state=GenerationState.PENDING)
         for key, lemma in unique.items()
     ]
-    await session.execute(
-        insert(rows.Word).on_conflict_do_nothing(index_elements=[rows.Word.match_key]), values
+    created = list(
+        await session.scalars(
+            insert(rows.Word)
+            .on_conflict_do_nothing(index_elements=[rows.Word.match_key])
+            .returning(rows.Word.id),
+            values,
+        )
     )
     result = await session.execute(
         select(rows.Word.match_key, rows.Word.id).where(rows.Word.match_key.in_(unique))
     )
-    return dict(result.all())
+    return dict(result.all()), {("word", identifier): None for identifier in created}
 
 
 async def meaning_inventory(

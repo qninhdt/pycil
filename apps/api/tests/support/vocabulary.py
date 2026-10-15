@@ -1,3 +1,4 @@
+from pycil.infrastructure.content_revisions import publish
 from pycil.vocabulary.enums import EntryType, GenerationState, PartOfSpeech, Tier
 from pycil.vocabulary.models import Definition, Example, Sense, Word
 
@@ -17,4 +18,5 @@ async def neutral_word(sessions):
         await session.flush()
         session.add(Definition(sense_id=sense.id, theme_id=None, content="a financial institution"))
         session.add(Example(sense_id=sense.id, theme_id=None, content="The [bank] opens at nine."))
+        await publish(session, {("word", word.id): None})
         return word.id, sense.id

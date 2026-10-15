@@ -1,17 +1,20 @@
 """Theme identity lifecycle; existing generated namespaces survive descriptor edits."""
 
-from typing import Protocol, cast
+from typing import Protocol
 
 from pydantic import BaseModel
-from sqlalchemy import CursorResult, delete, select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from pycil.infrastructure.content_revisions import capture, publish
 from pycil.infrastructure.llm import render_prompt
+from pycil.study.models import QuestionArtifact
 from pycil.themes.errors import InvalidThemeError
 from pycil.themes.models import Theme as ThemeRow
 from pycil.themes.namespace import normalize_key
 from pycil.themes.schemas import Theme, ThemeParts
+from pycil.vocabulary.models import Definition, Example, Sense
 
 
 class StructuredLLMProtocol(Protocol):
@@ -53,6 +56,7 @@ async def create_theme(
             row = ThemeRow(key=norm_key, name=name, **parts.model_dump())
             session.add(row)
             await session.flush()
+            await publish(session, {("theme", row.id): None})
             return Theme.model_validate(row)
     except IntegrityError as error:
         raise InvalidThemeError("theme key already exists") from error
@@ -81,8 +85,10 @@ async def update_theme(
         )
         if row is None:
             raise InvalidThemeError("unknown theme")
+        before = await capture(session, [("theme", row.id)])
         for field, value in changes.items():
             setattr(row, field, value)
+        await publish(session, before)
         return Theme.model_validate(row)
 
 
@@ -95,9 +101,34 @@ async def delete_theme(
     artifact_cache: CacheProtocol | None = None,
 ) -> bool:
     async with sessions() as session, session.begin():
-        result = await session.execute(delete(ThemeRow).where(ThemeRow.key == normalize_key(key)))
-        cursor_result = cast(CursorResult[tuple[()]], result)
-        removed = bool(cursor_result.rowcount)
+        theme = await session.scalar(
+            select(ThemeRow).where(ThemeRow.key == normalize_key(key)).with_for_update()
+        )
+        if theme is None:
+            return False
+        before = await capture(session, [("theme", theme.id)])
+        sense_ids = (
+            select(Definition.sense_id)
+            .where(Definition.theme_id == theme.id)
+            .union(select(Example.sense_id).where(Example.theme_id == theme.id))
+        )
+        word_ids = list(
+            await session.scalars(select(Sense.word_id).where(Sense.id.in_(sense_ids)).distinct())
+        )
+        before.update(await capture(session, [("word", identifier) for identifier in word_ids]))
+        artifact_ids = list(
+            await session.scalars(
+                select(QuestionArtifact.id).where(QuestionArtifact.theme_id == theme.id)
+            )
+        )
+        before.update(
+            await capture(
+                session, [("question_artifact", identifier) for identifier in artifact_ids]
+            )
+        )
+        await session.execute(delete(ThemeRow).where(ThemeRow.id == theme.id))
+        await publish(session, before)
+        removed = True
     if removed:
         for cache in (word_cache, sense_cache, artifact_cache):
             if cache is not None:

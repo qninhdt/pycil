@@ -27,11 +27,32 @@ optionally imports reference JSONL and verifies the resulting schema. Omitting
 There is no automatic reference download, SQLite import or mandatory generated-content seed.
 Generated content is optional and may be imported manually later by operations.
 
-## Identity adoption
+## Identity and content-history adoption
 
-The `user_identity` migration renames `users.clerk_subject` to `clerk_id` and its
-unique constraint without replacing user rows. Coordinate rollout: older application
-versions expecting the old column cannot share this schema.
+The additive `user_identity` migration renames `users.clerk_subject` to `clerk_id` and
+its unique constraint without replacing user rows. Coordinate application rollout:
+old application versions expecting the old column cannot share this schema.
+The following `content_revisions` migration adds retained history and its `CACHE 1` sequence.
+
+For a populated installation, pause **all content writers**, back up the database and
+run the migration command with `--baseline-content`. It records one adoption-time snapshot
+per existing word/theme/artifact in bounded, idempotent transactions. It cannot recover
+pre-adoption history. Finish the baseline before resuming only revision-aware writers.
+Fresh empty installations need no content backfill. API startup never backfills history.
+An edit of legacy content without a baseline fails and rolls back rather than inventing history.
+Manual generated-content imports require the same paused baseline procedure before use.
+
+Content-history downgrade is deliberately refused because dropping history loses replay data.
+Restore a compatible release/backup through an explicit recovery decision instead. Do not prune
+the revision chain on a timer. A resumed baseline is safe after interruption.
+
+Search schema v3 uses its own derived directory, separate from cache payload versions and
+required Redis coordination namespaces. For reference replacement or older-DB restore,
+pause writes, stop every worker owning the affected directory, invalidate only derived index
+directories, then restart compatible workers and wait for readiness/catch-up. An index cursor
+ahead of the restored database is rejected. No user/content/history tables are reset by this
+procedure; old schema directories are not automatically deleted. Backups/restores and deploy
+commands remain operator actions, not API startup behavior.
 
 ## Reference artifact
 

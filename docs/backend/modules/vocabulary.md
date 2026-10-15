@@ -31,12 +31,11 @@ Reference handles are opaque identities returned by search, not saved sense IDs.
 ## Search and projections
 
 The index is opened before serving: in memory, or on disk under `SEARCH_INDEX_PATH`.
-A disk index is rebuilt when its publication fingerprint differs from the database.
-Word and consumed-reference markers commit with their search documents; startup derives
-the published word count/maximum ID and consumed-reference count from these markers,
-alongside the immutable reference count/maximum ID recorded during rebuild. An unrelated
-word update cannot mark unpublished database content as indexed. Complete disk indexes
-are reused after restart, and every process using the same directory follows its commits.
+One lifetime writer per directory polls PostgreSQL content revisions. Other workers use
+its committed reader and retry ownership with jitter; independent directories each poll
+all changes. A compatible cursor is reused after restart/takeover. A new schema directory
+bootstraps from one repeatable-read snapshot and catches up after its recorded high-water
+revision. Request handlers do not acquire writers.
 Searches use the current reader without SQL. Ranking follows `exact`, `prefix`, `substring`, then
 `fuzzy`; generated words precede reference hits within a match class. Aliases/forms and
 licensed patterns retain exact-match behavior. Consumed references disappear after the
@@ -49,23 +48,40 @@ candidate; shorter queries retain regex matching. Pattern candidates are read in
 growing pages until enough generated exact matches are available or candidates are
 exhausted. Neither path imposes a candidate cap that can discard valid hits.
 
-Publication commits PostgreSQL first, replaces that word's index documents, removes
-consumed references, commits/reloads Tantivy, then returns success. Each update projects
-one word in five SQL queries without whole-dictionary fingerprint aggregates. Native writes are
-serialized by Tantivy's cross-process writer lock and joined on cancellation. Existing
-readers can finish with the old snapshot.
-A failed index update fails the job and keeps valid committed content for a subsequent
-explicit retry or startup rebuild when publication markers differ. Rebuild indexes
-references before words so the words remove their consumed reference documents in the
-same commit. Schema version changes create a new versioned directory and require a
-first-start rebuild; older directories are not deleted automatically. Edits that bypass
-publication without changing counts or maximum IDs need the index directory removed
-before restart.
+Content and deterministic JSON Patch history commit in the same PostgreSQL transaction.
+Revisions cover words and their owned children, artifact payloads/ordering, and themes.
+The shared publication lock is acquired last; sequence IDs use `CACHE 1` and are committed
+in scan order. Deletes retain tombstones and cascade-affected patches. The owner coalesces
+bounded revision batches, reads current search projections in one SQL snapshot, and commits
+documents plus cursor atomically. Unlinking/deleting a generated word restores an immutable
+reference when no completed word consumes it. Theme/artifact-only batches advance the cursor
+without creating search documents.
 
-Batch previews hydrate selected IDs in bounded SQL batches rather than calling word
-detail per result. Complete groups must fit configured sense limits; oversized requests
-fail. Shared content caching excludes private progress. Viewer projections authorize
-readable containing decks live and keep prior personal state after membership revocation.
+Generation waits for the committed revision to be visible locally before reporting ready.
+Waiting holds no database connection. Publication timeout/failure preserves committed content;
+retry does not buy another generation when canonical content already exists. Transient database
+errors retry with the same writer, while fatal native failures mark readiness unhealthy and
+release ownership. Cancelled native work is joined before shutdown releases its dependencies.
+
+Supported direct edits/deletions must use the transactional content/history functions;
+raw SQL bypassing them is outside the mutation contract. Existing content needs an explicit
+paused-write baseline. Retain the complete baseline/patch chain. Reference replacement, schema
+changes and older-database restore require reviewed derived-index invalidation; an ahead-of-DB
+cursor is rejected. See [the operational procedure](../operations/migrations.md).
+
+Neutral content uses separate process-local Word metadata and Sense caches. Word metadata
+contains ordered Sense IDs; complete responses reuse those Sense objects without caching
+an assembled Word. Retained lexical DTOs are frozen slotted Pydantic dataclasses with tuple
+collections; HTTP arrays and field aliases stay unchanged. Themed reads bypass neutral caches.
+A complete Word/Sense hit needs no SQL. Partial Sense misses use the existing deduplicated,
+ordered, bounded batch loader; missing Senses trigger one authoritative Word reload.
+
+Batch previews, library examples, study preparation and Assistant lexical hydration reuse
+the Sense cache after authoritative selection. Complete groups must fit configured sense
+limits; oversized requests fail. Shared content caching excludes private progress. Viewer
+projections authorize readable containing decks live and keep prior personal state after
+membership revocation. Committed lexical edits clear both neutral caches in the writing
+process; TTL bounds stale data in other processes. Artifact caching remains independent.
 
 ## Generation
 
@@ -75,8 +91,12 @@ citations, forms, patterns or target-marked examples never publish. Sibling work
 and joined after failure. Completed canonical words are reused; overlapping publication
 uses database advisory locks and a single transaction.
 
-Reference-key and normalized word-input singleflight live in the API process. Jobs use
-bounded concurrency per process and a configured deadline after acquiring a slot.
+Reference-key and normalized word-input singleflight live in the API process. Each process
+runs at most eight generation pipelines and admits at most 24 unfinished jobs (eight active
+slots plus 16 pending slots). Jobs retain admission capacity until final status publication
+finishes. A new distinct job when full returns `503 generation_overloaded` without creating
+a task or Redis status; duplicate requests still return the existing job. The configured
+generation deadline starts after acquiring an active slot.
 Task status is stored in the existing Redis namespace before acceptance, so any API
 process can poll it. Each initial/final status write has a 24-hour TTL. They finish with
 `succeeded` / `ready` only after search publication; timeout/cancellation/failure are

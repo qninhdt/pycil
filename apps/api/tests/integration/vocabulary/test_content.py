@@ -12,6 +12,7 @@ from pycil.library.models import NodeType
 from pycil.library.nodes import create_node
 from pycil.library.schemas import NodeCreate
 from pycil.study.models import UserSense
+from pycil.vocabulary.content import delete_word, edit_word
 from pycil.vocabulary.enums import PartOfSpeech, Tier
 from pycil.vocabulary.models import Definition, Example, Sense
 from pycil.vocabulary.schemas import CachedWord
@@ -102,6 +103,56 @@ async def test_sense_partial_misses_are_deduplicated_batched_and_keep_requested_
     assert [sense.id for sense in found] == [second.id, first_id, second.id]
     assert found[1] is first and found[0] is found[2] is cache.get(second.id)
     assert len(statements) == 2
+
+
+async def test_stale_word_metadata_recovers_once_after_external_deletion(database):
+    word_id, sense_id = await neutral_word(database.sessions)
+    words, senses = MemoryCache(2, 30), MemoryCache(4, 30)
+    await get_word(database.sessions, word_id, word_cache=words, sense_cache=senses)
+    await delete_word(database.sessions, word_id)
+    senses.discard(sense_id)
+    statements = []
+
+    def record(*args):
+        statements.append(args[2])
+
+    event.listen(database.engine.sync_engine, "before_cursor_execute", record)
+    try:
+        assert (
+            await get_word(database.sessions, word_id, word_cache=words, sense_cache=senses) is None
+        )
+    finally:
+        event.remove(database.engine.sync_engine, "before_cursor_execute", record)
+    assert words.get(word_id) is None and senses.get(sense_id) is None
+    assert len(statements) == 2
+
+
+async def test_committed_lexical_edits_clear_both_stores_but_rollback_does_not(
+    database, monkeypatch
+):
+    from pycil.vocabulary import content
+
+    word_id, sense_id = await neutral_word(database.sessions)
+    words, senses = MemoryCache(2, 30), MemoryCache(4, 30)
+    await get_word(database.sessions, word_id, word_cache=words, sense_cache=senses)
+    publish = content.publish
+
+    async def fail(*args):
+        raise RuntimeError("publication failed")
+
+    monkeypatch.setattr(content, "publish", fail)
+    with pytest.raises(RuntimeError, match="publication failed"):
+        await edit_word(
+            database.sessions, word_id, lemma="lender", word_cache=words, sense_cache=senses
+        )
+    assert words.get(word_id).lemma == "bank" and senses.get(sense_id) is not None
+    monkeypatch.setattr(content, "publish", publish)
+    await edit_word(
+        database.sessions, word_id, lemma="lender", word_cache=words, sense_cache=senses
+    )
+    assert words.get(word_id) is None and senses.get(sense_id) is None
+    fresh = await get_word(database.sessions, word_id, word_cache=words, sense_cache=senses)
+    assert fresh.lemma == "lender"
 
 
 async def test_word_preview_hydration_keeps_complete_groups_and_rejects_overflow(database):

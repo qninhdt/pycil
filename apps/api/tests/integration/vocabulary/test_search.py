@@ -1,8 +1,6 @@
 import asyncio
 
 import pytest
-from sqlalchemy import event, select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from pycil.vocabulary.enums import (
     EntryType,
@@ -13,7 +11,7 @@ from pycil.vocabulary.enums import (
     PartOfSpeech,
     Tier,
 )
-from pycil.vocabulary.models import Sense, SenseForm, SensePattern, Word, WordAlias, WordReference
+from pycil.vocabulary.models import Sense, SenseForm, Word, WordAlias, WordReference
 from pycil.vocabulary.references.importer import import_reference
 from pycil.vocabulary.search import SearchIndex
 from tests.support.reference import reference_file, reference_word
@@ -73,337 +71,441 @@ async def test_search_ranking_alias_forms_deduplication_and_reference_selection(
         await index.close()
 
 
-async def test_index_update_replaces_stale_documents_consumes_reference_and_preserves_other_word(
-    database, tmp_path
-):
-    await import_reference(
-        database.sessions, reference_file(tmp_path / "reference.jsonl", [reference_word()])
+def fast_policy():
+    from pycil.app.config import load_config
+
+    return load_config().runtime.search.model_copy(
+        update={
+            "poll_interval_seconds": 0.02,
+            "ownership_retry_seconds": 0.02,
+            "retry_jitter_seconds": 0,
+            "startup_timeout_seconds": 10,
+            "publication_timeout_seconds": 3,
+        }
     )
-    async with database.sessions() as session, session.begin():
+
+
+async def create_word(sessions, lemma):
+    from pycil.infrastructure.content_revisions import publish
+
+    async with sessions() as session, session.begin():
         word = Word(
-            lemma="give {sb} a hand",
-            match_key="give {sb} a hand",
-            entry_type=EntryType.EXPRESSION,
-            generation_state=GenerationState.DONE,
-        )
-        other = Word(
-            lemma="untouched",
-            match_key="untouched",
+            lemma=lemma,
+            match_key=lemma,
             entry_type=EntryType.WORD,
             generation_state=GenerationState.DONE,
         )
-        session.add_all([word, other])
+        session.add(word)
         await session.flush()
-        sense = Sense(word_id=word.id, pos=PartOfSpeech.VERB, tier=Tier.CORE)
-        session.add(sense)
-        await session.flush()
-        session.add_all(
-            [
-                SensePattern(sense_id=sense.id, content="give {sb} a hand", head_key="give"),
-                SenseForm(
-                    sense_id=sense.id,
-                    surface="gave",
-                    match_key="gave",
-                    head_key="gave",
-                    inf=Inflection.PAST,
-                ),
-            ]
-        )
-    index = SearchIndex(database.sessions)
+        await publish(session, {("word", word.id): None})
+        return word.id
+
+
+async def test_owner_replaces_edits_deletions_and_restores_unlinked_reference(database, tmp_path):
+    from sqlalchemy import delete
+
+    from pycil.infrastructure.content_revisions import capture, publish
+    from pycil.vocabulary.content import delete_word, edit_word
+
+    await import_reference(
+        database.sessions, reference_file(tmp_path / "reference.jsonl", [reference_word()])
+    )
+    index = SearchIndex(database.sessions, str(tmp_path / "index"), policy=fast_policy())
     await index.start()
     try:
-        assert (await index.search("gave Jo a hand")).items[0].word_id == word.id
+        word_id = await create_word(database.sessions, "bank")
+        other_id = await create_word(database.sessions, "untouched")
         async with database.sessions() as session, session.begin():
-            stored = await session.get(Word, word.id)
-            stored.lemma = stored.match_key = "assist"
-            session.add(WordReference(word_id=word.id, source_id=1))
-            pattern = await session.scalar(
-                select(SensePattern).where(SensePattern.sense_id == sense.id)
-            )
-            await session.delete(pattern)
-        await asyncio.gather(index.update(word.id), index.update(other.id))
-        assert not (await index.search("give Jo a hand")).items
-        assert (await index.search("assist")).items[0].word_id == word.id
-        assert (await index.search("untouched")).items[0].word_id == other.id
-        assert not any(
-            hit.kind is HitKind.REFERENCE for hit in (await index.search("bank", True)).items
+            before = await capture(session, [("word", word_id)])
+            session.add(WordReference(word_id=word_id, source_id=1))
+            revision = await publish(session, before)
+        await index.wait_for_revision(revision)
+        assert all(hit.kind is HitKind.WORD for hit in (await index.search("bank", True)).items)
+        await edit_word(
+            database.sessions, word_id, lemma="lender", aliases=["financial institution"]
         )
+        await index.update(word_id)
+        assert not (await index.search("bank")).items
+        assert (await index.search("financial institution")).items[0].word_id == word_id
+        async with database.sessions() as session, session.begin():
+            before = await capture(session, [("word", word_id)])
+            await session.execute(delete(WordReference).where(WordReference.word_id == word_id))
+            revision = await publish(session, before)
+        await index.wait_for_revision(revision)
+        assert (await index.search("bank", True)).items[0].kind is HitKind.REFERENCE
+        revision = await delete_word(database.sessions, word_id)
+        await index.wait_for_revision(revision)
+        assert not (await index.search("lender")).items
+        assert (await index.search("untouched")).items[0].word_id == other_id
     finally:
         await index.close()
 
 
-async def test_cancelled_index_update_joins_native_publication_and_keeps_visible_snapshot(
-    database, monkeypatch
+async def test_shared_directory_has_one_owner_and_takeover_reuses_cursor(
+    database, tmp_path, monkeypatch
+):
+    from pycil.vocabulary.content import edit_word
+
+    directory = str(tmp_path / "shared")
+    first, second = (
+        SearchIndex(database.sessions, directory, policy=fast_policy()),
+        SearchIndex(database.sessions, directory, policy=fast_policy()),
+    )
+    await asyncio.gather(first.start(), second.start())
+    owner, standby = (first, second) if first.is_owner else (second, first)
+    try:
+        assert owner.is_owner and not standby.is_owner
+        word = await create_word(database.sessions, "bank")
+        await asyncio.gather(first.update(word), second.update(word))
+        assert first.cursor() == second.cursor()
+
+        async def unexpected_rebuild(*args):
+            pytest.fail("compatible shared checkpoint must survive takeover")
+
+        monkeypatch.setattr(standby, "rebuild", unexpected_rebuild)
+        await owner.close()
+        async with asyncio.timeout(3):
+            while not standby.is_owner:
+                await asyncio.sleep(0.02)
+        await edit_word(database.sessions, word, lemma="lender")
+        await standby.update(word)
+        assert (await standby.search("lender")).items[0].word_id == word
+    finally:
+        await asyncio.gather(first.close(), second.close())
+
+
+async def test_independent_indexes_apply_all_revisions_and_disconnected_reader_catches_up(
+    database, tmp_path, monkeypatch
+):
+    from pycil.vocabulary.content import edit_word
+
+    first = SearchIndex(database.sessions, str(tmp_path / "one"), policy=fast_policy())
+    second = SearchIndex(database.sessions, str(tmp_path / "two"), policy=fast_policy())
+    await asyncio.gather(first.start(), second.start())
+    try:
+        word = await create_word(database.sessions, "bank")
+        await asyncio.gather(first.update(word), second.update(word))
+        assert first.is_owner and second.is_owner
+        await second.close()
+        await edit_word(database.sessions, word, lemma="lender")
+        await first.update(word)
+
+        async def unexpected_rebuild(*args):
+            pytest.fail("catch-up must be incremental")
+
+        monkeypatch.setattr(second, "rebuild", unexpected_rebuild)
+        await second.start()
+        assert (await second.search("lender")).items[0].word_id == word
+        assert first.cursor() == second.cursor()
+    finally:
+        await asyncio.gather(first.close(), second.close())
+
+
+async def test_native_shutdown_joins_inflight_owner_and_rolls_back_uncommitted_batch(
+    database, tmp_path, monkeypatch
 ):
     import threading
 
-    from tests.support.vocabulary import neutral_word
+    from pycil.vocabulary.content import edit_word
 
-    word_id, _ = await neutral_word(database.sessions)
-    index = SearchIndex(database.sessions)
-    started, release, finished = threading.Event(), threading.Event(), threading.Event()
-    task = None
+    word = await create_word(database.sessions, "bank")
+    index = SearchIndex(database.sessions, str(tmp_path / "index"), policy=fast_policy())
+    await index.start()
+    started, release = threading.Event(), threading.Event()
+    documents = index.documents
+
+    def blocked(*args):
+        started.set()
+        if not release.wait(5):
+            raise TimeoutError("native publication not released")
+        yield from documents(*args)
+
+    monkeypatch.setattr(index, "documents", blocked)
+    await edit_word(database.sessions, word, lemma="lender")
+    closing = None
     try:
-        await index.start()
-        async with database.sessions() as session, session.begin():
-            word = await session.get(Word, word_id)
-            word.lemma, word.match_key = "lender", "lender"
-        documents = index.documents
-
-        def blocked_documents(*args):
-            started.set()
-            try:
-                if not release.wait(timeout=5):
-                    raise TimeoutError("native publication was not released")
-                yield from documents(*args)
-            finally:
-                finished.set()
-
-        monkeypatch.setattr(index, "documents", blocked_documents)
-        task = asyncio.create_task(index.update(word_id))
-        assert await asyncio.to_thread(started.wait, 5)
-        task.cancel()
-        await asyncio.sleep(0)
-        assert not task.done() and not finished.is_set()
+        assert await asyncio.to_thread(started.wait, 3)
+        closing = asyncio.create_task(index.close())
+        await asyncio.sleep(0.05)
+        assert not closing.done()
         release.set()
-        with pytest.raises(asyncio.CancelledError):
-            await task
-        assert finished.is_set()
-        assert [hit.word_id for hit in (await index.search("lender")).items] == [word_id]
-        assert (await index.search("bank")).items == []
+        await closing
+        monkeypatch.setattr(index, "documents", documents)
+        await index.start()
+        assert (await index.search("lender")).items[0].word_id == word
     finally:
         release.set()
-        if task is not None:
-            await asyncio.gather(task, return_exceptions=True)
+        if closing:
+            await closing
         await index.close()
 
 
-async def test_disk_index_is_reused_and_follows_another_instance_commits(database, tmp_path):
-    from tests.support.vocabulary import neutral_word
-
-    word_id, _ = await neutral_word(database.sessions)
-    first = SearchIndex(database.sessions, str(tmp_path))
-    second = SearchIndex(database.sessions, str(tmp_path))
-    await first.start()
-    try:
-        await second.start()
-        stored = SearchIndex.stored_fingerprint(second.snapshot)
-        assert stored == await second.fingerprint()
-        async with database.sessions() as session, session.begin():
-            word = await session.get(Word, word_id)
-            word.lemma, word.match_key = "lender", "lender"
-        await first.update(word_id)
-        async with asyncio.timeout(5):
-            while not (await second.search("lender")).items:
-                await asyncio.sleep(0.05)
-        assert [hit.word_id for hit in (await second.search("lender")).items] == [word_id]
-    finally:
-        await first.close()
-        await second.close()
-
-
-async def test_concurrent_start_reuses_index_without_rebuilding(database, tmp_path):
-    from tests.support.vocabulary import neutral_word
-
-    word_id, _ = await neutral_word(database.sessions)
-    first = SearchIndex(database.sessions, str(tmp_path))
-    second = SearchIndex(database.sessions, str(tmp_path))
-    try:
-        await asyncio.gather(first.start(), second.start())
-        assert first.snapshot is not None and second.snapshot is not None
-        assert SearchIndex.stored_fingerprint(first.snapshot) == await first.fingerprint()
-        assert SearchIndex.stored_fingerprint(second.snapshot) == await second.fingerprint()
-    finally:
-        await first.close()
-        await second.close()
-
-
-async def test_rebuild_freezes_word_membership_during_concurrent_generation(database, tmp_path):
-    await import_reference(
-        database.sessions, reference_file(tmp_path / "reference.jsonl", [reference_word()])
-    )
-    async with database.sessions() as session, session.begin():
-        words = [
-            Word(
-                lemma=lemma,
-                match_key=lemma,
-                entry_type=EntryType.EXPRESSION if position == 1 else EntryType.WORD,
-                generation_state=GenerationState.PENDING if position == 1 else GenerationState.DONE,
-            )
-            for position, lemma in enumerate(["first", "give {sb} a hand", "last"])
-        ]
-        session.add_all(words)
-        await session.flush()
-    word_id = words[1].id
-    published = False
-
-    class InterleavedSession(AsyncSession):
-        async def execute(self, statement, *args, **kwargs):
-            nonlocal published
-            result = await super().execute(statement, *args, **kwargs)
-            if not published and [column["name"] for column in statement.column_descriptions] == [
-                "id",
-                "lemma",
-                "entry_type",
-            ]:
-                published = True
-                async with database.sessions() as publishing, publishing.begin():
-                    word = await publishing.get(Word, word_id)
-                    word.generation_state = GenerationState.DONE
-                    sense = Sense(word_id=word_id, pos=PartOfSpeech.VERB, tier=Tier.CORE)
-                    publishing.add(sense)
-                    await publishing.flush()
-                    publishing.add_all(
-                        [
-                            WordAlias(word_id=word_id, content="assist", match_key="assist"),
-                            SenseForm(
-                                sense_id=sense.id,
-                                surface="gave",
-                                match_key="gave",
-                                head_key="gave",
-                                inf=Inflection.PAST,
-                            ),
-                            SensePattern(
-                                sense_id=sense.id,
-                                content="give {sb} a hand",
-                                head_key="give",
-                            ),
-                            WordReference(word_id=word_id, source_id=1),
-                        ]
-                    )
-            return result
-
-    index = SearchIndex(
-        async_sessionmaker(database.engine, class_=InterleavedSession, expire_on_commit=False)
-    )
-    try:
-        await index.start()
-        assert published
-        assert [hit.word_id for hit in (await index.search("first")).items] == [words[0].id]
-        assert [hit.word_id for hit in (await index.search("last")).items] == [words[2].id]
-        for query in ["give {sb} a hand", "assist", "gave", "gave Jo a hand"]:
-            assert (await index.search(query)).items == []
-        assert any(
-            hit.kind is HitKind.REFERENCE for hit in (await index.search("bank", True)).items
-        )
-        assert SearchIndex.stored_fingerprint(index.snapshot) != await index.fingerprint()
-
-        await index.update(word_id)
-        for query in ["give {sb} a hand", "assist", "gave", "gave Jo a hand"]:
-            assert [hit.word_id for hit in (await index.search(query)).items] == [word_id]
-        assert not any(
-            hit.kind is HitKind.REFERENCE for hit in (await index.search("bank", True)).items
-        )
-        assert SearchIndex.stored_fingerprint(index.snapshot) == await index.fingerprint()
-    finally:
-        await index.close()
-
-
-@pytest.mark.parametrize("published", [0, 1])
-async def test_restart_recovers_unpublished_word_and_consumed_reference(
-    database, tmp_path, published, monkeypatch
+async def test_bootstrap_snapshot_and_catchup_include_writes_during_build(
+    database, tmp_path, monkeypatch
 ):
-    records = [reference_word(1, 101), reference_word(2, 102)]
-    records[1] |= {
-        "lemma": "zucchini",
-        "display_form": "zucchini",
-        "alternatives": [],
-        "inflections": [],
-    }
-    await import_reference(database.sessions, reference_file(tmp_path / "reference.jsonl", records))
-    index = SearchIndex(database.sessions, str(tmp_path / "index"))
+    first = await create_word(database.sessions, "first")
+    index = SearchIndex(
+        database.sessions,
+        str(tmp_path / "index"),
+        policy=fast_policy().model_copy(update={"rebuild_batch_size": 1}),
+    )
+    projection = index.projection
+    inserted = None
+
+    async def interleaved(*args, **options):
+        nonlocal inserted
+        if inserted is None:
+            inserted = await create_word(database.sessions, "later")
+        return await projection(*args, **options)
+
+    monkeypatch.setattr(index, "projection", interleaved)
+    try:
+        await index.start()
+        assert (await index.search("first")).items[0].word_id == first
+        assert (await index.search("later")).items[0].word_id == inserted
+    finally:
+        await index.close()
+
+
+async def test_failed_batch_keeps_checkpoint_and_restarts_without_rebuilding(
+    database, tmp_path, monkeypatch
+):
+    from pycil.vocabulary.content import edit_word
+
+    word = await create_word(database.sessions, "bank")
+    index = SearchIndex(database.sessions, str(tmp_path / "index"), policy=fast_policy())
+    await index.start()
+    previous = index.cursor()
+    documents = index.documents
+
+    def failure(*args):
+        yield from documents(*args)
+        raise RuntimeError("native publication failed")
+
+    monkeypatch.setattr(index, "documents", failure)
+    try:
+        await edit_word(database.sessions, word, lemma="lender")
+        async with asyncio.timeout(3):
+            while index.failure is None:
+                await asyncio.sleep(0.02)
+        assert index.cursor() == previous
+        with pytest.raises(RuntimeError):
+            index.ready()
+        await index.close()
+        monkeypatch.setattr(index, "documents", documents)
+        await index.start()
+        assert (await index.search("lender")).items[0].word_id == word
+    finally:
+        await index.close()
+
+
+async def test_artifact_theme_only_revisions_advance_cursor_and_idle_index_stays_healthy(
+    database, tmp_path
+):
+    from pycil.infrastructure.content_revisions import publish
+    from pycil.themes.models import Theme
+
+    index = SearchIndex(database.sessions, policy=fast_policy())
     await index.start()
     try:
         async with database.sessions() as session, session.begin():
-            words = [
-                Word(
-                    lemma=lemma,
-                    match_key=lemma,
-                    entry_type=EntryType.WORD,
-                    generation_state=GenerationState.DONE,
-                )
-                for lemma in ["bank", "zucchini"]
-            ]
-            session.add_all(words)
+            theme = Theme(key="plain", name="Plain", voice="Calm", diction="Simple")
+            session.add(theme)
             await session.flush()
-            session.add_all(
-                [
-                    WordReference(word_id=word.id, source_id=position)
-                    for position, word in enumerate(words, 1)
-                ]
-            )
-        await index.update(words[published].id)
-        documents = index.documents
-
-        def failed_publication(*args):
-            yield from documents(*args)
-            raise RuntimeError("publication failed before commit")
-
-        with monkeypatch.context() as patch:
-            patch.setattr(index, "documents", failed_publication)
-            with pytest.raises(RuntimeError, match="publication failed before commit"):
-                await index.update(words[1 - published].id)
-        assert index.stored_fingerprint(index.snapshot) != await index.fingerprint()
-        await index.close()
-        await index.start()
-        assert index.stored_fingerprint(index.snapshot) == await index.fingerprint()
-        for word in words:
-            hits = (await index.search(word.lemma, True)).items
-            assert hits[0].word_id == word.id
-            assert all(hit.kind is HitKind.WORD for hit in hits)
+            revision = await publish(session, {("theme", theme.id): None})
+        await index.wait_for_revision(revision)
+        assert not (await index.search("plain")).items
+        await index.health()
+        index.last_success -= 1000
+        # A successful empty owner poll restores health without an index commit.
+        await asyncio.sleep(0.05)
+        await index.health()
+        assert index.cursor() == revision
     finally:
         await index.close()
 
 
-async def test_update_uses_five_queries_and_concurrent_retries_preserve_reusable_index(
+async def test_four_process_readers_share_one_poller_and_recover_after_owner_sigkill(
+    database, tmp_path
+):
+    import multiprocessing
+
+    from pycil.infrastructure.content_revisions import head
+    from pycil.vocabulary.content import delete_word, edit_word
+    from tests.support.search_worker import run
+
+    context = multiprocessing.get_context("spawn")
+    workers = []
+
+    async def receive(connection):
+        async with asyncio.timeout(20):
+            result = await asyncio.to_thread(connection.recv)
+        assert "error" not in result, result
+        return result
+
+    async def states(command, live):
+        for _, connection in live:
+            connection.send(command)
+        return await asyncio.gather(*(receive(connection) for _, connection in live))
+
+    async def revision():
+        async with database.sessions() as session:
+            return await head(session)
+
+    try:
+        for _ in range(4):
+            parent, child = context.Pipe()
+            process = context.Process(
+                target=run,
+                args=(child, database.url, str(tmp_path / "shared"), fast_policy()),
+                daemon=True,
+            )
+            process.start()
+            child.close()
+            workers.append((process, parent))
+        await asyncio.gather(*(receive(connection) for _, connection in workers))
+        statuses = await states(["state"], workers)
+        assert sum(status["owner"] for status in statuses) == 1
+        identifier = await create_word(database.sessions, "bank")
+        statuses = await states(["wait", await revision(), "bank"], workers)
+        assert all(status["words"] == [identifier] for status in statuses)
+        assert sum(status["applications"] for status in statuses) == 1
+        owner = next(i for i, status in enumerate(statuses) if status["owner"])
+        process, connection = workers[owner]
+        process.kill()
+        await asyncio.to_thread(process.join, 5)
+        connection.close()
+        live = [worker for i, worker in enumerate(workers) if i != owner]
+        async with asyncio.timeout(5):
+            while True:
+                statuses = await states(["state"], live)
+                if sum(status["owner"] for status in statuses) == 1:
+                    break
+                await asyncio.sleep(0.02)
+        change = await edit_word(database.sessions, identifier, lemma="lender")
+        statuses = await states(["wait", change, "lender"], live)
+        assert all(status["words"] == [identifier] for status in statuses)
+        change = await delete_word(database.sessions, identifier)
+        statuses = await states(["wait", change, "lender"], live)
+        assert all(status["words"] == [] for status in statuses)
+    finally:
+        for process, connection in workers:
+            if process.is_alive():
+                connection.send(["stop"])
+        for process, connection in workers:
+            await asyncio.to_thread(process.join, 5)
+            if process.is_alive():
+                process.terminate()
+                await asyncio.to_thread(process.join, 5)
+            connection.close()
+
+
+async def test_transient_bootstrap_database_error_retries_with_same_writer(
     database, tmp_path, monkeypatch
 ):
-    from tests.support.vocabulary import neutral_word
+    from sqlalchemy.exc import DBAPIError
 
-    await import_reference(
-        database.sessions, reference_file(tmp_path / "reference.jsonl", [reference_word()])
-    )
-    first = SearchIndex(database.sessions, str(tmp_path / "index"))
-    second = SearchIndex(database.sessions, str(tmp_path / "index"))
-    await first.start()
-    await second.start()
+    index = SearchIndex(database.sessions, str(tmp_path / "index"), policy=fast_policy())
+    rebuild = index.rebuild
+    attempts = []
+
+    async def temporarily_unavailable(snapshot, writer):
+        attempts.append(writer)
+        if len(attempts) == 1:
+            raise DBAPIError("SELECT", {}, ConnectionError("temporary database failure"))
+        await rebuild(snapshot, writer)
+
+    monkeypatch.setattr(index, "rebuild", temporarily_unavailable)
     try:
-        word_id, _ = await neutral_word(database.sessions)
-        async with database.sessions() as session, session.begin():
-            session.add(WordReference(word_id=word_id, source_id=1))
-        statements = []
-
-        def record(_connection, _cursor, statement, _parameters, _context, _executemany):
-            statements.append(statement)
-
-        event.listen(database.engine.sync_engine, "before_cursor_execute", record)
-        try:
-            await first.update(word_id)
-        finally:
-            event.remove(database.engine.sync_engine, "before_cursor_execute", record)
-        assert len(statements) == 5
-        assert not any("count(" in statement.lower() for statement in statements)
-        await asyncio.gather(first.update(word_id), second.update(word_id))
-        async with database.sessions() as session, session.begin():
-            other = Word(
-                lemma="zucchini",
-                match_key="zucchini",
-                entry_type=EntryType.WORD,
-                generation_state=GenerationState.DONE,
-            )
-            session.add(other)
-        await asyncio.gather(first.update(word_id), second.update(other.id))
-        assert first.stored_fingerprint(first.snapshot) == await first.fingerprint()
-
-        async def unexpected_rebuild(*_args):
-            pytest.fail("a completely published index must be reused")
-
-        monkeypatch.setattr(first, "rebuild", unexpected_rebuild)
-        await first.close()
-        await first.start()
-        assert (await first.search("bank", True)).items[0].word_id == word_id
-        assert (await first.search("zucchini")).items[0].word_id == other.id
-        assert all(hit.kind is HitKind.WORD for hit in (await first.search("bank", True)).items)
+        await index.start()
+        assert len(attempts) == 2 and attempts[0] is attempts[1]
+        index.ready()
     finally:
-        await first.close()
-        await second.close()
+        await index.close()
+
+
+async def test_publication_timeout_keeps_committed_content_and_releases_database_connections(
+    database, tmp_path, monkeypatch
+):
+    from pycil.infrastructure.content_revisions import replay
+
+    index = SearchIndex(
+        database.sessions,
+        str(tmp_path / "index"),
+        policy=fast_policy().model_copy(update={"publication_timeout_seconds": 0.05}),
+    )
+    await index.start()
+    resume = asyncio.Event()
+    synchronize = index.synchronize
+
+    async def paused(writer):
+        await resume.wait()
+        return await synchronize(writer)
+
+    monkeypatch.setattr(index, "synchronize", paused)
+    try:
+        word = await create_word(database.sessions, "bank")
+        with pytest.raises(RuntimeError, match="awaiting search publication"):
+            await index.wait_for_revision(10**9)
+        assert database.engine.pool.checkedout() == 0
+        async with database.sessions() as session:
+            assert (await replay(session, "word", word))["lemma"] == "bank"
+        resume.set()
+        await index.update(word)
+    finally:
+        resume.set()
+        await index.close()
+
+
+@pytest.mark.parametrize("after_commit", [False, True])
+async def test_sigkill_at_batch_commit_keeps_documents_and_cursor_atomic(
+    database, tmp_path, after_commit
+):
+    import multiprocessing
+
+    from pycil.vocabulary.content import edit_word
+    from tests.support.search_worker import run
+
+    word = await create_word(database.sessions, "bank")
+    context = multiprocessing.get_context("spawn")
+    parent, child = context.Pipe()
+    armed, reached = context.Event(), context.Event()
+    directory = str(tmp_path / "index")
+    process = context.Process(
+        target=run,
+        args=(
+            child,
+            database.url,
+            directory,
+            fast_policy(),
+            (armed, reached, after_commit),
+        ),
+        daemon=True,
+    )
+    process.start()
+    child.close()
+    replica = None
+    try:
+        async with asyncio.timeout(15):
+            assert (await asyncio.to_thread(parent.recv))["ready"]
+        armed.set()
+        revision = await edit_word(database.sessions, word, lemma="lender")
+        assert await asyncio.to_thread(reached.wait, 10)
+        process.kill()
+        await asyncio.to_thread(process.join, 5)
+        replica = SearchIndex(database.sessions, directory, policy=fast_policy())
+        # Inspect the durable commit before catch-up: documents and cursor agree.
+        replica.snapshot = replica.open()
+        cursor = replica.cursor()
+        hits = replica.find(replica.snapshot, "lender", False, 10)
+        assert (cursor >= revision) is bool(hits)
+        await replica.start()
+        await replica.wait_for_revision(revision)
+        assert (await replica.search("lender")).items[0].word_id == word
+    finally:
+        if process.is_alive():
+            process.terminate()
+        await asyncio.to_thread(process.join, 5)
+        parent.close()
+        if replica is not None:
+            await replica.close()

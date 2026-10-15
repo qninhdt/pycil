@@ -2,7 +2,7 @@
 
 Pycil is one private backend organized by business domain. The API process owns HTTP,
 process-local generation jobs and a Tantivy search projection (on disk when configured). PostgreSQL stores all
-application and native checkpoint tables in `public`; Redis supplies bounded caching,
+application, content-revision and native checkpoint tables in `public`; Redis supplies optional typed caching,
 shared generation task status and coordination. The migration command is a separate finite process.
 
 ## Ownership
@@ -35,7 +35,7 @@ configuration and enters [process resources](../../apps/api/pycil/app/resources.
 
 Resources verify the application/native setup and required reference data, ping Redis,
 create scoped caching, open HTTP/provider clients and the native checkpoint pool, then
-open the Tantivy projection, rebuilding it when stale. An exit stack closes acquired resources after startup
+open the Tantivy projection and start one owner/standby task per worker. An exit stack closes acquired resources after startup
 failure and shutdown; jobs close before the resources they use. Closed resources are
 removed from application state.
 
@@ -46,7 +46,8 @@ Startup never runs migrations or downloads reference data.
 ## Main flows
 
 - First authenticated access verifies identity and atomically provisions the account
-  and three library roots. Cached actor data is not an authorization grant.
+  and three library roots. Only the internal UUID is cached in RAM; profile/settings/plan
+  reads remain lazy database reads. A cached UUID is not an authorization grant.
 - Library writes take an owner transaction lock, check current paths/permissions and
   quotas, and commit the operation atomically. Reference access is resolved live.
 - Preparation reads current preferences/plan, selects authorized senses in a consistent
@@ -70,15 +71,34 @@ Generation execution and singleflight belong to one process; polling reads share
 status. Restart loses unfinished jobs, while committed vocabulary and checkpoint data
 remain. Task status expires 24 hours after each initial/final write; a worker crash or
 failed final Redis write can leave `running` until expiry. Workers share a configured disk
-index directory for search updates. Search builds at startup when stale and publishes
-one-word updates with a serialized native writer; concurrent readers may finish against
-their old immutable snapshot.
+index directory. One lifetime Tantivy writer polls commit-ordered content revisions;
+other workers read its atomic commits and retry ownership with jitter. Independent task
+local directories each reconcile all changes. Document batches and their revision cursor
+commit together. Bootstrap uses one repeatable-read snapshot and catches up after its
+high-water revision; compatible restarts and takeover reuse the checkpoint.
+
+Content mutations and JSON Patch revisions share a PostgreSQL transaction. Owner locks
+precede the short global publication lock; revision IDs are allocated last with `CACHE 1`
+and commit in scan order. Graph mutation/deletion also stabilizes inbound edges before
+capturing their source owners. The explicit adoption baseline runs with content writes
+paused, never from API startup. History survives deletion and has no time-based pruning.
+Readers use current tables; history is for replay and derived-index synchronization.
+
+Separate Word metadata, Sense and artifact memory caches hold detached objects, never user
+progress or ORM instances. Cached Words retain Sense IDs; responses reuse the shared Senses.
+Lexical DTOs use frozen slotted dataclasses and tuples. TTL and entry capacities are independent;
+themed lexical reads bypass the neutral caches.
+Optional typed Redis cache failures degrade to misses; native required coordination failures
+remain visible. Search publication receipts wait without holding a DB connection. A timeout
+keeps valid committed content, which the owner still reconciles. Readiness compares head and
+cursor/progress; an idle caught-up index remains healthy. See [search](modules/vocabulary.md)
+and [migration/recovery](operations/migrations.md) for maintenance boundaries.
 
 Provider attempts share bounded concurrency, explicit timeouts/retries, validated output
 schemas and normalized token measurements. Structured observations bind correlation
 context and record operation outcome, duration and sanitized error category. Actual
 OpenTelemetry and Langfuse setup remains deferred.
 
-See [the redesign](../../redesign.md) for accepted constraints, [testing](testing.md)
+See [the redesign](../../plans/260924-0608-pycil-complete-redesign/plan.md) for accepted constraints, [testing](testing.md)
 for current verification boundaries and [database setup](operations/migrations.md)
 for the explicit migration/import command.

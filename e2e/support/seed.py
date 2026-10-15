@@ -13,6 +13,7 @@ from pycil.account.plans import Plan
 from pycil.account.usage import period_bounds
 from pycil.app.config import load_config
 from pycil.infrastructure.database import connect, register_models
+from pycil.infrastructure.content_revisions import baseline as baseline_content
 from pycil.study.artifacts.schemas import ARTIFACT_SCHEMAS, Artifact, validate_artifact
 from pycil.study.artifacts.storage import append, generation_context
 from pycil.study.enums import QuestionArtifactType
@@ -103,6 +104,7 @@ async def baseline(manifest: Path | None):
                         payload=payload.model_dump(),
                     )
                 )
+        await baseline_content(sessions)
         await append(sessions, artifacts)
         result["pagination"] = [
             result.pop(row["key"])

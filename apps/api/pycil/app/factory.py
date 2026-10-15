@@ -102,7 +102,7 @@ def create_app() -> FastAPI:
                 async with asyncio.timeout(app.state.config.runtime.health.redis_timeout_seconds):
                     await app.state.redis.ping()
                 component = "search"
-                app.state.search.ready()
+                await app.state.search.health()
         except Exception as error:
             logger.warning(
                 "readiness_check_failed",

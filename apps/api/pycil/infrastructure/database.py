@@ -106,13 +106,14 @@ def json_collection(
 def register_models():
     from pycil.account import models as account
     from pycil.assistant import models as assistant
+    from pycil.infrastructure import content_revisions
     from pycil.library import models as library
     from pycil.study import models as study
     from pycil.themes import models as themes
     from pycil.vocabulary import models as vocabulary
     from pycil.vocabulary.references import models as reference
 
-    return account, assistant, library, study, themes, vocabulary, reference
+    return account, assistant, library, study, themes, vocabulary, reference, content_revisions
 
 
 async def verify_schema(engine: AsyncEngine, *, require_reference: bool = True) -> None:
