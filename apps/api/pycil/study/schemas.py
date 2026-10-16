@@ -2,7 +2,7 @@ from datetime import date, datetime
 from typing import Annotated, Literal, cast
 from uuid import UUID
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StrictBool, model_validator
+from pydantic import AwareDatetime, Field, StrictBool, model_validator
 
 from pycil.study.config import LearningPreferences
 from pycil.study.enums import (
@@ -17,14 +17,8 @@ from pycil.study.enums import (
     UsageForm,
     UsageMeaning,
 )
+from pycil.utils.schemas import PositiveID, Strict
 from pycil.vocabulary.schemas import Sense
-
-
-class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-
-PositiveID = Annotated[int, Field(strict=True, gt=0)]
 
 
 class Prepare(Strict):

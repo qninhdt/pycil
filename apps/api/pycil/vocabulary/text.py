@@ -1,12 +1,12 @@
 """Lexical identity, exact translation keys and explicit target markup."""
 
-import hashlib
 import re
-import unicodedata
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
+from pycil.utils.hashing import sha256_hex
+from pycil.utils.strings import has_control_or_invisible_chars, normalize_nfkc_whitespace
 from pycil.vocabulary.enums import INFLECTION_CODES, SLOTS, Inflection
 from pycil.vocabulary.errors import InvalidOutputError
 
@@ -37,7 +37,7 @@ TAG = re.compile(r"\[([^\[\]|]+)(?:\|([a-z0-9]+))?\]", re.I)
 def validate_lemma(value: str) -> str:
     if not value.strip() or len(value) > MAX_LEMMA_LENGTH:
         raise ValueError("invalid lemma length")
-    if any(ord(char) < 32 or unicodedata.category(char) == "Cf" for char in value):
+    if has_control_or_invisible_chars(value):
         raise ValueError("invisible/control character in lemma")
     remaining = SLOT.sub("", value)
     if (
@@ -48,7 +48,7 @@ def validate_lemma(value: str) -> str:
         raise ValueError("unknown or malformed expression slot")
     if "(" in value or ")" in value or re.search(r"\betc\.(?:\s|$)", value, re.I):
         raise ValueError("citation includes optional/alternative notation")
-    return " ".join(unicodedata.normalize("NFKC", value).split())
+    return normalize_nfkc_whitespace(value)
 
 
 def match_key(value: str) -> str:
@@ -58,13 +58,13 @@ def match_key(value: str) -> str:
 def answer_key(value: str) -> str:
     if not value.strip() or len(value) > MAX_TEXT_LENGTH:
         raise ValueError("invalid answer")
-    return " ".join(unicodedata.normalize("NFKC", value).split()).casefold()
+    return normalize_nfkc_whitespace(value).casefold()
 
 
 def content_hash(value: str) -> str:
     if not value or len(value) > MAX_TEXT_LENGTH:
         raise ValueError("invalid translation input")
-    return hashlib.sha256(value.encode()).hexdigest()
+    return sha256_hex(value)
 
 
 @dataclass(frozen=True)

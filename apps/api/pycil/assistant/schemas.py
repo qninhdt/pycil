@@ -8,10 +8,10 @@ from ag_ui.core import Message
 from pydantic import Field, JsonValue, StringConstraints, model_validator
 
 from pycil.library.models import NodeSpace, NodeType
-from pycil.library.schemas import LibraryView, SenseDelta, SenseSort, Strict
+from pycil.library.schemas import LibraryView, SenseDelta, SenseSort
 from pycil.study.enums import LearningState
+from pycil.utils.schemas import PositiveID, Strict
 
-PositiveID = Annotated[int, Field(strict=True, gt=0)]
 Query = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 Queries = Annotated[list[Query], Field(min_length=1, max_length=10)]
 VocabularyInclude = Literal["examples", "lexical_details", "learning", "sources"]

@@ -9,7 +9,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select, tuple_
 
 from pycil.account.auth import UserId
-from pycil.account.lifecycle import require_user, row_data
+from pycil.account.lifecycle import require_user
 from pycil.app.dependencies import Config, Session
 from pycil.app.pagination import decode, encode, page_limit, strict_query
 from pycil.assistant import graph as agents
@@ -24,6 +24,7 @@ from pycil.assistant.schemas import (
 )
 from pycil.assistant.stream import prepare_turn
 from pycil.infrastructure.observability import get_logger
+from pycil.utils.orm import row_data
 
 logger = get_logger(__name__)
 

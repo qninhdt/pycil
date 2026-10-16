@@ -8,9 +8,8 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from pycil.infrastructure.database import Base, enum_column
+from pycil.utils.schemas import PositiveID
 from pycil.vocabulary.enums import EntryType
-
-PositiveID = Annotated[int, Field(strict=True, gt=0)]
 
 
 class ReferenceSense(Base):

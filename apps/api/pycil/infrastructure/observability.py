@@ -25,6 +25,7 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
 
 from pycil.app.settings import ProcessSettings
+from pycil.utils.http import normalize_http_method
 
 if TYPE_CHECKING:
     from pycil.app.config import TelemetryRuntime
@@ -40,12 +41,7 @@ class ObservedAsyncClient(httpx.AsyncClient):
     async def send(
         self, request: httpx.Request, *, stream: bool = False, **kwargs: Any
     ) -> httpx.Response:
-        method = (
-            request.method
-            if request.method
-            in {"CONNECT", "DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT", "TRACE"}
-            else "_OTHER"
-        )
+        method = normalize_http_method(request.method)
         # Hooks run after native instrumentation has already collected request data.
         with _http_tracer.start_as_current_span(
             method,

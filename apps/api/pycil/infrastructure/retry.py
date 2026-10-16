@@ -12,6 +12,8 @@ from openai import (
 )
 from pydantic import ValidationError
 
+from pycil.utils.http import is_transient_http_status
+
 
 class ProviderOutputError(Exception):
     pass
@@ -48,5 +50,5 @@ def retryable(error: BaseException) -> bool:
             or getattr(getattr(error, "response", None), "status_code", None)
             or getattr(error, "status", None)
         )
-        return status in {408, 409, 429} or isinstance(status, int) and status >= 500
+        return is_transient_http_status(status)
     return False

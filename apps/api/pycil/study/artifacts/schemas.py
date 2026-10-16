@@ -4,9 +4,10 @@ import re
 from collections.abc import Iterable
 from typing import Annotated, Self, cast
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import ConfigDict, Field, model_validator
 
 from pycil.study.enums import QuestionArtifactType
+from pycil.utils.schemas import Strict
 from pycil.vocabulary.errors import InvalidOutputError
 from pycil.vocabulary.patterns import matches_pattern
 from pycil.vocabulary.schemas import Sense as SenseSchema
@@ -21,10 +22,6 @@ from pycil.vocabulary.text import (
 )
 
 Text = Annotated[str, Field(min_length=1, max_length=8000)]
-
-
-class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class WordDefinitionPair(Strict):

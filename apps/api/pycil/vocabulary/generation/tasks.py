@@ -1,6 +1,5 @@
 """Vocabulary submission policy and an ordinary native Taskiq task."""
 
-from hashlib import sha256
 from typing import cast
 from uuid import UUID
 
@@ -24,6 +23,7 @@ from pycil.app.resources import WorkerResources
 from pycil.jobs.metadata import owned, owner_key
 from pycil.jobs.schemas import Accepted
 from pycil.jobs.singleflight import singleflight
+from pycil.utils.hashing import sha256_hex
 from pycil.vocabulary.errors import InvalidHandleError
 from pycil.vocabulary.generation.pipeline import generate_word
 from pycil.vocabulary.references.reference import fetch_reference
@@ -49,13 +49,11 @@ async def request_generation(
         await fetch_reference(sessions, reference_id)
     except InvalidHandleError:
         raise Problem(422, "invalid_reference") from None
-    fingerprint = sha256(
-        (
-            reference_id
-            + config.product.vocabulary.generation.model_dump_json()
-            + config.runtime.providers.vocabulary.model_dump_json()
-        ).encode()
-    ).hexdigest()
+    fingerprint = sha256_hex(
+        reference_id
+        + config.product.vocabulary.generation.model_dump_json()
+        + config.runtime.providers.vocabulary.model_dump_json()
+    )
     key = word_request_key(user, fingerprint)
     ttl = config.runtime.jobs.result_ttl_seconds
     try:

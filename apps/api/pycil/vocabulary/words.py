@@ -1,7 +1,6 @@
 """Bounded lexical reads and canonical publication identities."""
 
 from collections.abc import Sequence
-from hashlib import sha256
 from itertools import batched
 from typing import cast
 
@@ -15,6 +14,7 @@ from pycil.infrastructure.content_revisions import EntityKey, Snapshot, capture
 from pycil.infrastructure.database import json_collection, transaction_lock
 from pycil.infrastructure.kv_store import InMemoryStore
 from pycil.themes.namespace import theme_scope
+from pycil.utils.hashing import sha256_hex
 from pycil.vocabulary import models as rows
 from pycil.vocabulary.enums import EntryType, GenerationState, ResolutionState
 from pycil.vocabulary.errors import InvalidResourceError, WordCollisionError
@@ -101,7 +101,7 @@ def sense_value(data: dict[str, object]) -> Sense:
         content = cast(str | None, edge.pop("evidence"))
         fingerprint = cast(str | None, edge.pop("target_hash"))
         attempted = bool(edge.pop("attempted"))
-        resolved = content is not None and sha256(content.encode()).hexdigest() == fingerprint
+        resolved = content is not None and sha256_hex(content) == fingerprint
         edge["resolution_state"] = (
             ResolutionState.RESOLVED
             if resolved

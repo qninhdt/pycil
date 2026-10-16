@@ -7,7 +7,6 @@ from sqlalchemy import and_, func, or_, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pycil.account.auth import Viewer
-from pycil.account.lifecycle import row_data
 from pycil.app.config import AppConfig
 from pycil.app.dependencies import Config, Session
 from pycil.app.http import Problem
@@ -17,6 +16,7 @@ from pycil.library.models import Node, NodeRole, NodeSpace, NodeType
 from pycil.library.schemas import NodePage
 from pycil.library.scope import ScopeBudget, bounded, resolve_scopes
 from pycil.library.types import NodePageDict
+from pycil.utils.orm import row_data
 
 router = APIRouter(prefix="/v1/discovery", tags=["discovery"])
 

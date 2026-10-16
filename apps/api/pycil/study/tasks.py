@@ -1,6 +1,5 @@
 """Study submission policy and a native Taskiq preparation task."""
 
-from hashlib import sha256
 from typing import cast
 from uuid import UUID
 
@@ -27,6 +26,7 @@ from pycil.study.config import LearningPreferences
 from pycil.study.enums import Selection
 from pycil.study.preparation import normalize_preparation, prepare
 from pycil.study.schemas import Preparation, Prepare
+from pycil.utils.hashing import sha256_hex
 
 
 def study_request_key(user: UUID | str, fingerprint: str) -> str:
@@ -57,14 +57,12 @@ async def request_preparation(
         "selection": data.selection,
         "preferences": preferences.model_dump(mode="json"),
     }
-    fingerprint = sha256(
-        (
-            str(data.node_id)
-            + data.selection
-            + preferences.model_dump_json()
-            + config.product.study.model_dump_json()
-        ).encode()
-    ).hexdigest()
+    fingerprint = sha256_hex(
+        str(data.node_id)
+        + data.selection
+        + preferences.model_dump_json()
+        + config.product.study.model_dump_json()
+    )
     key = study_request_key(user, fingerprint)
     ttl = config.runtime.jobs.result_ttl_seconds
     try:

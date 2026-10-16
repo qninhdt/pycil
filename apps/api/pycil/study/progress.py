@@ -4,7 +4,6 @@ from collections.abc import Iterable, Sequence
 from datetime import UTC, date, datetime, timedelta
 from typing import cast
 from uuid import UUID
-from zoneinfo import ZoneInfo
 
 from sqlalchemy import Integer, Uuid, and_, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +16,7 @@ from pycil.library.models import DeckSense, NodeType
 from pycil.library.scope import Scope, ScopeBudget, bounded, resolve_scopes
 from pycil.study.models import DailyActivity, UserSense
 from pycil.study.types import ActivityDayDict, ScopeSummaryRow, SummaryDict
+from pycil.utils.dates import date_range, resolve_date_window, to_local_date
 
 
 def scope_mapping(
@@ -150,18 +150,10 @@ def window(
     *,
     future: bool = False,
 ) -> tuple[date, date]:
-    if (start is None) != (end is None):
-        raise Problem(422, "invalid_date_window")
-    if start is None:
-        start, end = (
-            (today, today + timedelta(days=maximum - 1))
-            if future
-            else (today - timedelta(days=maximum - 1), today)
-        )
-    assert start is not None and end is not None
-    if end < start or (end - start).days >= maximum or (future and start < today):
-        raise Problem(422, "invalid_date_window")
-    return start, end
+    try:
+        return resolve_date_window(start, end, today, maximum, future=future)
+    except ValueError:
+        raise Problem(422, "invalid_date_window") from None
 
 
 async def reporting(
@@ -172,7 +164,7 @@ async def reporting(
         raise Problem(404, "account_not_found")
     timezone = preferences(saved, config).timezone
     now = datetime.now(UTC)
-    return timezone, now, now.astimezone(ZoneInfo(timezone)).date()
+    return timezone, now, to_local_date(now, timezone)
 
 
 async def activity(
@@ -194,17 +186,14 @@ async def activity(
         ).all()
     )
     by_day = {r.day: r for r in rows}
-    days: list[ActivityDayDict] = []
-    for offset in range((end - start).days + 1):
-        day = start + timedelta(days=offset)
-        row = by_day.get(day)
-        days.append(
-            {
-                "day": day,
-                "applied_events": row.applied_events if row else 0,
-                "practice_events": row.practice_events if row else 0,
-            }
-        )
+    days: list[ActivityDayDict] = [
+        {
+            "day": day,
+            "applied_events": by_day[day].applied_events if day in by_day else 0,
+            "practice_events": by_day[day].practice_events if day in by_day else 0,
+        }
+        for day in date_range(start, end)
+    ]
     # Lifetime streaks stay in SQL; only the bounded date window reaches the application.
     active = (
         select(
@@ -334,10 +323,10 @@ async def schedules(
             "end_date": end,
             "days": [
                 {
-                    "day": start + timedelta(days=i),
-                    "count": counts.get((group_ids[scope.root.id], start + timedelta(days=i)), 0),
+                    "day": d,
+                    "count": counts.get((group_ids[scope.root.id], d), 0),
                 }
-                for i in range((end - start).days + 1)
+                for d in date_range(start, end)
             ],
         }
         for scope in scopes

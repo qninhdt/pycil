@@ -2,7 +2,6 @@
 
 import random
 from collections.abc import Sequence
-from hashlib import sha256
 from itertools import batched
 from typing import cast
 
@@ -20,6 +19,7 @@ from pycil.study.models import QuestionArtifact
 from pycil.study.types import ThemeContext
 from pycil.themes.models import Theme
 from pycil.themes.namespace import theme_scope
+from pycil.utils.hashing import sha256_hex
 from pycil.vocabulary.enums import EntryType, GenerationState
 from pycil.vocabulary.errors import InvalidResourceError
 from pycil.vocabulary.models import Sense, Word, WordAlias
@@ -124,7 +124,7 @@ async def append(
         kind = artifact.artifact_type
         payload = ARTIFACT_SCHEMAS[kind].model_validate(artifact.payload).model_dump()
         encoded = orjson.dumps(payload, option=orjson.OPT_SORT_KEYS).decode()
-        prepared.append((artifact, payload, encoded, sha256(encoded.encode()).hexdigest()))
+        prepared.append((artifact, payload, encoded, sha256_hex(encoded)))
     saved: dict[tuple[int, int | None, QuestionArtifactType, str | None], QuestionArtifact] = {}
     existing: dict[tuple[int, int | None, QuestionArtifactType, str | None], QuestionArtifact] = {}
     async with sessions() as session, session.begin():
@@ -187,7 +187,7 @@ async def append(
                 )
                 payload = _merge_singleton(current, payload, kind)
                 encoded = orjson.dumps(payload, option=orjson.OPT_SORT_KEYS).decode()
-                fingerprint = sha256(encoded.encode()).hexdigest()
+                fingerprint = sha256_hex(encoded)
             elif row is not None:
                 continue
             if row is None:

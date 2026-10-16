@@ -1,7 +1,6 @@
 """Safe errors, correlation, CORS and bounded bodies without buffering responses."""
 
 import time
-from http import HTTPStatus
 from types import SimpleNamespace
 from typing import Any, cast
 from uuid import UUID, uuid7
@@ -19,6 +18,7 @@ from starlette.routing import Match
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from pycil.infrastructure.observability import bind_contextvars, clear_contextvars, get_logger
+from pycil.utils.http import http_status_phrase, normalize_http_method
 
 logger = get_logger("pycil.app.http")
 
@@ -55,19 +55,7 @@ class HttpTelemetry:
                 route = candidate.path or "unmatched"
                 if match == Match.FULL:
                     break
-        method = scope["method"]
-        if method not in {
-            "GET",
-            "POST",
-            "PUT",
-            "PATCH",
-            "DELETE",
-            "HEAD",
-            "OPTIONS",
-            "CONNECT",
-            "TRACE",
-        }:
-            method = "_OTHER"
+        method = normalize_http_method(scope["method"])
         scope.setdefault("state", {})["telemetry_route"] = route
         scope["state"]["telemetry_method"] = method
         # Instrument a sanitized scope; routing/auth/body handling retain the original.
@@ -96,11 +84,7 @@ class ProblemResponse(JSONResponse):
     media_type = "application/problem+json"
 
 
-def _http_status_phrase(status: int) -> str:
-    try:
-        return HTTPStatus(status).phrase
-    except ValueError:
-        return "Error"
+_http_status_phrase = http_status_phrase
 
 
 class Problem(Exception):

@@ -1,11 +1,11 @@
 """Selected reference identities; runtime access is PostgreSQL only."""
 
-import base64
 import binascii
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from pycil.utils.encoding import base64url_decode, base64url_encode
 from pycil.vocabulary.errors import InvalidHandleError
 from pycil.vocabulary.references.models import (
     ReferenceSense,
@@ -18,7 +18,7 @@ from pycil.vocabulary.references.models import (
 def encode_reference_id(identifier: int) -> str:
     if type(identifier) is not int or not 0 < identifier <= 2147483647:
         raise InvalidHandleError("invalid reference identity")
-    return "entry_" + base64.urlsafe_b64encode(f"entry:{identifier}".encode()).decode().rstrip("=")
+    return "entry_" + base64url_encode(f"entry:{identifier}".encode())
 
 
 def decode_reference_id(value: str) -> int:
@@ -26,9 +26,7 @@ def decode_reference_id(value: str) -> int:
         raise InvalidHandleError("invalid reference handle")
     try:
         token = value[6:]
-        decoded = base64.b64decode(
-            token + "=" * (-len(token) % 4), altchars=b"-_", validate=True
-        ).decode("ascii")
+        decoded = base64url_decode(token).decode("ascii")
         kind, number = decoded.split(":")
         identifier = int(number)
         if kind != "entry" or encode_reference_id(identifier) != value:

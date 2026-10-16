@@ -1,18 +1,16 @@
-import base64
-import binascii
-import json
-import math
 from collections.abc import Collection, Mapping, Sequence
 from datetime import datetime
-from typing import cast
-from uuid import UUID
 
 from fastapi import Request
 
 from pycil.app.config import AppConfig
 from pycil.app.http import Problem
-
-type SeekValue = datetime | UUID | int | float | str | None
+from pycil.utils.pagination import (
+    InvalidCursorError,
+    SeekValue,
+    decode_cursor,
+    encode_cursor,
+)
 
 
 def encode(
@@ -21,16 +19,7 @@ def encode(
     *,
     as_of: datetime | str | None = None,
 ) -> str:
-    body = {"v": 1, "binding": binding, "seek": seek, "as_of": as_of}
-    return (
-        base64.urlsafe_b64encode(
-            json.dumps(
-                body, sort_keys=True, separators=(",", ":"), default=str, allow_nan=False
-            ).encode()
-        )
-        .decode()
-        .rstrip("=")
-    )
+    return encode_cursor(binding, seek, as_of=as_of)
 
 
 def decode(
@@ -40,78 +29,9 @@ def decode(
     *,
     timed: bool = False,
 ) -> tuple[list[SeekValue] | None, datetime | None]:
-    if token is None:
-        return None, None
     try:
-        if not 1 <= len(token) <= 2048:
-            raise ValueError()
-        raw = base64.b64decode(token + "=" * (-len(token) % 4), altchars=b"-_", validate=True)
-        raw_json: object = json.loads(raw)
-        if not isinstance(raw_json, dict):
-            raise ValueError()
-        data: dict[str, object] = cast(dict[str, object], raw_json)
-        if (
-            set(data.keys()) != {"v", "binding", "seek", "as_of"}
-            or not isinstance(data["v"], int)
-            or data["v"] != 1
-            or data["binding"] != binding
-        ):
-            raise ValueError()
-        seek_raw = data["seek"]
-        if not isinstance(seek_raw, list):
-            raise ValueError()
-        seek_list: list[object] = cast(list[object], seek_raw)
-        if len(seek_list) != len(types):
-            raise ValueError()
-        parsed: list[SeekValue] = []
-        for value, kind in zip(seek_list, types, strict=True):
-            if kind == "nullable_time" and value is None:
-                parsed.append(None)
-                continue
-            if kind in {"time", "nullable_time"}:
-                if not isinstance(value, str):
-                    raise ValueError()
-                val_dt = datetime.fromisoformat(value)
-                if val_dt.utcoffset() is None:
-                    raise ValueError()
-                parsed.append(val_dt)
-            elif kind == "uuid":
-                if not isinstance(value, str):
-                    raise ValueError()
-                parsed.append(UUID(value))
-            elif kind == "id":
-                if type(value) is not int or value <= 0:
-                    raise ValueError()
-                parsed.append(value)
-            elif kind == "text":
-                if not isinstance(value, str) or len(value) > 512:
-                    raise ValueError()
-                parsed.append(value)
-            elif kind == "rank":
-                if type(value) not in {int, float} or isinstance(value, bool):
-                    raise ValueError()
-                val_num = cast(int | float, value)
-                if not 0 <= val_num < float("inf"):
-                    raise ValueError()
-                parsed.append(val_num)
-            elif kind == "number":
-                if type(value) not in {int, float} or isinstance(value, bool):
-                    raise ValueError()
-                val_num = cast(int | float, value)
-                if not math.isfinite(val_num):
-                    raise ValueError()
-                parsed.append(val_num)
-            else:
-                parsed.append(cast(SeekValue, value))
-        as_of_val = data["as_of"]
-        cutoff = datetime.fromisoformat(as_of_val) if timed and isinstance(as_of_val, str) else None
-        if timed:
-            if cutoff is None or cutoff.utcoffset() is None:
-                raise ValueError()
-        elif as_of_val is not None:
-            raise ValueError()
-        return parsed, cutoff
-    except ValueError, TypeError, KeyError, binascii.Error, UnicodeDecodeError, RecursionError:
+        return decode_cursor(token, binding, types, timed=timed)
+    except InvalidCursorError:
         raise Problem(422, "invalid_cursor") from None
 
 

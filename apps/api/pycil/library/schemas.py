@@ -3,11 +3,12 @@ from enum import StrEnum
 from typing import Annotated, Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import Field, model_validator
 
 from pycil.library.models import NodeRole, NodeSpace, NodeType
 from pycil.study.enums import LearningState
 from pycil.study.schemas import Summary
+from pycil.utils.schemas import Strict
 from pycil.vocabulary.enums import CEFRLevel, EntryType, PartOfSpeech, Register, Tier
 from pycil.vocabulary.schemas import Example
 
@@ -22,10 +23,6 @@ class SenseSort(StrEnum):
 class LibraryView(StrEnum):
     CONTENT = "content"
     STRUCTURE = "structure"
-
-
-class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class NodeCreate(Strict):

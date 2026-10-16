@@ -6,7 +6,7 @@ from uuid import UUID, uuid7
 from sqlalchemy import delete, func, insert, or_, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pycil.account.lifecycle import require_user, row_data
+from pycil.account.lifecycle import require_user
 from pycil.app.config import AppConfig
 from pycil.app.http import Problem
 from pycil.app.pagination import decode, encode, includes, page_limit
@@ -18,6 +18,7 @@ from pycil.library.schemas import NodeCreate, NodeDestination, NodeMove, NodePat
 from pycil.library.scope import ScopeBudget
 from pycil.library.tree import add_paths, delete_subtree, move_paths, roots, subtree
 from pycil.library.types import NodePageDict
+from pycil.utils.orm import row_data
 from pycil.vocabulary.models import Sense
 
 logger = get_logger(__name__)

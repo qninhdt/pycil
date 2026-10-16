@@ -3,7 +3,6 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from hashlib import sha256
 from typing import Protocol
 
 from sqlalchemy import and_, select, text, tuple_
@@ -12,6 +11,7 @@ from sqlalchemy.orm import aliased
 
 from pycil.infrastructure.content_revisions import GRAPH_KEY, capture, publish
 from pycil.infrastructure.database import transaction_lock
+from pycil.utils.hashing import sha256_hex
 from pycil.vocabulary.enums import GenerationState, PartOfSpeech, SenseRelationType
 from pycil.vocabulary.models import Definition, Sense, SenseRelation, Word
 
@@ -28,7 +28,7 @@ class Candidate:
 
     @property
     def fingerprint(self) -> str | None:
-        return sha256(self.definition.encode()).hexdigest() if self.definition is not None else None
+        return sha256_hex(self.definition) if self.definition is not None else None
 
 
 @dataclass(frozen=True)

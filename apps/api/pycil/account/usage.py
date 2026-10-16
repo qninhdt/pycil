@@ -1,7 +1,6 @@
 """Anchored monthly subscription units, with short serialized settlement."""
 
-from calendar import monthrange
-from datetime import UTC, datetime
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import select
@@ -15,24 +14,9 @@ from pycil.app.config import AppConfig
 from pycil.app.http import Problem
 from pycil.infrastructure.database import transaction_lock
 from pycil.infrastructure.observability import get_logger
+from pycil.utils.dates import period_bounds
 
 logger = get_logger(__name__)
-
-
-def period_bounds(anchor: datetime, moment: datetime) -> tuple[datetime, datetime]:
-    anchor, moment = anchor.astimezone(UTC), moment.astimezone(UTC)
-    index = (moment.year - anchor.year) * 12 + moment.month - anchor.month
-
-    def boundary(offset: int) -> datetime:
-        year, month = divmod(anchor.year * 12 + anchor.month - 1 + offset, 12)
-        month += 1
-        return anchor.replace(
-            year=year, month=month, day=min(anchor.day, monthrange(year, month)[1])
-        )
-
-    if moment < boundary(index):
-        index -= 1
-    return boundary(index), boundary(index + 1)
 
 
 async def allowance(

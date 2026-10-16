@@ -5,7 +5,7 @@ import fcntl
 import random
 import re
 from collections import defaultdict
-from collections.abc import Callable, Generator, Iterable, Sequence
+from collections.abc import Generator, Iterable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from time import perf_counter
@@ -21,6 +21,8 @@ from pycil.app.config import SearchRuntime, load_config
 from pycil.infrastructure.content_revisions import ContentRevision, replay_many
 from pycil.infrastructure.content_revisions import head as revision_head
 from pycil.infrastructure.observability import get_logger
+from pycil.utils.concurrency import shielded_to_thread
+from pycil.utils.strings import ngrams
 from pycil.vocabulary import models as rows
 from pycil.vocabulary.config import SearchPolicy
 from pycil.vocabulary.enums import EntryType, GenerationState, HitKind, MatchKind
@@ -56,7 +58,7 @@ def _schema() -> tantivy.Schema:
 
 
 def _trigrams(value: str) -> set[str]:
-    return {value[position : position + 3] for position in range(len(value) - 2)}
+    return ngrams(value, 3)
 
 
 def _payload(doc: tantivy.Document) -> SearchPayload:
@@ -64,14 +66,7 @@ def _payload(doc: tantivy.Document) -> SearchPayload:
     return cast(SearchPayload, tuple(orjson.loads(cast(bytes, doc["payload"][0]))))
 
 
-async def _native[T](call: Callable[[], T]) -> T:
-    """Run native index work off-loop and join it on cancellation, never abandoning a writer."""
-    task = asyncio.create_task(asyncio.to_thread(call))
-    try:
-        return await asyncio.shield(task)
-    except asyncio.CancelledError:
-        await task
-        raise
+_native = shielded_to_thread
 
 
 type SearchProjection = tuple[

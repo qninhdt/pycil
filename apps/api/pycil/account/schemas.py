@@ -5,16 +5,13 @@ from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from pycil.account.plans import Plan
 from pycil.assistant.config import AssistantPreferences
 from pycil.study.config import LearningLimits, LearningPreferences
 from pycil.study.enums import QuestionType, ResponseFormat
-
-
-class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+from pycil.utils.schemas import Strict
 
 
 class LearningPatch(Strict):

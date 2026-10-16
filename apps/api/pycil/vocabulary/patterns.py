@@ -4,6 +4,7 @@ import re
 from collections.abc import Mapping, Sequence
 from functools import lru_cache
 
+from pycil.utils.strings import phrase_to_flexible_regex
 from pycil.vocabulary.text import SLOT, answer_key, parse_marked_example, validate_lemma
 
 WORD = r"[^\W_]+(?:['’-][^\W_]+)*"
@@ -57,7 +58,7 @@ def _parts(
                 form + separator + tail for form in dict(forms).get(head, ()) if " " not in form
             )
         pieces.append(
-            (False, tuple(re.compile(re.escape(v).replace(r"\ ", r"\s+"), re.I) for v in variants))
+            (False, tuple(re.compile(phrase_to_flexible_regex(v), re.I) for v in variants))
         )
         if match is not None:
             slot = match.group()

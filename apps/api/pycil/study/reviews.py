@@ -1,12 +1,9 @@
 """Atomic diagnostic tracking, grouped Sense updates and immutable receipts."""
 
-import hashlib
 from collections import defaultdict
 from datetime import UTC, datetime
 from uuid import UUID
-from zoneinfo import ZoneInfo
 
-import orjson
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,14 +29,15 @@ from pycil.study.schemas import (
     TrackedEvidence,
 )
 from pycil.study.types import UserSenseState
+from pycil.utils.dates import to_local_date
+from pycil.utils.hashing import sha256_canonical_json
 from pycil.vocabulary.models import Sense
 
 logger = get_logger(__name__)
 
 
 def request_hash(data: ReviewBatch) -> str:
-    encoded = orjson.dumps(data.model_dump(mode="json"), option=orjson.OPT_SORT_KEYS)
-    return hashlib.sha256(encoded).hexdigest()
+    return sha256_canonical_json(data.model_dump(mode="json"))
 
 
 async def review(
@@ -149,7 +147,7 @@ async def review(
             ).all()
         }
         saved = await session.scalar(select(User.settings).where(User.id == user_id))
-        day = now.astimezone(ZoneInfo(preferences(saved, config).timezone)).date()
+        day = to_local_date(now, preferences(saved, config).timezone)
         results: list[ReviewResult] = []
         states: list[UserSenseState] = []
         for sense_id, group in groups.items():

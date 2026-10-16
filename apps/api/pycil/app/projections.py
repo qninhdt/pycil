@@ -15,7 +15,7 @@ from pycil.library.scope import ScopeBudget, bounded, resolve_scopes
 from pycil.library.senses import learning_preview, source_batch
 from pycil.library.types import SenseSourcesSummary
 from pycil.study.models import UserSense
-from pycil.study.schemas import PositiveID, Strict
+from pycil.utils.schemas import PositiveID, Strict
 from pycil.vocabulary.enums import EntryType
 from pycil.vocabulary.models import Sense, Word
 from pycil.vocabulary.schemas import Sense as NativeSense
