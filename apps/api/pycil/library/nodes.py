@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Collection, Mapping, Sequence
 from datetime import UTC, datetime
 from typing import cast
 from uuid import UUID, uuid7
@@ -7,21 +7,64 @@ from sqlalchemy import delete, func, insert, or_, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pycil.account.lifecycle import require_user
-from pycil.app.config import AppConfig
-from pycil.app.http import Problem
-from pycil.app.pagination import decode, encode, includes, page_limit
 from pycil.infrastructure.database import transaction_lock
-from pycil.infrastructure.observability import get_logger
 from pycil.library.access import published, readable, readable_path, reference_visible, visible
+from pycil.library.config import LibraryConfig
 from pycil.library.models import DeckSense, Node, NodePath, NodeRole, NodeSpace, NodeType
 from pycil.library.schemas import NodeCreate, NodeDestination, NodeMove, NodePatch, SenseDelta
 from pycil.library.scope import ScopeBudget
 from pycil.library.tree import add_paths, delete_subtree, move_paths, roots, subtree
 from pycil.library.types import NodePageDict
+from pycil.observability import get_logger
+from pycil.study.config import StudyConfig
+from pycil.utils.errors import Conflict, InvalidInput, NotFound
 from pycil.utils.orm import row_data
+from pycil.utils.pagination import (
+    CursorFieldType,
+    InvalidCursorError,
+    SeekValue,
+    decode_cursor,
+    encode_cursor,
+)
 from pycil.vocabulary.models import Sense
 
 logger = get_logger(__name__)
+
+
+def encode(
+    binding: str | Mapping[str, object],
+    seek: Sequence[object],
+    *,
+    as_of: datetime | str | None = None,
+) -> str:
+    return encode_cursor(binding, seek, as_of=as_of)
+
+
+def decode(
+    token: str | None,
+    binding: str | Mapping[str, object],
+    types: Sequence[CursorFieldType],
+    *,
+    timed: bool = False,
+) -> tuple[list[SeekValue] | None, datetime | None]:
+    try:
+        return decode_cursor(token, binding, types, timed=timed)
+    except InvalidCursorError:
+        raise InvalidInput("invalid_cursor") from None
+
+
+def page_limit(limit: int | None, config: LibraryConfig) -> int:
+    resolved = config.page_size if limit is None else limit
+    if resolved < 1 or resolved > config.max_page_size:
+        raise InvalidInput("invalid_limit")
+    return resolved
+
+
+def includes(value: str | None, allowed: Collection[str]) -> set[str]:
+    selected: set[str] = set(value.split(",")) if value else set()
+    if not selected <= set(allowed):
+        raise InvalidInput("invalid_include")
+    return selected
 
 
 async def lock_owner(session: AsyncSession, owner_id: UUID) -> None:
@@ -29,23 +72,25 @@ async def lock_owner(session: AsyncSession, owner_id: UUID) -> None:
     await require_user(session, owner_id)
 
 
-async def owned(session: AsyncSession, node_id: UUID, owner_id: UUID, config: AppConfig) -> Node:
-    node = await readable(session, node_id, owner_id, config)
+async def owned(
+    session: AsyncSession, node_id: UUID, owner_id: UUID
+) -> Node:
+    node = await readable(session, node_id, owner_id)
     if node.owner_id != owner_id:
-        raise Problem(404, "node_not_found")
+        raise NotFound("node_not_found")
     if node.role is NodeRole.NORMAL:
         is_published = await session.scalar(
             select(published(Node.__table__)).where(Node.id == node.id)
         )
         expected = NodeSpace.PUBLISHED if is_published else NodeSpace.PERSONAL
         if node.space is not expected:
-            raise Problem(409, "invalid_tree_space")
+            raise Conflict("invalid_tree_space")
     return node
 
 
 def normal(node: Node) -> None:
     if node.role is not NodeRole.NORMAL:
-        raise Problem(422, "system_node_protected")
+        raise InvalidInput("system_node_protected")
 
 
 async def default_parent(session: AsyncSession, owner_id: UUID, parent_id: UUID | None) -> UUID:
@@ -59,17 +104,18 @@ async def validate_parent(
     session: AsyncSession,
     node: Node,
     parent_id: UUID,
-    config: AppConfig,
+    config: LibraryConfig,
     *,
     creating: bool = False,
 ) -> Node:
-    parent, ancestors = await readable_path(session, parent_id, node.owner_id, config)
+    quotas = config
+    parent, ancestors = await readable_path(session, parent_id, node.owner_id)
     if (
         parent.owner_id != node.owner_id
         or parent.type is not NodeType.FOLDER
         or parent.role is NodeRole.LIBRARY_ROOT
     ):
-        raise Problem(422, "invalid_parent")
+        raise InvalidInput("invalid_parent")
     ancestor_ids = {n.id for n in ancestors}
     actual_space = (
         NodeSpace.PUBLISHED
@@ -77,9 +123,9 @@ async def validate_parent(
         else NodeSpace.PERSONAL
     )
     if parent.space is not actual_space:
-        raise Problem(409, "invalid_tree_space")
+        raise Conflict("invalid_tree_space")
     if node.id in ancestor_ids or node.reference_id in ancestor_ids:
-        raise Problem(422, "node_cycle")
+        raise InvalidInput("node_cycle")
     height = (
         await session.scalar(
             select(func.max(NodePath.depth)).where(
@@ -99,8 +145,8 @@ async def validate_parent(
         )
         or 0
     )
-    if new_depth > config.product.library.quotas.max_depth and (creating or new_depth > old_depth):
-        raise Problem(422, "node_depth_exceeded")
+    if new_depth > quotas.max_depth and (creating or new_depth > old_depth):
+        raise InvalidInput("node_depth_exceeded")
     # A descendant reference may become a direct ancestor-reference after this move.
     invalid = await session.scalar(
         select(Node.id)
@@ -111,7 +157,7 @@ async def validate_parent(
         .limit(1)
     )
     if invalid:
-        raise Problem(422, "node_cycle")
+        raise InvalidInput("node_cycle")
     if creating or parent.id != node.parent_id:
         children = (
             await session.scalar(
@@ -124,8 +170,8 @@ async def validate_parent(
             )
             or 0
         )
-        if children >= config.product.library.quotas.max_children_per_folder:
-            raise Problem(422, "quota_exceeded")
+        if children >= quotas.max_children_per_folder:
+            raise InvalidInput("quota_exceeded")
     return parent
 
 
@@ -154,7 +200,7 @@ async def validate_publication(
         creating or node.space is not NodeSpace.PUBLISHED
     )
     if entering and not data.confirm_publication:
-        raise Problem(409, "publication_confirmation_required")
+        raise Conflict("publication_confirmation_required")
     if not entering:
         return
     references = list(
@@ -186,36 +232,37 @@ async def validate_publication(
         ).all()
     )
     if targets != allowed:
-        raise Problem(422, "private_reference_cannot_be_published")
+        raise InvalidInput("private_reference_cannot_be_published")
 
 
 async def create_node(
-    session: AsyncSession, owner_id: UUID, data: NodeCreate, config: AppConfig
+    session: AsyncSession, owner_id: UUID, data: NodeCreate, config: LibraryConfig
 ) -> dict[str, object]:
+    quotas = config
     async with session.begin():
         await lock_owner(session, owner_id)
         if (
             await check_node_quota(session, owner_id)
-            >= config.product.library.quotas.max_owned_nodes
+            >= quotas.max_owned_nodes
         ):
-            raise Problem(422, "quota_exceeded")
+            raise InvalidInput("quota_exceeded")
         values = data.model_dump(exclude={"confirm_publication", "sense_ids"})
         parent_id = await default_parent(session, owner_id, values["parent_id"])
         values["parent_id"] = parent_id
         node = Node(id=uuid7(), owner_id=owner_id, role=NodeRole.NORMAL, **values)
-        parent = await validate_parent(session, node, parent_id, config, creating=True)
+        parent = await validate_parent(session, node, parent_id, quotas, creating=True)
         await validate_publication(session, node, parent, data, creating=True)
         node.space = parent.space
         if node.reference_id:
-            target = await readable(session, node.reference_id, owner_id, config)
+            target = await readable(session, node.reference_id, owner_id)
             if target.type is NodeType.REFERENCE:
-                raise Problem(422, "invalid_reference_target")
+                raise InvalidInput("invalid_reference_target")
         session.add(node)
         await session.flush()
         await add_paths(session, node)
         sense_ids = None
         if node.type is NodeType.DECK:
-            sense_ids = await replace_membership(session, node, data.sense_ids or [], config)
+            sense_ids = await replace_membership(session, node, data.sense_ids or [], quotas)
         result = row_data(node)
         if sense_ids is not None:
             result["sense_ids"] = sense_ids
@@ -232,25 +279,26 @@ async def create_node(
 
 
 async def move_locked(
-    session: AsyncSession, node: Node, data: NodeMove, config: AppConfig
+    session: AsyncSession, node: Node, data: NodeMove, config: LibraryConfig
 ) -> UUID | None:
+    quotas = config
     old_parent, old_space = node.parent_id, node.space
     parent_id = await default_parent(session, node.owner_id, data.parent_id)
     if parent_id != node.parent_id:
-        parent = await validate_parent(session, node, parent_id, config)
+        parent = await validate_parent(session, node, parent_id, quotas)
         await validate_publication(session, node, parent, data)
         await move_paths(session, node, parent)
     retained_id = None
     if data.retain_personal_reference:
         if old_space is not NodeSpace.PERSONAL or node.space is not NodeSpace.PUBLISHED:
-            raise Problem(422, "invalid_retained_reference")
+            raise InvalidInput("invalid_retained_reference")
         if old_parent is None:
-            raise Problem(422, "invalid_parent")
+            raise InvalidInput("invalid_parent")
         if (
             await check_node_quota(session, node.owner_id)
-            >= config.product.library.quotas.max_owned_nodes
+            >= quotas.max_owned_nodes
         ):
-            raise Problem(422, "quota_exceeded")
+            raise InvalidInput("quota_exceeded")
         reference = Node(
             id=uuid7(),
             owner_id=node.owner_id,
@@ -262,7 +310,7 @@ async def move_locked(
             description=node.description,
             reference_id=node.reference_id or node.id,
         )
-        await validate_parent(session, reference, old_parent, config, creating=True)
+        await validate_parent(session, reference, old_parent, quotas, creating=True)
         session.add(reference)
         await session.flush()
         await add_paths(session, reference)
@@ -271,7 +319,7 @@ async def move_locked(
 
 
 async def patch_node(
-    session: AsyncSession, owner_id: UUID, node_id: UUID, data: NodePatch, config: AppConfig
+    session: AsyncSession, owner_id: UUID, node_id: UUID, data: NodePatch, config: LibraryConfig
 ) -> dict[str, object]:
     return await update_node(session, owner_id, node_id, data, None, config)
 
@@ -282,12 +330,13 @@ async def update_node(
     node_id: UUID,
     metadata: NodePatch | None,
     membership: SenseDelta | None,
-    config: AppConfig,
+    config: LibraryConfig,
 ) -> dict[str, object]:
     """Apply metadata and membership together under the existing owner lock."""
+    quotas = config
     async with session.begin():
         await lock_owner(session, owner_id)
-        node = await owned(session, node_id, owner_id, config)
+        node = await owned(session, node_id, owner_id)
         normal(node)
         if metadata is not None:
             for field, value in metadata.model_dump(exclude_unset=True).items():
@@ -295,7 +344,7 @@ async def update_node(
         changes: dict[str, object] = {}
         if membership is not None:
             if node.type is not NodeType.DECK:
-                raise Problem(422, "membership_is_deck_only")
+                raise InvalidInput("membership_is_deck_only")
             present = set(
                 (
                     await session.scalars(
@@ -304,7 +353,7 @@ async def update_node(
                 ).all()
             )
             final = (present - set(membership.remove)) | set(membership.add)
-            identifiers = await replace_membership(session, node, final, config)
+            identifiers = await replace_membership(session, node, final, quotas)
             changes = {
                 "sense_ids": identifiers,
                 "added_count": len(final - present),
@@ -317,21 +366,22 @@ async def update_node(
 
 
 async def patch_senses(
-    session: AsyncSession, owner_id: UUID, node_id: UUID, data: SenseDelta, config: AppConfig
+    session: AsyncSession, owner_id: UUID, node_id: UUID, data: SenseDelta, config: LibraryConfig
 ) -> dict[str, object]:
     result = await update_node(session, owner_id, node_id, None, data, config)
     return {k: v for k, v in result.items() if k not in {"added_count", "removed_count"}}
 
 
 async def move_node(
-    session: AsyncSession, owner_id: UUID, node_id: UUID, data: NodeMove, config: AppConfig
+    session: AsyncSession, owner_id: UUID, node_id: UUID, data: NodeMove, config: LibraryConfig
 ) -> dict[str, object]:
+    quotas = config
     async with session.begin():
         await lock_owner(session, owner_id)
-        node = await owned(session, node_id, owner_id, config)
+        node = await owned(session, node_id, owner_id)
         normal(node)
         old_parent = node.parent_id
-        retained_id = await move_locked(session, node, data, config)
+        retained_id = await move_locked(session, node, data, quotas)
         node.updated_at = datetime.now(UTC)
         await session.flush()
         result = row_data(node) | {"retained_reference_id": retained_id}
@@ -350,15 +400,16 @@ async def copy_node(
     owner_id: UUID,
     node_id: UUID,
     data: NodeDestination,
-    config: AppConfig,
+    config: LibraryConfig,
 ) -> dict[str, object]:
+    quotas = config
     async with session.begin():
         await lock_owner(session, owner_id)
-        source = await owned(session, node_id, owner_id, config)
+        source = await owned(session, node_id, owner_id)
         normal(source)
-        parent, ancestors = await readable_path(session, data.parent_id, owner_id, config)
+        parent, ancestors = await readable_path(session, data.parent_id, owner_id)
         if source.id in {node.id for node in ancestors}:
-            raise Problem(422, "node_cycle")
+            raise InvalidInput("node_cycle")
         originals = list(
             (
                 await session.scalars(
@@ -366,16 +417,16 @@ async def copy_node(
                     .join(NodePath, NodePath.descendant_id == Node.id)
                     .where(NodePath.ancestor_id == source.id, Node.deleted_at.is_(None))
                     .order_by(NodePath.depth, Node.id)
-                    .limit(config.product.library.quotas.max_owned_nodes + 1)
+                    .limit(quotas.max_owned_nodes + 1)
                 )
             ).all()
         )
         if (
             len(originals) + await check_node_quota(session, owner_id)
-            > config.product.library.quotas.max_owned_nodes
+            > quotas.max_owned_nodes
         ):
-            raise Problem(422, "quota_exceeded")
-        await validate_parent(session, source, data.parent_id, config, creating=True)
+            raise InvalidInput("quota_exceeded")
+        await validate_parent(session, source, data.parent_id, quotas, creating=True)
         await validate_publication(session, source, parent, data, creating=True)
         identifiers = {node.id: uuid7() for node in originals}
         by_id = {node.id: node for node in originals}
@@ -396,13 +447,13 @@ async def copy_node(
             normal(original)
             children[original.parent_id] = children.get(original.parent_id, 0) + 1
             if original.reference_id and (original.reference_id, original.id) in ancestor_pairs:
-                raise Problem(422, "node_cycle")
+                raise InvalidInput("node_cycle")
         if any(
-            count > config.product.library.quotas.max_children_per_folder
+            count > quotas.max_children_per_folder
             for parent_id, count in children.items()
             if parent_id in identifiers
         ):
-            raise Problem(422, "quota_exceeded")
+            raise InvalidInput("quota_exceeded")
         targets = {
             n.reference_id
             for n in originals
@@ -418,23 +469,23 @@ async def copy_node(
                 ).all()
             }
             if set(found) != targets:
-                raise Problem(404, "node_not_found")
+                raise NotFound("node_not_found")
             if any(n.type is NodeType.REFERENCE for n in found.values()):
-                raise Problem(422, "invalid_reference_target")
+                raise InvalidInput("invalid_reference_target")
         if any(
             n.reference_id is not None
             and n.reference_id in by_id
             and by_id[n.reference_id].type is NodeType.REFERENCE
             for n in originals
         ):
-            raise Problem(422, "invalid_reference_target")
+            raise InvalidInput("invalid_reference_target")
         members: list[tuple[UUID, int]] = [
             (row[0], int(row[1]))
             for row in (
                 await session.execute(
                     select(DeckSense.deck_id, DeckSense.sense_id)
                     .where(DeckSense.deck_id.in_(identifiers))
-                    .limit(config.product.library.quotas.max_owned_memberships + 1)
+                    .limit(quotas.max_owned_memberships + 1)
                 )
             ).all()
         ]
@@ -442,9 +493,9 @@ async def copy_node(
         for deck_id, _ in members:
             sizes[deck_id] = sizes.get(deck_id, 0) + 1
         if any(
-            count > config.product.library.quotas.max_senses_per_deck for count in sizes.values()
+            count > quotas.max_senses_per_deck for count in sizes.values()
         ):
-            raise Problem(422, "deck_sense_limit_exceeded")
+            raise InvalidInput("deck_sense_limit_exceeded")
         if members:
             count = (
                 await session.scalar(
@@ -455,8 +506,8 @@ async def copy_node(
                 )
                 or 0
             )
-            if count + len(members) > config.product.library.quotas.max_owned_memberships:
-                raise Problem(422, "quota_exceeded")
+            if count + len(members) > quotas.max_owned_memberships:
+                raise InvalidInput("quota_exceeded")
         copies = {
             original.id: Node(
                 id=identifiers[original.id],
@@ -519,11 +570,11 @@ async def copy_node(
 
 
 async def delete_node(
-    session: AsyncSession, owner_id: UUID, node_id: UUID, config: AppConfig
+    session: AsyncSession, owner_id: UUID, node_id: UUID
 ) -> None:
     async with session.begin():
         await lock_owner(session, owner_id)
-        node = await owned(session, node_id, owner_id, config)
+        node = await owned(session, node_id, owner_id)
         normal(node)
         await delete_subtree(session, node)
         logger.info(
@@ -539,10 +590,11 @@ async def list_nodes(
     viewer_id: UUID | None,
     parent_id: UUID | None,
     cursor: str | None,
-    config: AppConfig,
+    config: LibraryConfig,
     *,
     limit: int | None = None,
     include: str | None = None,
+    study_config: StudyConfig | None = None,
 ) -> NodePageDict:
     budget = ScopeBudget(viewer_id)
     limit = page_limit(limit, config)
@@ -551,21 +603,21 @@ async def list_nodes(
     seek, _ = decode(cursor, binding, ["time", "uuid"])
     if parent_id is None:
         if viewer_id is None:
-            raise Problem(422, "parent_required")
+            raise InvalidInput("parent_required")
         system = await roots(session, viewer_id)
         parent_id = system[NodeRole.LIBRARY_ROOT].id
-    parent = await readable(session, parent_id, viewer_id, config)
+    parent = await readable(session, parent_id, viewer_id)
     if parent.type is NodeType.REFERENCE:
         if not await session.scalar(
             select(reference_visible(Node.__table__, viewer_id)).where(
                 Node.id == parent.id,
             )
         ):
-            raise Problem(404, "reference_unavailable")
+            raise NotFound("reference_unavailable")
         assert parent.reference_id is not None
-        parent = await readable(session, parent.reference_id, viewer_id, config)
+        parent = await readable(session, parent.reference_id, viewer_id)
     if parent.type is not NodeType.FOLDER:
-        raise Problem(422, "invalid_parent")
+        raise InvalidInput("invalid_parent")
     statement = select(Node).where(
         Node.parent_id == parent.id,
         Node.owner_id == parent.owner_id,
@@ -590,9 +642,18 @@ async def list_nodes(
             if item["owner_id"] != viewer_id:
                 item["parent_id"] = None
     if "summary" in enrichment and page:
+        if study_config is None:
+            raise InvalidInput("study_config_required")
         from pycil.study.progress import summaries
 
-        summary = await summaries(session, viewer_id, config, [n.id for n in page], budget=budget)
+        summary = await summaries(
+            session,
+            viewer_id,
+            study_config,
+            [n.id for n in page],
+            budget=budget,
+            library_config=config,
+        )
         for item, counts in zip(data, summary, strict=True):
             item["summary"] = counts
     return {
@@ -604,9 +665,13 @@ async def list_nodes(
 
 
 async def replace_membership(
-    session: AsyncSession, node: Node, sense_ids: Sequence[int] | set[int], config: AppConfig
+    session: AsyncSession,
+    node: Node,
+    sense_ids: Sequence[int] | set[int],
+    config: LibraryConfig,
 ) -> list[int]:
     """Apply the final membership set inside the owner lock."""
+    quotas = config
     present = set(
         (
             await session.scalars(select(DeckSense.sense_id).where(DeckSense.deck_id == node.id))
@@ -614,8 +679,8 @@ async def replace_membership(
     )
     final = set(sense_ids)
     additions, removals = final - present, present - final
-    if additions and len(final) > config.product.library.quotas.max_senses_per_deck:
-        raise Problem(422, "deck_sense_limit_exceeded")
+    if additions and len(final) > quotas.max_senses_per_deck:
+        raise InvalidInput("deck_sense_limit_exceeded")
     if len(final) > len(present):
         count = (
             await session.scalar(
@@ -629,14 +694,14 @@ async def replace_membership(
             )
             or 0
         )
-        if count + len(final) - len(present) > config.product.library.quotas.max_owned_memberships:
-            raise Problem(422, "quota_exceeded")
+        if count + len(final) - len(present) > quotas.max_owned_memberships:
+            raise InvalidInput("quota_exceeded")
     if additions:
         existing = set(
             (await session.scalars(select(Sense.id).where(Sense.id.in_(additions)))).all()
         )
         if existing != additions:
-            raise Problem(422, "sense_not_found")
+            raise InvalidInput("sense_not_found")
         session.add_all(DeckSense(deck_id=node.id, sense_id=s) for s in additions)
     if removals:
         await session.execute(
@@ -658,9 +723,9 @@ async def replace_membership(
 
 
 async def node_details(
-    session: AsyncSession, node_id: UUID, viewer_id: UUID | None, config: AppConfig
+    session: AsyncSession, node_id: UUID, viewer_id: UUID | None
 ) -> dict[str, object]:
-    node, ancestors = await readable_path(session, node_id, viewer_id, config)
+    node, ancestors = await readable_path(session, node_id, viewer_id)
     data = row_data(node)
     if node.parent_id not in {n.id for n in ancestors}:
         data["parent_id"] = None

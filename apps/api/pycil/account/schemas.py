@@ -2,7 +2,7 @@
 
 import re
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Self
 from uuid import UUID
 
 from pydantic import Field, field_validator, model_validator
@@ -21,7 +21,7 @@ class LearningPatch(Strict):
     max_sense_count: Annotated[int, Field(strict=True, gt=0)] | None = None
 
     @model_validator(mode="after")
-    def no_explicit_null(self):
+    def no_explicit_null(self) -> Self:
         if any(getattr(self, key) is None for key in self.model_fields_set):
             raise ValueError("learning preferences cannot be null")
         return self
@@ -31,7 +31,7 @@ class AssistantPatch(Strict):
     auto_approve: Annotated[bool, Field(strict=True)] | None = None
 
     @model_validator(mode="after")
-    def no_explicit_null(self):
+    def no_explicit_null(self) -> Self:
         if "auto_approve" in self.model_fields_set and self.auto_approve is None:
             raise ValueError("assistant preferences cannot be null")
         return self
@@ -45,7 +45,7 @@ class PreferencesPatch(Strict):
     assistant: AssistantPatch | None = None
 
     @model_validator(mode="after")
-    def no_explicit_null(self):
+    def no_explicit_null(self) -> Self:
         if any(getattr(self, key) is None for key in self.model_fields_set):
             raise ValueError("preferences cannot be null")
         return self

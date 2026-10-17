@@ -12,7 +12,14 @@ the image sets `/app/config/config.yaml`. Credentials belong only in the environ
 
 ## Runtime environment
 
-[Deployment validation](../../apps/api/pycil/app/settings.py) owns this contract:
+[Settings validation](../../apps/api/pycil/app/settings.py) owns this contract.
+`ProcessSettings` defines common environment values; `ApiSettings` and `WorkerSettings`
+are separate role-specific models. The API additionally requires Clerk and decision
+settings and parses CORS origins. Workers require none of those API-only values.
+Shared telemetry and broker setup accept `ProcessSettings`. Environment variable
+names remain the same.
+
+The following table describes the API environment:
 
 | Variable | Meaning |
 | --- | --- |
@@ -33,7 +40,7 @@ Never print resolved credentials or put them in policy files.
 
 `DECISION_BASE_URL` is the full request URL, such as
 `https://openrouter.ai/api/alpha/decisions`; Instructor does not append a path.
-`runtime.providers.vocabulary.decision_model` is the OpenRouter model ID, including its
+`vocabulary.provider.decision_model` is the OpenRouter model ID, including its
 vendor prefix. Infrastructure selects Instructor's OpenRouter Decisions transport
 without stripping that prefix from the model sent to the provider.
 
@@ -41,42 +48,49 @@ without stripping that prefix from the model sent to the provider.
 
 | Group | Owner and purpose |
 | --- | --- |
-| `product.account.preferences`, `product.account.plans` | Preference defaults/choices, feature grants and monthly allowances |
-| `product.study` | Study defaults/limits, grading decision threshold, pairs, artifact output policy, mastery and FSRS |
-| `product.vocabulary` | Generation examples and supported search behavior |
-| `product.assistant` | Defaults, limits, model catalog/efforts and accounting rates |
-| `product.library` | Quotas and pagination |
-| `product.projections` | Bounded response assembly; includes inline examples/sources |
-| `runtime.caches` | Independent user-ID, Word metadata, Sense and artifact TTL/entry capacities |
-| `runtime.generation`, `runtime.assistant` | Concurrency, admission, deadlines, batches, status retention and leases |
-| `runtime.providers`, `runtime.identity` | Provider/identity transport, JWKS and retry timing |
-| `runtime.database`, `runtime.redis` | Per-process pools and connection/operation deadlines |
-| `runtime.search` | Rebuild/writer resources, polling, retry, publication and progress budgets |
-| `runtime.library`, `runtime.http`, `runtime.health`, `runtime.lifecycle` | SQL/scope, body/client, readiness and cleanup budgets |
-| `runtime.telemetry.traces`, `runtime.telemetry.metrics` | Per-process trace queue/batches and trace/metric export timing |
+| `account` | Preference defaults/choices, feature grants, monthly allowances and JWKS timing |
+| `study` | Study defaults/limits, grading decision threshold, pairs, artifact output policy, mastery and FSRS |
+| `vocabulary` | Lexical search, preview limits, generation examples, search worker runtime and provider settings |
+| `assistant` | Defaults, limits, model catalog/efforts, accounting rates and lease timing |
+| `library` | Quotas, pagination, SQL/scope budgets and membership limits |
+| `jobs` | Native job execution deadline, domain-lock expiry and temporary result TTL |
+| `system` | Database pools, Redis, in-memory caches, HTTP boundaries, health budgets and OpenTelemetry |
 
 Every YAML leaf has English comments describing purpose, units, range, configured value,
 tuning effect and restart behavior. Values are required by typed `AppConfig`; there are
 no flat-key aliases, YAML includes, environment interpolation or per-domain YAML files.
 Schema versions, algorithms, protocol ceilings and operator/test fixture defaults remain
-with their code owners. Provider retry timing is owned by `runtime.providers.vocabulary`.
+with their code owners. Provider retry timing is owned by `vocabulary.provider`.
 
 Frontend public policy lives in [config.ts](../../apps/web/src/config.ts), separate from
 backend YAML and secrets. Study answer length reuses the limit already supplied by `/me`.
 Dictionary/picker inputs now respect the existing 256-character API ceiling. Expanded
-assistant examples use `product.projections.inline_examples`; search snippets intentionally
+assistant examples use `vocabulary.preview.inline_examples`; search snippets intentionally
 keep one example. CORS keeps its existing localhost additions plus `ALLOWED_ORIGINS`;
 this refactor does not change that access policy.
 
 Memory caches store shared detached DTOs directly, with TTL measured from insertion/update
 and LRU eviction by entry count. Neutral Word metadata and Senses have separate caches under
-`runtime.caches.words` and `runtime.caches.senses`; themed reads bypass both. Retained lexical
+`system.caches.words` and `system.caches.senses`; themed reads bypass both. Retained lexical
 DTOs are frozen slotted Pydantic dataclasses with tuple collections. Build separate response
 values before trimming/enriching. The configured entry counts are not byte limits. Multiply memory,
-connection pools, generation slots and queues by API process count. See the measured local
+connection pools and caches by API process count. See the measured local
 cache budget in [the implementation plan](../../caching.md#implementation-evidence).
 Optional typed Redis caches bind model/prefix/TTL at construction and serialize bytes;
-required task status, rate limits and leases retain native Redis failure behavior.
+required rate limits and leases retain native Redis failure behavior.
+
+The [observed in-memory backend](../../apps/api/pycil/observability/stores.py) extends
+the plain infrastructure store and emits OTel instruments from `pycil.store` through the existing SDK:
+`pycil.store.requests` counts reads with `outcome=hit|miss`, and `pycil.store.evictions`
+counts only native LRU capacity removals. TTL expiry, explicit discard/clear and replacing
+an existing entry do not count as capacity evictions. Internal eviction reads are not
+application cache hits. Composition supplies bounded `store` names with `backend=memory`: `word`, `sense`, `artifact`
+and `user_id`; keys, content and user identifiers never become attributes.
+`pycil.store.entries` and `pycil.store.capacity` are gauges in entries, not bytes.
+Entries are sampled after store mutations; an idle/read-only cache can retain its
+last reported count after TTL expiry until the next mutation. Reads do not scan or
+purge expired entries for telemetry. There is no extra callback, thread or exporter.
+Optional Redis cache instrumentation is outside these process-local measurements.
 
 The application pool caps simultaneous connections at `size + max_overflow`; the separate
 native checkpoint pool adds up to `max_size`. The application pool's `timeout_seconds`
@@ -105,8 +119,53 @@ no-op until then. Tests use the real SDK with an in-memory reader and PostgreSQL
 
 ### OpenTelemetry export
 
-[SDK ownership](../../apps/api/pycil/infrastructure/observability.py) is entered once by
-the API's existing resource lifecycle, before database/client initialization, and
+The existing `observe_operation` boundary emits `pycil.operation.duration`, a
+histogram in seconds, alongside its completion log. Its only metric attributes are
+`operation` and `outcome` (`succeeded`, `failed`, `cancelled`, and stream-only
+`interrupted`). Current callers use fixed names: `word_generation`,
+`artifact_generation`, `grading` and `assistant_stream`. Identifiers,
+artifact types, prompts, answers, provider output and exception text are not metric
+attributes. Histogram counts supply operation counts; no separate counter or span
+is added. An artifact generation measurement covers context retrieval, provider
+work and validation, and storage through completion. A sufficient existing bank
+does not invoke generation and adds no generation sample. A provider response alone
+does not determine success: unusable output or a storage failure fails the operation.
+These durations overlap child HTTP/SQL work and must not be summed with it.
+
+The [AG-UI observation](../../apps/api/pycil/observability/ag_ui.py) measures the
+native assistant event stream through source closure, excluding subsequent usage
+settlement and conversation cleanup. It reads native terminal events: an approval
+interrupt is `interrupted`, a run error is `failed`, and closing an unfinished
+stream is `cancelled`. Exhaustion without a terminal event is `failed`; HTTP 200
+alone does not imply success. Events and cancellation propagate unchanged, and
+no additional span or protocol event is created. Detailed LangGraph/model/tool
+tracing remains deferred to the future Langfuse integration.
+
+Tantivy's [observed index](../../apps/api/pycil/observability/search.py) emits
+`pycil.search.duration` in seconds through the existing SDK. Attributes are the
+fixed index name (`dictionary`), operation (`query`, `synchronize`, `rebuild`,
+`publication_wait`) and outcome (`succeeded`, `failed`, `cancelled`, `rejected`,
+`idle`). Only empty synchronization polls use `idle`; query validation uses
+`rejected`. Histogram counts supply operation counts without a duplicate counter.
+Query duration includes validation, readiness and query execution; synchronization
+duration covers one poll/batch, and publication waiting ends when the reader sees
+the requested revision. These durations overlap and must not be summed. Query text,
+content, revision IDs, paths and exception text are not attributes.
+
+`pycil.search.pending_age` is an observable gauge in seconds, labeled only by
+`index`. Only the writer owner emits it. It uses the creation timestamp of the
+first unapplied revision in publication order from the most recent successful
+owner poll. Its age advances with a monotonic clock during slow work or poll
+failures; a successful empty poll resets it to zero. Collection reads memory only,
+without SQL, index access or a new polling task. It is a sampled view: after a batch
+commits, its last observation can remain until the next successful poll. The age
+starts at revision creation, not the exact transaction commit time. Before the
+first successful poll, after ownership loss, or after shutdown there is no sample;
+absence does not mean zero. Use synchronization failures and readiness alongside
+this gauge when PostgreSQL is unavailable. No exact backlog count is collected.
+
+[SDK ownership](../../apps/api/pycil/observability/__init__.py) is entered once by
+the API and worker resource lifecycles, before database/client initialization, and
 closed after those resources. With no `OTEL_EXPORTER_OTLP_ENDPOINT`, no SDK/export
 workers start. This also leaves migrations and ordinary local development without
 an implicit collector dependency. A configured API process installs the global
@@ -115,9 +174,9 @@ providers once; replace the process to restart or reconfigure the SDK.
 | Variable | Meaning |
 | --- | --- |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Optional HTTP(S) base URL; export uses HTTP/protobuf at `/v1/traces` and `/v1/metrics`, retaining any base path |
-| `OTEL_SERVICE_NAME` | Service identity, default `pycil-api` |
-| `SERVICE_VERSION` | Required when exporting; actual immutable release tag or source SHA |
-| `DEPLOYMENT_ENVIRONMENT` | Required when exporting: `local`, `vps-docker` or `aws-fargate` |
+| `OTEL_SERVICE_NAME` | Service identity, default `pycil-api` for API and `pycil-worker` for workers |
+| `SERVICE_VERSION` | Required when exporting; actual immutable artifact identity (for example, image digest or local image ID) |
+| `DEPLOYMENT_ENVIRONMENT` | Required when exporting: `local`, `vps` or `aws` |
 | `GIT_SHA` | Optional source commit, emitted as `vcs.ref.head.revision` |
 | `OTEL_TRACES_SAMPLER_ARG` | Finite root trace sampling ratio, default `0.1`, range `0`–`1`; parent sampling decisions are respected |
 | `OTEL_RESOURCE_ATTRIBUTES` | Additional standard SDK resource attributes; explicit service/version/environment/instance fields above take precedence |
@@ -128,9 +187,9 @@ and alternate sampler names are not configuration inputs. Each process receives 
 fresh `service.instance.id`. Deployment manifests must explicitly forward these
 variables; the existing base Compose configurations do not enable export automatically.
 
-`runtime.telemetry.traces` configures the native batch processor queue, batch size,
+`system.telemetry.traces` configures the native batch processor queue, batch size,
 schedule delay and exporter timeout. Validation rejects a batch larger than the queue.
-`runtime.telemetry.metrics` configures collection/export interval, timeout and cooperative
+`system.telemetry.metrics` configures collection/export interval, timeout and cooperative
 shutdown budget. YAML uses seconds; the owner converts SDK millisecond arguments.
 Configured defaults preserve the previous queue (2,048), batch (256), trace schedule
 (5 seconds), metric interval (15 seconds) and export budgets (2 seconds).
@@ -161,11 +220,12 @@ Structured logs include current valid trace/span IDs, even when a span is unsamp
 outside a trace they omit these IDs. Configured service/version/environment fields
 are added by a processor, independently of cleared request context. Request logs use
 `route` rather than raw `path`. HTTPX/HTTPCore transport diagnostics below WARNING
-are suppressed because they include raw URLs. Continue using `--no-access-log` in
-Uvicorn to avoid its separate raw request lines.
+are suppressed because they include raw URLs. Logging setup disables `uvicorn.access`
+because its native messages contain raw paths/queries; sanitized completion events
+supply request logs. Keep `--no-access-log` in the server command as well.
 
-Application query spans reuse `database.py`'s existing `engine.sync_engine` cursor
-events and the process-owned OTel SDK. The pinned contrib instrumentation `0.66b0`
+Application query spans use native `engine.sync_engine` cursor events in the
+[observed database boundary](../../apps/api/pycil/observability/database.py) and the process-owned OTel SDK. The pinned contrib instrumentation `0.66b0`
 declares SQLAlchemy `<2.1.0`, while this application uses `2.1.3`; it is not installed
 and its dependency check is not bypassed. Do not add overlapping SQLAlchemy/asyncpg
 auto-instrumentation to these hooks.
@@ -181,9 +241,9 @@ call is one execution span, not one span per row. SQL statements hidden inside t
 driver and transaction completion are outside this boundary.
 
 The separate checkpoint pool sets psycopg's public `cursor_factory` to
-[`CheckpointCursor`](../../apps/api/pycil/assistant/checkpoints.py). Its `execute`
+[`ObservedPsycopgCursor`](../../apps/api/pycil/observability/database.py). Its `execute`
 and `executemany` calls create CLIENT spans through the same SDK under the active
-request/operation, with instrumentation scope `pycil.checkpoints`. Each call has one
+request/operation, with instrumentation scope `pycil.database` and `pycil.db.pool=checkpoint`. Each call has one
 span, including an executemany batch. String queries use the same bounded operation
 set; bytes, SQL composables and templates fall back to `SQL` without rendering input.
 Attributes include `pycil.db.pool=checkpoint` and `pycil.db.execution.mode` (`direct`
@@ -204,7 +264,7 @@ DB-API integration captures SQL text and would duplicate this boundary.
 
 The shared HTTPX client (Clerk profile reads, structured/decision LLM calls) and
 assistant's OpenRouter async client use `ObservedAsyncClient` in the existing
-[`observability.py`](../../apps/api/pycil/infrastructure/observability.py). It delegates
+[observed HTTP boundary](../../apps/api/pycil/observability/http.py). It delegates
 public `AsyncClient.send` calls to HTTPX with the original request/options and creates
 one CLIENT span per send under the current context, using scope `pycil.http.client`.
 Redirects/auth flows inside one send are not separate spans. Existing provider retries
@@ -228,7 +288,12 @@ Use the enclosing operation's outcome for that result. PyJWT's separate synchron
 JWKS fetch is not an HTTPX call and is outside this boundary.
 
 This connects HTTP server/client and query spans, log correlation and existing DB
-histograms. Selected job/cache/search measurements remain later work.
+histograms. Native Taskiq supplies job metrics; process-local cache measurements are
+described above, alongside search, generation and assistant stream measurements.
+The [lesson-10 lab](../../devops-course/lab/lesson10/README.md) verifies actual Alloy
+ingestion and application independence during a collector outage; backend storage,
+queries and dashboards remain subsequent course work.
+See [jobs](modules/jobs.md).
 
 Application body limits must agree with ingress/web upload bounds. Application cleanup must
 fit inside server/container shutdown grace. Deployment owners remain Compose/Caddy; this

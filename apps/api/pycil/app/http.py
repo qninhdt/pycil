@@ -1,83 +1,32 @@
 """Safe errors, correlation, CORS and bounded bodies without buffering responses."""
 
 import time
-from types import SimpleNamespace
-from typing import Any, cast
 from uuid import UUID, uuid7
 
 from fastapi import Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from fastapi.routing import iter_route_contexts
-from opentelemetry.instrumentation.asgi import OpenTelemetryMiddleware
 from pydantic import BaseModel, ConfigDict
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.exceptions import HTTPException
 from starlette.middleware.cors import CORSMiddleware
-from starlette.routing import Match
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from pycil.infrastructure.observability import bind_contextvars, clear_contextvars, get_logger
-from pycil.utils.http import http_status_phrase, normalize_http_method
+from pycil.observability import bind_contextvars, clear_contextvars, get_logger
+from pycil.utils.errors import (
+    Conflict,
+    Forbidden,
+    InputTooLarge,
+    InvalidInput,
+    NotFound,
+    OperationError,
+    RateLimited,
+    Unauthenticated,
+    Unavailable,
+)
+from pycil.utils.http import http_status_phrase
 
 logger = get_logger("pycil.app.http")
-
-
-class HttpTelemetry:
-    def __init__(self, app: ASGIApp):
-        self.app = app
-
-        def span_details(scope: dict[str, object]) -> tuple[str, dict[str, str]]:
-            return (
-                f"{scope['method']} {scope['path']}",
-                {"http.route": str(scope["path"])},
-            )
-
-        self.instrumented = OpenTelemetryMiddleware(
-            self.dispatch,
-            default_span_details=span_details,
-            # A nonempty never-match pattern also overrides capture-header env settings.
-            http_capture_headers_server_request=["(?!)"],
-            http_capture_headers_server_response=["(?!)"],
-            exclude_spans=["receive", "send"],
-        )
-
-    async def dispatch(self, scope: Scope, receive: Receive, send: Send):
-        await self.app(scope["pycil.original_scope"], receive, send)
-
-    async def __call__(self, scope: Scope, receive: Receive, send: Send):
-        if scope["type"] != "http":
-            return await self.app(scope, receive, send)
-        route = "unmatched"
-        for candidate in iter_route_contexts(scope["app"].routes):
-            match, _ = candidate.matches(scope)
-            if match != Match.NONE:
-                route = candidate.path or "unmatched"
-                if match == Match.FULL:
-                    break
-        method = normalize_http_method(scope["method"])
-        scope.setdefault("state", {})["telemetry_route"] = route
-        scope["state"]["telemetry_method"] = method
-        # Instrument a sanitized scope; routing/auth/body handling retain the original.
-        safe = dict(
-            scope,
-            path=route,
-            raw_path=route.encode(),
-            root_path="",
-            query_string=b"",
-            method=method,
-            scheme="https" if scope.get("scheme") == "https" else "http",
-            server=("pycil-api", 0),
-            client=None,
-            headers=[
-                (k, v)
-                for k, v in scope.get("headers", [])
-                if k.lower() in {b"traceparent", b"tracestate"}
-            ],
-            route=SimpleNamespace(path_format=route),
-        )
-        safe["pycil.original_scope"] = scope
-        await self.instrumented(safe, receive, send)
 
 
 class ProblemResponse(JSONResponse):
@@ -87,7 +36,7 @@ class ProblemResponse(JSONResponse):
 _http_status_phrase = http_status_phrase
 
 
-class Problem(Exception):
+class Problem(OperationError):
     def __init__(
         self,
         status: int,
@@ -100,7 +49,29 @@ class Problem(Exception):
         self.code = code
         self.detail = detail
         self.title = title or _http_status_phrase(status)
-        super().__init__(code)
+        super().__init__(code, detail=detail)
+
+
+def status_for(error: OperationError) -> int:
+    if isinstance(error, Problem):
+        return error.status
+    statuses: dict[type[OperationError], int] = {
+        Unauthenticated: 401,
+        NotFound: 404,
+        InvalidInput: 422,
+        Conflict: 409,
+        Forbidden: 403,
+        Unavailable: 503,
+        RateLimited: 429,
+        InputTooLarge: 413,
+    }
+    return statuses.get(type(error), 500)
+
+
+async def operation_error_response(request: Request, error: OperationError) -> ProblemResponse:
+    return await problem_response(
+        request, Problem(status_for(error), error.code, detail=error.detail)
+    )
 
 
 class InvalidParam(BaseModel):
@@ -120,9 +91,6 @@ class ProblemDetails(BaseModel):
     request_id: str | None = None
     invalid_params: list[InvalidParam] | None = None
     error: str
-
-
-ErrorResponse = ProblemDetails
 
 
 async def problem_response(request: Request, error: Problem) -> ProblemResponse:
@@ -215,8 +183,9 @@ class RequestBoundary:
         async def correlated_send(message: Message) -> None:
             nonlocal started, status_code
             if message["type"] == "http.response.start":
-                status_code = cast(int | None, message.get("status"))
-                MutableHeaders(scope=cast(Any, message))["X-Request-ID"] = request_id
+                status_raw = message.get("status")
+                status_code = status_raw if isinstance(status_raw, int) else None
+                MutableHeaders(scope=message)["X-Request-ID"] = request_id
                 started = True
             await send(message)
 

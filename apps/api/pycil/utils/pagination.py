@@ -5,10 +5,20 @@ import json
 import math
 from collections.abc import Mapping, Sequence
 from datetime import datetime
-from typing import cast
+from typing import Literal, cast
 from uuid import UUID
 
 from pycil.utils.encoding import base64url_decode, base64url_encode
+
+type CursorFieldType = Literal[
+    "nullable_time",
+    "time",
+    "uuid",
+    "id",
+    "text",
+    "rank",
+    "number",
+]
 
 type SeekValue = datetime | UUID | int | float | str | None
 
@@ -34,7 +44,7 @@ def encode_cursor(
 def decode_cursor(
     token: str | None,
     binding: str | Mapping[str, object],
-    types: Sequence[str],
+    types: Sequence[CursorFieldType],
     *,
     timed: bool = False,
 ) -> tuple[list[SeekValue] | None, datetime | None]:
@@ -45,10 +55,10 @@ def decode_cursor(
         if not 1 <= len(token) <= 2048:
             raise InvalidCursorError("token length out of bounds")
         raw = base64url_decode(token)
-        raw_json: object = json.loads(raw)
+        raw_json = json.loads(raw)
         if not isinstance(raw_json, dict):
             raise InvalidCursorError("token body is not a JSON object")
-        data: dict[str, object] = cast(dict[str, object], raw_json)
+        data = cast(dict[str, object], raw_json)
         if (
             set(data.keys()) != {"v", "binding", "seek", "as_of"}
             or not isinstance(data["v"], int)
@@ -59,7 +69,7 @@ def decode_cursor(
         seek_raw = data["seek"]
         if not isinstance(seek_raw, list):
             raise InvalidCursorError("seek must be a list")
-        seek_list: list[object] = cast(list[object], seek_raw)
+        seek_list = cast(list[object], seek_raw)
         if len(seek_list) != len(types):
             raise InvalidCursorError("seek list length does not match types")
         parsed: list[SeekValue] = []
@@ -87,21 +97,19 @@ def decode_cursor(
                     raise InvalidCursorError("text seek value must be str <= 512 chars")
                 parsed.append(value)
             elif kind == "rank":
-                if type(value) not in {int, float} or isinstance(value, bool):
+                if not isinstance(value, (int, float)) or isinstance(value, bool):
                     raise InvalidCursorError("rank seek value must be a number")
-                val_num = cast(int | float, value)
-                if not 0 <= val_num < float("inf"):
+                if not 0 <= value < float("inf"):
                     raise InvalidCursorError("rank seek value must be non-negative finite")
-                parsed.append(val_num)
+                parsed.append(value)
             elif kind == "number":
-                if type(value) not in {int, float} or isinstance(value, bool):
+                if not isinstance(value, (int, float)) or isinstance(value, bool):
                     raise InvalidCursorError("number seek value must be a number")
-                val_num = cast(int | float, value)
-                if not math.isfinite(val_num):
+                if not math.isfinite(value):
                     raise InvalidCursorError("number seek value must be finite")
-                parsed.append(val_num)
+                parsed.append(value)
             else:
-                parsed.append(cast(SeekValue, value))
+                raise InvalidCursorError(f"unknown seek kind: {kind}")
         as_of_val = data["as_of"]
         cutoff = datetime.fromisoformat(as_of_val) if timed and isinstance(as_of_val, str) else None
         if timed:

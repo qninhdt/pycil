@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 from pycil.account.models import User
 from pycil.account.plans import Plan
 from pycil.app.config import load_config
-from pycil.app.http import Problem
+from pycil.app.http import status_for
 from pycil.infrastructure.kv_store import InMemoryStore
 from pycil.library.models import NodeType
 from pycil.library.nodes import create_node
@@ -22,6 +22,7 @@ from pycil.study.enums import (
     Selection,
 )
 from pycil.study.models import ReviewReceipt, UserSense
+from pycil.utils.errors import OperationError
 from pycil.vocabulary.enums import PartOfSpeech, Tier
 from pycil.vocabulary.models import Definition, Sense
 from tests.support.account import account
@@ -68,7 +69,7 @@ async def prepared_library(database, monkeypatch):
                     sense_id=sense_id,
                     stability=1,
                     difficulty=5,
-                    elo=config.product.study.mastery.initial_elo,
+                    elo=config.study.mastery.initial_elo,
                     last_exposure_at=now - timedelta(days=2),
                     due_at=due_at,
                     review_count=1,
@@ -77,7 +78,10 @@ async def prepared_library(database, monkeypatch):
             )
     async with database.sessions() as session:
         deck = await create_node(
-            session, user.id, NodeCreate(type=NodeType.DECK, name="Finance", sense_ids=ids), config
+            session,
+            user.id,
+            NodeCreate(type=NodeType.DECK, name="Finance", sense_ids=ids),
+            config.library,
         )
     await append(
         database.sessions,
@@ -120,7 +124,11 @@ async def test_preparation_selects_ordered_scope_and_never_changes_learning_stat
     user, deck, ids, config = prepared_library
     async with database.sessions() as session:
         preferences = await preparation.normalize_preparation(
-            session, user.id, config, selection=selection
+            session,
+            user.id,
+            config.study,
+            selection=selection,
+            plans=config.account.plans,
         )
         result = await preparation.prepare(
             session,
@@ -129,9 +137,11 @@ async def test_preparation_selects_ordered_scope_and_never_changes_learning_stat
             InMemoryStore(max_entries=1024, ttl=30),
             user.id,
             deck["id"],
-            config,
+            config.study,
             selection=selection,
             preferences=preferences,
+            library_config=config.library,
+            generation_batch_size=config.study.artifacts.batch_size,
         )
     assert [bundle["sense"].id for bundle in result["bundles"]] == [
         ids[index] for index in expected_indices
@@ -154,7 +164,11 @@ async def test_preparation_uses_fresh_plan_preserves_saved_preferences_and_appli
     assert user.plan is Plan.FREE
     async with database.sessions() as session:
         preferences = await preparation.normalize_preparation(
-            session, user.id, config, max_sense_count=1
+            session,
+            user.id,
+            config.study,
+            max_sense_count=1,
+            plans=config.account.plans,
         )
         result = await preparation.prepare(
             session,
@@ -163,8 +177,10 @@ async def test_preparation_uses_fresh_plan_preserves_saved_preferences_and_appli
             None,
             user.id,
             deck["id"],
-            config,
+            config.study,
             preferences=preferences,
+            library_config=config.library,
+            generation_batch_size=config.study.artifacts.batch_size,
         )
     assert result["actual_sense_count"] == 1
     assert result["bundles"][0]["sense"].id == ids[2]
@@ -179,7 +195,7 @@ async def test_preparation_cannot_read_foreign_private_scope(database, prepared_
     _, deck, _, config = prepared_library
     foreign, _ = await account(database.sessions)
     async with database.sessions() as session:
-        with pytest.raises(Problem) as error:
+        with pytest.raises(OperationError) as error:
             await preparation.prepare(
                 session,
                 database.sessions,
@@ -187,7 +203,11 @@ async def test_preparation_cannot_read_foreign_private_scope(database, prepared_
                 None,
                 foreign.id,
                 deck["id"],
-                config,
-                preferences=await preparation.normalize_preparation(session, foreign.id, config),
+                config.study,
+                preferences=await preparation.normalize_preparation(
+                    session, foreign.id, config.study, plans=config.account.plans
+                ),
+                library_config=config.library,
+                generation_batch_size=config.study.artifacts.batch_size,
             )
-        assert error.value.status == 404
+        assert status_for(error.value) == 404

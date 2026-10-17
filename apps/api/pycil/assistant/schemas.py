@@ -61,7 +61,7 @@ class NodeSearch(Strict):
     limit: Annotated[int, Field(strict=True, ge=1, le=10)] = 3
 
     @model_validator(mode="after")
-    def scope_shape(self):
+    def scope_shape(self) -> Self:
         if self.scope == NodeSpace.PUBLISHED and self.node_id is not None:
             raise ValueError("Use LIBRARY for a specific readable node")
         return self
@@ -84,7 +84,7 @@ class LibraryRead(Strict):
     cursor: str | None = Field(default=None, max_length=2048)
 
     @model_validator(mode="after")
-    def structure_filters(self):
+    def structure_filters(self) -> Self:
         if self.view == LibraryView.STRUCTURE and (
             self.query is not None
             or self.state != LearningState.ALL
@@ -123,7 +123,7 @@ class NodeBatch(Strict):
     node_ids: list[UUID] = Field(min_length=1, max_length=20)
 
     @model_validator(mode="after")
-    def unique(self):
+    def unique(self) -> Self:
         if len(set(self.node_ids)) != len(self.node_ids):
             raise ValueError("Duplicate node IDs")
         return self

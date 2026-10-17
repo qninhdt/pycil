@@ -13,6 +13,7 @@ from pycil.utils.hashing import sha256_canonical_json, sha256_hex
 from pycil.utils.http import http_status_phrase, is_transient_http_status, normalize_http_method
 from pycil.utils.orm import row_data
 from pycil.utils.pagination import (
+    CursorFieldType,
     InvalidCursorError,
     SeekValue,
     decode_cursor,
@@ -29,6 +30,7 @@ from pycil.utils.strings import (
 )
 
 __all__ = [
+    "CursorFieldType",
     "InvalidCursorError",
     "PositiveID",
     "PositiveInt",

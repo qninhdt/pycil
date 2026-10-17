@@ -1,30 +1,24 @@
 from datetime import datetime
-from typing import cast
 from uuid import UUID
 
-from fastapi import APIRouter, Query, Request
 from sqlalchemy import and_, func, or_, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pycil.account.auth import Viewer
-from pycil.app.config import AppConfig
-from pycil.app.dependencies import Config, Session
-from pycil.app.http import Problem
-from pycil.app.pagination import decode, encode, includes, page_limit, strict_query
 from pycil.library.access import reference_visible, visible
+from pycil.library.config import LibraryConfig
 from pycil.library.models import Node, NodeRole, NodeSpace, NodeType
-from pycil.library.schemas import NodePage
+from pycil.library.nodes import decode, encode, includes, page_limit
 from pycil.library.scope import ScopeBudget, bounded, resolve_scopes
 from pycil.library.types import NodePageDict
+from pycil.study.config import StudyConfig
+from pycil.utils.errors import InvalidInput
 from pycil.utils.orm import row_data
-
-router = APIRouter(prefix="/v1/discovery", tags=["discovery"])
 
 
 async def search_nodes(
     session: AsyncSession,
     viewer_id: UUID | None,
-    config: AppConfig,
+    config: LibraryConfig,
     *,
     node_id: UUID | None = None,
     q: str | None = None,
@@ -34,15 +28,16 @@ async def search_nodes(
     limit: int | None = None,
     include: str | None = None,
     budget: ScopeBudget | None = None,
+    study_config: StudyConfig | None = None,
 ) -> NodePageDict:
     limit = page_limit(limit, config)
     enrichment = includes(include, {"summary"})
     if q is not None:
-        if not q.strip() or len(q) > config.product.projections.max_query_chars:
-            raise Problem(422, "invalid_query")
+        if not q.strip() or len(q) > config.max_query_chars:
+            raise InvalidInput("invalid_query")
         q = q.strip()
     if node_id is not None and q is None:
-        raise Problem(422, "query_required")
+        raise InvalidInput("query_required")
     binding = {
         "kind": "node_search" if node_id else "discovery",
         "viewer": str(viewer_id),
@@ -77,7 +72,7 @@ async def search_nodes(
                 )
             )
             if scope.root.type is NodeType.DECK:
-                raise Problem(422, "invalid_search_scope")
+                raise InvalidInput("invalid_search_scope")
             query = query.where(Node.id.in_(scope.nodes))
         else:
             query = query.where(
@@ -146,9 +141,7 @@ async def search_nodes(
             candidate_seek = (last_rank, last_id)
         page = rows[:limit]
         items: list[dict[str, object]] = [row_data(row[0]) for row in page]
-        parents: set[UUID] = {
-            cast(UUID, item["parent_id"]) for item in items if item.get("parent_id") is not None
-        }
+        parents: set[UUID] = {row[0].parent_id for row in page if row[0].parent_id is not None}
         readable_parents: set[UUID] = (
             set(
                 (
@@ -166,10 +159,17 @@ async def search_nodes(
             if item["parent_id"] not in readable_parents:
                 item["parent_id"] = None
         if "summary" in enrichment and page:
+            if study_config is None:
+                raise InvalidInput("study_config_required")
             from pycil.study.progress import summaries
 
             counts = await summaries(
-                session, viewer_id, config, [r[0].id for r in page], budget=budget
+                session,
+                viewer_id,
+                study_config,
+                [r[0].id for r in page],
+                library_config=config,
+                budget=budget,
             )
             for item, summary in zip(items, counts, strict=True):
                 item["summary"] = summary
@@ -179,30 +179,3 @@ async def search_nodes(
                 encode(binding, [page[-1][1], page[-1][0].id]) if len(rows) > limit else None
             ),
         }
-
-
-@router.get("/nodes", response_model=NodePage, openapi_extra={"security": [{}]})
-async def discovery(
-    request: Request,
-    viewer: Viewer,
-    session: Session,
-    config: Config,
-    q: str | None = Query(default=None, max_length=200),
-    type: NodeType | None = None,
-    owner_id: UUID | None = None,
-    cursor: str | None = Query(default=None, max_length=2048),
-    limit: int | None = Query(default=None, ge=1, le=100),
-    include: str | None = None,
-) -> NodePageDict:
-    strict_query(request, {"q", "type", "owner_id", "cursor", "limit", "include"})
-    return await search_nodes(
-        session,
-        viewer,
-        config,
-        q=q,
-        type=type,
-        owner_id=owner_id,
-        cursor=cursor,
-        limit=limit,
-        include=include,
-    )

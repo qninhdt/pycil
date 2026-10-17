@@ -8,31 +8,32 @@ from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy import text
 from starlette.exceptions import HTTPException
-from taskiq.middlewares.opentelemetry_middleware import OpenTelemetryMiddleware
 
 from pycil.account.api import public_router
 from pycil.account.api import router as account_router
 from pycil.app.broker import create_broker
 from pycil.app.config import load_config
 from pycil.app.http import (
-    HttpTelemetry,
     Problem,
     ProblemDetails,
     RequestBoundary,
     RuntimeCORS,
     http_error_response,
-    problem_response,
+    operation_error_response,
     validation_response,
 )
 from pycil.app.resources import api_resources
 from pycil.app.settings import ApiSettings
 from pycil.assistant.api import router as assistant_router
 from pycil.infrastructure.clerk import Identity
-from pycil.infrastructure.observability import configure_logging, get_logger
 from pycil.jobs.api import router as jobs_router
+from pycil.library.api import discovery_router
 from pycil.library.api import router as library_router
-from pycil.library.search import router as discovery_router
+from pycil.observability import configure_logging, get_logger
+from pycil.observability.http import HttpTelemetry
+from pycil.observability.jobs import OpenTelemetryMiddleware
 from pycil.study.api import router as study_router
+from pycil.utils.errors import OperationError
 from pycil.vocabulary.api import router as vocabulary_router
 
 logger = get_logger(__name__)
@@ -50,9 +51,11 @@ def create_app() -> FastAPI:
             app.state.config = config
             app.state.deployment = deployment
             app.state.identity = Identity(
-                deployment,
-                timeout=config.runtime.identity.jwks_timeout_seconds,
-                lifespan=config.runtime.identity.jwks_lifespan_seconds,
+                deployment.clerk_jwks_url,
+                deployment.clerk_issuer,
+                deployment.clerk_audience,
+                timeout=config.account.jwks_timeout_seconds,
+                lifespan=config.account.jwks_lifespan_seconds,
             )
             for name, value in vars(resources).items():
                 setattr(app.state, name, value)
@@ -98,7 +101,7 @@ def create_app() -> FastAPI:
 
     from starlette.types import ExceptionHandler
 
-    app.add_exception_handler(Problem, cast(ExceptionHandler, problem_response))
+    app.add_exception_handler(OperationError, cast(ExceptionHandler, operation_error_response))
     app.add_exception_handler(RequestValidationError, cast(ExceptionHandler, validation_response))
     app.add_exception_handler(HTTPException, cast(ExceptionHandler, http_error_response))
     app.include_router(account_router)
@@ -111,19 +114,19 @@ def create_app() -> FastAPI:
     app.include_router(assistant_router)
 
     @app.get("/livez", include_in_schema=False)
-    async def health():
+    async def health() -> dict[str, str]:
         return {"status": "ok"}
 
     @app.get("/readyz", include_in_schema=False)
-    async def ready():
+    async def ready() -> dict[str, str]:
         component = "lifecycle"
         try:
-            async with asyncio.timeout(app.state.config.runtime.health.timeout_seconds):
+            async with asyncio.timeout(app.state.config.system.health.timeout_seconds):
                 component = "database"
                 async with app.state.engine.connect() as connection:
                     await connection.execute(text("SELECT 1"))
                 component = "kv_store"
-                async with asyncio.timeout(app.state.config.runtime.health.redis_timeout_seconds):
+                async with asyncio.timeout(app.state.config.system.health.redis_timeout_seconds):
                     await app.state.redis.ping()
                 component = "search"
                 await app.state.search.health()

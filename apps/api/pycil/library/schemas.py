@@ -35,7 +35,7 @@ class NodeCreate(Strict):
     sense_ids: list[Annotated[int, Field(strict=True, gt=0)]] | None = None
 
     @model_validator(mode="after")
-    def editable_values(self):
+    def editable_values(self) -> Self:
         if not self.name.strip():
             raise ValueError("blank node name")
         if self.sense_ids is not None and len(set(self.sense_ids)) != len(self.sense_ids):
@@ -52,7 +52,7 @@ class NodePatch(Strict):
     description: str | None = Field(default=None, max_length=8000)
 
     @model_validator(mode="after")
-    def supplied_fields(self):
+    def supplied_fields(self) -> Self:
         if not self.model_fields_set or (
             "name" in self.model_fields_set and (self.name is None or not self.name.strip())
         ):

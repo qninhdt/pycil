@@ -2,28 +2,29 @@
 
 import random
 from collections import Counter, defaultdict
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Protocol, cast
+from typing import cast
 from uuid import UUID
 
 from openai import APIError
-from pydantic import BaseModel
 from sqlalchemy import DateTime, Float, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from pycil.account.config import PlanPolicy
 from pycil.account.models import User
-from pycil.account.settings import effective_learning
-from pycil.app.config import AppConfig
-from pycil.app.http import Problem
+from pycil.account.plans import Feature, Plan
 from pycil.infrastructure.kv_store import InMemoryStore
-from pycil.infrastructure.observability import get_logger
+from pycil.infrastructure.llm import StructuredLLMProtocol
 from pycil.infrastructure.retry import ProviderOutputError
 from pycil.library.access import readable
+from pycil.library.config import LibraryConfig
 from pycil.library.senses import member_ids
+from pycil.observability import get_logger
 from pycil.study.artifacts.generation import retrieve_artifacts
 from pycil.study.artifacts.schemas import Artifact
-from pycil.study.config import LearningPreferences
+from pycil.study.config import LearningPreferences, StudyConfig, effective_learning
 from pycil.study.enums import (
     QUESTION_ARTIFACT_MAP,
     LearningState,
@@ -37,17 +38,14 @@ from pycil.study.models import UserSense
 from pycil.study.questions import build_question
 from pycil.study.schemas import PreparedQuestion
 from pycil.study.types import PreparationBundleDict
+from pycil.utils.errors import Conflict, Forbidden, InvalidInput, NotFound, Unavailable
 from pycil.vocabulary.errors import VocabularyError
 from pycil.vocabulary.schemas import Sense
-from pycil.vocabulary.types import SensePreview
+from pycil.vocabulary.types import SenseSummaryDict
 from pycil.vocabulary.words import get_sense_previews, get_senses
 
 logger = get_logger(__name__)
 randomness = random.SystemRandom()
-
-
-class StructuredLLMProtocol(Protocol):
-    async def complete[T: BaseModel](self, instruction: str, data: str, schema: type[T]) -> T: ...
 
 
 @dataclass(frozen=True)
@@ -59,17 +57,17 @@ class PlannedRow:
 
 
 def plan_pairs(
-    elo: float, preferences: LearningPreferences, config: AppConfig, k: int
+    elo: float, preferences: LearningPreferences, policy: StudyConfig, k: int
 ) -> list[tuple[QuestionType, ResponseFormat]]:
-    level = config.product.study.mastery.level(elo)
+    level = policy.mastery.level(elo)
     pairs = [
-        (kind, fmt, config.product.study.pair_levels[kind][fmt])
+        (kind, fmt, policy.pair_levels[kind][fmt])
         for kind in preferences.question_types
         for fmt in preferences.formats
-        if fmt in config.product.study.pair_levels.get(kind, {})
+        if fmt in policy.pair_levels.get(kind, {})
     ]
     if not pairs:
-        raise Problem(422, "infeasible_learning_preferences")
+        raise InvalidInput("infeasible_learning_preferences")
     levels = sorted({entry[2] for entry in pairs if entry[2] <= level})
     if not levels:
         levels = [min(entry[2] for entry in pairs)]
@@ -86,38 +84,45 @@ def plan_pairs(
 async def normalize_preparation(
     session: AsyncSession,
     user: UUID,
-    config: AppConfig,
+    policy: StudyConfig,
     *,
     selection: Selection = Selection.AUTO,
     max_sense_count: int | None = None,
     questions_per_sense: int | None = None,
     preferences: LearningPreferences | None = None,
+    plans: Mapping[Plan, PlanPolicy],
 ) -> LearningPreferences:
     async with session.begin():
         current = await session.scalar(
             select(User).where(User.id == user).execution_options(populate_existing=True)
         )
     if current is None:
-        raise Problem(404, "account_not_found")
+        raise NotFound("account_not_found")
     if preferences is not None:
         current_preferences = effective_learning(
-            {"learning": preferences.model_dump(mode="json")}, current.plan, config
+            {"learning": preferences.model_dump(mode="json")},
+            policy,
+            advanced=Feature.ADVANCED_GRADING in plans[current.plan].features,
         )
         if current_preferences != preferences:
-            raise Problem(403, "advanced_grading_not_available")
+            raise Forbidden("advanced_grading_not_available")
     else:
-        preferences = effective_learning(current.settings, current.plan, config)
+        preferences = effective_learning(
+            current.settings,
+            policy,
+            advanced=Feature.ADVANCED_GRADING in plans[current.plan].features,
+        )
     target = max_sense_count if max_sense_count is not None else preferences.max_sense_count
     k = questions_per_sense if questions_per_sense is not None else preferences.questions_per_sense
     preferences = preferences.model_copy(
         update={"max_sense_count": target, "questions_per_sense": k}
     )
     if selection not in {Selection.AUTO, Selection.NEW, Selection.DUE}:
-        raise Problem(422, "invalid_preparation")
+        raise InvalidInput("invalid_preparation")
     try:
-        config.product.study.validate_preferences(preferences)
+        policy.validate_preferences(preferences)
     except ValueError as exc:
-        raise Problem(422, "invalid_preparation") from exc
+        raise InvalidInput("invalid_preparation") from exc
     return preferences
 
 
@@ -128,11 +133,13 @@ async def prepare(
     artifact_store: InMemoryStore[int, Artifact] | None,
     user: UUID,
     node_id: UUID,
-    config: AppConfig,
+    policy: StudyConfig,
     *,
     sense_store: InMemoryStore[int, Sense] | None = None,
     preferences: LearningPreferences,
     selection: Selection = Selection.AUTO,
+    library_config: LibraryConfig,
+    generation_batch_size: int,
 ) -> dict[str, object]:
     target, k = preferences.max_sense_count, preferences.questions_per_sense
     logger.info(
@@ -145,14 +152,16 @@ async def prepare(
     now = datetime.now(UTC)
     async with session.begin():
         await session.connection(execution_options={"isolation_level": "REPEATABLE READ"})
-        node = await readable(session, node_id, user, config)
-        scope = (await member_ids(session, node, user, config)).cte("preparation_scope")
+        node = await readable(session, node_id, user)
+        scope = (
+            await member_ids(session, node, user, library_config)
+        ).cte("preparation_scope")
         learned = select(UserSense.sense_id, UserSense.elo, UserSense.due_at).where(
             UserSense.user_id == user, UserSense.sense_id.in_(select(scope.c.sense_id))
         )
         fresh = select(
             scope.c.sense_id,
-            literal(config.product.study.mastery.initial_elo, type_=Float()).label("elo"),
+            literal(policy.mastery.initial_elo, type_=Float()).label("elo"),
             literal(None, type_=DateTime(timezone=True)).label("due_at"),
         ).where(
             ~select(UserSense.sense_id)
@@ -187,7 +196,7 @@ async def prepare(
                         reason=LearningState(str(r[3])),
                     )
                 )
-    plans = {row.sense_id: plan_pairs(row.elo, preferences, config, k) for row in rows}
+    plans = {row.sense_id: plan_pairs(row.elo, preferences, policy, k) for row in rows}
     demand = Counter((sense_id, kind) for sense_id, pairs in plans.items() for kind, _ in pairs)
     try:
         artifacts = (
@@ -196,9 +205,9 @@ async def prepare(
                 structured_llm,
                 artifact_store,
                 [(sense_id, kind, count) for (sense_id, kind), count in demand.items()],
-                generation_batch_size=config.runtime.generation.artifact_batch_size,
-                correct_count=config.product.study.artifacts.correct_count,
-                distractor_count=config.product.study.artifacts.distractor_count,
+                generation_batch_size=generation_batch_size,
+                correct_count=policy.artifacts.correct_count,
+                distractor_count=policy.artifacts.distractor_count,
             )
             if demand
             else []
@@ -210,7 +219,7 @@ async def prepare(
             node_id=str(node_id),
             error_type=type(exc).__name__,
         )
-        raise Problem(409, "learning_content_changed") from None
+        raise Conflict("learning_content_changed") from None
     except (VocabularyError, APIError, ProviderOutputError) as exc:
         logger.warning(
             "study_artifact_retrieval_failed",
@@ -218,15 +227,15 @@ async def prepare(
             node_id=str(node_id),
             error_type=type(exc).__name__,
         )
-        raise Problem(503, "question_generation_unavailable") from None
+        raise Unavailable("question_generation_unavailable") from None
     senses: dict[int, Sense] = {
         s.id: s for s in await get_senses(sessions, list(plans), store=sense_store)
     }
-    facts: dict[int, SensePreview] = {
+    facts: dict[int, SenseSummaryDict] = {
         s["sense_id"]: s for s in await get_sense_previews(sessions, list(plans))
     }
     if len(senses) != len(plans) or len(facts) != len(plans):
-        raise Problem(409, "learning_content_changed")
+        raise Conflict("learning_content_changed")
     banks: dict[tuple[int, QuestionArtifactType], list[Artifact]] = defaultdict(list)
     for artifact in artifacts:
         banks[artifact.sense_id, artifact.artifact_type].append(artifact)
@@ -236,7 +245,7 @@ async def prepare(
         for kind, fmt in plans[row.sense_id]:
             bank = banks[row.sense_id, QUESTION_ARTIFACT_MAP[kind]]
             if not bank:
-                raise Problem(409, "learning_content_changed")
+                raise Conflict("learning_content_changed")
             lemma_val = facts[row.sense_id]["lemma"]
             questions.append(
                 build_question(
@@ -245,7 +254,7 @@ async def prepare(
                     fmt,
                     senses[row.sense_id],
                     lemma_val,
-                    config,
+                    policy,
                 )
             )
         bundles.append(

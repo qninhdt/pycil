@@ -96,20 +96,29 @@ equivalent to review Idempotency-Key.
 
 | Tool | Behavior | Approval |
 | --- | --- | --- |
-| `search_words` | Up to 10 queries; per-query limit 1–10 (default 3); one deduplicated list of existing WORDs with matched/unmatched queries and sense IDs/definitions; no lexical references | No |
+| `search_words` | Up to 10 queries; per-query limit 1–10 (default 3); deduplicated Words with sense IDs/definitions and dictionary references with `reference_id`; matched/unmatched queries | No |
 | `read_vocabulary` | Up to 30 Word IDs / 100 sense IDs; deduplicated senses, optional examples, lexical details, personal learning or containing decks | No |
 | `search_nodes` | Multiple names in Library or published Discovery; per-query limit; merged nodes with safe paths, roles, editability, reference availability and summaries | No |
 | `read_library` | Default Library or a known node: content reads distinct senses with examples/learning; structure lists children; bounded cursor pages | No |
 | `learning_overview` | Batch exact scope summaries; optional account-wide activity and scoped future schedules with separate date windows | No |
-| `generate_words` | Accept `words`, up to 10 word/expression strings; the vocabulary module selects exact source matches internally and reuses or generates Words; wait up to 30 seconds, then return completed senses or pending task IDs | Yes |
-| `get_generations` | Batch task statuses, with a bounded wait and completed Word/senses | No |
 | `create_node` | Create metadata and initial deck sense IDs in one transaction | Yes |
 | `update_node` | Atomically update metadata and/or membership; null name/description preserves values; `clear_description=true` explicitly clears description; actual added/removed counts | Yes |
 | `move_nodes` | Bounded batch; per-item transaction, explicit publication consent and optional retained personal reference | Yes |
 | `copy_nodes` | Bounded batch; per-item atomic subtree copy, remapped internal references and batch membership/path writes | Yes |
 | `delete_nodes` | Bounded batch; per-item subtree deletion result, protected system roots | Yes |
+| `generate_words` | Up to 10 `reference_ids` from `search_words`; wait concurrently via native Taskiq; return Word IDs/senses, per-entry errors or pending job references | Yes |
 | `get_preferences` | Saved settings, effective learning choices and plan restrictions | No |
 | `update_preferences` | Update only supplied settings, preserve the rest; cannot change plan | Yes |
+
+`generate_words` uses the existing submission policy, preserving ownership and
+same-user in-flight deduplication. It waits through native Taskiq result handles,
+without holding a database connection. Each wait is bounded by
+`jobs.timeout_seconds` (300 seconds by default), including Redis I/O.
+A `pending` item includes `job_id`/`status_url`; waiting timeout or caller disconnect
+never cancels its worker job. The assistant must not resubmit pending work or claim
+completion. The existing jobs HTTP API remains available to authenticated clients.
+Completed entries include senses through the existing vocabulary projection; a
+failure for one entry does not discard successful entries in the same batch.
 
 `include` is optional enrichment, not a second retrieval step. Word reads have a combined
 sense hydration cap from configuration; they fail explicitly rather than silently omitting
@@ -131,10 +140,9 @@ Tools normalize UUID/date/enum output to JSON-safe values before native serializ
 Validation failures return error ToolMessages with safe field locations/messages; rejected
 inputs and exception context are not echoed. Business error codes remain distinct.
 
-the vocabulary modulecal reference IDs are private to the generation flow used by the Assistant. It sends
-word strings, never reference/target pairs. The Dictionary HTTP API still supports explicit
-reference selection. Missing exact matches fail generation rather than generating a fuzzy
-suggestion. Finished jobs retain their task IDs and can be read through `get_generations`.
+Generation/preparation tools call the same domain submission functions as HTTP and
+return [job references](jobs.md) immediately. They do not wait inside an assistant
+turn or claim that accepted work has completed. There is no word-status tool.
 
 The human-in-the-loop middleware protects all mutation names explicitly by default. Change
 tool names and that guard together. The packaged prompt is `system_prompt.txt`; it defines the vocabulary

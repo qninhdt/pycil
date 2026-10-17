@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from pycil.vocabulary.references.models import SourceWord
+from pycil.vocabulary.references.schemas import SourceWord
 from tests.support.reference import reference_word
 
 

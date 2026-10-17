@@ -1,5 +1,6 @@
 """Study submission policy and a native Taskiq preparation task."""
 
+from collections.abc import Mapping
 from typing import cast
 from uuid import UUID
 
@@ -14,18 +15,20 @@ from taskiq import AsyncBroker, Context, SendTaskError, TaskiqDepends
 from taskiq.depends.progress_tracker import ProgressTracker, TaskState
 from taskiq_redis.exceptions import ResultIsMissingError
 
+from pycil.account.config import PlanPolicy
+from pycil.account.plans import Plan
 from pycil.app.broker import RetryableJobError, broker
-from pycil.app.config import AppConfig
-from pycil.app.http import Problem
 from pycil.app.resources import WorkerResources
+from pycil.jobs.config import JobsConfig
 from pycil.jobs.metadata import owned, owner_key
 from pycil.jobs.schemas import Accepted
 from pycil.jobs.singleflight import singleflight
 from pycil.library.access import readable
-from pycil.study.config import LearningPreferences
+from pycil.study.config import LearningPreferences, StudyConfig
 from pycil.study.enums import Selection
 from pycil.study.preparation import normalize_preparation, prepare
 from pycil.study.schemas import Preparation, Prepare
+from pycil.utils.errors import Unavailable
 from pycil.utils.hashing import sha256_hex
 
 
@@ -37,53 +40,58 @@ async def request_preparation(
     sessions: async_sessionmaker[AsyncSession],
     redis: Redis,
     native: AsyncBroker,
-    config: AppConfig,
+    study_config: StudyConfig,
+    jobs_config: JobsConfig,
     user: UUID,
     data: Prepare,
+    *,
+    plans: Mapping[Plan, PlanPolicy],
 ) -> Accepted:
     async with sessions() as session:
         preferences = await normalize_preparation(
             session,
             user,
-            config,
+            study_config,
             selection=data.selection,
             max_sense_count=data.max_sense_count,
             questions_per_sense=data.questions_per_sense,
+            plans=plans,
         )
         async with session.begin():
-            await readable(session, data.node_id, user, config)
-    normalized = {
-        "node_id": str(data.node_id),
-        "selection": data.selection,
-        "preferences": preferences.model_dump(mode="json"),
-    }
+            await readable(session, data.node_id, user)
     fingerprint = sha256_hex(
         str(data.node_id)
         + data.selection
         + preferences.model_dump_json()
-        + config.product.study.model_dump_json()
+        + study_config.model_dump_json()
     )
     key = study_request_key(user, fingerprint)
-    ttl = config.runtime.jobs.result_ttl_seconds
+    ttl = jobs_config.result_ttl_seconds
     try:
         async with singleflight(redis, native, key, user) as existing:
             if existing:
                 return Accepted.for_job(existing)
             job_id = native.id_generator()
             await redis.set(owner_key(job_id), str(user), ex=ttl)
+            selection_val = data.selection.value
             await (
                 prepare_task.kicker()
                 .with_broker(native)
                 .with_task_id(job_id)
                 .with_labels(
-                    timeout=config.runtime.jobs.timeout_seconds,
+                    timeout=jobs_config.timeout_seconds,
                 )
-                .kiq(user_id=str(user), **normalized)
+                .kiq(
+                    user_id=str(user),
+                    node_id=str(data.node_id),
+                    selection=selection_val,
+                    preferences=preferences.model_dump(mode="json"),
+                )
             )
             await redis.set(key, job_id, pxat=await redis.pexpiretime(owner_key(job_id)))
             return Accepted.for_job(job_id)
-    except RedisError, SendTaskError, TimeoutError:
-        raise Problem(503, "job_submission_unavailable") from None
+    except (RedisError, SendTaskError, TimeoutError):
+        raise Unavailable("job_submission_unavailable") from None
 
 
 @broker.task(task_name="study.prepare", retry_on_error=True, max_retries=2)
@@ -91,12 +99,12 @@ async def prepare_task(
     user_id: str,
     node_id: str,
     selection: str,
-    preferences: dict,
+    preferences: dict[str, object],
     context: Context = TaskiqDepends(),
-    progress: ProgressTracker = TaskiqDepends(),
-) -> dict:
+    progress: ProgressTracker[object] = TaskiqDepends(),
+) -> dict[str, object]:
     resources = cast(WorkerResources, context.state.resources)
-    config = cast(AppConfig, context.state.config)
+    config = context.state.config
     with bound_contextvars(task_id=context.message.task_id):
         try:
             try:
@@ -107,18 +115,20 @@ async def prepare_task(
                 except ResultIsMissingError:
                     pass
                 else:
-                    if not result.is_err:
-                        return result.return_value
+                    raw_return: object = result.return_value
+                    if not result.is_err and isinstance(raw_return, dict):
+                        return cast(dict[str, object], raw_return)
                 async with resources.sessions() as session:
                     normalized = await normalize_preparation(
                         session,
                         UUID(user_id),
-                        config,
+                        config.study,
                         selection=Selection(selection),
                         preferences=LearningPreferences.model_validate(preferences),
+                        plans=config.account.plans,
                     )
                 await progress.set_progress(TaskState.STARTED)
-            except ConnectionError, RedisConnectionError, RedisTimeoutError, OperationalError:
+            except (ConnectionError, RedisConnectionError, RedisTimeoutError, OperationalError):
                 raise RetryableJobError("job_dependencies_unavailable") from None
             async with resources.sessions() as session:
                 result = await prepare(
@@ -128,10 +138,12 @@ async def prepare_task(
                     resources.artifact_store,
                     UUID(user_id),
                     UUID(node_id),
-                    config,
+                    config.study,
                     selection=Selection(selection),
                     preferences=normalized,
                     sense_store=resources.sense_store,
+                    library_config=config.library,
+                    generation_batch_size=config.study.artifacts.batch_size,
                 )
             return Preparation.model_validate(result).model_dump(mode="json")
         except RetryableJobError:

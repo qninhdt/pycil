@@ -1,8 +1,11 @@
 """Bounded lexical reads and canonical publication identities."""
 
 from collections.abc import Sequence
+from dataclasses import replace
+from datetime import UTC, datetime
 from itertools import batched
 from typing import cast
+from uuid import UUID
 
 from sqlalchemy import and_, func, literal, select
 from sqlalchemy.dialects.postgresql import insert
@@ -10,17 +13,27 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.sql.elements import ColumnElement
 from sqlalchemy.sql.expression import ColumnExpressionArgument
 
-from pycil.infrastructure.content_revisions import EntityKey, Snapshot, capture
 from pycil.infrastructure.database import json_collection, transaction_lock
 from pycil.infrastructure.kv_store import InMemoryStore
+from pycil.library.config import LibraryConfig
+from pycil.library.scope import ScopeBudget, bounded, resolve_scopes
+from pycil.library.types import SenseSourcesSummary
+from pycil.study.config import StudyConfig
+from pycil.study.models import UserSense
+from pycil.study.progress import learning_preview
 from pycil.themes.namespace import theme_scope
+from pycil.utils.errors import Conflict, InvalidInput, NotFound
 from pycil.utils.hashing import sha256_hex
 from pycil.vocabulary import models as rows
+from pycil.vocabulary.config import PreviewPolicy
 from pycil.vocabulary.enums import EntryType, GenerationState, ResolutionState
 from pycil.vocabulary.errors import InvalidResourceError, WordCollisionError
+from pycil.vocabulary.revisions import Snapshot, capture
 from pycil.vocabulary.schemas import CachedWord, Sense, Word, sense_adapter
 from pycil.vocabulary.text import match_key
-from pycil.vocabulary.types import MeaningInventory, SensePreview, WordAliasInsert
+from pycil.vocabulary.types import MeaningInventory, SenseSummaryDict, WordAliasInsert
+
+DEFAULT_PREVIEW_POLICY = PreviewPolicy()
 
 
 def sense_fields(
@@ -250,8 +263,8 @@ async def get_word(
 
 async def get_sense_previews(
     sessions: async_sessionmaker[AsyncSession], identifiers: Sequence[int]
-) -> list[SensePreview]:
-    result: dict[int, SensePreview] = {}
+) -> list[SenseSummaryDict]:
+    result: dict[int, SenseSummaryDict] = {}
     async with sessions() as session:
         for batch in batched(identifiers, 500, strict=False):
             values = (
@@ -280,7 +293,7 @@ async def get_sense_previews(
                     .where(rows.Sense.id.in_(batch))
                 )
             ).mappings()
-            result.update((item["sense_id"], cast(SensePreview, dict(item))) for item in values)
+            result.update((item["sense_id"], cast(SenseSummaryDict, dict(item))) for item in values)
     return [result[identifier] for identifier in identifiers if identifier in result]
 
 
@@ -312,13 +325,13 @@ async def publish_identity(
     lemma: str,
     entry_type: EntryType | None,
     aliases: Sequence[str],
-) -> tuple[rows.Word, dict[EntityKey, Snapshot]]:
+) -> tuple[rows.Word, dict[int, Snapshot]]:
     key = match_key(lemma)
     await transaction_lock(session, "word:" + key)
     word = await session.scalar(
         select(rows.Word).where(rows.Word.match_key == key).with_for_update()
     )
-    previous = await capture(session, [("word", word.id)]) if word is not None else {}
+    previous = await capture(session, [word.id]) if word is not None else {}
     if word is None:
         word = rows.Word(
             lemma=lemma,
@@ -328,7 +341,7 @@ async def publish_identity(
         )
         session.add(word)
         await session.flush()
-    previous.setdefault(("word", word.id), None)
+    previous.setdefault(word.id, None)
     await link_reference(session, word.id, source_id)
     if word.generation_state == GenerationState.DONE:
         return word, previous
@@ -347,7 +360,7 @@ async def publish_identity(
 
 async def target_words(
     session: AsyncSession, lemmas: Sequence[str]
-) -> tuple[dict[str, int], dict[EntityKey, Snapshot]]:
+) -> tuple[dict[str, int], dict[int, Snapshot]]:
     unique = {match_key(lemma): lemma for lemma in lemmas}
     if not unique:
         return {}, {}
@@ -366,7 +379,7 @@ async def target_words(
     result = await session.execute(
         select(rows.Word.match_key, rows.Word.id).where(rows.Word.match_key.in_(unique))
     )
-    return dict(result.all()), {("word", identifier): None for identifier in created}
+    return dict(result.all()), {identifier: None for identifier in created}
 
 
 async def meaning_inventory(
@@ -409,3 +422,172 @@ async def meaning_inventory(
     if value is not None and any(item["definition"] is None for item in value["senses"]):
         raise InvalidResourceError("word has incomplete neutral meanings")
     return cast(MeaningInventory, dict(value)) if value is not None else None
+
+
+async def word_previews(
+    session: AsyncSession,
+    sessions: async_sessionmaker[AsyncSession],
+    identifiers: Sequence[int],
+    policy: PreviewPolicy = DEFAULT_PREVIEW_POLICY,
+    *,
+    sense_store: InMemoryStore[int, Sense] | None = None,
+) -> list[dict[str, object]]:
+    if len(identifiers) > policy.max_word_ids:
+        raise InvalidInput("lexical_batch_too_large")
+    words_query = select(rows.Word).where(rows.Word.id.in_(identifiers))
+    words = {w.id: w for w in (await session.scalars(words_query)).all()}
+    if set(words) != set(identifiers):
+        raise NotFound("word_not_found")
+    result_rows = list(
+        (
+            await session.execute(
+                select(rows.Sense.id, rows.Sense.word_id)
+                .where(rows.Sense.word_id.in_(identifiers))
+                .order_by(rows.Sense.id)
+                .limit(policy.max_word_senses + 1)
+            )
+        ).all()
+    )
+    if len(result_rows) > policy.max_word_senses:
+        raise InvalidInput("lexical_batch_too_large")
+    senses_page = await get_senses(sessions, [r.id for r in result_rows], store=sense_store)
+    native = {s.id: s for s in senses_page}
+    if set(native) != {r.id for r in result_rows}:
+        raise Conflict("learning_content_changed")
+    groups: dict[int, list[Sense]] = {i: [] for i in identifiers}
+    for row in result_rows:
+        groups[row.word_id].append(
+            replace(
+                native[row.id],
+                examples=native[row.id].examples[: policy.inline_examples],
+            )
+        )
+    return [
+        {
+            "word_id": i,
+            "lemma": words[i].lemma,
+            "entry_type": words[i].entry_type,
+            "senses": groups[i],
+        }
+        for i in identifiers
+    ]
+
+
+async def viewer_context(
+    session: AsyncSession,
+    user_id: UUID,
+    identifiers: Sequence[int],
+    *,
+    library_config: LibraryConfig,
+    study_config: StudyConfig,
+    policy: PreviewPolicy = DEFAULT_PREVIEW_POLICY,
+    include_sources: bool = True,
+    max_senses: int | None = None,
+) -> dict[str, object]:
+    if len(identifiers) > (max_senses or policy.max_context_senses) or len(
+        set(identifiers)
+    ) != len(identifiers):
+        raise InvalidInput("context_too_large")
+    sense_ids_query = select(rows.Sense.id).where(rows.Sense.id.in_(identifiers))
+    found = set((await session.scalars(sense_ids_query)).all())
+    if found != set(identifiers):
+        raise NotFound("sense_not_found")
+    budget = ScopeBudget(user_id)
+    async with bounded(session, library_config, budget):
+        scope = (
+            next(
+                iter(
+                    (
+                        await resolve_scopes(
+                            session,
+                            [None],
+                            user_id,
+                            library_config,
+                            budget=budget,
+                        )
+                    ).values()
+                )
+            )
+            if include_sources
+            else None
+        )
+        memories = {
+            m.sense_id: m
+            for m in (
+                await session.scalars(
+                    select(UserSense).where(
+                        UserSense.user_id == user_id, UserSense.sense_id.in_(identifiers)
+                    )
+                )
+            ).all()
+        }
+        from pycil.library.senses import source_batch
+
+        membership: dict[int, SenseSourcesSummary] = (
+            await source_batch(
+                session,
+                scope.decks,
+                identifiers,
+                user_id,
+                policy.inline_sources,
+            )
+            if scope
+            else {i: {"decks": [], "count": 0} for i in identifiers}
+        )
+        now = datetime.now(UTC)
+        senses = [
+            {
+                "sense_id": identifier,
+                "learning": learning_preview(
+                    memories.get(identifier), now, user_id, study_config
+                ),
+                "decks": membership[identifier]["decks"],
+                "deck_count": membership[identifier]["count"],
+                "decks_has_more": int(membership[identifier]["count"])
+                > policy.inline_sources,
+            }
+            for identifier in identifiers
+        ]
+        studied = len(memories)
+        due = sum(m.due_at <= now for m in memories.values())
+        return {
+            "as_of": now,
+            "senses": senses,
+            "total": len(identifiers),
+            "studied": studied,
+            "new": len(identifiers) - studied,
+            "due": due,
+            "not_due": studied - due,
+        }
+
+
+async def word_context(
+    session: AsyncSession,
+    user_id: UUID,
+    word_id: int,
+    *,
+    library_config: LibraryConfig,
+    study_config: StudyConfig,
+    policy: PreviewPolicy = DEFAULT_PREVIEW_POLICY,
+) -> dict[str, object]:
+    if await session.get(rows.Word, word_id) is None:
+        raise NotFound("word_not_found")
+    identifiers = list(
+        (
+            await session.scalars(
+                select(rows.Sense.id)
+                .where(rows.Sense.word_id == word_id)
+                .order_by(rows.Sense.id)
+                .limit(policy.max_context_senses + 1)
+            )
+        ).all()
+    )
+    return await viewer_context(
+        session,
+        user_id,
+        identifiers,
+        library_config=library_config,
+        study_config=study_config,
+        policy=policy,
+    )
+

@@ -18,7 +18,7 @@ from pycil.app.settings import ApiSettings
 from pycil.infrastructure.clerk import Identity
 from pycil.infrastructure.kv_store import InMemoryStore
 from pycil.infrastructure.llm import DecisionLLM
-from pycil.infrastructure.observability import get_logger
+from pycil.observability import get_logger
 from pycil.study.artifacts.schemas import Artifact
 from pycil.vocabulary.schemas import CachedWord, Sense
 from pycil.vocabulary.search import SearchIndex
@@ -44,9 +44,15 @@ class AppState(Protocol):
     checkpoint_pool: AsyncConnectionPool[AsyncConnection[DictRow]]
 
 
-async def session(request: Request) -> AsyncGenerator[AsyncSession]:
-    state = cast(AppState, request.app.state)
-    async with state.sessions() as connection:
+def resources(request: Request) -> AppState:
+    return cast(AppState, request.app.state)
+
+
+Runtime = Annotated[AppState, Depends(resources)]
+
+
+async def session(runtime: Runtime) -> AsyncGenerator[AsyncSession]:
+    async with runtime.sessions() as connection:
         try:
             yield connection
         except DBAPIError as exc:
@@ -56,15 +62,9 @@ async def session(request: Request) -> AsyncGenerator[AsyncSession]:
             raise
 
 
-def configuration(request: Request) -> AppConfig:
-    state = cast(AppState, request.app.state)
-    return state.config
-
-
-def resources(request: Request) -> AppState:
-    return cast(AppState, request.app.state)
+def configuration(runtime: Runtime) -> AppConfig:
+    return runtime.config
 
 
 Session = Annotated[AsyncSession, Depends(session)]
 Config = Annotated[AppConfig, Depends(configuration)]
-Runtime = Annotated[AppState, Depends(resources)]

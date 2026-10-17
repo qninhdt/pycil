@@ -1,7 +1,7 @@
 from collections.abc import AsyncGenerator, Awaitable, Callable, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Protocol, cast
 from uuid import UUID
 
 import langchain.agents as lc_agents
@@ -18,28 +18,49 @@ from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
 from langchain_openrouter import ChatOpenRouter
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.config import get_config
+from langgraph.graph.state import CompiledStateGraph
 from openrouter import OpenRouter
-from pydantic import ValidationError
+from psycopg import AsyncConnection
+from psycopg.rows import DictRow
+from psycopg_pool import AsyncConnectionPool
+from pydantic import SecretStr, ValidationError
 
-from pycil.app.config import AppConfig
-from pycil.app.http import Problem
-from pycil.app.resources import ApiResources
-from pycil.app.settings import ApiSettings
-from pycil.assistant.config import ModelPolicy
-from pycil.assistant.tools import MUTATION_TOOLS, tools, validation_message
-from pycil.infrastructure.observability import ObservedAsyncClient, get_logger
+from pycil.assistant.config import AssistantConfig, ModelPolicy
+from pycil.assistant.tools import (
+    MUTATION_TOOLS,
+    AssistantResources,
+    AssistantToolConfig,
+    tools,
+    validation_message,
+)
+from pycil.observability import get_logger
+from pycil.observability.http import ObservedAsyncClient
+from pycil.utils.errors import OperationError
 
 create_agent: Callable[..., Any] = cast(Any, lc_agents).create_agent
 trim_messages: Callable[..., list[BaseMessage]] = cast(Any, lc_messages).trim_messages
+
+
+class AssistantDeployment(Protocol):
+    @property
+    def llm_api_key(self) -> SecretStr: ...
+
+    @property
+    def llm_base_url(self) -> str | None: ...
+
+
+class AssistantGraphResources(AssistantResources, Protocol):
+    checkpoint_pool: AsyncConnectionPool[AsyncConnection[DictRow]]
+
 
 logger = get_logger(__name__)
 
 
 class Boundary(AgentMiddleware[Any, Any, Any]):
-    config: AppConfig
+    config: AssistantConfig
     turn_context: str | None
 
-    def __init__(self, config: AppConfig, turn_context: str | None = None) -> None:
+    def __init__(self, config: AssistantConfig, turn_context: str | None = None) -> None:
         super().__init__()
         self.config = config
         self.turn_context = turn_context
@@ -61,7 +82,7 @@ class Boundary(AgentMiddleware[Any, Any, Any]):
         trimmed: list[BaseMessage] = trim_messages(
             req_messages[:position],
             max_tokens=max(
-                0, self.config.product.assistant.limits.max_context_messages - len(current)
+                0, self.config.limits.max_context_messages - len(current)
             ),
             token_counter=len,
             strategy="last",
@@ -113,11 +134,11 @@ class Boundary(AgentMiddleware[Any, Any, Any]):
         )
         try:
             return await handler(request)
-        except Problem as exc:
+        except OperationError as exc:
             logger.warning(
                 "assistant_tool_call_problem",
                 tool_name=tool_name,
-                status=exc.status,
+                error_type=type(exc).__name__,
                 code=exc.code,
             )
             return ToolMessage(
@@ -148,7 +169,7 @@ class Boundary(AgentMiddleware[Any, Any, Any]):
 
 @asynccontextmanager
 async def model(
-    deployment: ApiSettings, policy: ModelPolicy, effort: str, timeout_seconds: float
+    deployment: AssistantDeployment, policy: ModelPolicy, effort: str, timeout_seconds: float
 ) -> AsyncGenerator[ChatOpenRouter]:
     async with ObservedAsyncClient(follow_redirects=True) as http:
         selected = ChatOpenRouter(
@@ -178,14 +199,14 @@ async def model(
 
 
 def graph(
-    resources: ApiResources,
+    resources: AssistantGraphResources,
     user: UUID,
-    config: AppConfig,
+    config: AssistantToolConfig,
     selected_model: ChatOpenRouter,
     *,
     auto_approve: bool = False,
     turn_context: str | None = None,
-) -> Any:
+) -> CompiledStateGraph[Any, Any, Any, Any]:
     surface = tools(resources, user, config)
     protected_map: dict[str, bool | InterruptOnConfig] = {
         t.name: {"allowed_decisions": ["approve", "reject"]}
@@ -194,13 +215,13 @@ def graph(
     }
     interrupt_on: dict[str, bool | InterruptOnConfig] = {} if auto_approve else protected_map
     middleware_chain: Sequence[AgentMiddleware[Any, Any, Any]] = [
-        Boundary(config, turn_context),
+        Boundary(config.assistant, turn_context),
         HumanInTheLoopMiddleware(interrupt_on=interrupt_on),
         ToolCallLimitMiddleware(
-            run_limit=config.product.assistant.limits.max_tool_calls, exit_behavior="error"
+            run_limit=config.assistant.limits.max_tool_calls, exit_behavior="error"
         ),
         ModelCallLimitMiddleware(
-            run_limit=config.product.assistant.limits.max_tool_calls + 1, exit_behavior="error"
+            run_limit=config.assistant.limits.max_tool_calls + 1, exit_behavior="error"
         ),
     ]
     return create_agent(

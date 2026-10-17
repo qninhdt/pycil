@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import func, select
 
 from pycil.app.config import load_config
-from pycil.app.http import Problem
+from pycil.app.http import status_for
 from pycil.infrastructure.kv_store import InMemoryStore
 from pycil.library.models import NodeType
 from pycil.library.nodes import create_node
@@ -24,6 +24,7 @@ from pycil.study.models import DailyActivity, ReviewReceipt, UserSense
 from pycil.study.preparation import normalize_preparation, prepare
 from pycil.study.reviews import review
 from pycil.study.schemas import Preparation, Review, ReviewBatch
+from pycil.utils.errors import OperationError
 from pycil.vocabulary.enums import EntryType, GenerationState, PartOfSpeech, Tier
 from pycil.vocabulary.models import Sense, Word
 from tests.support.account import account
@@ -75,15 +76,29 @@ async def test_alternate_word_credit_and_cross_word_definition_rejection_are_ato
         answered_at=answer.answered_at,
     )
     async with database.sessions() as session:
-        with pytest.raises(Problem) as error:
-            await review(session, user.id, ReviewBatch(results=[answer, invalid]), uuid4(), config)
+        with pytest.raises(OperationError) as error:
+            await review(
+                session,
+                user.id,
+                ReviewBatch(results=[answer, invalid]),
+                uuid4(),
+                config.study,
+                account_config=config.account,
+            )
         assert error.value.code == "invalid_definition_sense"
     async with database.sessions() as session:
         assert await session.scalar(select(func.count()).select_from(UserSense)) == 0
         assert await session.scalar(select(func.count()).select_from(ReviewReceipt)) == 0
         assert await session.scalar(select(func.count()).select_from(DailyActivity)) == 0
     async with database.sessions() as session:
-        accepted = await review(session, user.id, ReviewBatch(results=[answer]), uuid4(), config)
+        accepted = await review(
+            session,
+            user.id,
+            ReviewBatch(results=[answer]),
+            uuid4(),
+            config.study,
+            account_config=config.account,
+        )
     assert accepted["results"][0]["sense_id"] == alternate.id
     assert accepted["evidence"][0]["recall"] == 1.0
     assert accepted["evidence"][0]["performance"] == 0.8
@@ -126,7 +141,12 @@ async def test_repeated_artifacts_share_one_update_and_acceptance_timezone(datab
     )
     async with database.sessions() as session:
         result = await review(
-            session, user.id, ReviewBatch(results=[first, second]), uuid4(), config
+            session,
+            user.id,
+            ReviewBatch(results=[first, second]),
+            uuid4(),
+            config.study,
+            account_config=config.account,
         )
     assert result["activity_day"] == "2026-10-14"
     assert len(result["results"]) == 1 and len(result["evidence"]) == 2
@@ -158,7 +178,7 @@ async def test_prepare_review_replay_is_atomic_and_changes_selection(database):
             session,
             user.id,
             NodeCreate(type=NodeType.DECK, name="Finance", sense_ids=[sense_id]),
-            config,
+            config.library,
         )
     await append(
         database.sessions,
@@ -183,7 +203,13 @@ async def test_prepare_review_replay_is_atomic_and_changes_selection(database):
 
     async def prepared(selection):
         async with database.sessions() as session:
-            preferences = await normalize_preparation(session, user.id, config, selection=selection)
+            preferences = await normalize_preparation(
+                session,
+                user.id,
+                config.study,
+                selection=selection,
+                plans=config.account.plans,
+            )
             return Preparation.model_validate(
                 await prepare(
                     session,
@@ -192,9 +218,11 @@ async def test_prepare_review_replay_is_atomic_and_changes_selection(database):
                     store,
                     user.id,
                     deck["id"],
-                    config,
+                    config.study,
                     selection=selection,
                     preferences=preferences,
+                    library_config=config.library,
+                    generation_batch_size=config.study.artifacts.batch_size,
                 )
             )
 
@@ -219,7 +247,14 @@ async def test_prepare_review_replay_is_atomic_and_changes_selection(database):
 
     async def submit(data):
         async with database.sessions() as session:
-            return await review(session, user.id, data, event_key, config)
+            return await review(
+                session,
+                user.id,
+                data,
+                event_key,
+                config.study,
+                account_config=config.account,
+            )
 
     first, replay = await asyncio.gather(submit(batch), submit(batch))
     assert first == replay
@@ -232,9 +267,9 @@ async def test_prepare_review_replay_is_atomic_and_changes_selection(database):
             )
         ]
     )
-    with pytest.raises(Problem) as error:
+    with pytest.raises(OperationError) as error:
         await submit(conflict)
-    assert error.value.status == 409
+    assert status_for(error.value) == 409
     async with database.sessions() as session:
         memory = await session.get(UserSense, (user.id, sense_id))
         assert memory.review_count == 1
@@ -281,13 +316,20 @@ async def test_review_rejects_invalid_batch_and_old_evidence_cannot_overwrite_me
 
     async def submit(items):
         async with database.sessions() as session:
-            return await review(session, user.id, ReviewBatch(results=items), uuid4(), config)
+            return await review(
+                session,
+                user.id,
+                ReviewBatch(results=items),
+                uuid4(),
+                config.study,
+                account_config=config.account,
+            )
 
     for invalid, code in [
         (item.model_copy(update={"answered_at": now + timedelta(days=1)}), "invalid_answered_at"),
         (item.model_copy(update={"question_artifact_id": 99999}), "question_artifact_not_found"),
     ]:
-        with pytest.raises(Problem) as error:
+        with pytest.raises(OperationError) as error:
             await submit([item, invalid])
         assert error.value.code == code
     async with database.sessions() as session:
@@ -346,7 +388,14 @@ async def test_distinct_concurrent_review_batches_do_not_lose_memory_or_activity
     async def submit():
         async with database.sessions() as session:
             await gate.wait()
-            return await review(session, user.id, batch, uuid4(), config)
+            return await review(
+                session,
+                user.id,
+                batch,
+                uuid4(),
+                config.study,
+                account_config=config.account,
+            )
 
     results = await asyncio.gather(submit(), submit())
     assert all(result["results"][0]["applied"] for result in results)

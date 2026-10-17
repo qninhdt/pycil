@@ -8,9 +8,9 @@ from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select, tuple_
 
-from pycil.account.auth import UserId
 from pycil.account.lifecycle import require_user
-from pycil.app.dependencies import Config, Session
+from pycil.app.auth import UserId
+from pycil.app.dependencies import Config, Runtime, Session
 from pycil.app.pagination import decode, encode, page_limit, strict_query
 from pycil.assistant import graph as agents
 from pycil.assistant.conversations import delete_conversation, owned
@@ -23,7 +23,7 @@ from pycil.assistant.schemas import (
     CreateConversation,
 )
 from pycil.assistant.stream import prepare_turn
-from pycil.infrastructure.observability import get_logger
+from pycil.observability import get_logger
 from pycil.utils.orm import row_data
 
 logger = get_logger(__name__)
@@ -32,15 +32,15 @@ router = APIRouter(prefix="/v1/assistant", tags=["assistant"])
 
 
 @router.get("/models", response_model=list[AssistantModel])
-async def models(user: UserId, config: Config):
+async def models(user: UserId, config: Config) -> list[dict[str, object]]:
     return [
         {"id": m.id, "name": m.name, "vision": m.vision, "efforts": m.efforts}
-        for m in config.product.assistant.models
+        for m in config.assistant.models
     ]
 
 
 @router.post("/conversations", status_code=201, response_model=ConversationView)
-async def create(data: CreateConversation, user: UserId, session: Session):
+async def create(data: CreateConversation, user: UserId, session: Session) -> dict[str, object]:
     async with session.begin():
         await require_user(session, user)
         conversation = Conversation(user_id=user, title=data.title)
@@ -62,7 +62,7 @@ async def listing(
     config: Config,
     cursor: str | None = Query(default=None, max_length=2048),
     limit: int | None = Query(default=None, ge=1, le=100),
-):
+) -> dict[str, object]:
     strict_query(request, {"cursor", "limit"})
     limit = page_limit(limit, config)
     binding = {"kind": "conversations", "viewer": str(user)}
@@ -85,20 +85,21 @@ async def listing(
 
 
 @router.get("/conversations/{identifier}", response_model=ConversationDetails)
-async def state(identifier: UUID, user: UserId, session: Session, request: Request, config: Config):
+async def state(
+    identifier: UUID, user: UserId, session: Session, resources: Runtime, config: Config
+) -> dict[str, object]:
     row = await owned(session, user, identifier)
     await session.commit()
-    resources = request.app.state
     policy = next(
         m
-        for m in config.product.assistant.models
-        if m.id == config.product.assistant.defaults.model
+        for m in config.assistant.models
+        if m.id == config.assistant.defaults.model
     )
     async with agents.model(
         resources.deployment,
         policy,
-        config.product.assistant.defaults.effort,
-        config.runtime.assistant.llm_timeout_seconds,
+        config.assistant.defaults.effort,
+        config.assistant.llm_timeout_seconds,
     ) as selected:
         snapshot = await agents.graph(resources, user, config, selected).aget_state(
             {"configurable": {"thread_id": str(identifier)}}
@@ -116,16 +117,20 @@ async def state(identifier: UUID, user: UserId, session: Session, request: Reque
 
 
 @router.delete("/conversations/{identifier}", status_code=204)
-async def remove(identifier: UUID, user: UserId, request: Request, config: Config):
+async def remove(
+    identifier: UUID, user: UserId, resources: Runtime, config: Config
+) -> Response:
     await delete_conversation(
-        request.app.state, user, identifier, lease_ttl=config.runtime.assistant.lease_ttl_seconds
+        resources, user, identifier, lease_ttl=config.assistant.lease_ttl_seconds
     )
     return Response(status_code=204)
 
 
-async def turn_events(data: RunAgentInput, user: UserId, request: Request, config: Config):
+async def turn_events(
+    data: RunAgentInput, user: UserId, resources: Runtime, config: Config
+) -> AsyncIterator[AsyncIterator[str]]:
     async with prepare_turn(
-        request.app.state, request.app.state.deployment, user, data, config
+        resources, resources.deployment, user, data, config
     ) as events:
         yield events
 
@@ -140,7 +145,9 @@ async def turn_events(data: RunAgentInput, user: UserId, request: Request, confi
         }
     },
 )
-async def stream(events: Annotated[AsyncIterator[str], Depends(turn_events, scope="request")]):
+async def stream(
+    events: Annotated[AsyncIterator[str], Depends(turn_events, scope="request")]
+) -> StreamingResponse:
     return StreamingResponse(
         events,
         media_type="text/event-stream",

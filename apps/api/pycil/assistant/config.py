@@ -3,11 +3,13 @@ from typing import Annotated, Self
 
 from pydantic import Field, model_validator
 
-from pycil.infrastructure.configuration import Policy, PositiveInt
+from pycil.utils.configuration import Policy, PositiveInt
+
+PositiveSeconds = Annotated[float, Field(strict=True, gt=0)]
 
 
 class AssistantPreferences(Policy):
-    auto_approve: Annotated[bool, Field(strict=True)]
+    auto_approve: Annotated[bool, Field(strict=True)] = False
 
 
 class AssistantDefaults(Policy):
@@ -47,7 +49,30 @@ class ModelPolicy(Policy):
         return self
 
 
-class AssistantPolicy(Policy):
+class AssistantConfig(Policy):
     defaults: AssistantDefaults
     limits: AssistantLimits
     models: list[ModelPolicy]
+    llm_timeout_seconds: PositiveSeconds = 180.0
+    lease_ttl_seconds: PositiveSeconds = 30.0
+    starts_per_minute: PositiveInt = 20
+
+    @model_validator(mode="after")
+    def validate_assistant(self) -> Self:
+        by_id = {model.id: model for model in self.models}
+        if len(by_id) != len(self.models):
+            raise ValueError("duplicate model ID")
+        default = by_id.get(self.defaults.model)
+        if default is None or self.defaults.effort not in default.efforts:
+            raise ValueError("default assistant model/effort is unavailable")
+        return self
+
+
+class AssistantPatch(Policy):
+    auto_approve: Annotated[bool, Field(strict=True)] | None = None
+
+    @model_validator(mode="after")
+    def no_explicit_null(self) -> Self:
+        if "auto_approve" in self.model_fields_set and self.auto_approve is None:
+            raise ValueError("assistant preferences cannot be null")
+        return self

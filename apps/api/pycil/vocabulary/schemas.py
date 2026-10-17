@@ -1,10 +1,15 @@
 """Detached lexical response values; ORM entities stay inside persistence operations."""
 
-from typing import Annotated, Literal
+from datetime import datetime
+from typing import Annotated, Literal, Self
+from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
 from pydantic.dataclasses import dataclass
 
+from pycil.library.models import NodeSpace
+from pycil.study.enums import LearningState
+from pycil.utils.schemas import PositiveID, Strict
 from pycil.vocabulary.enums import (
     CEFRLevel,
     EntryType,
@@ -132,3 +137,65 @@ class SearchResult(BaseModel):
 class GenerateWord(BaseModel):
     model_config = ConfigDict(extra="forbid")
     reference_id: str = Field(min_length=1, max_length=64)
+
+
+class WordIDs(Strict):
+    word_ids: list[PositiveID] = Field(min_length=1, max_length=30)
+
+    @model_validator(mode="after")
+    def unique(self) -> Self:
+        if len(set(self.word_ids)) != len(self.word_ids):
+            raise ValueError("duplicate word IDs")
+        return self
+
+
+class SenseIDs(Strict):
+    sense_ids: list[PositiveID] = Field(min_length=1, max_length=100)
+
+    @model_validator(mode="after")
+    def unique(self) -> Self:
+        if len(set(self.sense_ids)) != len(self.sense_ids):
+            raise ValueError("duplicate sense IDs")
+        return self
+
+
+class WordPreview(Strict):
+    word_id: int
+    lemma: str
+    entry_type: EntryType
+    senses: list[Sense]
+
+
+class LearningPreview(Strict):
+    state: Literal[LearningState.NEW, LearningState.DUE, LearningState.NOT_YET_DUE]
+    due_at: datetime | None
+    elo: float | None
+    level: Annotated[int, Field(ge=1, le=5)] | None
+    last_reviewed_at: datetime | None
+
+
+class SourceDeck(Strict):
+    id: UUID
+    name: str
+    owner_id: UUID
+    space: NodeSpace
+    editable: bool
+
+
+class SenseContext(Strict):
+    sense_id: int
+    learning: LearningPreview
+    decks: list[SourceDeck]
+    deck_count: int
+    decks_has_more: bool
+
+
+class Context(Strict):
+    as_of: datetime
+    senses: list[SenseContext]
+    total: int
+    studied: int
+    new: int
+    due: int
+    not_due: int
+

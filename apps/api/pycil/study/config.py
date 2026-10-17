@@ -2,8 +2,9 @@ from typing import Annotated, Self
 
 from pydantic import Field, model_validator
 
-from pycil.infrastructure.configuration import Policy, PositiveInt
 from pycil.study.enums import ALLOWED_PAIRS, QuestionType, ResponseFormat
+from pycil.utils.configuration import Policy, PositiveInt
+from pycil.utils.errors import InvalidInput
 
 
 class LearningPreferences(Policy):
@@ -62,13 +63,14 @@ class FSRSPolicy(Policy):
 class ArtifactPolicy(Policy):
     correct_count: Annotated[int, Field(strict=True, ge=1, le=20)]
     distractor_count: Annotated[int, Field(strict=True, ge=3, le=20)]
+    batch_size: Annotated[int, Field(strict=True, ge=1, le=20)] = 8
 
 
 class GradingPolicy(Policy):
     decision_threshold: Annotated[float, Field(strict=True, ge=0, le=1)]
 
 
-class LearningPolicy(Policy):
+class StudyConfig(Policy):
     artifacts: ArtifactPolicy
     grading: GradingPolicy
     defaults: LearningPreferences
@@ -80,7 +82,7 @@ class LearningPolicy(Policy):
     fsrs: FSRSPolicy
 
     @model_validator(mode="after")
-    def validate_policy(self):
+    def validate_policy(self) -> Self:
         pairs = {(kind, fmt) for kind, formats in self.pair_levels.items() for fmt in formats}
         if not pairs or not pairs <= ALLOWED_PAIRS:
             raise ValueError("unknown or unsupported type/format policy")
@@ -104,3 +106,23 @@ class LearningPolicy(Policy):
         )
         if not feasible:
             raise ValueError("no product-enabled question type/format pair")
+
+    def level(self, elo: float) -> int:
+        return self.mastery.level(elo)
+
+
+def effective_learning(
+    saved: dict[str, object], policy: StudyConfig, *, advanced: bool
+) -> LearningPreferences:
+    raw = saved.get("learning")
+    selected = LearningPreferences.model_validate(
+        policy.defaults.model_dump() | (raw if isinstance(raw, dict) else {})
+    )
+    policy.validate_limits(selected)
+    formats = selected.formats if advanced else [ResponseFormat.SINGLE_CHOICE]
+    try:
+        effective = LearningPreferences.model_validate(selected.model_dump() | {"formats": formats})
+        policy.validate_preferences(effective)
+    except ValueError as exc:
+        raise InvalidInput("infeasible_learning_preferences") from exc
+    return effective

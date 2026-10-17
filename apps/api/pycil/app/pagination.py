@@ -6,6 +6,7 @@ from fastapi import Request
 from pycil.app.config import AppConfig
 from pycil.app.http import Problem
 from pycil.utils.pagination import (
+    CursorFieldType,
     InvalidCursorError,
     SeekValue,
     decode_cursor,
@@ -25,7 +26,7 @@ def encode(
 def decode(
     token: str | None,
     binding: str | Mapping[str, object],
-    types: Sequence[str],
+    types: Sequence[CursorFieldType],
     *,
     timed: bool = False,
 ) -> tuple[list[SeekValue] | None, datetime | None]:
@@ -36,8 +37,8 @@ def decode(
 
 
 def page_limit(limit: int | None, config: AppConfig) -> int:
-    resolved: int = config.product.library.pagination.page_size if limit is None else limit
-    if resolved < 1 or resolved > config.product.projections.max_page_size:
+    resolved: int = config.library.page_size if limit is None else limit
+    if resolved < 1 or resolved > config.library.max_page_size:
         raise Problem(422, "invalid_limit")
     return resolved
 

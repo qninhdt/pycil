@@ -3,7 +3,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Path, Query, Request, Response
 
-from pycil.account.auth import UserId, Viewer
+from pycil.app.auth import UserId, Viewer
 from pycil.app.dependencies import Config, Runtime, Session
 from pycil.app.pagination import strict_query
 from pycil.library import nodes
@@ -27,6 +27,7 @@ from pycil.library.schemas import (
 )
 from pycil.library.search import search_nodes
 from pycil.library.senses import sense_page, sources_page
+from pycil.library.types import NodePageDict, SourcesPageDict
 from pycil.study.enums import LearningState
 
 router = APIRouter(prefix="/v1/nodes", tags=["nodes"])
@@ -42,22 +43,25 @@ async def listing(
     cursor: str | None = Query(default=None, max_length=2048),
     limit: int | None = Query(default=None, ge=1, le=100),
     include: str | None = None,
-):
+) -> NodePageDict:
     strict_query(request, {"parent_id", "cursor", "limit", "include"})
     return await nodes.list_nodes(
         session,
         viewer,
         parent_id,
         cursor,
-        config,
+        config.library,
         limit=limit,
         include=include,
+        study_config=config.study,
     )
 
 
 @router.post("", status_code=201, response_model=SavedNode)
-async def create(data: NodeCreate, user: UserId, session: Session, config: Config):
-    return await nodes.create_node(session, user, data, config)
+async def create(
+    data: NodeCreate, user: UserId, session: Session, config: Config
+) -> dict[str, object]:
+    return await nodes.create_node(session, user, data, config.library)
 
 
 @router.get("/{node_id}:search", response_model=NodePage, openapi_extra={"security": [{}]})
@@ -72,53 +76,58 @@ async def scoped_search(
     cursor: str | None = Query(default=None, max_length=2048),
     limit: int | None = Query(default=None, ge=1, le=100),
     include: str | None = None,
-):
+) -> NodePageDict:
     strict_query(request, {"q", "type", "cursor", "limit", "include"})
     return await search_nodes(
         session,
         viewer,
-        config,
+        config.library,
         node_id=node_id,
         q=q,
         type=type,
         cursor=cursor,
         limit=limit,
         include=include,
+        study_config=config.study,
     )
 
 
 @router.get("/{node_id}", response_model=NodeDetails, openapi_extra={"security": [{}]})
-async def detail(node_id: UUID, viewer: Viewer, session: Session, config: Config):
-    return await nodes.node_details(session, node_id, viewer, config)
+async def detail(node_id: UUID, viewer: Viewer, session: Session) -> dict[str, object]:
+    return await nodes.node_details(session, node_id, viewer)
 
 
 @router.patch("/{node_id}", response_model=NodeView)
-async def patch(node_id: UUID, data: NodePatch, user: UserId, session: Session, config: Config):
-    return await nodes.patch_node(session, user, node_id, data, config)
+async def patch(
+    node_id: UUID, data: NodePatch, user: UserId, session: Session, config: Config
+) -> dict[str, object]:
+    return await nodes.patch_node(session, user, node_id, data, config.library)
 
 
 @router.post("/{node_id}:modifySenses", response_model=SavedDeck)
 async def edit_senses(
     node_id: UUID, data: SenseDelta, user: UserId, session: Session, config: Config
-):
-    return await nodes.patch_senses(session, user, node_id, data, config)
+) -> dict[str, object]:
+    return await nodes.patch_senses(session, user, node_id, data, config.library)
 
 
 @router.post("/{node_id}:move", response_model=NodeViewWithReference)
-async def move(node_id: UUID, data: NodeMove, user: UserId, session: Session, config: Config):
-    return await nodes.move_node(session, user, node_id, data, config)
+async def move(
+    node_id: UUID, data: NodeMove, user: UserId, session: Session, config: Config
+) -> dict[str, object]:
+    return await nodes.move_node(session, user, node_id, data, config.library)
 
 
 @router.post("/{node_id}:copy", status_code=201, response_model=SavedNode)
 async def copy(
     node_id: UUID, data: NodeDestination, user: UserId, session: Session, config: Config
-):
-    return await nodes.copy_node(session, user, node_id, data, config)
+) -> dict[str, object]:
+    return await nodes.copy_node(session, user, node_id, data, config.library)
 
 
 @router.delete("/{node_id}", status_code=204)
-async def remove(node_id: UUID, user: UserId, session: Session, config: Config):
-    await nodes.delete_node(session, user, node_id, config)
+async def remove(node_id: UUID, user: UserId, session: Session) -> Response:
+    await nodes.delete_node(session, user, node_id)
     return Response(status_code=204)
 
 
@@ -144,15 +153,15 @@ async def senses(
     state: Literal[
         LearningState.ALL, LearningState.NEW, LearningState.DUE, LearningState.NOT_YET_DUE
     ] = LearningState.ALL,
-):
+) -> dict[str, object]:
     strict_query(request, {"cursor", "limit", "q", "sort", "include", "state"})
     viewer_id = viewer
-    node = await readable(session, node_id, viewer_id, config)
+    node = await readable(session, node_id, viewer_id)
     return await sense_page(
         session,
         node,
         viewer_id,
-        config,
+        config.library,
         resources.sessions,
         cursor,
         state=state,
@@ -161,6 +170,7 @@ async def senses(
         include=include,
         limit=limit,
         sense_store=resources.sense_store,
+        study_config=config.study,
     )
 
 
@@ -176,6 +186,37 @@ async def provenance(
     config: Config,
     cursor: str | None = Query(default=None, max_length=2048),
     limit: int | None = Query(default=None, ge=1, le=100),
-):
+) -> SourcesPageDict:
     strict_query(request, {"cursor", "limit"})
-    return await sources_page(session, node_id, sense_id, viewer, config, cursor, limit)
+    return await sources_page(session, node_id, sense_id, viewer, config.library, cursor, limit)
+
+
+discovery_router = APIRouter(prefix="/v1/discovery", tags=["discovery"])
+
+
+@discovery_router.get("/nodes", response_model=NodePage, openapi_extra={"security": [{}]})
+async def discovery(
+    request: Request,
+    viewer: Viewer,
+    session: Session,
+    config: Config,
+    q: str | None = Query(default=None, max_length=200),
+    type: NodeType | None = None,
+    owner_id: UUID | None = None,
+    cursor: str | None = Query(default=None, max_length=2048),
+    limit: int | None = Query(default=None, ge=1, le=100),
+    include: str | None = None,
+) -> NodePageDict:
+    strict_query(request, {"q", "type", "owner_id", "cursor", "limit", "include"})
+    return await search_nodes(
+        session,
+        viewer,
+        config.library,
+        q=q,
+        type=type,
+        owner_id=owner_id,
+        cursor=cursor,
+        limit=limit,
+        include=include,
+        study_config=config.study,
+    )

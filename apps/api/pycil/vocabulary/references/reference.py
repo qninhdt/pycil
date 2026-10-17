@@ -7,12 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from pycil.utils.encoding import base64url_decode, base64url_encode
 from pycil.vocabulary.errors import InvalidHandleError
-from pycil.vocabulary.references.models import (
-    ReferenceSense,
-    ReferenceWord,
-    SourceSense,
-    SourceWord,
-)
+from pycil.vocabulary.references.models import ReferenceSense, ReferenceWord
+from pycil.vocabulary.references.schemas import SourceSense, SourceWord
 
 
 def encode_reference_id(identifier: int) -> str:
@@ -32,7 +28,7 @@ def decode_reference_id(value: str) -> int:
         if kind != "entry" or encode_reference_id(identifier) != value:
             raise ValueError("noncanonical reference handle")
         return identifier
-    except ValueError, UnicodeError, binascii.Error:
+    except (ValueError, UnicodeError, binascii.Error):
         raise InvalidHandleError("invalid reference handle") from None
 
 

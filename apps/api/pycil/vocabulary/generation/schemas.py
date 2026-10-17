@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Self, cast
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -29,7 +29,7 @@ class InventorySense(BaseModel):
     references: list[str] = Field(min_length=1)
 
     @model_validator(mode="after")
-    def meaningful_definition(self) -> InventorySense:
+    def meaningful_definition(self) -> Self:
         if not self.definition.strip() or len(set(self.references)) != len(self.references):
             raise ValueError("invalid sense evidence")
         return self
@@ -61,7 +61,7 @@ class Inventory(BaseModel):
         return validate_lemma(value)
 
     @model_validator(mode="after")
-    def consistent_inventory(self) -> Inventory:
+    def consistent_inventory(self) -> Self:
         for lemma in [
             *self.aliases,
             *(lemma for group in self.related for lemma in group.lemmas),
@@ -115,7 +115,7 @@ class Enrichment(BaseModel):
         return accepted
 
     @model_validator(mode="after")
-    def valid_details(self) -> Enrichment:
+    def valid_details(self) -> Self:
         for form in self.forms:
             parse_form(form)
         for pattern in self.patterns:
@@ -137,7 +137,7 @@ class EnrichmentBatch(BaseModel):
     senses: list[Enrichment] = Field(min_length=1, max_length=8)
 
     @model_validator(mode="after")
-    def distinct_senses(self) -> EnrichmentBatch:
+    def distinct_senses(self) -> Self:
         if len({sense.sense_id for sense in self.senses}) != len(self.senses):
             raise ValueError("duplicate enrichment identity")
         return self

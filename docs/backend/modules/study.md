@@ -6,7 +6,7 @@ Study persists `QuestionArtifact` and builds public runtime `Question` samples. 
 
 | Operation | Result |
 | --- | --- |
-| `POST /v1/study:prepare` | Plan public pairs, retrieve/refill artifacts, build runtime samples |
+| `POST /v1/study:prepare` | 202 job reference; worker plans pairs, refills artifacts and builds runtime samples |
 | `POST /v1/study:grade` | Pro typed diagnostics from saved artifact and answer |
 | `POST /v1/study:submitResults` | Atomic diagnostic tracking and grouped state updates |
 | `GET /v1/study/progress` | Exact scope summary |
@@ -20,15 +20,22 @@ Study persists `QuestionArtifact` and builds public runtime `Question` samples. 
 {"node_id":"00000000-0000-0000-0000-000000000001","selection":"auto","max_sense_count":10,"questions_per_sense":2}
 ```
 
+Submission returns a [job reference](jobs.md), not questions. Poll until success;
+its result contains the preparation payload. Same-user identical effective inputs
+reuse an in-flight job. Workers recheck current access/plan. Independent preparations
+may fill the same artifact bank concurrently. Generation holds no Redis bank lock;
+singleton increments merge and other unique artifacts append in the existing
+PostgreSQL publication transaction. Surplus valid artifacts remain available to later sessions.
+
 N is 1–20; K is 1–3, default 2. new selects absent personal states. due selects due states, oldest due then ID. auto fills due, new, then future states. Selection uses a repeatable-read SQL scope; bank readiness does not exclude a Sense.
 
 One pair/level matrix serves Free and Pro. Free effectively uses single_choice while preserving saved typed preferences. Pro uses its selected supported pairs. Available levels at or below the user's level receive weights `2**(level-user_level)`; sample a level, then a uniform pair within it. If no selected pair fits, use the minimum available level. K draws allow repetition.
 
 Aggregate `(sense_id, question_type, quantity)` and call native retrieval with `generate=True`, batch size 8. Study fills contextual shortages, saves the full batch and returns the requested capacity. WORD_DEFINITION and word_to_usage each use one row per Sense/namespace. Shared views use the maximum demand, not the sum. Pycil builds each occurrence independently from returned artifacts. No runtime question or session is persisted.
 
-Native generation and inference SDK failures return HTTP 503
-`question_generation_unavailable`; changed artifact banks retain HTTP 409
-`learning_content_changed`. Preparation never writes personal learning state.
+Submission validates inputs/access before enqueue. Execution failures become safe
+`failed` job status; Redis submission outages return HTTP 503
+`job_submission_unavailable`. Preparation never writes personal learning state.
 
 ## Grading and local session
 
@@ -48,7 +55,7 @@ inventory, including `no_candidate`; choices from another inventory are rejected
 Domain grading applies thresholds and converts assessments into public diagnostics.
 There are no JSON-e grading templates or structured-generation fallback for Decisions.
 
-The client uses local occurrence indices, rounds of eight and retry-first scheduling. Initial answers may have at most two practice retries. Lock and persist the answer/timestamp before grading; a network error keeps them locked and consumes no attempt. Retrying practice never replaces the initial diagnostic. Explicit early finish submits completed initial diagnostics only; exit alone submits nothing. Preparation timeout is 30 seconds.
+The client uses local occurrence indices, rounds of eight and retry-first scheduling. Initial answers may have at most two practice retries. Lock and persist the answer/timestamp before grading; a network error keeps them locked and consumes no attempt. Retrying practice never replaces the initial diagnostic. Explicit early finish submits completed initial diagnostics only; exit alone submits nothing. Native execution is bounded by `jobs.timeout_seconds`; browser waiting is separate and does not cancel execution.
 
 ## Tracking, Memory and Mastery
 

@@ -2,17 +2,16 @@ import asyncio
 from collections.abc import Sequence
 from dataclasses import dataclass
 from itertools import batched
-from typing import Protocol, Self
+from typing import Self
 
-from pydantic import BaseModel, model_validator
+from pydantic import model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from pycil.infrastructure.content_revisions import GRAPH_KEY, capture, publish
 from pycil.infrastructure.database import transaction_lock
 from pycil.infrastructure.kv_store import InMemoryStore
-from pycil.infrastructure.llm import render_prompt
-from pycil.infrastructure.observability import get_logger, observe_operation
+from pycil.infrastructure.llm import StructuredLLMProtocol, render_prompt
+from pycil.observability import get_logger, observe_operation
 from pycil.vocabulary import models as rows
 from pycil.vocabulary.enums import (
     GenerationState,
@@ -30,9 +29,10 @@ from pycil.vocabulary.generation.schemas import (
     validate_inventory,
 )
 from pycil.vocabulary.patterns import pattern_head_key, surface_head_key
-from pycil.vocabulary.references.models import SourceWord
 from pycil.vocabulary.references.reference import fetch_reference
+from pycil.vocabulary.references.schemas import SourceWord
 from pycil.vocabulary.references.wordnet import lookup
+from pycil.vocabulary.revisions import GRAPH_KEY, capture, publish
 from pycil.vocabulary.schemas import CachedWord, Sense
 from pycil.vocabulary.schemas import Word as WordSchema
 from pycil.vocabulary.text import (
@@ -62,10 +62,6 @@ class _TempForm:
 @dataclass(frozen=True)
 class _TempSense:
     forms: list[_TempForm]
-
-
-class StructuredLLMProtocol(Protocol):
-    async def complete[T: BaseModel](self, instruction: str, data: str, schema: type[T]) -> T: ...
 
 
 async def generate_word(
@@ -168,7 +164,7 @@ async def _generate(
             .with_for_update()
         )
         if existing is not None:
-            before = await capture(session, [("word", existing.id)])
+            before = await capture(session, [existing.id])
             await link_reference(session, existing.id, source.id)
             await publish(session, before)
             return existing.id

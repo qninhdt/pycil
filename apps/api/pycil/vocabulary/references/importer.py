@@ -9,8 +9,9 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from pycil.infrastructure.database import transaction_lock
-from pycil.infrastructure.observability import get_logger
-from pycil.vocabulary.references.models import ReferenceSense, ReferenceWord, SourceWord
+from pycil.observability import get_logger
+from pycil.vocabulary.references.models import ReferenceSense, ReferenceWord
+from pycil.vocabulary.references.schemas import SourceWord
 
 logger = get_logger(__name__)
 

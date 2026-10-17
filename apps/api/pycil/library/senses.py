@@ -1,16 +1,13 @@
-from collections.abc import Sequence
+from collections.abc import Collection, Mapping, Sequence
 from datetime import UTC, datetime
-from typing import cast
 from uuid import UUID
 
 from sqlalchemy import and_, func, or_, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.sql import Select
 
-from pycil.app.config import AppConfig
-from pycil.app.http import Problem
-from pycil.app.pagination import decode, encode, includes, page_limit
 from pycil.infrastructure.kv_store import InMemoryStore
+from pycil.library.config import LibraryConfig
 from pycil.library.models import DeckSense, Node, NodeSpace
 from pycil.library.schemas import SenseSort
 from pycil.library.scope import ScopeBudget, bounded, resolve_scopes, scope_ids
@@ -20,15 +17,63 @@ from pycil.library.types import (
     SourceDeckDict,
     SourcesPageDict,
 )
+from pycil.study.config import StudyConfig
 from pycil.study.enums import LearningState
 from pycil.study.models import UserSense
+from pycil.utils.errors import Conflict, InvalidInput, Unauthenticated
+from pycil.utils.pagination import (
+    CursorFieldType,
+    InvalidCursorError,
+    SeekValue,
+    decode_cursor,
+    encode_cursor,
+)
 from pycil.vocabulary.models import Sense, Word
 from pycil.vocabulary.schemas import Sense as NativeSense
 from pycil.vocabulary.words import get_sense_previews, get_senses
 
 
+def encode(
+    binding: str | Mapping[str, object],
+    seek: Sequence[object],
+    *,
+    as_of: datetime | str | None = None,
+) -> str:
+    return encode_cursor(binding, seek, as_of=as_of)
+
+
+def decode(
+    token: str | None,
+    binding: str | Mapping[str, object],
+    types: Sequence[CursorFieldType],
+    *,
+    timed: bool = False,
+) -> tuple[list[SeekValue] | None, datetime | None]:
+    try:
+        return decode_cursor(token, binding, types, timed=timed)
+    except InvalidCursorError:
+        raise InvalidInput("invalid_cursor") from None
+
+
+def page_limit(limit: int | None, config: LibraryConfig) -> int:
+    resolved = config.page_size if limit is None else limit
+    if resolved < 1 or resolved > config.max_page_size:
+        raise InvalidInput("invalid_limit")
+    return resolved
+
+
+def includes(value: str | None, allowed: Collection[str]) -> set[str]:
+    selected: set[str] = set(value.split(",")) if value else set()
+    if not selected <= set(allowed):
+        raise InvalidInput("invalid_include")
+    return selected
+
+
 async def member_ids(
-    session: AsyncSession, node: Node, viewer_id: UUID | None, config: AppConfig
+    session: AsyncSession,
+    node: Node,
+    viewer_id: UUID | None,
+    config: LibraryConfig,
 ) -> Select[int]:
     return await scope_ids(session, node.id, viewer_id, config)
 
@@ -37,7 +82,7 @@ def learning_preview(
     memory: UserSense | None,
     now: datetime,
     viewer_id: UUID | None,
-    config: AppConfig,
+    study_config: StudyConfig | None = None,
 ) -> LearningPreviewDict | None:
     if viewer_id is None:
         return None
@@ -49,7 +94,7 @@ def learning_preview(
         else LearningState.NOT_YET_DUE,
         "due_at": memory.due_at if memory else None,
         "elo": memory.elo if memory else None,
-        "level": config.product.study.mastery.level(memory.elo) if memory else None,
+        "level": study_config.mastery.level(memory.elo) if study_config and memory else None,
         "last_reviewed_at": memory.last_exposure_at if memory else None,
     }
 
@@ -75,7 +120,7 @@ async def source_batch(
     decks: Sequence[UUID] | set[UUID],
     identifiers: Sequence[int],
     viewer_id: UUID | None,
-    config: AppConfig,
+    inline_limit: int = 5,
 ) -> dict[int, SenseSourcesSummary]:
     ranked = (
         select(
@@ -95,27 +140,26 @@ async def source_batch(
     )
     result: dict[int, SenseSourcesSummary] = {i: {"decks": [], "count": 0} for i in identifiers}
     for row in (
+        await session.execute(select(ranked).where(ranked.c.position <= inline_limit))
+    ).all():
+        result[row[0]]["decks"].append(source_dict(row[1], row[2], row[3], row[4], viewer_id))
+    for row in (
         await session.execute(
-            select(ranked).where(ranked.c.position <= config.product.projections.inline_sources)
+            select(ranked.c.sense_id, ranked.c.total)
+            .distinct(ranked.c.sense_id)
+            .where(ranked.c.sense_id.in_(identifiers))
         )
     ).all():
-        sense_id: int = int(row[0])
-        node_id: UUID = cast(UUID, row[1])
-        name: str = str(row[2])
-        owner_id: UUID | None = cast(UUID | None, row[3])
-        space: NodeSpace = cast(NodeSpace, row[4])
-        total: int = int(row[6])
-        result[sense_id]["decks"].append(source_dict(node_id, name, owner_id, space, viewer_id))
-        result[sense_id]["count"] = total
+        result[row[0]]["count"] = int(row[1])
     return result
 
 
 async def sources_page(
     session: AsyncSession,
-    node_id: UUID | None,
+    node_id: UUID,
     sense_id: int,
     viewer_id: UUID | None,
-    config: AppConfig,
+    config: LibraryConfig,
     cursor: str | None = None,
     limit: int | None = None,
 ) -> SourcesPageDict:
@@ -155,7 +199,7 @@ async def sense_page(
     session: AsyncSession,
     node: Node,
     viewer_id: UUID | None,
-    config: AppConfig,
+    config: LibraryConfig,
     sessions: async_sessionmaker[AsyncSession],
     cursor: str | None = None,
     *,
@@ -165,11 +209,12 @@ async def sense_page(
     limit: int | None = None,
     include: str | None = None,
     sense_store: InMemoryStore[int, NativeSense] | None = None,
+    study_config: StudyConfig | None = None,
 ) -> dict[str, object]:
     if (
         state != LearningState.ALL or sort in {SenseSort.LAST_REVIEWED_DESC, SenseSort.MASTERY_ASC}
     ) and viewer_id is None:
-        raise Problem(401, "authentication_required")
+        raise Unauthenticated("authentication_required")
     if state not in {
         LearningState.ALL,
         LearningState.NEW,
@@ -181,9 +226,9 @@ async def sense_page(
         SenseSort.LAST_REVIEWED_DESC,
         SenseSort.MASTERY_ASC,
     }:
-        raise Problem(422, "invalid_sense_filter")
-    if q is not None and len(q) > config.product.projections.max_query_chars:
-        raise Problem(422, "invalid_query")
+        raise InvalidInput("invalid_sense_filter")
+    if q is not None and len(q) > config.max_query_chars:
+        raise InvalidInput("invalid_query")
     q = q.strip() if q else None
     limit = page_limit(limit, config)
     enrichment = includes(include, {"examples", "sources"})
@@ -195,13 +240,13 @@ async def sense_page(
         "q": q,
         "sort": sort,
     }
-    kinds = {
-        SenseSort.SENSE_ID_ASC: ["id"],
-        SenseSort.LEMMA_ASC: ["text", "id"],
-        SenseSort.LAST_REVIEWED_DESC: ["nullable_time", "id"],
-        SenseSort.MASTERY_ASC: ["number", "id"],
-    }[sort]
-    seek, cutoff = decode(cursor, binding, kinds, timed=True)
+    kinds_map: dict[SenseSort, tuple[CursorFieldType, ...]] = {
+        SenseSort.SENSE_ID_ASC: ("id",),
+        SenseSort.LEMMA_ASC: ("text", "id"),
+        SenseSort.LAST_REVIEWED_DESC: ("nullable_time", "id"),
+        SenseSort.MASTERY_ASC: ("number", "id"),
+    }
+    seek, cutoff = decode(cursor, binding, kinds_map[sort], timed=True)
     now = cutoff or datetime.now(UTC)
     budget = ScopeBudget(viewer_id)
     async with bounded(session, config, budget):
@@ -214,9 +259,15 @@ async def sense_page(
         )
         membership = scope.senses().subquery()
         lemma = func.lower(Word.lemma)
-        elo = func.coalesce(UserSense.elo, config.product.study.mastery.initial_elo)
+        elo_val = study_config.mastery.initial_elo if study_config is not None else 600.0
+        elo = func.coalesce(UserSense.elo, elo_val)
         query = (
-            select(Sense.id, lemma.label("lemma_key"), UserSense.last_exposure_at, elo.label("elo"))
+            select(
+                Sense.id,
+                lemma.label("lemma_key"),
+                UserSense.last_exposure_at,
+                elo.label("elo"),
+            )
             .join(membership, membership.c.sense_id == Sense.id)
             .join(Word, Word.id == Sense.word_id)
             .outerjoin(
@@ -278,7 +329,7 @@ async def sense_page(
             else {}
         )
         sources = (
-            await source_batch(session, scope.decks, identifiers, viewer_id, config)
+            await source_batch(session, scope.decks, identifiers, viewer_id, config.inline_sources)
             if "sources" in enrichment and identifiers
             else {}
         )
@@ -293,20 +344,19 @@ async def sense_page(
     items: list[dict[str, object]] = []
     for identifier in identifiers:
         if identifier not in facts or "examples" in enrichment and identifier not in native:
-            raise Problem(409, "learning_content_changed")
+            raise Conflict("learning_content_changed")
         item: dict[str, object] = dict(facts[identifier]) | {
-            "learning": learning_preview(memories.get(identifier), now, viewer_id, config)
+            "learning": learning_preview(
+                memories.get(identifier), now, viewer_id, study_config=study_config
+            )
         }
         if "examples" in enrichment:
-            item["examples"] = native[identifier].examples[
-                : config.product.projections.inline_examples
-            ]
+            item["examples"] = native[identifier].examples[: config.inline_examples]
         if "sources" in enrichment:
             item |= {
                 "sources": sources[identifier]["decks"],
                 "source_count": sources[identifier]["count"],
-                "sources_has_more": sources[identifier]["count"]
-                > config.product.projections.inline_sources,
+                "sources_has_more": sources[identifier]["count"] > config.inline_sources,
             }
         items.append(item)
     last = page[-1] if page else None

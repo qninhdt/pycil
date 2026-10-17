@@ -11,7 +11,7 @@ from pycil.vocabulary.enums import (
 )
 
 
-class SensePreview(TypedDict):
+class SenseSummaryDict(TypedDict):
     sense_id: int
     word_id: int
     lemma: str

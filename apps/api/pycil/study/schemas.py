@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import Annotated, Literal, cast
+from typing import Annotated, Literal, Self, cast
 from uuid import UUID
 
 from pydantic import AwareDatetime, Field, StrictBool, model_validator
@@ -19,6 +19,19 @@ from pycil.study.enums import (
 )
 from pycil.utils.schemas import PositiveID, Strict
 from pycil.vocabulary.schemas import Sense
+
+
+class LearningPatch(Strict):
+    question_types: list[QuestionType] | None = None
+    formats: list[ResponseFormat] | None = None
+    questions_per_sense: Annotated[int, Field(strict=True, gt=0)] | None = None
+    max_sense_count: Annotated[int, Field(strict=True, gt=0)] | None = None
+
+    @model_validator(mode="after")
+    def no_explicit_null(self) -> Self:
+        if any(getattr(self, key) is None for key in self.model_fields_set):
+            raise ValueError("learning preferences cannot be null")
+        return self
 
 
 class Prepare(Strict):
@@ -44,7 +57,7 @@ class DefinitionDiagnostic(Strict):
     coverage: DefinitionCoverage | None
 
     @model_validator(mode="after")
-    def consistent(self):
+    def consistent(self) -> Self:
         if (self.sense_id is None) != (self.accuracy is None and self.coverage is None):
             raise ValueError("Definition diagnostics require a matched Sense")
         if self.sense_id is not None and (self.accuracy is None or self.coverage is None):
@@ -61,7 +74,7 @@ class UsageDiagnostic(Strict):
     appropriacy: StrictBool | None
 
     @model_validator(mode="after")
-    def consistent(self):
+    def consistent(self) -> Self:
         fields = (self.meaning, self.form, self.construction, self.collocation, self.appropriacy)
         if (
             self.used
@@ -77,7 +90,7 @@ class RewriteDiagnostic(UsageDiagnostic):
     meaning_preservation: MeaningPreservation | None
 
     @model_validator(mode="after")
-    def preservation(self):
+    def preservation(self) -> Self:
         if self.used == (self.meaning_preservation is None):
             raise ValueError("Rewrite diagnostics disagree with target presence")
         return self
@@ -229,7 +242,7 @@ class SummaryBatch(Strict):
     node_ids: list[UUID] = Field(min_length=1, max_length=50)
 
     @model_validator(mode="after")
-    def unique(self):
+    def unique(self) -> Self:
         if len(set(self.node_ids)) != len(self.node_ids):
             raise ValueError("duplicate node IDs")
         return self
@@ -265,3 +278,11 @@ class Schedule(Strict):
     start_date: date
     end_date: date
     days: list[ScheduledDay]
+
+
+class LearningPreview(Strict):
+    state: Literal[LearningState.NEW, LearningState.DUE, LearningState.NOT_YET_DUE]
+    due_at: datetime | None
+    elo: float | None
+    level: Annotated[int, Field(ge=1, le=5)] | None
+    last_reviewed_at: datetime | None

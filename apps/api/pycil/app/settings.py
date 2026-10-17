@@ -1,43 +1,24 @@
 """Process environment settings, validated before resource creation."""
 
 import os
-from typing import ClassVar, Literal, Self
+from typing import ClassVar, Self
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
+from pydantic import ConfigDict, Field, SecretStr, field_validator, model_validator
 from sqlalchemy.engine import make_url
 
+from pycil.observability.config import TelemetrySettings
 
-class ProcessSettings(BaseModel):
+
+class ProcessSettings(TelemetrySettings):
     model_config = ConfigDict(extra="forbid", frozen=True)
     db_url: SecretStr
     redis_url: SecretStr
     llm_api_key: SecretStr
     llm_base_url: str
-    otel_endpoint: str | None = None
-    otel_service_name: str = Field(min_length=1)
-    service_version: str | None = None
-    git_sha: str | None = None
-    deployment_environment: Literal["local", "vps-docker", "aws-fargate"] | None = None
-    otel_sample_ratio: float = Field(default=0.1, ge=0, le=1, allow_inf_nan=False)
 
     @model_validator(mode="after")
-    def validate_addresses(self):
-        if self.otel_endpoint is not None:
-            endpoint = urlsplit(self.otel_endpoint)
-            if (
-                endpoint.scheme not in {"http", "https"}
-                or not endpoint.hostname
-                or endpoint.username
-                or endpoint.password
-                or endpoint.query
-                or endpoint.fragment
-            ):
-                raise ValueError("OTLP endpoint must be HTTP(S) without credentials/query/fragment")
-            if not self.service_version or not self.service_version.strip():
-                raise ValueError("OTLP export requires an immutable SERVICE_VERSION")
-            if self.deployment_environment is None:
-                raise ValueError("OTLP export requires DEPLOYMENT_ENVIRONMENT")
+    def validate_addresses(self) -> Self:
         try:
             database = make_url(self.db_url.get_secret_value())
         except Exception:
@@ -87,7 +68,7 @@ class ProcessSettings(BaseModel):
         try:
             provided: dict[str, object] = {name: value for name, value in values.items() if value}
             return cls.model_validate(provided)
-        except ValueError, TypeError:
+        except (ValueError, TypeError):
             # Validation errors may embed raw input, including database passwords.
             raise ValueError(
                 "Invalid deployment configuration; check environment addresses"
@@ -117,7 +98,7 @@ class ApiSettings(ProcessSettings):
         return value
 
     @model_validator(mode="after")
-    def validate_api_addresses(self):
+    def validate_api_addresses(self) -> Self:
         self.validate_service_urls(self.clerk_jwks_url, self.clerk_issuer, self.decision_base_url)
         for value in self.allowed_origins:
             parsed = urlsplit(value)
