@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import nullcontext
 
 import pytest
 import structlog
@@ -25,15 +26,14 @@ def test_operation_preserves_failure_and_restores_correlation(error, outcome, op
         processors=[structlog.contextvars.merge_contextvars]
     ) as logs:
         with bound_contextvars(request_id="request", operation="parent"):
-            try:
+            expectation = pytest.raises(type(error)) if error is not None else nullcontext()
+            with expectation as raised:
                 with observe_operation(logger, "generation", word_id=7):
                     assert structlog.contextvars.get_contextvars()["request_id"] == "request"
                     if error is not None:
                         raise error
-            except BaseException as caught:
-                assert caught is error
-            else:
-                assert error is None
+            if error is not None:
+                assert raised.value is error
             assert structlog.contextvars.get_contextvars()["operation"] == "parent"
             assert "word_id" not in structlog.contextvars.get_contextvars()
     assert [event["event"] for event in logs] == ["operation_started", "operation_completed"]

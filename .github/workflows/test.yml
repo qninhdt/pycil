@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   frontend:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: apps/web
@@ -25,8 +25,11 @@ jobs:
       NEXT_PUBLIC_DATA_MODE: mock
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ""
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-node@v7.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24.21.0"
       - run: npm install --global pnpm@12.9.1
@@ -40,7 +43,7 @@ jobs:
 
   e2e:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
@@ -52,8 +55,11 @@ jobs:
       DECISION_API_KEY: ${{ secrets.DECISION_API_KEY }}
       DECISION_BASE_URL: ${{ secrets.DECISION_BASE_URL }}
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-node@v7.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24.21.0"
       - run: npm install --global pnpm@12.9.1
@@ -68,10 +74,13 @@ jobs:
       # Reports contain authentication data. No public artifact upload is configured.
 
   backend:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: astral-sh/setup-uv@v10.2.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           version: "0.12.22"
           enable-cache: true
@@ -84,14 +93,115 @@ jobs:
         working-directory: apps/api
       # Each test creates/drops only its own database; providers are deterministic.
       # Testcontainers owns the real PostgreSQL/Redis services.
-      - run: uv run --locked pytest tests -q --tb=short
+      - run: uv run --locked coverage run -m pytest tests -q --tb=short
         working-directory: apps/api
 
-  image:
-    runs-on: ubuntu-latest
+      - run: uv run --locked coverage xml -o coverage.xml
+        working-directory: apps/api
+      - name: Require Sonar configuration
+        if: >-
+          (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+          (github.event_name == 'pull_request' && github.base_ref == 'main' &&
+           github.event.pull_request.head.repo.full_name == github.repository)
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_ORGANIZATION: ${{ vars.SONAR_ORGANIZATION }}
+          SONAR_PROJECT_KEY: ${{ vars.SONAR_PROJECT_KEY }}
+        run: |
+          test -n "$SONAR_TOKEN" && test -n "$SONAR_ORGANIZATION" && test -n "$SONAR_PROJECT_KEY" || {
+            echo 'Configure SONAR_TOKEN, SONAR_ORGANIZATION and SONAR_PROJECT_KEY before analysis.' >&2
+            exit 1
+          }
+      - name: SonarQube Cloud quality gate
+        if: >-
+          (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+          (github.event_name == 'pull_request' && github.base_ref == 'main' &&
+           github.event.pull_request.head.repo.full_name == github.repository)
+        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          scannerVersion: 8.1.0.6389
+          args: >-
+            -Dsonar.organization=${{ vars.SONAR_ORGANIZATION }}
+            -Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY }}
+            -Dsonar.qualitygate.wait=true
+            -Dsonar.qualitygate.timeout=300
+
+  security:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7.0.1
-      - run: docker build -f apps/api/Dockerfile -t pycil-api:ci .
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Configuration and secret gate
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.75.0
+          scan-type: fs
+          scanners: misconfig,secret
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          format: json
+          output: ${{ runner.temp }}/source-security.json
+          cache: 'false'
+
+  image:
+    needs: security
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build the only release image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          platforms: linux/amd64
+          load: true
+          provenance: false
+          tags: pycil-api:ci
+          labels: org.opencontainers.image.revision=${{ github.sha }}
+      - name: Export the built image
+        run: |
+          mkdir -p "$RUNNER_TEMP/release"
+          docker save pycil-api:ci -o "$RUNNER_TEMP/release/api.tar"
+      - name: Image vulnerability and secret gate
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_SHOW_SUPPRESSED: 'true'
+        with:
+          version: v0.75.0
+          input: ${{ runner.temp }}/release/api.tar
+          trivyignores: .trivyignore.yaml
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          ignore-unfixed: 'false'
+          exit-code: '1'
+          format: json
+          output: ${{ runner.temp }}/image-security.json
+          cache: 'false'
+      - name: SBOM for the scanned artifact
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.75.0
+          input: ${{ runner.temp }}/release/api.tar
+          format: cyclonedx
+          output: ${{ runner.temp }}/release/sbom.cdx.json
+          cache: 'false'
+      - name: Record artifact checksum and scan time
+        run: |
+          cp .trivyignore.yaml "$RUNNER_TEMP/release/trivy-exceptions.yaml"
+          cd "$RUNNER_TEMP/release"
+          sha256sum api.tar sbom.cdx.json trivy-exceptions.yaml > SHA256SUMS
+          jq -n --arg sha "$GITHUB_SHA" --arg scanned_at "$(date -u +%FT%TZ)" \
+            '{source_sha:$sha, platform:"linux/amd64", trivy_version:"0.75.0", scanned_at:$scanned_at,
+              exception_policy:"trivy-exceptions.yaml"}' > scan.json
       - name: Validate Compose without local secrets
         env:
           DB_URL: postgresql+asyncpg://test:test-only@127.0.0.1:5432/rewrite_test
@@ -109,3 +219,13 @@ jobs:
           docker run --rm -e DOMAIN=app.example.test
           -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro"
           caddy:2.11.6-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
+      - name: Transfer the scanned image to trusted publication
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: api-${{ github.sha }}
+          path: ${{ runner.temp }}/release/
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0

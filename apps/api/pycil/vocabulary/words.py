@@ -484,9 +484,9 @@ async def viewer_context(
     include_sources: bool = True,
     max_senses: int | None = None,
 ) -> dict[str, object]:
-    if len(identifiers) > (max_senses or policy.max_context_senses) or len(
-        set(identifiers)
-    ) != len(identifiers):
+    if len(identifiers) > (max_senses or policy.max_context_senses) or len(set(identifiers)) != len(
+        identifiers
+    ):
         raise InvalidInput("context_too_large")
     sense_ids_query = select(rows.Sense.id).where(rows.Sense.id.in_(identifiers))
     found = set((await session.scalars(sense_ids_query)).all())
@@ -538,13 +538,10 @@ async def viewer_context(
         senses = [
             {
                 "sense_id": identifier,
-                "learning": learning_preview(
-                    memories.get(identifier), now, user_id, study_config
-                ),
+                "learning": learning_preview(memories.get(identifier), now, user_id, study_config),
                 "decks": membership[identifier]["decks"],
                 "deck_count": membership[identifier]["count"],
-                "decks_has_more": int(membership[identifier]["count"])
-                > policy.inline_sources,
+                "decks_has_more": int(membership[identifier]["count"]) > policy.inline_sources,
             }
             for identifier in identifiers
         ]
@@ -590,4 +587,3 @@ async def word_context(
         study_config=study_config,
         policy=policy,
     )
-

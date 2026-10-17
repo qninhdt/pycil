@@ -90,11 +90,7 @@ async def state(
 ) -> dict[str, object]:
     row = await owned(session, user, identifier)
     await session.commit()
-    policy = next(
-        m
-        for m in config.assistant.models
-        if m.id == config.assistant.defaults.model
-    )
+    policy = next(m for m in config.assistant.models if m.id == config.assistant.defaults.model)
     async with agents.model(
         resources.deployment,
         policy,
@@ -117,9 +113,7 @@ async def state(
 
 
 @router.delete("/conversations/{identifier}", status_code=204)
-async def remove(
-    identifier: UUID, user: UserId, resources: Runtime, config: Config
-) -> Response:
+async def remove(identifier: UUID, user: UserId, resources: Runtime, config: Config) -> Response:
     await delete_conversation(
         resources, user, identifier, lease_ttl=config.assistant.lease_ttl_seconds
     )
@@ -129,9 +123,7 @@ async def remove(
 async def turn_events(
     data: RunAgentInput, user: UserId, resources: Runtime, config: Config
 ) -> AsyncIterator[AsyncIterator[str]]:
-    async with prepare_turn(
-        resources, resources.deployment, user, data, config
-    ) as events:
+    async with prepare_turn(resources, resources.deployment, user, data, config) as events:
         yield events
 
 
@@ -146,7 +138,7 @@ async def turn_events(
     },
 )
 async def stream(
-    events: Annotated[AsyncIterator[str], Depends(turn_events, scope="request")]
+    events: Annotated[AsyncIterator[str], Depends(turn_events, scope="request")],
 ) -> StreamingResponse:
     return StreamingResponse(
         events,

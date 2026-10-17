@@ -139,9 +139,7 @@ async def test_native_instructor_reasks_for_semantic_defects_before_publication(
     try:
         await index.start()
         async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
-            policy = load_config().vocabulary.provider.model_copy(
-                update={"max_retries": 1}
-            )
+            policy = load_config().vocabulary.provider.model_copy(update={"max_retries": 1})
             llm = StructuredLLM(
                 policy, api_key="test", base_url="https://provider.test", http_client=http
             )

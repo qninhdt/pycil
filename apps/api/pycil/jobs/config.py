@@ -15,5 +15,3 @@ class JobsConfig(Policy):
         if self.lock_timeout_seconds <= self.timeout_seconds:
             raise ValueError("job lock expiry must exceed execution timeout")
         return self
-
-

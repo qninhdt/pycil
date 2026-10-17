@@ -156,7 +156,7 @@ async def review(
         user_tz = str(tz_val)
         try:
             day = to_local_date(now, user_tz)
-        except (ZoneInfoNotFoundError, ValueError):
+        except ZoneInfoNotFoundError, ValueError:
             day = to_local_date(now, account_config.default_timezone)
         results: list[ReviewResult] = []
         states: list[UserSenseState] = []

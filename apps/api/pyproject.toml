@@ -52,6 +52,7 @@ prerelease = "explicit"
 
 [dependency-groups]
 dev = [
+    "coverage>=7.16.2",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "ruff>=0.16.10",
@@ -78,6 +79,9 @@ pythonpath = ["."]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "--import-mode=importlib"
+
+[tool.coverage.run]
+source = ["pycil"]
 
 [tool.ruff]
 line-length = 100

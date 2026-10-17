@@ -63,5 +63,5 @@ def load_config(path: Path | None = None) -> AppConfig:
     except ValidationError as exc:
         fields = sorted({".".join(map(str, error["loc"])) or "root" for error in exc.errors()})
         raise ValueError("Invalid config at: " + ", ".join(fields)) from None
-    except (OSError, yaml.YAMLError):
+    except OSError, yaml.YAMLError:
         raise ValueError("Config is unreadable or malformed YAML") from None

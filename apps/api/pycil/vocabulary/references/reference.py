@@ -28,7 +28,7 @@ def decode_reference_id(value: str) -> int:
         if kind != "entry" or encode_reference_id(identifier) != value:
             raise ValueError("noncanonical reference handle")
         return identifier
-    except (ValueError, UnicodeError, binascii.Error):
+    except ValueError, UnicodeError, binascii.Error:
         raise InvalidHandleError("invalid reference handle") from None
 
 

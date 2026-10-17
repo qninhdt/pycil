@@ -153,9 +153,7 @@ async def prepare(
     async with session.begin():
         await session.connection(execution_options={"isolation_level": "REPEATABLE READ"})
         node = await readable(session, node_id, user)
-        scope = (
-            await member_ids(session, node, user, library_config)
-        ).cte("preparation_scope")
+        scope = (await member_ids(session, node, user, library_config)).cte("preparation_scope")
         learned = select(UserSense.sense_id, UserSense.elo, UserSense.due_at).where(
             UserSense.user_id == user, UserSense.sense_id.in_(select(scope.c.sense_id))
         )

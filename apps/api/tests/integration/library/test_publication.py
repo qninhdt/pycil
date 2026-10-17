@@ -58,9 +58,7 @@ async def test_publication_and_revocation_apply_to_reference_membership(database
         )
     async with database.sessions() as session:
         node = await readable(session, reference["id"], reader.id)
-        membership = await member_ids(
-            session, node, reader.id, config.library
-        )
+        membership = await member_ids(session, node, reader.id, config.library)
         assert list(await session.scalars(membership)) == [sense_id]
     async with database.sessions() as session:
         await move_node(
@@ -72,9 +70,7 @@ async def test_publication_and_revocation_apply_to_reference_membership(database
         )
     async with database.sessions() as session:
         node = await readable(session, reference["id"], reader.id)
-        membership = await member_ids(
-            session, node, reader.id, config.library
-        )
+        membership = await member_ids(session, node, reader.id, config.library)
         assert list(await session.scalars(membership)) == []
     async with database.sessions() as session:
         with pytest.raises(OperationError) as error:

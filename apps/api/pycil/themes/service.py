@@ -96,9 +96,7 @@ async def delete_theme(
         if theme is None:
             return False
         await session.execute(delete(ThemeRow).where(ThemeRow.id == theme.id))
-        removed = True
-    if removed:
-        for store in (word_store, sense_store, artifact_store):
-            if store is not None:
-                store.clear()
-    return removed
+    for store in (word_store, sense_store, artifact_store):
+        if store is not None:
+            store.clear()
+    return True

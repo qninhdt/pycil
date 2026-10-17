@@ -117,5 +117,3 @@ def json_collection(
     return select(
         func.coalesce(func.jsonb_agg(items.c.item), cast(literal("[]"), JSONB))
     ).scalar_subquery()
-
-

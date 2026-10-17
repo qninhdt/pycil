@@ -60,7 +60,9 @@ COPY --from=builder /app/apps/api/alembic.ini ./alembic.ini
 
 COPY config/config.yaml /app/config/config.yaml
 
-RUN useradd --create-home --uid 10001 appuser \
+# Dependencies are installed in the builder; runtime does not need pip's vendored packages.
+RUN /usr/local/bin/python -m pip uninstall --yes pip \
+    && useradd --create-home --uid 10001 appuser \
     && install -d -o appuser -g appuser /var/lib/pycil/search
 
 USER appuser

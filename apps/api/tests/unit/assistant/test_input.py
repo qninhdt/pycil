@@ -103,9 +103,7 @@ def test_attachment_count_and_vision_permission_are_independent_of_byte_limit():
     config = load_config().assistant
     vision = next(model for model in config.models if model.vision)
     nonvision = vision.model_copy(update={"vision": False})
-    small = config.model_copy(
-        update={"limits": config.limits.model_copy(update={"max_images": 1})}
-    )
+    small = config.model_copy(update={"limits": config.limits.model_copy(update={"max_images": 1})})
     props = {"model_id": vision.id, "effort": vision.efforts[0]}
     part = image("eA==")
     for parts, policy, code in [

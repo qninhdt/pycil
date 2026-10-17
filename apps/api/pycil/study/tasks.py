@@ -90,7 +90,7 @@ async def request_preparation(
             )
             await redis.set(key, job_id, pxat=await redis.pexpiretime(owner_key(job_id)))
             return Accepted.for_job(job_id)
-    except (RedisError, SendTaskError, TimeoutError):
+    except RedisError, SendTaskError, TimeoutError:
         raise Unavailable("job_submission_unavailable") from None
 
 
@@ -128,7 +128,7 @@ async def prepare_task(
                         plans=config.account.plans,
                     )
                 await progress.set_progress(TaskState.STARTED)
-            except (ConnectionError, RedisConnectionError, RedisTimeoutError, OperationalError):
+            except ConnectionError, RedisConnectionError, RedisTimeoutError, OperationalError:
                 raise RetryableJobError("job_dependencies_unavailable") from None
             async with resources.sessions() as session:
                 result = await prepare(

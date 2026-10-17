@@ -72,9 +72,7 @@ async def lock_owner(session: AsyncSession, owner_id: UUID) -> None:
     await require_user(session, owner_id)
 
 
-async def owned(
-    session: AsyncSession, node_id: UUID, owner_id: UUID
-) -> Node:
+async def owned(session: AsyncSession, node_id: UUID, owner_id: UUID) -> Node:
     node = await readable(session, node_id, owner_id)
     if node.owner_id != owner_id:
         raise NotFound("node_not_found")
@@ -241,10 +239,7 @@ async def create_node(
     quotas = config
     async with session.begin():
         await lock_owner(session, owner_id)
-        if (
-            await check_node_quota(session, owner_id)
-            >= quotas.max_owned_nodes
-        ):
+        if await check_node_quota(session, owner_id) >= quotas.max_owned_nodes:
             raise InvalidInput("quota_exceeded")
         values = data.model_dump(exclude={"confirm_publication", "sense_ids"})
         parent_id = await default_parent(session, owner_id, values["parent_id"])
@@ -294,10 +289,7 @@ async def move_locked(
             raise InvalidInput("invalid_retained_reference")
         if old_parent is None:
             raise InvalidInput("invalid_parent")
-        if (
-            await check_node_quota(session, node.owner_id)
-            >= quotas.max_owned_nodes
-        ):
+        if await check_node_quota(session, node.owner_id) >= quotas.max_owned_nodes:
             raise InvalidInput("quota_exceeded")
         reference = Node(
             id=uuid7(),
@@ -421,10 +413,7 @@ async def copy_node(
                 )
             ).all()
         )
-        if (
-            len(originals) + await check_node_quota(session, owner_id)
-            > quotas.max_owned_nodes
-        ):
+        if len(originals) + await check_node_quota(session, owner_id) > quotas.max_owned_nodes:
             raise InvalidInput("quota_exceeded")
         await validate_parent(session, source, data.parent_id, quotas, creating=True)
         await validate_publication(session, source, parent, data, creating=True)
@@ -492,9 +481,7 @@ async def copy_node(
         sizes: dict[UUID, int] = {}
         for deck_id, _ in members:
             sizes[deck_id] = sizes.get(deck_id, 0) + 1
-        if any(
-            count > quotas.max_senses_per_deck for count in sizes.values()
-        ):
+        if any(count > quotas.max_senses_per_deck for count in sizes.values()):
             raise InvalidInput("deck_sense_limit_exceeded")
         if members:
             count = (
@@ -569,9 +556,7 @@ async def copy_node(
     return result
 
 
-async def delete_node(
-    session: AsyncSession, owner_id: UUID, node_id: UUID
-) -> None:
+async def delete_node(session: AsyncSession, owner_id: UUID, node_id: UUID) -> None:
     async with session.begin():
         await lock_owner(session, owner_id)
         node = await owned(session, node_id, owner_id)

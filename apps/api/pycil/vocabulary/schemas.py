@@ -198,4 +198,3 @@ class Context(Strict):
     new: int
     due: int
     not_due: int
-

@@ -16,9 +16,7 @@ router = APIRouter(prefix="/v1/jobs", tags=["jobs"])
 
 
 @router.get("/{job_id}", response_model=JobStatus)
-async def status(
-    job_id: UUID, user: UserId, resources: Runtime, response: Response
-) -> JobStatus:
+async def status(job_id: UUID, user: UserId, resources: Runtime, response: Response) -> JobStatus:
     try:
         if not await owned(resources.redis, str(job_id), user):
             raise Problem(404, "job_not_found")
@@ -36,5 +34,5 @@ async def status(
             status="succeeded",
             result=cast(JsonValue, result.return_value),
         )
-    except (RedisError, TimeoutError):
+    except RedisError, TimeoutError:
         raise Problem(503, "job_status_unavailable") from None

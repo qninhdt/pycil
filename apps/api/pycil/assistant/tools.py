@@ -178,9 +178,7 @@ async def vocabulary(
         if "examples" in include:
             item["examples"] = [
                 e.content
-                for e in native[identifier].examples[
-                    : config.vocabulary.preview.inline_examples
-                ]
+                for e in native[identifier].examples[: config.vocabulary.preview.inline_examples]
             ]
         if "lexical_details" in include:
             details = sense_adapter.dump_python(native[identifier], mode="json")
@@ -388,9 +386,7 @@ def tools(
                 matched_queries[identity].append(query)
         for identity, item in merged.items():
             item["matched_queries"] = matched_queries[identity]
-        word_ids = [
-            w for item in merged.values() if isinstance(w := item.get("word_id"), int)
-        ]
+        word_ids = [w for item in merged.values() if isinstance(w := item.get("word_id"), int)]
         senses = (
             (await vocabulary(resources, user, config, word_ids=word_ids, include=data.include))[
                 "senses"
@@ -730,15 +726,13 @@ def tools(
                 "reference_id": reference_id,
                 **cast(dict[str, object], job.model_dump(mode="json")),
             }
-            handle = AsyncTaskiqTask(
-                str(job.job_id), resources.broker.result_backend
-            )
+            handle = AsyncTaskiqTask(str(job.job_id), resources.broker.result_backend)
             try:
                 async with asyncio.timeout(config.jobs.timeout_seconds):
                     result = await handle.wait_result(
                         check_interval=1, timeout=config.jobs.timeout_seconds
                     )
-            except (TimeoutError, TaskiqResultTimeoutError):
+            except TimeoutError, TaskiqResultTimeoutError:
                 return {**item, "status": "pending"}
             except RedisError:
                 return {**item, "status": "pending", "error": "job_status_unavailable"}

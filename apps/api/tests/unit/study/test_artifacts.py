@@ -91,9 +91,7 @@ def test_runtime_questions_map_answers_and_identity_for_supported_pairs(monkeypa
     word, sense = lexical_target()
     data = payloads()[QUESTION_ARTIFACT_MAP[kind]]
     artifact = SimpleNamespace(id=42, payload=copy.deepcopy(data))
-    built = questions.build_question(
-        artifact, kind, fmt, sense, word.lemma, load_config().study
-    )
+    built = questions.build_question(artifact, kind, fmt, sense, word.lemma, load_config().study)
     assert built.format is fmt
     assert built.question.question_artifact_id == 42
     assert built.question.sense_id == sense.id

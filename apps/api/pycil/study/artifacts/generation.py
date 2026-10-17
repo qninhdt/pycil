@@ -131,7 +131,7 @@ async def generate_artifacts(
                         distractor_count,
                         correct_count,
                     )
-                except (ValueError, InvalidOutputError):
+                except ValueError, InvalidOutputError:
                     continue
                 accepted.append(payload.model_dump())
             if not accepted or (singleton and len(accepted) != 1):

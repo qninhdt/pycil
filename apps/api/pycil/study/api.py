@@ -77,10 +77,7 @@ async def grade(
     if (
         data.format is ResponseFormat.SINGLE_CHOICE
         or data.answer is not None
-        and (
-            not data.answer.strip()
-            or len(data.answer) > config.study.limits.max_answer_chars
-        )
+        and (not data.answer.strip() or len(data.answer) > config.study.limits.max_answer_chars)
     ):
         raise Problem(422, "invalid_grade_request")
     try:
@@ -95,9 +92,7 @@ async def grade(
             data.answer,
             policy=config.study.grading,
             allowed_pairs={
-                (kind, fmt)
-                for kind, formats in config.study.pair_levels.items()
-                for fmt in formats
+                (kind, fmt) for kind, formats in config.study.pair_levels.items() for fmt in formats
             },
         )
         return data.model_dump(exclude={"answer"}) | {
@@ -107,7 +102,7 @@ async def grade(
         raise Problem(404, "question_artifact_not_found") from None
     except UnsupportedQuestionFormatError:
         raise Problem(422, "unsupported_question_format") from None
-    except (VocabularyError, ProviderOutputError, APIError, httpx.HTTPError):
+    except VocabularyError, ProviderOutputError, APIError, httpx.HTTPError:
         logger.error(
             "study_grading_failed",
             user_id=str(user),
@@ -139,9 +134,9 @@ async def summary(
     request: Request, user: UserId, session: Session, config: Config, node_id: UUID | None = None
 ) -> SummaryDict:
     strict_query(request, {"node_id"})
-    return (
-        await summaries(session, user, config.study, [node_id], library_config=config.library)
-    )[0]
+    return (await summaries(session, user, config.study, [node_id], library_config=config.library))[
+        0
+    ]
 
 
 @router.post(":batchSummarize", response_model=list[Summary], openapi_extra={"security": [{}]})

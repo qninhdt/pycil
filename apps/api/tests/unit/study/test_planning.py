@@ -30,9 +30,7 @@ def test_pair_planning_uses_weighted_eligible_levels_and_returns_requested_draws
     assert all(kind in selected.question_types and fmt in selected.formats for kind, fmt in result)
     level = config.study.mastery.level(10000)
     assert draws.weights == [2 ** (candidate - level) for candidate in draws.levels]
-    assert all(
-        config.study.pair_levels[kind][fmt] == max(draws.levels) for kind, fmt in result
-    )
+    assert all(config.study.pair_levels[kind][fmt] == max(draws.levels) for kind, fmt in result)
 
 
 def test_pair_planning_falls_back_to_minimum_supported_level_and_rejects_infeasibility(monkeypatch):

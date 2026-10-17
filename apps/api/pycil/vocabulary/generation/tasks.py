@@ -75,7 +75,7 @@ async def request_generation(
             )
             await redis.set(key, job_id, pxat=await redis.pexpiretime(owner_key(job_id)))
             return Accepted.for_job(job_id)
-    except (RedisError, SendTaskError, TimeoutError):
+    except RedisError, SendTaskError, TimeoutError:
         # Publish may have succeeded: ownership deliberately remains until expiry.
         raise Unavailable("job_submission_unavailable") from None
 
@@ -108,7 +108,7 @@ async def generate_word_task(
                     ):
                         raise RuntimeError("account_not_found")
                 await progress.set_progress(TaskState.STARTED)
-            except (ConnectionError, RedisConnectionError, RedisTimeoutError, OperationalError):
+            except ConnectionError, RedisConnectionError, RedisTimeoutError, OperationalError:
                 raise RetryableJobError("job_dependencies_unavailable") from None
             async with resources.redis.lock(
                 word_generation_lock_key(reference_id),

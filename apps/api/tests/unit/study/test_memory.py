@@ -156,11 +156,7 @@ def test_fsrs_failure_in_mixed_batch_preserves_null_memory_and_caps_interval():
     capped = config.model_copy(
         update={
             "study": config.study.model_copy(
-                update={
-                    "fsrs": config.study.fsrs.model_copy(
-                        update={"max_interval_days": 1}
-                    )
-                }
+                update={"fsrs": config.study.fsrs.model_copy(update={"max_interval_days": 1})}
             )
         }
     )

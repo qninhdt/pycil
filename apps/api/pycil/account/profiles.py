@@ -96,4 +96,3 @@ async def update_profile(session: AsyncSession, user_id: UUID, data: ProfilePatc
             raise Conflict("handle_unavailable") from None
         raise
     return user
-

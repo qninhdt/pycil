@@ -1,0 +1,88 @@
+# Runtime image risk accepted by the operator on 2026-10-18; not a vulnerability fix.
+# Exact Debian package versions only; no automatic expiry by operator decision.
+# Reassess when updating the base image; source/secret scanning has no exceptions.
+vulnerabilities:
+  - id: CVE-2025-69720
+    purls:
+      - "pkg:deb/debian/libncursesw6@6.5%2B20250216-2?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libtinfo6@6.5%2B20250216-2?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/ncurses-base@6.5%2B20250216-2?arch=all&distro=debian-13.7"
+      - "pkg:deb/debian/ncurses-bin@6.5%2B20250216-2?arch=amd64&distro=debian-13.7"
+    statement: >-
+      Operator-approved acceptance without automatic expiry; no Trixie fix at review time.
+      infocmp parsing is not an application operation; ncurses tools remain installed.
+  - id: CVE-2026-16742
+    purls:
+      - "pkg:deb/debian/libsystemd0@257.13-1~deb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libudev1@257.13-1~deb13u1?arch=amd64&distro=debian-13.7"
+    statement: >-
+      Operator-approved acceptance without automatic expiry; no Trixie fix at review time.
+      systemd-homed executable is absent; related library packages remain installed.
+  - id: CVE-2026-54369
+    purls:
+      - "pkg:deb/debian/libacl1@2.3.2-2%2Bb1?arch=amd64&distro=debian-13.7"
+    statement: >-
+      Operator-approved acceptance without automatic expiry; no Trixie fix at review time.
+      No privileged libacl pathname operation identified in the application; library remains installed.
+  - id: CVE-2026-76642
+    purls:
+      - "pkg:deb/debian/bsdutils@2.41.5-0%2Bdeb13u1?arch=amd64&distro=debian-13.7&epoch=1"
+      - "pkg:deb/debian/libblkid1@2.41.5-0%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/liblastlog2-2@2.41.5-0%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libmount1@2.41.5-0%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libsmartcols1@2.41.5-0%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libuuid1@2.41.5-0%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/login@4.16.0-2%2Breally2.41.5-0%2Bdeb13u1?arch=amd64&distro=debian-13.7&epoch=1"
+      - "pkg:deb/debian/mount@2.41.5-0%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/util-linux@2.41.5-0%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+    statement: >-
+      Operator-approved acceptance without automatic expiry; no Trixie fix at review time.
+      Mount post-hook privilege escalation; no configured fstab entries. Setuid tools remain present.
+  - id: CVE-2026-78408
+    purls:
+      - "pkg:deb/debian/bsdutils@2.41.5-0%2Bdeb13u1?arch=amd64&distro=debian-13.7&epoch=1"
+      - "pkg:deb/debian/libblkid1@2.41.5-0%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/liblastlog2-2@2.41.5-0%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libmount1@2.41.5-0%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libsmartcols1@2.41.5-0%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libuuid1@2.41.5-0%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/login@4.16.0-2%2Breally2.41.5-0%2Bdeb13u1?arch=amd64&distro=debian-13.7&epoch=1"
+      - "pkg:deb/debian/mount@2.41.5-0%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/util-linux@2.41.5-0%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+    statement: >-
+      Operator-approved acceptance without automatic expiry; no Trixie fix at review time.
+      Privileged nsenter --join-cgroup is not an application operation; avoid this debug path.
+  - id: CVE-2026-78409
+    purls:
+      - "pkg:deb/debian/bsdutils@2.41.5-0%2Bdeb13u1?arch=amd64&distro=debian-13.7&epoch=1"
+      - "pkg:deb/debian/libblkid1@2.41.5-0%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/liblastlog2-2@2.41.5-0%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libmount1@2.41.5-0%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libsmartcols1@2.41.5-0%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libuuid1@2.41.5-0%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/login@4.16.0-2%2Breally2.41.5-0%2Bdeb13u1?arch=amd64&distro=debian-13.7&epoch=1"
+      - "pkg:deb/debian/mount@2.41.5-0%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/util-linux@2.41.5-0%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+    statement: >-
+      Operator-approved acceptance without automatic expiry; no Trixie fix at review time.
+      X-mount.subdir requires an authorized fstab entry; runtime fstab is unconfigured.
+  - id: CVE-2026-78410
+    purls:
+      - "pkg:deb/debian/bsdutils@2.41.5-0%2Bdeb13u1?arch=amd64&distro=debian-13.7&epoch=1"
+      - "pkg:deb/debian/libblkid1@2.41.5-0%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/liblastlog2-2@2.41.5-0%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libmount1@2.41.5-0%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libsmartcols1@2.41.5-0%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libuuid1@2.41.5-0%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/login@4.16.0-2%2Breally2.41.5-0%2Bdeb13u1?arch=amd64&distro=debian-13.7&epoch=1"
+      - "pkg:deb/debian/mount@2.41.5-0%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/util-linux@2.41.5-0%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+    statement: >-
+      Operator-approved acceptance without automatic expiry; no Trixie fix at review time.
+      Restricted bind-mount path replacement; runtime fstab is unconfigured.
+  - id: CVE-2026-9538
+    purls:
+      - "pkg:deb/debian/perl-base@5.40.1-6%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+    statement: >-
+      Operator-approved acceptance without automatic expiry; no Trixie fix at review time.
+      Perl Archive::Tar module is absent at the standard runtime path; perl-base remains installed.

@@ -1,74 +1,92 @@
 name: Deploy
 
-# Gated on the test workflow rather than on the push itself. Both used to fire on
-# `push: main` independently, so a commit that broke the API suite still built and
-# pushed images — the deploy did not wait for, or look at, the test result.
-#
-# Referenced by workflow NAME (`name:` in test.yml), not by filename.
 on:
   workflow_run:
-    workflows: ["Tests"]
+    workflows: [Tests]
     types: [completed]
     branches: [main]
 
-env:
-  REGISTRY: ghcr.io
-  IMAGE_PREFIX: ${{ github.repository }}
+permissions:
+  contents: read
+
+concurrency:
+  group: pycil-image-publication
+  cancel-in-progress: false
 
 jobs:
-  build:
-    # `completed` covers failure and cancellation too, so the conclusion has to be
-    # checked explicitly; without this the gate would pass on a red suite.
-    if: github.event.workflow_run.conclusion == 'success'
-    runs-on: ubuntu-latest
+  publish:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      github.event.workflow_run.path == '.github/workflows/test.yml'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     permissions:
       contents: read
+      actions: read
       packages: write
-    outputs:
-      image_tag: ${{ steps.meta.outputs.image_tag }}
-      api_digest: ${{ steps.build-api.outputs.digest }}
+      id-token: write
+    env:
+      AWS_REGION: ap-southeast-1
+      ECR_REPOSITORY: 045148955662.dkr.ecr.ap-southeast-1.amazonaws.com/pycil-api
+      GHCR_REPOSITORY: ghcr.io/qninhdt/pycil-api
+      TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
     steps:
-      # A `workflow_run` event checks out the default branch and sets GITHUB_SHA to
-      # its tip, which is not necessarily the commit that was tested. Both the
-      # checkout and the image tag are pinned to the tested revision so the image
-      # contains what the suite actually ran against.
-      - uses: actions/checkout@v7.0.1
+      - name: Set temporary artifact and credential directories
+        run: |
+          install -d -m 700 "$RUNNER_TEMP/registry-auth"
+          echo "RELEASE_DIR=$RUNNER_TEMP/release" >> "$GITHUB_ENV"
+          echo "DOCKER_CONFIG=$RUNNER_TEMP/registry-auth" >> "$GITHUB_ENV"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
-
-      - name: Resolve image tag
-        id: meta
-        env:
-          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
-        run: echo "image_tag=${TESTED_SHA::12}" >> "$GITHUB_OUTPUT"
-
-      - uses: docker/setup-buildx-action@v4.4.1
-
-      - uses: docker/login-action@v4.6.0
+          persist-credentials: false
+      - name: Download only this trusted test run's image
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
-          registry: ${{ env.REGISTRY }}
+          name: api-${{ github.event.workflow_run.head_sha }}
+          path: ${{ runner.temp }}/release
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install verified crane
+        run: |
+          curl --fail --silent --show-error --location \
+            https://github.com/google/go-containerregistry/releases/download/v0.22.1/go-containerregistry_Linux_x86_64.tar.gz \
+            -o "$RUNNER_TEMP/crane.tar.gz"
+          echo "0ab7a1d6932a213aed964ce97666c3077fe691c8606413674a8b3e0b9ec4cda0  $RUNNER_TEMP/crane.tar.gz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/crane-bin"
+          tar -xzf "$RUNNER_TEMP/crane.tar.gz" -C "$RUNNER_TEMP/crane-bin" crane
+          echo "$RUNNER_TEMP/crane-bin" >> "$GITHUB_PATH"
+      - name: Validate scanned archive before credentials
+        run: scripts/publish-image.sh verify
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_PUBLISH_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          allowed-account-ids: '045148955662'
+          role-session-name: pycil-publish-${{ github.run_id }}
+          role-duration-seconds: 900
+          unset-current-credentials: true
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      # One image for API and explicit migration gate.
-      - name: Build & push api
-        id: build-api
-        uses: docker/build-push-action@v7.4.0
+      - name: Publish the scanned artifact and verify both registries
+        run: scripts/publish-image.sh publish
+      - name: Release manifest and SBOM
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          # Repo-root context for the shared backend package and policy config.
-          context: .
-          file: apps/api/Dockerfile
-          push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-api:${{ steps.meta.outputs.image_tag }}
-
-      - name: Deploy hint
-        env:
-          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
-          API_DIGEST: ${{ steps.build-api.outputs.digest }}
-        run: |
-          echo "Images pushed to ghcr at tag ${{ steps.meta.outputs.image_tag }}."
-          echo "Tested revision: ${TESTED_SHA}"
-          echo "Deploy exact digests on the host:"
-          echo "API_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-api@${API_DIGEST}"
-          echo "Deployment requires separate operator approval and a verified full database backup."
-          echo "Apply the explicit migration gate before replacing the API."
+          name: release-${{ github.event.workflow_run.head_sha }}
+          path: |
+            ${{ env.RELEASE_DIR }}/release.json
+            ${{ env.RELEASE_DIR }}/sbom.cdx.json
+            ${{ env.RELEASE_DIR }}/scan.json
+            ${{ env.RELEASE_DIR }}/trivy-exceptions.yaml
+          if-no-files-found: error
+          retention-days: 30
+      - name: Remove temporary registry credentials
+        if: always()
+        run: rm -rf -- "$DOCKER_CONFIG"

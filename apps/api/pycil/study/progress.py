@@ -51,19 +51,13 @@ async def summaries(
 ) -> list[SummaryDict]:
     max_summary_nodes = study_config.limits.max_summary_nodes
 
-    if (
-        not node_ids
-        or len(node_ids) > max_summary_nodes
-        or len(set(node_ids)) != len(node_ids)
-    ):
+    if not node_ids or len(node_ids) > max_summary_nodes or len(set(node_ids)) != len(node_ids):
         raise InvalidInput("invalid_summary_batch")
     budget = budget or ScopeBudget(viewer_id)
     async with bounded(session, library_config, budget):
         resolved = await resolve_scopes(session, node_ids, viewer_id, library_config, budget=budget)
         scopes = (
-            resolved
-            if None in node_ids
-            else {i: resolved[i] for i in node_ids if i is not None}
+            resolved if None in node_ids else {i: resolved[i] for i in node_ids if i is not None}
         )
         now = datetime.now(UTC)
         group_ids, mapping = scope_mapping(
@@ -195,7 +189,7 @@ async def reporting(
     now = datetime.now(UTC)
     try:
         tz = ZoneInfo(timezone)
-    except (ZoneInfoNotFoundError, ValueError):
+    except ZoneInfoNotFoundError, ValueError:
         timezone = account_config.default_timezone
         tz = ZoneInfo(timezone)
     return timezone, now, now.astimezone(tz).date()
@@ -368,9 +362,7 @@ async def schedules(
                     .group_by(unique.c.grp, day)
                 )
             ).all()
-            counts = {
-                (int(r[0]), cast(date, r[1])): int(r[2]) for r in rows
-            }
+            counts = {(int(r[0]), cast(date, r[1])): int(r[2]) for r in rows}
     return [
         {
             "node_id": scope.root.id,

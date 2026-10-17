@@ -86,9 +86,7 @@ async def test_single_word_grading_resolves_alternate_meaning_through_real_searc
             QuestionType.CONTEXT_TO_WORD,
             ResponseFormat.SINGLE_WORD,
             answer,
-            config.study.grading.model_copy(
-                update={"decision_threshold": threshold}
-            ),
+            config.study.grading.model_copy(update={"decision_threshold": threshold}),
             allowed_pairs=ALLOWED_PAIRS,
         )
         assert result.model_dump() == dict(

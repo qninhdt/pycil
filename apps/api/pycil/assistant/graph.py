@@ -81,9 +81,7 @@ class Boundary(AgentMiddleware[Any, Any, Any]):
         # Retain this turn's whole tool chain; trim only older conversation turns.
         trimmed: list[BaseMessage] = trim_messages(
             req_messages[:position],
-            max_tokens=max(
-                0, self.config.limits.max_context_messages - len(current)
-            ),
+            max_tokens=max(0, self.config.limits.max_context_messages - len(current)),
             token_counter=len,
             strategy="last",
             start_on="human",

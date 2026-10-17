@@ -69,9 +69,7 @@ def reference_visible(node: FromClause, viewer_id: UUID | None) -> Exists:
     )
 
 
-async def readable(
-    session: AsyncSession, node_id: UUID, viewer_id: UUID | None
-) -> Node:
+async def readable(session: AsyncSession, node_id: UUID, viewer_id: UUID | None) -> Node:
     node = await session.scalar(
         select(Node).where(Node.id == node_id, visible(Node.__table__, viewer_id))
     )

@@ -311,7 +311,7 @@ for (const earlyReasoning of [true, false]) test(`one thought per turn survives 
       for (const width of [1440, 390]) {
         await page.setViewportSize({ width, height: 1000 })
         const tool = page.locator('.ai-tool').last()
-        await expect(tool.locator('.ai-tool-title')).toHaveText('Prepare Vocabulary')
+        await expect(tool.locator('.ai-tool-title')).toHaveText('Generate words')
         await expect(tool.locator('.ai-tool-status[data-running]')).toBeVisible()
         for (const selector of ['.ai-tool-title', '.ai-tool-status']) {
           const dimensions = await tool.locator(selector).evaluate(element => {

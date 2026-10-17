@@ -73,10 +73,7 @@ async def test_allowance_read_is_readonly_and_plan_changes_keep_current_cycle_bu
         current = await session.get(User, user.id)
         budget = await allowance(session, current, config, moment)
         assert current.plan is Plan.FREE
-        assert (
-            budget["allowance_units"]
-            == config.plans[Plan.PRO].monthly_allowance_units
-        )
+        assert budget["allowance_units"] == config.plans[Plan.PRO].monthly_allowance_units
         assert budget["remaining_units"] == budget["allowance_units"] - 1
 
 
@@ -111,19 +108,12 @@ async def test_cross_user_usage_replay_is_rejected_and_admission_rechecks_curren
         assert error.value.code == "usage_event_conflict"
     async with database.sessions() as session:
         with pytest.raises(OperationError) as error:
-            await admit(
-                session, user.id, config, Feature.ADVANCED_GRADING, moment
-            )
+            await admit(session, user.id, config, Feature.ADVANCED_GRADING, moment)
         assert error.value.code == "feature_not_available"
     async with database.sessions() as session:
         await change_plan(session, user.id, Plan.PRO, config, moment)
     async with database.sessions() as session:
-        assert (
-            await admit(
-                session, user.id, config, Feature.ADVANCED_GRADING, moment
-            )
-            is Plan.PRO
-        )
+        assert await admit(session, user.id, config, Feature.ADVANCED_GRADING, moment) is Plan.PRO
 
 
 async def test_exhausted_allowance_denies_new_work_without_creating_extra_events(database):

@@ -16,72 +16,66 @@ API probe. This update specifies later delivery work, not a deployed worker serv
 
 ## 1. Existing delivery and registry decision
 
-**GHCR is already used.** [deploy.yml](../../.github/workflows/deploy.yml) waits for the `Tests` workflow to succeed on `main`, checks out that workflow's tested `head_sha`, builds the API image, and pushes `ghcr.io/qninhdt/pycil-api:<12-character-tested-sha>`. It authenticates using `GITHUB_TOKEN`, reports the image digest, and prints an operator deployment hint. It does not currently SSH-deploy, federate into AWS, run SonarQube Cloud, or scan with Trivy. The API and explicit migration command use the same image. The [API Dockerfile](../../apps/api/Dockerfile) also pulls the pinned uv tool image from GHCR.
+[Tests](../../.github/workflows/test.yml) now builds one `linux/amd64` API image,
+labels it with the tested source SHA, scans its Docker archive and creates a
+CycloneDX SBOM. [Deploy](../../.github/workflows/deploy.yml) retrieves the artifact
+from that exact successful main-push run; it does not rebuild. The runtime image removes unused base-image pip after dependency installation in
+the builder. The shared
+[publish script](../../scripts/publish-image.sh) checks archive/SBOM checksums,
+source label and platform before registry authentication, then uses native crane
+to publish to GHCR and copy by digest into ECR. Both remote manifest digests must
+match the archive. Tags contain the full source SHA; deployment consumes digest
+references from `release.json`. API, worker and migration use the same image.
 
-Keep GHCR for VPS delivery and ECR for ECS's execution-role-authenticated Fargate pull path. Build **once** for `linux/amd64`, scan that artifact, and publish identical image content to both registries. Resolve and compare platform manifest digests; preserve the identical OCI index if provenance/SBOM attestations introduce one. Reject a promotion that changes the deployable manifest. Store registry references, digests, commit/release, SBOM and scan results in a reviewed release manifest. No environment-specific rebuild.
+GHCR serves the VPS; ECR serves ECS's execution-role-authenticated pull path.
+Neither workflow currently deploys runtime services. Keep package visibility
+private unless the operator explicitly changes it. A private GHCR pull outside
+Actions still needs authorized package credentials; CI uses its scoped, expiring
+`GITHUB_TOKEN`. [GHCR authentication](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry).
 
-Package visibility and a successful publish were not verified. The [latest recorded Deploy run](https://github.com/qninhdt/pycil/actions/runs/32523443811) was `skipped`; the package-version read returned HTTP 403 because the CLI token lacks `read:packages`. Source proves the configured publication path, not that a particular registry artifact currently exists. Do not change visibility as part of automation. Public images can be pulled anonymously; a private package needs authorized `read:packages`. Within GitHub Actions use the repository's scoped, expiring `GITHUB_TOKEN`; a manual private-package pull outside Actions requires GitHub's documented PAT authentication. Avoid leaving a PAT in ordinary Docker configuration. [GHCR authentication and digest pulls](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry).
+Configuration is implemented; successful remote publication is **not yet proven**.
+The [lesson-18 evidence](../../devops-course/lab/lesson18/README.md) owns local
+results and outstanding Sonar, image-security and remote-run gates. Do not treat a
+local archive validation or an applied IAM role as proof of a published release.
 
 ## 2. Pipeline stages and trust boundaries
 
-```mermaid
-flowchart LR
-  PR[Pull request] --> Lint[Lint types frontend and API checks]
-  Lint --> Tests[Unit and real PostgreSQL Redis integration tests]
-  Tests --> Sonar[SonarQube Cloud quality gate]
-  Sonar --> Build[Build one locked API artifact]
-  Build --> Scan[Trivy image config secrets and SBOM]
-  Scan --> Publish[Trusted main or release promotion to GHCR and ECR]
-  Publish --> Gate[Protected deployment environment]
-  Gate --> Backup[Verified recovery point and migration compatibility]
-  Backup --> Migrate[One finite migration task]
-  Migrate --> Deploy[VPS Compose blue-green or ECS rolling deployment]
-  Deploy --> Probe[Readiness and business smoke checks]
-  Probe --> Good[Retain previous digest and publish release evidence]
-  Probe --> Bad[Rollback application routing or image digest]
-```
+Tests runs frontend, E2E and real Testcontainers PostgreSQL/Redis backend checks.
+Backend tests produce coverage XML. Main pushes and same-repository PRs targeting
+main require SonarQube Cloud configuration and a passing quality gate. Fork PRs
+do not receive the Sonar token or run Sonar; no `pull_request_target` execution is
+used. Pushes to dev and PRs targeting dev retain other checks without Sonar.
+Sonar analyzes only backend source (`apps/api/pycil`) and tests (`apps/api/tests`),
+using API coverage XML. Frontend remains outside Sonar scope; its existing CI
+checks still run. Sonar is not installed on the VPS.
+A failed PR check prevents merge only when an applicable GitHub branch rule
+requires that check; the current repository does not have that enforcement.
 
-| Stage | Required result | Failure behavior |
-| --- | --- | --- |
-| Lint/test | Reuse [test.yml](../../.github/workflows/test.yml); retain real Testcontainers PostgreSQL/Redis tests and frontend checks | No build promotion or deployment |
-| SonarQube Cloud | Coverage XML from API tests; frontend coverage when available; quality gate waits and passes; exclusions reviewed | Block promotion; never install a SonarQube server on VPS/AWS |
-| Build | Locked dependencies, non-root runtime, source revision label, no secrets in layers | Build on CI runner, not VPS |
-| Trivy | Image HIGH/CRITICAL vulnerability gate; config and secret scan; CycloneDX/SPDX SBOM | Do not silently ignore unfixed findings; documented, expiring risk acceptance is an explicit release decision |
-| Publish | Tested SHA and scan report refer to the same artifact; exact GHCR/ECR manifest verification | No mutable deploy tags; ECR tag immutability |
-| Migration | One successful exit; bounded locks/time; schema compatible with active and previous API | Keep active deployment; collect sanitized migration logs |
-| Deploy | Healthy candidate, minimum healthy capacity, finite rollout timeout, authenticated smoke | Roll back the application; database recovery is a separate incident decision |
+Configuration/secret scanning gates the image job. Image vulnerability/secret
+scanning blocks HIGH/CRITICAL findings, including unfixed findings, except for
+operator-approved CVE/package-version entries in
+[`.trivyignore.yaml`](../../.trivyignore.yaml). Only the image gate uses that file;
+source configuration and secret scanning have no exceptions. The operator chose
+no automatic expiry; reassess entries when updating the base image. Other package
+versions and CVEs remain subject to the gate. SBOM generation alone is not a security gate. Raw scanner
+JSON stays on the runner because secret findings may contain matched values.
+Only the source SHA, scan version/time, exception policy, SBOM and verified registry references are
+retained as release evidence. The scanned image archive expires after one day;
+release metadata/SBOM expire after 30 days.
 
-Proposed action pins: retain `actions/checkout@v7.0.1`, `docker/setup-buildx-action@v4.4.1`, `docker/login-action@v4.6.0`, and `docker/build-push-action@v7.4.0`; add `SonarSource/sonarqube-scan-action@v8.3.0`, `aquasecurity/trivy-action@0.36.0` with Trivy `v0.75.0`, and `aws-actions/configure-aws-credentials@v6.3.0`. Resolve these reviewed releases to full commit SHAs during implementation, documenting the corresponding version. No floating action reference or fabricated SHA is acceptable. Runner labels are OS selections rather than action versions; use `ubuntu-24.04` to make the runner generation explicit.
+Publication requires the **entire** Tests workflow to succeed, a push from this
+repository's `main`, and the expected workflow path. It downloads only that run's
+SHA-named artifact and checks out `workflow_run.head_sha`, never the newer branch
+tip. PRs and failed runs cannot promote. Only the publication job has
+`packages:write` and `id-token:write`; test jobs retain read-only repository access.
+Publication is serialized; future deployment must serialize by environment and
+migration must additionally serialize at the database boundary.
 
-The following is a **trusted-job fragment**, not a complete workflow. Existing test commands remain owned by `test.yml`; publication and deployment jobs must explicitly depend on successful tests, quality gate and scan.
-
-```yaml
-permissions:
-  contents: read
-concurrency:
-  group: pycil-delivery-${{ github.ref }}
-  cancel-in-progress: false
-jobs:
-  aws-delivery:
-    environment: aws-demo
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@v7.0.1
-        with:
-          ref: ${{ inputs.tested_sha }}
-          persist-credentials: false
-      - uses: aws-actions/configure-aws-credentials@v6.3.0
-        with:
-          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ap-southeast-1
-          role-session-name: pycil-${{ github.run_id }}
-      # Validate the reviewed release manifest, then execute the bounded lifecycle.
-```
-
-Give `packages:write` only to the trusted GHCR publish job, `packages:read` only where needed, and `id-token:write` only to AWS jobs. Pull-request jobs get no deployment secrets or AWS write role. Keep the current tested-SHA checkout invariant. A privileged `workflow_run` must additionally verify the originating repository, trusted branch, workflow identity and result; never execute an arbitrary PR artifact or untrusted checkout with deployment privileges. Serialize deployment per environment, and serialize migrations at the DB boundary too; separate workflow concurrency alone cannot stop an operator racing another client. [GitHub workflow-run security](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run).
+Actions are pinned to verified full commits with release comments in the owning
+YAML; runners use `ubuntu-24.04`. Versions, commands and trust expressions belong
+in those workflows rather than a copied configuration example here. Deployment,
+migration compatibility and rollback remain lesson-19 work.
+[GitHub workflow-run security](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run).
 
 ## 3. AWS OIDC, runtime secrets and VPS delivery credentials
 
@@ -102,6 +96,13 @@ IAM trust policy **fragment** for the AWS demo deployment role; substitute the r
 ```
 
 Configure GitHub environment deployment branch/tag restrictions and required reviewers as the release policy. Environment-scoped OIDC `sub` does not itself encode `main`; the GitHub environment restriction supplies that additional gate. A separate foundation-admin role handles rare foundation changes; the workload role cannot delete backup/state buckets, OIDC identity or foundation IAM roles. Grant `iam:PassRole` only for exact ECS execution/task roles with `ecs-tasks.amazonaws.com` and the finite restore role with the EC2 service principal. Scope ECS service/task updates, telemetry permissions and restore-only SSM/EC2 operations to this workload. Read/list permissions that require wildcard resources must be isolated from scoped write permissions. Do not authenticate routine operations as AWS account root. [AWS OIDC for GitHub Actions](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-aws).
+
+Image publication uses the separate `pycil-image-publish` role, configured through
+`AWS_PUBLISH_ROLE_ARN`. Its only writes are image upload operations on the exact
+`pycil-api` ECR repository; it cannot deploy workloads or modify foundation resources.
+It shares the main-branch OIDC audience/subject restriction above. This establishes
+least-privilege registry access, not a successful federation test; a real Actions
+run must still prove accepted and rejected identities.
 
 | Credential / setting | Storage and reader | Rotation / control |
 | --- | --- | --- |

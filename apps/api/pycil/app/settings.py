@@ -68,7 +68,7 @@ class ProcessSettings(TelemetrySettings):
         try:
             provided: dict[str, object] = {name: value for name, value in values.items() if value}
             return cls.model_validate(provided)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             # Validation errors may embed raw input, including database passwords.
             raise ValueError(
                 "Invalid deployment configuration; check environment addresses"

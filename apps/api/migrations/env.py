@@ -6,8 +6,8 @@ from alembic import context
 from sqlalchemy import pool, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from pycil.infrastructure.database import Base
 from pycil.app.schema import register_models
+from pycil.infrastructure.database import Base
 
 register_models()
 config = context.config

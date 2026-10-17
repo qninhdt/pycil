@@ -131,4 +131,3 @@ async def test_artifact_mutations_do_not_create_vocabulary_revisions(database):
         assert await session.get(QuestionArtifact, saved[0].id) is None
         assert await session.get(QuestionArtifact, single.id) is not None
         assert set(await session.scalars(select(ContentRevision.entity_type))) == {"word"}
-
