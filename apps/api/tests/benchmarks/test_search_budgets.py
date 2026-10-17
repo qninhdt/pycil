@@ -50,7 +50,10 @@ async def test_default_poll_batch_pool_and_publication_lock_cost(database, tmp_p
         try:
             await asyncio.sleep(poll_interval + 0.25)
             idle_queries = len(queries)
-            assert database.engine.pool.checkedout() == 0
+            # The live poller may be using a connection at the instant we sample.
+            async with asyncio.timeout(1):
+                while database.engine.pool.checkedout():
+                    await asyncio.sleep(0.01)
             async with database.sessions() as session, session.begin():
                 before = await capture(session, [word.id for word in words])
                 for word in words:
@@ -64,7 +67,9 @@ async def test_default_poll_batch_pool_and_publication_lock_cost(database, tmp_p
         finally:
             event.remove(database.engine.sync_engine, "before_cursor_execute", record)
         assert (await index.search(f"changed{words[0].id}")).items[0].word_id == words[0].id
-        assert database.engine.pool.checkedout() == 0
+        async with asyncio.timeout(1):
+            while database.engine.pool.checkedout():
+                await asyncio.sleep(0.01)
         gate = asyncio.Barrier(20)
 
         async def publish_word(i):
