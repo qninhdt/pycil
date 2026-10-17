@@ -12,8 +12,8 @@ from pycil.account.models import UsagePeriod, User
 from pycil.account.plans import Plan
 from pycil.account.usage import period_bounds
 from pycil.app.config import load_config
-from pycil.infrastructure.database import connect, register_models
-from pycil.infrastructure.content_revisions import baseline as baseline_content
+from pycil.app.schema import register_models
+from pycil.infrastructure.database import connect
 from pycil.study.artifacts.schemas import ARTIFACT_SCHEMAS, Artifact, validate_artifact
 from pycil.study.artifacts.storage import append, generation_context
 from pycil.study.enums import QuestionArtifactType
@@ -33,6 +33,7 @@ from pycil.vocabulary.models import (
     Word,
     WordAlias,
 )
+from pycil.vocabulary.revisions import baseline as baseline_content
 from sqlalchemy import select
 
 
