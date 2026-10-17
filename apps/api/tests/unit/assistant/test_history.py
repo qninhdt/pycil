@@ -13,14 +13,10 @@ async def test_history_trim_keeps_current_tool_chain_and_fills_missing_results_w
     config = load_config()
     config = config.model_copy(
         update={
-            "product": config.product.model_copy(
+            "assistant": config.assistant.model_copy(
                 update={
-                    "assistant": config.product.assistant.model_copy(
-                        update={
-                            "limits": config.product.assistant.limits.model_copy(
-                                update={"max_context_messages": 2}
-                            )
-                        }
+                    "limits": config.assistant.limits.model_copy(
+                        update={"max_context_messages": 2}
                     )
                 }
             )
@@ -48,10 +44,8 @@ async def test_history_trim_keeps_current_tool_chain_and_fills_missing_results_w
         captured.extend(updated.messages)
         return "result"
 
-    assert (
-        await Boundary(config, "<context>safe</context>").awrap_model_call(request, handler)
-        == "result"
-    )
+    boundary = Boundary(config.assistant, "<context>safe</context>")
+    assert (await boundary.awrap_model_call(request, handler)) == "result"
     assert [message.content for message in captured if message.type == "human"] == [
         "current",
         "<context>safe</context>",

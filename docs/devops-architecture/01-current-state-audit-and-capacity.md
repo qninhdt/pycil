@@ -2,6 +2,13 @@
 
 **Evidence date:** 14 October 2026 local time. **Scope:** current source and read-only VPS/cloud observations. Follow the [overview](00-architecture-overview-and-standards.md) for design status and release/version policy.
 
+> Application update, 16 October 2026: generation/preparation now use native Taskiq
+> workers; see [jobs](../backend/modules/jobs.md). The dated capacity inventory below
+> predates this extra process and does not establish its production resource budget.
+> Application OTel/logging has also been implemented since this audit; see the
+> [lesson-10 scope and verification](04-observability-lgtm-and-public-dashboard.md#application-implementation-status).
+> The historical inventory below is not a current feature checklist.
+
 ## 1. Inspection method and evidence boundaries
 
 CodeGraph was used before text search because `.codegraph/` exists. The audit followed application construction, resource ownership, database pools, Redis callers, HTTP/error logging, Tantivy search, migrations, container/ingress configuration, CI and frontend configuration. Relevant existing documentation is indexed by [backend README](../backend/README.md); there is no root `README.md` in this working tree.
@@ -18,11 +25,11 @@ SSH used existing host-key verification, batch authentication and a connection t
 | Runtime | [resources.py](../../apps/api/pycil/app/resources.py) | AsyncExitStack closes jobs, search, pools, HTTP and Redis; Redis connect/read timeouts currently 5 seconds |
 | Probes | [factory.py](../../apps/api/pycil/app/factory.py) | `/livez` is live; `/readyz` checks PostgreSQL, Redis and initialized search within 2 seconds; Redis PING is bounded to 250 ms total |
 | Redis | [cache.py](../../apps/api/pycil/infrastructure/cache.py), [auth.py](../../apps/api/pycil/account/auth.py), [conversations.py](../../apps/api/pycil/assistant/conversations.py) | Actor caching already fails open; conversation leases are mandatory and fail closed |
-| Generation | [jobs.py](../../apps/api/pycil/vocabulary/generation/jobs.py) | Process-owned asyncio tasks; 128 local slots; Redis polling status TTL 24 hours; not a durable queue |
-| Other caches | [vocabulary/cache.py](../../apps/api/pycil/vocabulary/cache.py) | Two process-local content/artifact caches, each 32 MiB payload limit, TTL 30 seconds |
+| Generation | Domain pipeline only | Custom job runner and status endpoints removed; native Taskiq replacement pending |
+| Other caches | [infrastructure/cache.py](../../apps/api/pycil/infrastructure/cache.py) | Two process-local content/artifact caches, each 32 MiB payload limit, TTL 30 seconds |
 | Search | [search.py](../../apps/api/pycil/vocabulary/search.py) | Tantivy shared path, file locks, one writer, OnCommit readers, startup fingerprint/rebuild |
 | Queries | [words.py](../../apps/api/pycil/vocabulary/words.py), [library scopes](../../apps/api/pycil/library/scope.py) | Nested JSON projections, recursive scope work and ownership filters; different costs from health checks |
-| Logging/errors | [observability.py](../../apps/api/pycil/infrastructure/observability.py), [http.py](../../apps/api/pycil/app/http.py) | Structured JSON off TTY, request IDs and sanitized errors; no OTel SDK/exporter in dependencies |
+| Logging/errors | [observability (current location)](../../apps/api/pycil/observability/__init__.py), [http.py](../../apps/api/pycil/app/http.py) | Structured JSON off TTY, request IDs and sanitized errors; no OTel SDK/exporter in dependencies |
 | Policy/secrets | [configuration](../backend/configuration.md), [settings.py](../../apps/api/pycil/app/settings.py) | YAML product policy separate from validated environment addresses/secrets |
 | Migrations | [migrate.py](../../apps/api/pycil/app/migrate.py) | Explicit Alembic, native checkpoint setup, optional reference import; no startup migration |
 | Containers | [Dockerfile](../../apps/api/Dockerfile), [Compose](../../docker-compose.yml) | Non-root API; single-stage image retains build tools; no complete production resource/retention budget |

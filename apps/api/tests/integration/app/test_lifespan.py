@@ -5,7 +5,7 @@ from pycil.app import resources
 from pycil.app.config import load_config
 from pycil.app.factory import create_app
 from pycil.app.settings import ApiSettings
-from pycil.infrastructure.observability import ObservedAsyncClient
+from pycil.observability.http import ObservedAsyncClient
 from pycil.vocabulary.references.importer import import_reference
 from tests.support.reference import reference_file, reference_word
 
@@ -27,7 +27,11 @@ async def test_readiness_dependency_failures_return_safe_503_and_preserve_health
     app = create_app()
     app.state.config = load_config()
     app.state.deployment = SimpleNamespace(allowed_origins=[])
-    index = SearchIndex(database.sessions)
+    index = SearchIndex(
+        database.sessions,
+        policy=load_config().vocabulary.search_runtime,
+        query_policy=load_config().vocabulary.search,
+    )
     broken_engine = broken_redis = None
     try:
         await index.start()
@@ -103,6 +107,11 @@ async def test_real_lifespan_checks_search_readiness_and_cleans_owned_resources(
         search, client = app.state.search, app.state.http
         assert not hasattr(app.state, "structured_llm")
         assert isinstance(client, ObservedAsyncClient)
+        for name in ("word", "sense", "artifact", "user_id"):
+            assert getattr(app.state, f"{name}_store").attributes == {
+                "store": name,
+                "backend": "memory",
+            }
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://api.example.test"
         ) as http:
@@ -130,14 +139,14 @@ async def test_real_lifespan_checks_search_readiness_and_cleans_owned_resources(
 
 async def test_schema_startup_failure_disposes_the_acquired_engine(database, monkeypatch):
     acquired = []
-    connect = resources.connect
+    connect = resources.observed_connect
 
     def captured_connection(url, **policy):
         engine, sessions = connect(url, **policy)
         acquired.append((engine, engine.pool))
         return engine, sessions
 
-    monkeypatch.setattr(resources, "connect", captured_connection)
+    monkeypatch.setattr(resources, "observed_connect", captured_connection)
     deployment = deployment_for(database.url, "redis://127.0.0.1:1/0")
     with pytest.raises(RuntimeError, match="Runtime initialization failed"):
         async with resources.api_resources(load_config(), deployment):
@@ -172,7 +181,7 @@ async def test_failed_redis_closer_does_not_prevent_engine_cleanup(
 
     redis, _ = redis_store
     acquired, closed = [], []
-    connect, close_redis = resources.connect, redis.aclose
+    connect, close_redis = resources.observed_connect, redis.aclose
 
     def captured_connection(url, **policy):
         engine, sessions = connect(url, **policy)
@@ -187,15 +196,15 @@ async def test_failed_redis_closer_does_not_prevent_engine_cleanup(
         raise RuntimeError("private cleanup detail")
 
     await redis.ping()
-    monkeypatch.setattr(resources, "connect", captured_connection)
+    monkeypatch.setattr(resources, "observed_connect", captured_connection)
     monkeypatch.setattr(resources.Redis, "from_url", lambda *args, **kwargs: redis)
     monkeypatch.setattr(redis, "aclose", failed_closer)
     config = load_config()
     config = config.model_copy(
         update={
-            "runtime": config.runtime.model_copy(
+            "system": config.system.model_copy(
                 update={
-                    "lifecycle": config.runtime.lifecycle.model_copy(
+                    "lifecycle": config.system.lifecycle.model_copy(
                         update={"cleanup_timeout_seconds": 0.1}
                     )
                 }
@@ -225,7 +234,7 @@ async def test_startup_cancellation_closes_acquired_resources_before_return(
         database.sessions, reference_file(tmp_path / "reference.jsonl", [reference_word()])
     )
     redis, _ = redis_store
-    connect, verify, close_redis = resources.connect, resources.verify_schema, redis.aclose
+    connect, verify, close_redis = resources.observed_connect, resources.verify_schema, redis.aclose
     acquired, closed, verified = [], [], asyncio.Event()
 
     def captured_connection(url, **policy):
@@ -248,7 +257,7 @@ async def test_startup_cancellation_closes_acquired_resources_before_return(
         ):
             pytest.fail("cancelled initialization must never publish resources")
 
-    monkeypatch.setattr(resources, "connect", captured_connection)
+    monkeypatch.setattr(resources, "observed_connect", captured_connection)
     monkeypatch.setattr(resources, "verify_schema", paused_schema_gate)
     monkeypatch.setattr(resources.Redis, "from_url", lambda *args, **kwargs: redis)
     monkeypatch.setattr(redis, "aclose", captured_closer)
@@ -279,7 +288,7 @@ async def test_api_specific_startup_failure_redacts_details_and_closes_shared_re
         reference_file(tmp_path / "reference.jsonl", [reference_word()]),
     )
     acquired = []
-    connect = resources.connect
+    connect = resources.observed_connect
 
     def captured_connection(url, **policy):
         engine, sessions = connect(url, **policy)
@@ -289,7 +298,7 @@ async def test_api_specific_startup_failure_redacts_details_and_closes_shared_re
     async def failed_search(self):
         raise RuntimeError("private-search-startup-detail")
 
-    monkeypatch.setattr(resources, "connect", captured_connection)
+    monkeypatch.setattr(resources, "observed_connect", captured_connection)
     monkeypatch.setattr(resources.SearchIndex, "start", failed_search)
     deployment = deployment_for(
         database.url,

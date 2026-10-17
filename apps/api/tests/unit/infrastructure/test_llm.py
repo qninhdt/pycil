@@ -8,8 +8,8 @@ import structlog
 from pydantic import BaseModel, Field
 
 from pycil.infrastructure.llm import StructuredLLM, UsageRecorder
-from pycil.infrastructure.observability import OperationOutcome
 from pycil.infrastructure.retry import RefusedOutputError
+from pycil.observability import OperationOutcome
 
 
 class Answer(BaseModel):

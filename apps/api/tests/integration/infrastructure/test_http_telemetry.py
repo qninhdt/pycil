@@ -16,10 +16,10 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
 
-from pycil.app import http
+from pycil import observability
 from pycil.app.config import load_config
 from pycil.app.factory import create_app
-from pycil.infrastructure import observability
+from pycil.observability import http
 
 
 @pytest.mark.parametrize("sample_ratio", [0, 1])
@@ -51,8 +51,17 @@ async def test_http_templates_privacy_metrics_and_log_correlation(
     )
     logging_state = logging.getLogger().handlers[:], logging.getLogger().level
     structlog_state = structlog.get_config()
+    monkeypatch.setattr(logging.getLogger("uvicorn.access"), "disabled", False)
     try:
         app = create_app()
+        logging.getLogger("uvicorn.access").info(
+            '%s - "%s %s HTTP/%s" %d',
+            "private-client",
+            "GET",
+            "/private-path?token=private-token",
+            "1.1",
+            200,
+        )
         app.state.config = load_config()
         app.state.deployment = SimpleNamespace(allowed_origins=[])
         router = APIRouter(prefix="/controlled")

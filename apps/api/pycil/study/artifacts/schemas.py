@@ -82,15 +82,6 @@ class RewriteArtifact(Strict):
     distractors: list[Text] = Field(min_length=1)
 
 
-class Artifact(Strict):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-    id: int
-    sense_id: int
-    theme_id: int | None
-    artifact_type: QuestionArtifactType
-    payload: dict[str, object]
-
-
 type ArtifactPayload = (
     WordDefinitionArtifact
     | UsageArtifact
@@ -109,6 +100,19 @@ ARTIFACT_SCHEMAS: dict[QuestionArtifactType, type[ArtifactPayload]] = {
     QuestionArtifactType.DIALOGUE_COMPLETION: DialogueArtifact,
     QuestionArtifactType.SENTENCE_REWRITE: RewriteArtifact,
 }
+
+
+class Artifact(Strict):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    id: int
+    sense_id: int
+    theme_id: int | None
+    artifact_type: QuestionArtifactType
+    payload: dict[str, object]
+
+    @property
+    def typed_payload(self) -> ArtifactPayload:
+        return ARTIFACT_SCHEMAS[self.artifact_type].model_validate(self.payload)
 
 
 def distinct_options(texts: Iterable[str]) -> None:

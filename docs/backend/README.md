@@ -19,6 +19,7 @@ Final local checks and phase-to-test mapping: [verification record](verification
 | Work on identity, settings, or allowances | [Account](modules/account.md) |
 | Work on hierarchy, publication, or deck editing | [Library](modules/library.md) |
 | Work on dictionary content and generation | [Vocabulary](modules/vocabulary.md) |
+| Work on background execution and polling | [Jobs](modules/jobs.md) |
 | Work on preparation, grading, and progress | [Study](modules/study.md) |
 | Work on conversations and approvals | [Assistant](modules/assistant.md) |
 | Deploy or diagnose a service | [Deployment](operations/deployment.md) |
@@ -30,11 +31,11 @@ Final local checks and phase-to-test mapping: [verification record](verification
 
 ## Current inventory
 
-- One Python application under `apps/api`, with an API entry point and finite migration gate.
+- One Python application under `apps/api`, with API, native Taskiq worker and finite migration commands.
 - Six business domains: account, library, vocabulary, study, themes and assistant.
 - 39 business API operations; `/livez` and `/readyz` are operational routes.
 - PostgreSQL `public`, one application baseline and native checkpoint setup.
-- Redis for optional cached values and required coordination.
+- Redis for optional cached values, required coordination and native Taskiq transport/results.
 - Application-owned vocabulary, immutable reference JSONL and configured model/decision services.
 - Node FTS/Discovery, atomic reviews, durable activity and jointly bounded summaries.
 - Product frontend under `apps/web` with live services and a root [product E2E](../../e2e/README.md)

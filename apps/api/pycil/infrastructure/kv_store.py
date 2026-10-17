@@ -6,8 +6,7 @@ from cachetools import TTLCache
 from pydantic import TypeAdapter, ValidationError
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
-
-from pycil.infrastructure.observability import get_logger
+from structlog import get_logger
 
 logger = get_logger(__name__)
 
@@ -50,7 +49,7 @@ class RedisStore[T]:
         try:
             payload = await self.redis.get(f"{self.prefix}:{key}")
             return None if payload is None else self.adapter.validate_json(payload)
-        except RedisError, ValidationError:
+        except (RedisError, ValidationError):
             logger.warning("kv_store_read_failed", store_prefix=self.prefix)
             return None
 

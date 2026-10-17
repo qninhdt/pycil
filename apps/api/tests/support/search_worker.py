@@ -3,7 +3,9 @@
 import asyncio
 import time
 
-from pycil.infrastructure.database import connect, register_models
+from pycil.app.config import load_config
+from pycil.app.schema import register_models
+from pycil.infrastructure.database import connect
 from pycil.vocabulary.search import SearchIndex
 
 
@@ -11,7 +13,9 @@ def run(connection, url, directory, policy, crash_control=None):
     async def serve():
         register_models()
         engine, sessions = connect(url)
-        index = SearchIndex(sessions, directory, policy=policy)
+        index = SearchIndex(
+            sessions, directory, policy=policy, query_policy=load_config().vocabulary.search
+        )
         if crash_control is not None:
             armed, reached, after_commit = crash_control
             commit = index._commit

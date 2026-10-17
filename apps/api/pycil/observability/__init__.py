@@ -8,10 +8,9 @@ from collections.abc import AsyncGenerator, Generator
 from contextlib import ExitStack, asynccontextmanager, contextmanager
 from enum import StrEnum
 from time import perf_counter
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Literal
 from uuid import uuid4
 
-import httpx
 import orjson
 import structlog
 from opentelemetry import metrics, trace
@@ -24,45 +23,15 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
 
-from pycil.app.settings import ProcessSettings
-from pycil.utils.http import normalize_http_method
-
-if TYPE_CHECKING:
-    from pycil.app.config import TelemetryRuntime
+from pycil.observability.config import TelemetryRuntime, TelemetrySettings
 
 _telemetry_started = False
 _log_resource: dict[str, str] = {}
-_http_tracer = trace.get_tracer("pycil.http.client")
-
-
-class ObservedAsyncClient(httpx.AsyncClient):
-    """Measure public send calls without collecting URLs, headers or content."""
-
-    async def send(
-        self, request: httpx.Request, *, stream: bool = False, **kwargs: Any
-    ) -> httpx.Response:
-        method = normalize_http_method(request.method)
-        # Hooks run after native instrumentation has already collected request data.
-        with _http_tracer.start_as_current_span(
-            method,
-            kind=trace.SpanKind.CLIENT,
-            attributes={"http.request.method": method, "pycil.http.stream": stream},
-            record_exception=False,
-            set_status_on_exception=False,
-        ) as span:
-            try:
-                response = await super().send(request, stream=stream, **kwargs)
-            except BaseException as exc:
-                span.set_attribute("error.type", type(exc).__name__)
-                span.set_status(trace.StatusCode.ERROR)
-                raise
-            span.set_attribute("http.response.status_code", response.status_code)
-            if response.status_code >= 400:
-                span.set_attribute("error.type", str(response.status_code))
-                span.set_status(trace.StatusCode.ERROR)
-            return response
-
-
+_operation_duration = metrics.get_meter("pycil.operation").create_histogram(
+    "pycil.operation.duration",
+    unit="s",
+    explicit_bucket_boundaries_advisory=(0.001, 0.01, 0.1, 1, 5, 10, 30, 60, 120, 300),
+)
 _database_histograms = {
     operation: metrics.get_meter("pycil.database").create_histogram(
         f"pycil.db.{operation}.duration",
@@ -93,7 +62,9 @@ _database_histograms = {
 
 
 @asynccontextmanager
-async def telemetry(deployment: ProcessSettings, policy: TelemetryRuntime) -> AsyncGenerator[None]:
+async def telemetry(
+    deployment: TelemetrySettings, policy: TelemetryRuntime
+) -> AsyncGenerator[None]:
     global _telemetry_started
     if deployment.otel_endpoint is None:
         yield
@@ -165,7 +136,7 @@ class OperationOutcome(StrEnum):
 
 def record_database_duration(
     operation: Literal["pool.acquire", "query"],
-    pool: Literal["application", "checkpoint"],
+    pool: str,
     started: float,
     error: BaseException | None = None,
 ) -> None:
@@ -182,7 +153,7 @@ def record_database_duration(
 
 
 @contextmanager
-def observe_pool_acquisition(pool: Literal["application", "checkpoint"]) -> Generator[None]:
+def observe_pool_acquisition(pool: str) -> Generator[None]:
     started = perf_counter()
     error = None
     try:
@@ -274,6 +245,8 @@ def configure_logging(
         sub_logger.handlers.clear()
         sub_logger.propagate = True
         sub_logger.setLevel(logging.NOTSET)
+        # Native access messages contain raw URLs; sanitized completion logs replace them.
+        sub_logger.disabled = logger_name == "uvicorn.access"
     # Transport diagnostics include raw URLs; application boundaries own safe outcomes.
     for logger_name in ("httpx", "httpcore"):
         logging.getLogger(logger_name).setLevel(logging.WARNING)
@@ -318,6 +291,10 @@ def unbind_contextvars(*keys: str) -> None:
     structlog.contextvars.unbind_contextvars(*keys)
 
 
+def record_operation_duration(operation: str, duration: float, outcome: str) -> None:
+    _operation_duration.record(duration, {"operation": operation, "outcome": outcome})
+
+
 @contextmanager
 def observe_operation(
     logger: structlog.stdlib.BoundLogger, operation: str, **identifiers: object
@@ -338,9 +315,11 @@ def observe_operation(
             category = type(error).__name__
             raise
         finally:
+            duration = perf_counter() - started
+            record_operation_duration(operation, duration, outcome.value)
             logger.info(
                 "operation_completed",
                 outcome=outcome,
                 error_type=category,
-                duration_ms=round((perf_counter() - started) * 1000, 2),
+                duration_ms=round(duration * 1000, 2),
             )

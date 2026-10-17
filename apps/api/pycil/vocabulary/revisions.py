@@ -1,30 +1,26 @@
-"""Canonical content snapshots, transactional JSON Patch history and replay."""
+"""Vocabulary snapshots, transactional JSON Patch history and ordered search publication."""
 
 from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime
-from enum import Enum
 from time import perf_counter
-from typing import Literal, cast
+from typing import cast
 
 import jsonpatch
-import orjson
 from sqlalchemy import BigInteger, CheckConstraint, DateTime, Index, Sequence, Text, func, select
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import Mapped, mapped_column, validates
+from structlog import get_logger
 
-from pycil.infrastructure.database import Base, transaction_lock
-from pycil.infrastructure.observability import get_logger
+from pycil.infrastructure.database import Base, lock_rows, transaction_lock
+from pycil.utils.orm import snapshot_values
+from pycil.vocabulary import models as v
 
 logger = get_logger(__name__)
 
-EntityType = Literal["word", "question_artifact", "theme"]
-type EntityKey = tuple[EntityType, int]
 type Snapshot = dict[str, object] | None
 GRAPH_KEY = "pycil:content-revisions:word-graph"
 PUBLICATION_KEY = "pycil:content-revisions:publication"
-ENTITY_ORDER = {"theme": 0, "word": 1, "question_artifact": 2}
 
 
 class ContentRevision(Base):
@@ -42,20 +38,26 @@ class ContentRevision(Base):
     id: Mapped[int] = mapped_column(
         BigInteger, Sequence("content_revision_id_seq", cache=1), primary_key=True
     )
-    entity_type: Mapped[str] = mapped_column(Text)
+    entity_type: Mapped[str] = mapped_column(Text, default="word")
     entity_id: Mapped[int] = mapped_column(BigInteger)
     op: Mapped[list[dict[str, object]]] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
 
+    @validates("entity_type")
+    def validate_entity_type(self, key: str, value: str) -> str:
+        if value != "word":
+            raise ValueError("Only vocabulary revisions are supported")
+        return value
+
     @validates("op")
     def validate_patch(self, key: str, patch: list[dict[str, object]]) -> list[dict[str, object]]:
-        if not isinstance(patch, list) or not patch:  # pyright: ignore[reportUnnecessaryIsInstance]
+        if type(patch) is not list or not patch:
             raise ValueError("A nonempty JSON Patch array is required")
         for operation in patch:
-            if not isinstance(operation, dict):  # pyright: ignore[reportUnnecessaryIsInstance]
-                raise ValueError("Patch operations must be objects")
+            if type(operation) is not dict:
+                raise ValueError("Patch operation must be an object")
             action = operation.get("op")
             path = operation.get("path")
             if action not in {"add", "remove", "replace", "move", "copy", "test"}:
@@ -75,38 +77,17 @@ class ContentRevision(Base):
         return patch
 
 
-def _values(
-    row: Mapping[str, object] | RowMapping, exclude: Iterable[str] = ()
-) -> dict[str, object]:
-    return {
-        str(k): v.value if isinstance(v, Enum) else v
-        for k, v in row.items()
-        if str(k) not in exclude
-    }
-
-
-async def serialize(session: AsyncSession, kind: EntityType, identifier: int) -> Snapshot:
-    from pycil.study.models import QuestionArtifact
-    from pycil.themes.models import Theme
-    from pycil.vocabulary import models as v
-
-    if kind not in ENTITY_ORDER or type(identifier) is not int or identifier <= 0:
-        raise ValueError("Invalid content identity")
-    model = {"word": v.Word, "question_artifact": QuestionArtifact, "theme": Theme}[kind]
+async def serialize(session: AsyncSession, identifier: int) -> Snapshot:
+    if type(identifier) is not int or identifier <= 0:
+        raise ValueError("Invalid word identity")
     row = (
-        (await session.execute(select(model.__table__).where(model.id == identifier)))
+        (await session.execute(select(v.Word.__table__).where(v.Word.id == identifier)))
         .mappings()
         .one_or_none()
     )
     if row is None:
         return None
-    if kind == "theme":
-        return _values(row)
-    if kind == "question_artifact":
-        value = _values(row, ("payload_hash",))
-        value["payload"] = orjson.loads(cast(str | bytes, value["payload"]))
-        return value
-    value = _values(row, ("match_key", "generation_state"))
+    value = snapshot_values(row, ("match_key", "generation_state"))
     senses = (
         (
             await session.execute(
@@ -116,7 +97,7 @@ async def serialize(session: AsyncSession, kind: EntityType, identifier: int) ->
         .mappings()
         .all()
     )
-    value["senses"] = [_values(s) for s in senses]
+    value["senses"] = [snapshot_values(s) for s in senses]
     sense_ids = [s["id"] for s in senses]
     for name, child, condition, excluded in (
         ("aliases", v.WordAlias, v.WordAlias.word_id == identifier, ("match_key",)),
@@ -140,34 +121,22 @@ async def serialize(session: AsyncSession, kind: EntityType, identifier: int) ->
             .mappings()
             .all()
         )
-        value[name] = [_values(item, excluded) for item in children]
+        value[name] = [snapshot_values(item, excluded) for item in children]
     return value
 
 
-async def lock_owners(session: AsyncSession, keys: Iterable[EntityKey]) -> list[EntityKey]:
-    """Lock owners in one order before reading or modifying their child content."""
-    keys = sorted(set(keys), key=lambda key: (ENTITY_ORDER[key[0]], key[1]))
-    from pycil.study.models import QuestionArtifact
-    from pycil.themes.models import Theme
-    from pycil.vocabulary.models import Word
-
-    owners = {"word": Word, "theme": Theme, "question_artifact": QuestionArtifact}
-    for kind, identifier in keys:
-        model = owners[kind]
-        await session.execute(select(model.id).where(model.id == identifier).with_for_update())
-    return keys
+async def capture(session: AsyncSession, identifiers: Iterable[int]) -> dict[int, Snapshot]:
+    identifiers = sorted(set(identifiers))
+    await lock_rows(session, v.Word, identifiers)
+    return {identifier: await serialize(session, identifier) for identifier in identifiers}
 
 
-async def capture(session: AsyncSession, keys: Iterable[EntityKey]) -> dict[EntityKey, Snapshot]:
-    return {key: await serialize(session, *key) for key in await lock_owners(session, keys)}
-
-
-async def publish(session: AsyncSession, before: Mapping[EntityKey, Snapshot]) -> int | None:
+async def publish(session: AsyncSession, before: Mapping[int, Snapshot]) -> int | None:
     """Allocate IDs last, keeping the shared publication lock until caller commit."""
     await session.flush()
     pending: list[ContentRevision] = []
-    for (kind, identifier), previous in sorted(before.items()):
-        current = await serialize(session, kind, identifier)
+    for identifier, previous in sorted(before.items()):
+        current = await serialize(session, identifier)
         if current == previous:
             continue
         if previous is None:
@@ -182,14 +151,14 @@ async def publish(session: AsyncSession, before: Mapping[EntityKey, Snapshot]) -
         # Imported adoption-time data must have an explicit baseline before edits.
         exists = await session.scalar(
             select(ContentRevision.id)
-            .where(ContentRevision.entity_type == kind, ContentRevision.entity_id == identifier)
+            .where(ContentRevision.entity_type == "word", ContentRevision.entity_id == identifier)
             .limit(1)
         )
         if previous is not None and exists is None:
             raise RuntimeError(
                 "Content history baseline missing; pause writes and run --baseline-content"
             )
-        pending.append(ContentRevision(entity_type=kind, entity_id=identifier, op=patch))
+        pending.append(ContentRevision(entity_id=identifier, op=patch))
     if not pending:
         return None
     started = perf_counter()
@@ -205,14 +174,14 @@ async def publish(session: AsyncSession, before: Mapping[EntityKey, Snapshot]) -
 
 
 async def replay_many(
-    session: AsyncSession, kind: EntityType, identifiers: Iterable[int], through: int | None = None
+    session: AsyncSession, identifiers: Iterable[int], through: int | None = None
 ) -> dict[int, Snapshot]:
     values: dict[int, Snapshot] = dict.fromkeys(identifiers)
     if not values:
         return values
     statement = (
         select(ContentRevision.entity_id, ContentRevision.op)
-        .where(ContentRevision.entity_type == kind, ContentRevision.entity_id.in_(values))
+        .where(ContentRevision.entity_type == "word", ContentRevision.entity_id.in_(values))
         .order_by(ContentRevision.id)
     )
     if through is not None:
@@ -232,67 +201,56 @@ async def replay_many(
     return values
 
 
-async def replay(
-    session: AsyncSession, kind: EntityType, identifier: int, through: int | None = None
-) -> Snapshot:
-    return (await replay_many(session, kind, [identifier], through))[identifier]
+async def replay(session: AsyncSession, identifier: int, through: int | None = None) -> Snapshot:
+    return (await replay_many(session, [identifier], through))[identifier]
 
 
 async def head(session: AsyncSession) -> int:
-    return int(await session.scalar(select(func.coalesce(func.max(ContentRevision.id), 0))) or 0)
+    return int(
+        await session.scalar(
+            select(func.coalesce(func.max(ContentRevision.id), 0)).where(
+                ContentRevision.entity_type == "word"
+            )
+        )
+        or 0
+    )
 
 
 async def baseline(sessions: async_sessionmaker[AsyncSession], batch_size: int = 100) -> int:
-    """Explicit bounded adoption backfill; the operator must pause content writes."""
-    from pycil.study.models import QuestionArtifact
-    from pycil.themes.models import Theme
-    from pycil.vocabulary.models import Word
-
+    """Adopt existing vocabulary with content writes paused by the operator."""
     if type(batch_size) is not int or batch_size <= 0:
         raise ValueError("Baseline batch size must be positive")
-    count = 0
-    entities: tuple[tuple[EntityType, type[Theme | Word | QuestionArtifact]], ...] = (
-        ("theme", Theme),
-        ("word", Word),
-        ("question_artifact", QuestionArtifact),
-    )
-    for kind, model in entities:
-        after = 0
-        while True:
-            async with sessions() as session, session.begin():
-                identifiers = list(
-                    await session.scalars(
-                        select(model.id)
-                        .where(model.id > after)
-                        .order_by(model.id)
-                        .limit(batch_size)
-                    )
+    count, after = 0, 0
+    while True:
+        async with sessions() as session, session.begin():
+            identifiers = list(
+                await session.scalars(
+                    select(v.Word.id).where(v.Word.id > after).order_by(v.Word.id).limit(batch_size)
                 )
-                if not identifiers:
-                    break
-                before = await capture(session, [(kind, identifier) for identifier in identifiers])
-                rows: list[ContentRevision] = []
-                for (entity_type, identifier), value in before.items():
-                    exists = await session.scalar(
-                        select(ContentRevision.id)
-                        .where(
-                            ContentRevision.entity_type == entity_type,
-                            ContentRevision.entity_id == identifier,
-                        )
-                        .limit(1)
+            )
+            if not identifiers:
+                break
+            before = await capture(session, identifiers)
+            rows: list[ContentRevision] = []
+            for identifier, value in before.items():
+                exists = await session.scalar(
+                    select(ContentRevision.id)
+                    .where(
+                        ContentRevision.entity_type == "word",
+                        ContentRevision.entity_id == identifier,
                     )
-                    if exists is None:
-                        rows.append(
-                            ContentRevision(
-                                entity_type=entity_type,
-                                entity_id=identifier,
-                                op=[{"op": "add", "path": "", "value": value}],
-                            )
+                    .limit(1)
+                )
+                if exists is None:
+                    rows.append(
+                        ContentRevision(
+                            entity_id=identifier, op=[{"op": "add", "path": "", "value": value}]
                         )
-                if rows:
-                    await transaction_lock(session, PUBLICATION_KEY)
-                    session.add_all(rows)
-                    await session.flush()
-                    count += len(rows)
-                after = identifiers[-1]
+                    )
+            if rows:
+                await transaction_lock(session, PUBLICATION_KEY)
+                session.add_all(rows)
+                await session.flush()
+                count += len(rows)
+            after = identifiers[-1]
     return count

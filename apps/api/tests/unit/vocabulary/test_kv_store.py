@@ -1,8 +1,12 @@
 import pytest
 from cachetools import TTLCache
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import InMemoryMetricReader
 from pydantic import BaseModel
 
 from pycil.infrastructure.kv_store import InMemoryStore
+from pycil.observability import stores as kv_store
+from pycil.observability.stores import ObservedInMemoryStore
 
 
 class Value(BaseModel):
@@ -40,6 +44,87 @@ def test_kv_store_stores_objects_and_replaces_evicts_expires_and_clears():
 def test_kv_store_rejects_invalid_capacity_and_expiration(capacity, ttl):
     with pytest.raises(ValueError):
         InMemoryStore(capacity, ttl)
+
+
+@pytest.fixture
+def cache_metrics(monkeypatch):
+    reader = InMemoryMetricReader()
+    provider = MeterProvider(metric_readers=[reader], shutdown_on_exit=False)
+    meter = provider.get_meter("pycil.store")
+    for name, kind, unit in (
+        ("requests", "counter", "{request}"),
+        ("evictions", "counter", "{entry}"),
+        ("entries", "gauge", "{entry}"),
+        ("capacity", "gauge", "{entry}"),
+    ):
+        monkeypatch.setattr(
+            kv_store, f"_{name}", getattr(meter, f"create_{kind}")(f"pycil.store.{name}", unit=unit)
+        )
+
+    def value(name, **attributes):
+        data = reader.get_metrics_data()
+        points = [
+            (metric.name, point)
+            for resource in data.resource_metrics
+            for scope in resource.scope_metrics
+            for metric in scope.metrics
+            for point in metric.data.data_points
+        ]
+        assert all(set(point.attributes) <= {"store", "backend", "outcome"} for _, point in points)
+        assert "private-cache-key" not in str(data)
+        return sum(
+            point.value
+            for metric_name, point in points
+            if metric_name == f"pycil.store.{name}" and point.attributes == attributes
+        )
+
+    try:
+        yield value
+    finally:
+        provider.shutdown()
+
+
+def test_cache_metrics_count_real_hits_misses_and_lru_eviction(cache_metrics):
+    store = ObservedInMemoryStore[str, str | None](max_entries=2, ttl=60, name="word")
+    store.put("private-cache-key-A", None)
+    store.put("private-cache-key-B", "B")
+    assert store.get("private-cache-key-A") is None  # A cached None is still a hit.
+    store.put("private-cache-key-C", "C")
+    assert store.get("private-cache-key-B") is None
+    assert store.get("private-cache-key-A") is None
+
+    assert cache_metrics("requests", store="word", backend="memory", outcome="hit") == 2
+    assert cache_metrics("requests", store="word", backend="memory", outcome="miss") == 1
+    assert cache_metrics("evictions", store="word", backend="memory") == 1
+    assert cache_metrics("entries", store="word", backend="memory") == 2
+    assert cache_metrics("capacity", store="word", backend="memory") == 2
+
+
+@pytest.mark.parametrize("removal", ["expiry", "discard", "clear", "replace"])
+def test_cache_metrics_do_not_call_other_removals_capacity_evictions(cache_metrics, removal):
+    store = ObservedInMemoryStore[str, str](max_entries=2, ttl=60, name="artifact")
+    store.put("A", "A")
+    store.put("B", "B")
+    if removal == "expiry":
+        assert len(store.values.expire(store.values.timer() + 60)) == 2
+        assert store.get("A") is None
+        store.put("C", "C")
+        expected_entries = 1
+    elif removal == "discard":
+        store.discard("A")
+        store.discard("absent")
+        expected_entries = 1
+    elif removal == "clear":
+        store.clear()
+        expected_entries = 0
+    else:
+        store.put("A", "replacement")
+        expected_entries = 2
+
+    assert cache_metrics("requests", store="artifact", backend="memory", outcome="hit") == 0
+    assert cache_metrics("evictions", store="artifact", backend="memory") == 0
+    assert cache_metrics("entries", store="artifact", backend="memory") == expected_entries
+    assert cache_metrics("capacity", store="artifact", backend="memory") == 2
 
 
 def test_standard_redis_keys_follow_domain_hierarchy():

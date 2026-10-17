@@ -5,8 +5,9 @@ from uuid import uuid4
 import pytest
 
 from pycil.app.config import load_config
-from pycil.app.http import Problem
+from pycil.app.http import status_for
 from pycil.assistant.stream import validate_input
+from pycil.utils.errors import OperationError
 
 
 def request(**changes):
@@ -44,8 +45,8 @@ def request(**changes):
     ],
 )
 def test_client_state_and_invalid_options_are_rejected(changes, code):
-    with pytest.raises(Problem) as error:
-        validate_input(request(**changes), load_config())
+    with pytest.raises(OperationError) as error:
+        validate_input(request(**changes), load_config().assistant)
     assert error.value.code == code
 
 
@@ -56,23 +57,15 @@ def image(value, mime="image/png", source="data"):
 
 
 def test_attachment_checks_decoded_bytes_and_total_text_boundaries():
-    config = load_config()
-    vision = next(model for model in config.product.assistant.models if model.vision)
+    config = load_config().assistant
+    vision = next(model for model in config.models if model.vision)
     small = config.model_copy(
         update={
-            "product": config.product.model_copy(
+            "limits": config.limits.model_copy(
                 update={
-                    "assistant": config.product.assistant.model_copy(
-                        update={
-                            "limits": config.product.assistant.limits.model_copy(
-                                update={
-                                    "max_image_bytes": 2,
-                                    "max_message_chars": 3,
-                                    "max_images": 1,
-                                }
-                            )
-                        }
-                    )
+                    "max_image_bytes": 2,
+                    "max_message_chars": 3,
+                    "max_images": 1,
                 }
             )
         }
@@ -89,7 +82,7 @@ def test_attachment_checks_decoded_bytes_and_total_text_boundaries():
         (image("https://image", source="url"), "invalid_attachment"),
         (image(base64.b64encode(b"big").decode()), "attachment_too_large"),
     ]:
-        with pytest.raises(Problem) as error:
+        with pytest.raises(OperationError) as error:
             validate_input(
                 request(
                     forwarded_props=props, messages=[SimpleNamespace(role="user", content=[part])]
@@ -101,29 +94,17 @@ def test_attachment_checks_decoded_bytes_and_total_text_boundaries():
         validate_input(request(messages=[SimpleNamespace(role="user", content="abc")]), small)[-2]
         == 3
     )
-    with pytest.raises(Problem) as error:
+    with pytest.raises(OperationError) as error:
         validate_input(request(messages=[SimpleNamespace(role="user", content="abcd")]), small)
-    assert error.value.status == 413
+    assert status_for(error.value) == 413
 
 
 def test_attachment_count_and_vision_permission_are_independent_of_byte_limit():
-    config = load_config()
-    vision = next(model for model in config.product.assistant.models if model.vision)
+    config = load_config().assistant
+    vision = next(model for model in config.models if model.vision)
     nonvision = vision.model_copy(update={"vision": False})
     small = config.model_copy(
-        update={
-            "product": config.product.model_copy(
-                update={
-                    "assistant": config.product.assistant.model_copy(
-                        update={
-                            "limits": config.product.assistant.limits.model_copy(
-                                update={"max_images": 1}
-                            )
-                        }
-                    )
-                }
-            )
-        }
+        update={"limits": config.limits.model_copy(update={"max_images": 1})}
     )
     props = {"model_id": vision.id, "effort": vision.efforts[0]}
     part = image("eA==")
@@ -131,22 +112,12 @@ def test_attachment_count_and_vision_permission_are_independent_of_byte_limit():
         ([part, part], small, "assistant_request_too_large"),
         (
             [part],
-            config.model_copy(
-                update={
-                    "product": config.product.model_copy(
-                        update={
-                            "assistant": config.product.assistant.model_copy(
-                                update={"models": [nonvision]}
-                            )
-                        }
-                    )
-                }
-            ),
+            config.model_copy(update={"models": [nonvision]}),
             "invalid_attachment",
         ),
         ([image("")], small, "invalid_attachment"),
     ]:
-        with pytest.raises(Problem) as error:
+        with pytest.raises(OperationError) as error:
             validate_input(
                 request(
                     forwarded_props=props,
@@ -158,21 +129,9 @@ def test_attachment_count_and_vision_permission_are_independent_of_byte_limit():
 
 
 def test_split_text_parts_share_one_request_budget_and_unknown_parts_are_rejected():
-    config = load_config()
+    config = load_config().assistant
     small = config.model_copy(
-        update={
-            "product": config.product.model_copy(
-                update={
-                    "assistant": config.product.assistant.model_copy(
-                        update={
-                            "limits": config.product.assistant.limits.model_copy(
-                                update={"max_message_chars": 3}
-                            )
-                        }
-                    )
-                }
-            )
-        }
+        update={"limits": config.limits.model_copy(update={"max_message_chars": 3})}
     )
     parts = [SimpleNamespace(type="text", text=value) for value in ["ab", "c"]]
     assert (
@@ -180,10 +139,10 @@ def test_split_text_parts_share_one_request_budget_and_unknown_parts_are_rejecte
         == 3
     )
     parts.append(SimpleNamespace(type="text", text="d"))
-    with pytest.raises(Problem) as error:
+    with pytest.raises(OperationError) as error:
         validate_input(request(messages=[SimpleNamespace(role="user", content=parts)]), small)
     assert error.value.code == "assistant_request_too_large"
-    with pytest.raises(Problem) as error:
+    with pytest.raises(OperationError) as error:
         validate_input(
             request(
                 messages=[SimpleNamespace(role="user", content=[SimpleNamespace(type="audio")])]

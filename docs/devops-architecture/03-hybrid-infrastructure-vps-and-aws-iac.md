@@ -2,6 +2,18 @@
 
 **Status:** proposed infrastructure configuration. Do not execute mutation examples until this design is approved. Resource limits are owned by [01](01-current-state-audit-and-capacity.md), application contracts by [02](02-app-12factor-and-redis-design.md), and orchestration/recovery by [05](05-devsecops-cicd-and-walg-backup.md).
 
+## Independent API and worker deployment
+
+Application code now supports a separate [native Taskiq worker](../backend/modules/jobs.md#native-worker-command).
+In the authorized deployment phase add a VPS Compose worker service and a separate ECS
+worker service using the same release digest as API/migration. Workers need store/provider
+egress and telemetry, no ALB target, ingress port, Tantivy volume or checkpoint pool.
+Inject only worker-required secrets and use `pycil-worker` telemetry identity. Migrate
+before either service starts. Size worker concurrency, memory, DB/Redis pools and rollout
+overlap independently; existing API-only resource totals do not include this extra service.
+Do not apply the API CPU autoscaling policy to workers without queue/provider evidence.
+No worker infrastructure is created by the application implementation.
+
 ## 1. VPS network and deployment topology
 
 Retain Caddy because the repository already has correct assistant streaming/body-limit behavior. Caddy supports native active health checks, reloadable upstream configuration and explicit TLS without Docker discovery privileges. Traefik adds discovery machinery that two known API slots do not need; Nginx is also conventional but requires replacing a working ingress contract without a demonstrated benefit.

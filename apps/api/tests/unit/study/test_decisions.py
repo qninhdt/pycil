@@ -90,7 +90,7 @@ async def test_grading_models_expose_complete_native_questions_and_typed_answers
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
         client = DecisionLLM(
-            load_config().runtime.providers.vocabulary,
+            load_config().vocabulary.provider,
             api_key="test",
             endpoint="https://decision.test",
             http_client=http,
@@ -102,7 +102,7 @@ async def test_grading_models_expose_complete_native_questions_and_typed_answers
 @pytest.mark.parametrize("field", ["matched_sense", "defined_meaning"])
 async def test_dynamic_meaning_choices_keep_evidence_and_reject_previous_inventory(field):
     requests = []
-    policy = load_config().runtime.providers.vocabulary.model_copy(update={"max_retries": 0})
+    policy = load_config().vocabulary.provider.model_copy(update={"max_retries": 0})
 
     async def respond(request):
         body = json.loads(request.content)

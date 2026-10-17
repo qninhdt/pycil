@@ -11,7 +11,7 @@ from contextvars import ContextVar
 from functools import cache, reduce
 from time import perf_counter
 from types import TracebackType
-from typing import Annotated, Any, Literal, Self, cast
+from typing import Annotated, Any, Literal, Protocol, Self, cast
 
 import httpx
 import instructor
@@ -23,16 +23,16 @@ from instructor.v2.core.mode import Mode
 from jinja2 import Environment, PackageLoader, StrictUndefined
 from openai import APIError
 from pydantic import BaseModel, ConfigDict, create_model
+from structlog import get_logger
 from tenacity import AsyncRetrying, retry_if_exception, stop_after_attempt, wait_exponential
 
-from pycil.infrastructure.observability import OperationOutcome, get_logger
+from pycil.infrastructure.providers import ProviderPolicy
 from pycil.infrastructure.retry import (
     ProviderOutputError,
     ProviderTimeoutError,
     RefusedOutputError,
     retryable,
 )
-from pycil.vocabulary.config import VocabularyPolicy
 
 logger = get_logger(__name__)
 
@@ -223,7 +223,7 @@ class _ProviderCall:
     def observe(self) -> Generator[_ProviderCall]:
         started = perf_counter()
         token = current_call.set(self)
-        outcome, category = OperationOutcome.SUCCEEDED, None
+        outcome, category = "succeeded", None
         error = None
         try:
             yield self
@@ -233,11 +233,7 @@ class _ProviderCall:
                 if isinstance(exc, TimeoutError)
                 else exc
             )
-            outcome = (
-                OperationOutcome.CANCELLED
-                if isinstance(exc, asyncio.CancelledError)
-                else OperationOutcome.FAILED
-            )
+            outcome = "cancelled" if isinstance(exc, asyncio.CancelledError) else "failed"
             category = type(exc).__name__
             if error is not exc:
                 raise error from None
@@ -312,7 +308,7 @@ def _instrument(http: httpx.AsyncClient) -> None:
 
 
 def _retrying(
-    policy: VocabularyPolicy,
+    policy: ProviderPolicy,
     predicate: Callable[[BaseException], bool] = retryable,
 ) -> AsyncRetrying:
     return AsyncRetrying(
@@ -323,10 +319,14 @@ def _retrying(
     )
 
 
+class StructuredLLMProtocol(Protocol):
+    async def complete[T: BaseModel](self, instruction: str, data: str, schema: type[T]) -> T: ...
+
+
 class StructuredLLM:
     def __init__(
         self,
-        policy: VocabularyPolicy,
+        policy: ProviderPolicy,
         *,
         api_key: str,
         base_url: str,
@@ -350,7 +350,7 @@ class StructuredLLM:
             raise ValueError("missing model instruction")
         if len(data) > 64000:
             raise ValueError("invalid model input")
-        options: dict[str, Any] = {
+        options: dict[str, object] = {
             "max_completion_tokens": self.policy.max_completion_tokens,
             "timeout": self.policy.timeout_seconds,
         }
@@ -369,7 +369,7 @@ class StructuredLLM:
                         max_retries=_retrying(
                             self.policy, lambda error: not call.refused and retryable(error)
                         ),
-                        **options,
+                        **cast(dict[str, Any], options),
                     )
                 except InstructorError as error:
                     if call.refused:
@@ -388,7 +388,7 @@ class StructuredLLM:
 class DecisionLLM:
     def __init__(
         self,
-        policy: VocabularyPolicy,
+        policy: ProviderPolicy,
         *,
         api_key: str,
         endpoint: str,

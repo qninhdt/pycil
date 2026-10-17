@@ -3,7 +3,7 @@ import asyncio
 import pytest
 import structlog
 
-from pycil.infrastructure.observability import (
+from pycil.observability import (
     OperationOutcome,
     bound_contextvars,
     get_logger,
@@ -19,7 +19,7 @@ from pycil.infrastructure.observability import (
         (asyncio.CancelledError(), OperationOutcome.CANCELLED),
     ],
 )
-def test_operation_preserves_failure_and_restores_correlation(error, outcome):
+def test_operation_preserves_failure_and_restores_correlation(error, outcome, operation_metrics):
     logger = get_logger(__name__)
     with structlog.testing.capture_logs(
         processors=[structlog.contextvars.merge_contextvars]
@@ -44,3 +44,7 @@ def test_operation_preserves_failure_and_restores_correlation(error, outcome):
     assert completed["request_id"] == "request"
     assert completed["word_id"] == 7
     assert "private payload" not in str(logs)
+    points = operation_metrics()
+    assert len(points) == 1 and points[0].count == 1
+    assert points[0].attributes == {"operation": "generation", "outcome": outcome.value}
+    assert abs(points[0].sum * 1000 - completed["duration_ms"]) <= 0.0051

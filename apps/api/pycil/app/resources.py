@@ -13,12 +13,16 @@ from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from pycil.app.config import AppConfig
+from pycil.app.schema import verify_schema
 from pycil.app.settings import ApiSettings, ProcessSettings, WorkerSettings
 from pycil.assistant.checkpoints import checkpoint_pool
-from pycil.infrastructure.database import connect, verify_schema
 from pycil.infrastructure.kv_store import InMemoryStore
 from pycil.infrastructure.llm import DecisionLLM, StructuredLLM
-from pycil.infrastructure.observability import ObservedAsyncClient, get_logger, telemetry
+from pycil.observability import get_logger, telemetry
+from pycil.observability.database import observed_connect
+from pycil.observability.http import ObservedAsyncClient
+from pycil.observability.search import ObservedSearchIndex
+from pycil.observability.stores import ObservedInMemoryStore
 from pycil.study.artifacts.schemas import Artifact
 from pycil.vocabulary.schemas import CachedWord, Sense
 from pycil.vocabulary.search import SearchIndex
@@ -59,7 +63,7 @@ async def _resource_stack(config: AppConfig) -> AsyncGenerator[AsyncExitStack]:
         started = perf_counter()
         try:
             # ExitStack runs every registered closer even when one closer fails.
-            async with asyncio.timeout(config.runtime.lifecycle.cleanup_timeout_seconds):
+            async with asyncio.timeout(config.system.lifecycle.cleanup_timeout_seconds):
                 await stack.aclose()
             logger.info("resources_closed", duration_ms=round((perf_counter() - started) * 1000, 2))
         except Exception as exc:
@@ -70,28 +74,40 @@ async def _resource_stack(config: AppConfig) -> AsyncGenerator[AsyncExitStack]:
 async def _open_process_resources(
     stack: AsyncExitStack, config: AppConfig, settings: ProcessSettings
 ) -> ProcessResources:
-    await stack.enter_async_context(telemetry(settings, config.runtime.telemetry))
-    engine, sessions = connect(
-        settings.db_url.get_secret_value(), **config.runtime.database.application_pool.model_dump()
+    await stack.enter_async_context(telemetry(settings, config.system.telemetry))
+    engine, sessions = observed_connect(
+        settings.db_url.get_secret_value(),
+        name="application",
+        **config.system.database.application_pool.model_dump(),
     )
     stack.push_async_callback(engine.dispose)
     redis = Redis.from_url(  # pyright: ignore[reportUnknownMemberType]
         settings.redis_url.get_secret_value(),
-        max_connections=config.runtime.redis.max_connections,
-        socket_connect_timeout=config.runtime.redis.connect_timeout_seconds,
-        socket_timeout=config.runtime.redis.operation_timeout_seconds,
+        max_connections=config.system.redis.max_connections,
+        socket_connect_timeout=config.system.redis.connect_timeout_seconds,
+        socket_timeout=config.system.redis.operation_timeout_seconds,
     )
     stack.push_async_callback(redis.aclose)
     await verify_schema(engine)
     await redis.ping()  # pyright: ignore[reportUnknownMemberType]
     http = await stack.enter_async_context(
-        ObservedAsyncClient(timeout=config.runtime.http.client_timeout_seconds)
+        ObservedAsyncClient(timeout=config.system.http.client_timeout_seconds)
     )
-    policy = config.runtime.caches
-    word_store = InMemoryStore[int, CachedWord](policy.words.max_entries, policy.words.ttl_seconds)
-    sense_store = InMemoryStore[int, Sense](policy.senses.max_entries, policy.senses.ttl_seconds)
-    artifact_store = InMemoryStore[int, Artifact](
-        policy.artifacts.max_entries, policy.artifacts.ttl_seconds
+    policy = config.system.caches
+    word_store = ObservedInMemoryStore[int, CachedWord](
+        policy.words.max_entries,
+        policy.words.ttl_seconds,
+        name="word",
+    )
+    sense_store = ObservedInMemoryStore[int, Sense](
+        policy.senses.max_entries,
+        policy.senses.ttl_seconds,
+        name="sense",
+    )
+    artifact_store = ObservedInMemoryStore[int, Artifact](
+        policy.artifacts.max_entries,
+        policy.artifacts.ttl_seconds,
+        name="artifact",
     )
     stack.callback(word_store.clear)
     stack.callback(sense_store.clear)
@@ -116,7 +132,7 @@ async def worker_resources(
         try:
             shared = await _open_process_resources(stack, config, settings)
             llm = StructuredLLM(
-                config.runtime.providers.vocabulary,
+                config.vocabulary.provider,
                 api_key=settings.llm_api_key.get_secret_value(),
                 base_url=settings.llm_base_url,
                 http_client=shared.http,
@@ -139,27 +155,31 @@ async def api_resources(config: AppConfig, settings: ApiSettings) -> AsyncGenera
         started = perf_counter()
         try:
             shared = await _open_process_resources(stack, config, settings)
-            policy = config.runtime.caches.user_id
-            user_id_store = InMemoryStore[str, UUID](policy.max_entries, policy.ttl_seconds)
+            policy = config.system.caches.user_id
+            user_id_store = ObservedInMemoryStore[str, UUID](
+                policy.max_entries,
+                policy.ttl_seconds,
+                name="user_id",
+            )
             stack.callback(user_id_store.clear)
-            shared.sessions.configure(info={"user_id_store": user_id_store})
             pool = await stack.enter_async_context(
                 checkpoint_pool(
                     settings.db_url.get_secret_value(),
-                    **config.runtime.database.checkpoint_pool.model_dump(),
+                    **config.system.database.checkpoint_pool.model_dump(),
                 )
             )
             decision_llm = DecisionLLM(
-                config.runtime.providers.vocabulary,
+                config.vocabulary.provider,
                 api_key=settings.decision_api_key.get_secret_value(),
                 endpoint=settings.decision_base_url,
                 http_client=shared.http,
             )
-            search = SearchIndex(
+            search = ObservedSearchIndex(
                 shared.sessions,
                 settings.search_index_path,
-                policy=config.runtime.search,
-                query_policy=config.product.vocabulary.search,
+                name="dictionary",
+                policy=config.vocabulary.search_runtime,
+                query_policy=config.vocabulary.search,
             )
             stack.push_async_callback(search.close)
             await search.start()

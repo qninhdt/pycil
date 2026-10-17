@@ -1,6 +1,6 @@
 import pytest
 
-from pycil.infrastructure.content_revisions import ContentRevision
+from pycil.vocabulary.revisions import ContentRevision
 
 
 @pytest.mark.parametrize(
@@ -20,3 +20,11 @@ from pycil.infrastructure.content_revisions import ContentRevision
 def test_revision_rejects_malformed_patch(patch):
     with pytest.raises(ValueError):
         ContentRevision(entity_type="word", entity_id=1, op=patch)
+
+
+@pytest.mark.parametrize("entity_type", ["theme", "question_artifact", "unknown"])
+def test_revision_rejects_non_vocabulary_entities(entity_type):
+    with pytest.raises(ValueError, match="Only vocabulary"):
+        ContentRevision(
+            entity_type=entity_type, entity_id=1, op=[{"op": "add", "path": "", "value": {}}]
+        )

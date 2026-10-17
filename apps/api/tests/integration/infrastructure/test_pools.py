@@ -9,10 +9,10 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 
+from pycil import observability
 from pycil.app.config import load_config
 from pycil.assistant.checkpoints import checkpoint_pool
-from pycil.infrastructure import observability
-from pycil.infrastructure.database import connect
+from pycil.observability.database import observed_connect as connect
 
 
 @pytest.fixture
@@ -48,8 +48,8 @@ def points(reader, operation, pool="application", outcome="succeeded"):
 
 
 async def test_application_pool_rejects_excess_checkout_and_recovers(database, database_metrics):
-    policy = load_config().runtime.database.application_pool
-    engine, _sessions = connect(database.url, **policy.model_dump())
+    policy = load_config().system.database.application_pool
+    engine, _sessions = connect(database.url, name="application", **policy.model_dump())
     try:
         async with AsyncExitStack() as held:
             for _ in range(policy.size + policy.max_overflow):
@@ -69,7 +69,7 @@ async def test_application_pool_rejects_excess_checkout_and_recovers(database, d
 async def test_checkpoint_pool_caps_checkout_preserves_native_settings_and_recovers(
     database, database_metrics
 ):
-    policy = load_config().runtime.database.checkpoint_pool.model_copy(
+    policy = load_config().system.database.checkpoint_pool.model_copy(
         update={"timeout_seconds": 0.1}
     )
     async with checkpoint_pool(database.url, **policy.model_dump()) as pool:
@@ -113,10 +113,10 @@ async def test_connection_and_pool_startup_timeouts_bound_unresponsive_database(
     try:
         async with asyncio.timeout(3):
             if pool_name == "application":
-                policy = load_config().runtime.database.application_pool.model_copy(
+                policy = load_config().system.database.application_pool.model_copy(
                     update={"connect_timeout_seconds": 0.05}
                 )
-                engine, _sessions = connect(url, **policy.model_dump())
+                engine, _sessions = connect(url, name="application", **policy.model_dump())
                 try:
                     with pytest.raises(asyncio.TimeoutError):
                         async with engine.connect():
@@ -124,7 +124,7 @@ async def test_connection_and_pool_startup_timeouts_bound_unresponsive_database(
                 finally:
                     await engine.dispose()
             else:
-                policy = load_config().runtime.database.checkpoint_pool.model_copy(
+                policy = load_config().system.database.checkpoint_pool.model_copy(
                     update={"startup_timeout_seconds": 0.05}
                 )
                 with pytest.raises(PoolTimeout):
@@ -139,7 +139,7 @@ async def test_connection_and_pool_startup_timeouts_bound_unresponsive_database(
 
 
 async def test_pool_wait_is_measured_before_query_execution(database, database_metrics):
-    engine, sessions = connect(database.url, size=1, timeout_seconds=2)
+    engine, sessions = connect(database.url, name="application", size=1, timeout_seconds=2)
     attempting = asyncio.Event()
 
     async def read():
@@ -167,7 +167,7 @@ async def test_pool_wait_is_measured_before_query_execution(database, database_m
 
 @pytest.mark.parametrize("cancel", [False, True])
 async def test_query_metrics_preserve_errors_and_cancellation(database, database_metrics, cancel):
-    engine, _sessions = connect(database.url)
+    engine, _sessions = connect(database.url, name="application")
     try:
         async with engine.connect() as connection:
             if cancel:
@@ -193,7 +193,7 @@ async def test_cancelled_checkout_is_recorded_and_pool_recovers(
 ):
     async with AsyncExitStack() as resources:
         if pool_name == "application":
-            engine, _sessions = connect(database.url, size=1)
+            engine, _sessions = connect(database.url, name="application", size=1)
             resources.push_async_callback(engine.dispose)
             acquire = engine.connect
         else:

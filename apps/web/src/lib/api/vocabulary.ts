@@ -20,7 +20,6 @@ export type DictionaryWord = {
 export type WordPreview = { word_id: number; lemma: string; entry_type: string; senses: DictionarySense[] }
 export type SenseContext = { sense_id: number; learning: { state: LearningState; due_at: string | null; last_reviewed_at: string | null }; decks: Meaning['sources']; deck_count: number; decks_has_more: boolean }
 export type WordContext = { as_of: string; senses: SenseContext[]; total: number; studied: number; new: number; due: number; not_due: number }
-export type WordGeneration = { task_id: string; status: 'running' | 'succeeded' | 'failed'; word_id: number | null; stage: string | null; error: string | null; status_url: string }
 
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new ApiError(502, 'invalid_response')
@@ -93,10 +92,4 @@ export function parseWordContext(value: unknown): WordContext {
       decks: array(item.decks).map(value => { const deck = object(value), space = string(deck.space); if (space !== 'personal' && space !== 'published') throw new ApiError(502, 'invalid_response'); return { id: string(deck.id), name: string(deck.name), owner_id: string(deck.owner_id), space } }),
       deck_count: count(item.deck_count), decks_has_more: boolean(item.decks_has_more) }
   }) }
-}
-
-export function parseWordGeneration(value: unknown): WordGeneration {
-  const job = object(value), status = string(job.status)
-  if (!['running', 'succeeded', 'failed'].includes(status)) throw new ApiError(502, 'invalid_response')
-  return { task_id: string(job.task_id), status: status as WordGeneration['status'], word_id: job.word_id == null ? null : id(job.word_id), stage: optional(job.stage), error: optional(job.error), status_url: string(job.status_url) }
 }

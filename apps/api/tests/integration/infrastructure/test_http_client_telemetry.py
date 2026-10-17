@@ -13,11 +13,10 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
-from pycil.app import http
 from pycil.app.config import load_config
 from pycil.app.factory import create_app
-from pycil.infrastructure import observability
-from pycil.infrastructure.observability import ObservedAsyncClient
+from pycil.observability import http
+from pycil.observability.http import ObservedAsyncClient
 
 
 @pytest.fixture
@@ -27,7 +26,7 @@ def client_telemetry(monkeypatch):
     provider.add_span_processor(SimpleSpanProcessor(exporter))
     meter = MeterProvider(metric_readers=[InMemoryMetricReader()], shutdown_on_exit=False)
     tracer = provider.get_tracer("pycil.http.client")
-    monkeypatch.setattr(observability, "_http_tracer", tracer)
+    monkeypatch.setattr(http, "_http_tracer", tracer)
     monkeypatch.setattr(
         http,
         "OpenTelemetryMiddleware",

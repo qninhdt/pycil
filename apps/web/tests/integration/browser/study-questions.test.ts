@@ -1,5 +1,5 @@
 import { expect,test } from '@playwright/test'
-import { preparation } from '../../unit/fixtures'
+import { preparation, prepareSession } from '../../unit/fixtures'
 import { accountPlatform,navigationPlatform } from './fixtures/api-fixtures'
 import { buildFixture,renderFixture } from './fixtures/render-fixture'
 
@@ -24,7 +24,8 @@ test('HTTP study renders native single word and short answer question formats', 
     await page.evaluate(() => localStorage.clear())
     await page.route('**/*v1/**', route => {
       const path = new URL(route.request().url()).pathname
-      if (path.endsWith('/study:prepare')) { calls++; return route.fulfill({ json: prepared }) }
+      if (path.endsWith('/study:prepare')) { calls++; return route.fulfill({ status: 202, json: { job_id: '01900000-0000-7000-8000-000000000001', status_url: '/v1/jobs/01900000-0000-7000-8000-000000000001' } }) }
+      if (path.endsWith('/jobs/01900000-0000-7000-8000-000000000001')) return route.fulfill({ json: { job_id: '01900000-0000-7000-8000-000000000001', status: 'succeeded', result: prepared, error: null } })
       if (path.endsWith('/words:batchPreview')) return route.fulfill({ json: [{ word_id: 1, lemma: 'bank', entry_type: 'word', senses: [prepared.bundles[0].sense] }] })
       throw new Error(`Unexpected native study request: ${path}`)
     })
@@ -40,7 +41,7 @@ test('HTTP study renders native single word and short answer question formats', 
 test('round recap preserves the initial miss in the completed fullscreen quiz', async ({ page }) => {
   const services = createMockServices({ latency: 0 })
   await services.account.updateSettings({ learning: { questions_per_sense: 1, max_sense_count: 1 } }, focusSignal)
-  const prepared = await services.learning.prepare({ node_id: 'everyday', selection: 'new' }, focusSignal)
+  const prepared = await prepareSession(services, { node_id: 'everyday', selection: 'new' }, focusSignal)
   const first = createStudySession('preview-alex', prepared)
   const recap = advanceSession(recordAttempt(beginAttempt(first, null), { correct: false }))
   const correct = currentQuestion(first)!

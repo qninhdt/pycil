@@ -2,6 +2,8 @@
 
 **Status:** accepted architecture, proposed implementation configuration, not deployed. **Audit:** 14 October 2026, Asia/Ho_Chi_Minh; VPS observations began at 13 October 2026 20:36:58 UTC. **Source:** working tree at commit `41359cd`. All architecture documents are in English. Remote inspection was read-only.
 
+> Application update (2026-10-16): native Taskiq worker code replaces the old Word runner. Word generation and study preparation use owner-private asynchronous jobs. API and worker use the same image with separate commands/services; worker deployment and its budget remain a later course gate. See [jobs](../backend/modules/jobs.md) for the deferred idle-reclaim test and result/ACK limits.
+
 ## 1. Outcome and acceptance contract
 
 Run the same immutable API image on two independent application environments: an always-on VPS and an on-demand AWS environment. Each has its own PostgreSQL, Redis coordination, search storage and monitoring. Vercel serves environment-specific frontends; Cloudflare owns DNS and edge security. VPS telemetry stays on the VPS; AWS telemetry stays on AWS. AWS teardown must preserve benchmark evidence in S3 and leave no workload resources billed by the hour.
@@ -14,7 +16,7 @@ Run the same immutable API image on two independent application environments: an
 | --- | --- | --- |
 | Deployment | Docker Compose | ECS service on **Fargate**, ECR immutable image |
 | Ingress / TLS | Cloudflare → Caddy | Cloudflare → ALB + ACM; ALB directly targets API |
-| Application | Pycil API monolith | Same monolith; **one API process per task** |
+| Application | API plus independently sized native Taskiq worker, same image | Separate API/worker ECS services, same image; **one API process per API task** |
 | PostgreSQL | PostgreSQL container | Private RDS PostgreSQL |
 | Redis | Redis container; required coordination distinct from optional cache | Private ElastiCache Redis; same coordination/cache boundary |
 | Dictionary search | Local Tantivy directory on VPS | Independent task-local ephemeral Tantivy; inside the API process |

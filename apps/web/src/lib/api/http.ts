@@ -1,7 +1,7 @@
 import { getApiBaseUrl } from './services/config'
 import { ApiError, type ProblemDetailsPayload } from './error'
 
-export async function apiRequest<T>(path: string, token: string | null, parse: (value: unknown) => T, signal: AbortSignal, body?: unknown, method?: 'POST' | 'PATCH' | 'DELETE', extraHeaders?: Record<string, string>): Promise<T> {
+export async function apiRequest<T>(path: string, token: string | null, parse: (value: unknown, response?: Response) => T, signal: AbortSignal, body?: unknown, method?: 'POST' | 'PATCH' | 'DELETE', extraHeaders?: Record<string, string>): Promise<T> {
   const url = `${getApiBaseUrl()}/${path.replace(/^\//, '')}`
   const response = await fetch(url, {
     method: method ?? (body === undefined ? 'GET' : 'POST'), cache: 'no-store', signal,
@@ -23,9 +23,12 @@ export async function apiRequest<T>(path: string, token: string | null, parse: (
     const detail = payload && typeof payload.detail === 'string' ? payload.detail : undefined
     const instance = payload && typeof payload.instance === 'string' ? payload.instance : undefined
     const invalidParams = payload && Array.isArray(payload.invalid_params) ? payload.invalid_params : undefined
-    throw new ApiError(response.status, code, detail, requestId, instance, invalidParams)
+    const error = new ApiError(response.status, code, detail, requestId, instance, invalidParams)
+    const retry = Number(response.headers.get('Retry-After'))
+    if (Number.isFinite(retry) && retry > 0) error.retryAfterSeconds = retry
+    throw error
   }
-  return parse(value)
+  return parse(value, response)
 }
 
 export async function apiToken(getToken: () => Promise<string | null>, signal: AbortSignal): Promise<string> {

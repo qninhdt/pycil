@@ -15,8 +15,8 @@ from pycil.account.models import User
 from pycil.app.dependencies import Session
 from pycil.app.http import Problem
 from pycil.infrastructure.clerk import IdentityServiceUnavailable, InvalidIdentityError, clerk_user
-from pycil.infrastructure.observability import bind_contextvars, get_logger
 from pycil.library.tree import provision_library
+from pycil.observability import bind_contextvars, get_logger
 
 logger = get_logger(__name__)
 
@@ -36,7 +36,7 @@ async def current_user_id(request: Request, session: Session, credentials: Crede
         subject = await request.app.state.identity.subject(credentials.credentials)
     except InvalidIdentityError:
         raise Problem(401, "invalid_credentials") from None
-    store = session.info.get("user_id_store")
+    store = getattr(request.app.state, "user_id_store", None)
     if store is not None and (identifier := store.get(subject)) is not None:
         bind_contextvars(user_id=str(identifier))
         return identifier
@@ -49,9 +49,9 @@ async def current_user_id(request: Request, session: Session, credentials: Crede
         try:
             identity = await clerk_user(
                 request.app.state.http,
-                request.app.state.deployment,
+                request.app.state.deployment.clerk_secret_key.get_secret_value(),
                 subject,
-                timeout=request.app.state.config.runtime.identity.profile_timeout_seconds,
+                timeout=request.app.state.config.account.profile_timeout_seconds,
             )
         except InvalidIdentityError:
             raise Problem(401, "invalid_credentials") from None

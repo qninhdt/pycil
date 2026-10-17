@@ -18,13 +18,12 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 from psycopg import errors, sql
 from sqlalchemy import event, text
 
-from pycil.app import http
 from pycil.app.config import load_config
 from pycil.app.factory import create_app
-from pycil.assistant import checkpoints
 from pycil.assistant.checkpoints import checkpoint_pool
-from pycil.infrastructure import database as database_module
-from pycil.infrastructure.database import connect
+from pycil.observability import database as database_observation
+from pycil.observability import http
+from pycil.observability.database import observed_connect as connect
 from tests.support.vocabulary import neutral_word
 
 
@@ -35,14 +34,15 @@ async def database_telemetry(database, monkeypatch, capsys):
     exporter = InMemorySpanExporter()
     provider = TracerProvider(shutdown_on_exit=False)
     provider.add_span_processor(SimpleSpanProcessor(exporter))
-    monkeypatch.setattr(database_module, "_query_tracer", provider.get_tracer("pycil.database"))
-    monkeypatch.setattr(checkpoints, "_query_tracer", provider.get_tracer("pycil.checkpoints"))
+    monkeypatch.setattr(
+        database_observation, "_query_tracer", provider.get_tracer("pycil.database")
+    )
     monkeypatch.setattr(
         http,
         "OpenTelemetryMiddleware",
         partial(http.OpenTelemetryMiddleware, tracer_provider=provider, meter_provider=meter),
     )
-    engine, sessions = connect(database.url, size=1)
+    engine, sessions = connect(database.url, name="application", size=1)
     logging_state = logging.getLogger().handlers[:], logging.getLogger().level
     structlog_state = structlog.get_config()
     try:
@@ -233,7 +233,7 @@ async def test_checkpoint_native_persistence_has_safe_http_child_spans(
     for span in queries:
         assert span.context.trace_id == server.context.trace_id
         assert span.parent.span_id == server.context.span_id
-        assert span.instrumentation_scope.name == "pycil.checkpoints"
+        assert span.instrumentation_scope.name == "pycil.database"
         assert span.attributes == {
             "db.system.name": "postgresql",
             "db.operation.name": span.name,

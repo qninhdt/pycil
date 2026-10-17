@@ -9,10 +9,9 @@ from sqlalchemy import event
 from structlog.testing import capture_logs
 
 from pycil.app.config import load_config
-from pycil.infrastructure.content_revisions import capture, publish
-from pycil.themes.models import Theme
 from pycil.vocabulary.enums import EntryType, GenerationState
 from pycil.vocabulary.models import Word
+from pycil.vocabulary.revisions import capture, publish
 from pycil.vocabulary.search import SearchIndex
 
 
@@ -29,8 +28,13 @@ async def test_default_poll_batch_pool_and_publication_lock_cost(database, tmp_p
         ]
         session.add_all(words)
         await session.flush()
-        await publish(session, {("word", word.id): None for word in words})
-    index = SearchIndex(database.sessions, str(tmp_path / "index"))
+        await publish(session, {word.id: None for word in words})
+    index = SearchIndex(
+        database.sessions,
+        str(tmp_path / "index"),
+        policy=load_config().vocabulary.search_runtime,
+        query_policy=load_config().vocabulary.search,
+    )
     started = perf_counter()
     cpu_before = resource.getrusage(resource.RUSAGE_SELF)
     await index.start()
@@ -42,12 +46,13 @@ async def test_default_poll_batch_pool_and_publication_lock_cost(database, tmp_p
             queries.append(args[2])
 
         event.listen(database.engine.sync_engine, "before_cursor_execute", record)
+        poll_interval = load_config().vocabulary.search_runtime.poll_interval_seconds
         try:
-            await asyncio.sleep(load_config().runtime.search.poll_interval_seconds + 0.25)
+            await asyncio.sleep(poll_interval + 0.25)
             idle_queries = len(queries)
             assert database.engine.pool.checkedout() == 0
             async with database.sessions() as session, session.begin():
-                before = await capture(session, [("word", word.id) for word in words])
+                before = await capture(session, [word.id for word in words])
                 for word in words:
                     (await session.get(Word, word.id)).lemma = f"changed{word.id}"
                 revision = await publish(session, before)
@@ -62,16 +67,21 @@ async def test_default_poll_batch_pool_and_publication_lock_cost(database, tmp_p
         assert database.engine.pool.checkedout() == 0
         gate = asyncio.Barrier(20)
 
-        async def publish_theme(i):
+        async def publish_word(i):
             await gate.wait()
             async with database.sessions() as session, session.begin():
-                theme = Theme(key=f"theme{i}", name=f"Theme {i}", voice="plain", diction="simple")
-                session.add(theme)
+                word = Word(
+                    lemma=f"concurrent{i}",
+                    match_key=f"concurrent{i}",
+                    entry_type=EntryType.WORD,
+                    generation_state=GenerationState.DONE,
+                )
+                session.add(word)
                 await session.flush()
-                await publish(session, {("theme", theme.id): None})
+                await publish(session, {word.id: None})
 
         with capture_logs() as logs:
-            await asyncio.gather(*(publish_theme(i) for i in range(20)))
+            await asyncio.gather(*(publish_word(i) for i in range(20)))
         waits = sorted(row["wait_ms"] for row in logs if row["event"] == "content_publication_lock")
         assert len(waits) == 20
         cpu_after = resource.getrusage(resource.RUSAGE_SELF)
@@ -80,7 +90,8 @@ async def test_default_poll_batch_pool_and_publication_lock_cost(database, tmp_p
             + json.dumps(
                 {
                     "workload": (
-                        "100 minimal DONE words, one 100-word edit batch, 20 concurrent themes"
+                        "100 minimal DONE words, one 100-word edit batch, "
+                        "20 concurrent word publications"
                     ),
                     "startup_ms": round(startup_ms, 2),
                     "visibility_ms": round(visibility_ms, 2),

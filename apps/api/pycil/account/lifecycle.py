@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pycil.account.models import User
-from pycil.app.http import Problem
+from pycil.utils.errors import NotFound
 from pycil.utils.orm import row_data
 
 
@@ -17,7 +17,7 @@ async def require_user(session: AsyncSession, user_id: UUID) -> User:
         .execution_options(populate_existing=True)
     )
     if user is None:
-        raise Problem(404, "account_not_found")
+        raise NotFound("account_not_found")
     return user
 
 

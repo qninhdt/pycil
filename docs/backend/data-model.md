@@ -73,9 +73,8 @@ admission is not a prepaid reservation.
 
 Conversation deletion checks ownership and takes its Redis lease, deletes the native
 thread, then deletes metadata. Native/application cleanup has separate transaction
-boundaries. Generation jobs have no database table: execution is process-local and task
-status is shared through Redis with a 24-hour TTL after each initial/final write. Committed
-words survive restart; unfinished jobs are not recovered. See [generation](modules/vocabulary.md).
+boundaries. Native [jobs](modules/jobs.md) keep transport, temporary results and ownership in Redis;
+no PostgreSQL job table is added. Vocabulary/artifacts remain durable PostgreSQL data.
 
 ## Evidence
 

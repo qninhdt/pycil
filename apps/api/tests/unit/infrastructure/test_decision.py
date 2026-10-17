@@ -28,7 +28,7 @@ def response(*, choice="yes", probability=0.85, inputs=15):
 
 
 def client(http, *, retries=0, timeout=5):
-    policy = load_config().runtime.providers.vocabulary.model_copy(
+    policy = load_config().vocabulary.provider.model_copy(
         update={"max_retries": retries, "timeout_seconds": timeout}
     )
     return DecisionLLM(
@@ -52,7 +52,7 @@ async def test_native_decisions_render_questions_validate_answers_and_measure_us
     assert result == Assessment(choice="yes", probability=0.85)
     assert len(requests) == 1
     body = json.loads(requests[0].content)
-    assert body["model"] == load_config().runtime.providers.vocabulary.decision_model
+    assert body["model"] == load_config().vocabulary.provider.decision_model
     assert requests[0].url == "https://decision.test/decisions"
     assert body["state"] == {"text": "sample context"}
     assert body["questions"]["choice"] == {

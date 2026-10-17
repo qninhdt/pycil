@@ -9,7 +9,7 @@ from langchain_core.messages import BaseMessage
 from langchain_core.outputs import LLMResult
 
 from pycil.assistant.config import ModelPolicy
-from pycil.infrastructure.observability import get_logger
+from pycil.observability import get_logger
 
 logger = get_logger(__name__)
 

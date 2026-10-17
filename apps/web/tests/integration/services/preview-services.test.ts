@@ -1,3 +1,4 @@
+import { prepareSession } from '../../unit/fixtures'
 import database from '../../../src/lib/api/services/mock/database.json' with { type: 'json' }
 
 import { expect,test } from 'vitest'
@@ -47,7 +48,7 @@ test('Free quiz selection preserves saved Pro formats and prepares the effective
   const profile = await services.account.updateSettings({ learning: { question_types: ['meaning_in_context'] } }, signal())
   expect(profile.settings.learning.formats).toEqual(['single_word'])
   expect(profile.effective_learning?.formats).toEqual(['single_choice'])
-  const prepared = await services.learning.prepare({ node_id: 'everyday', selection: 'new', max_sense_count: 1 }, signal())
+  const prepared = await prepareSession(services, { node_id: 'everyday', selection: 'new', max_sense_count: 1 }, signal())
   expect(prepared.bundles).toHaveLength(1)
   expect(prepared.bundles[0].questions.every(item => item.question.question_type === 'meaning_in_context' && item.format === 'single_choice')).toBe(true)
   seed.account.plan = 'pro'
@@ -76,7 +77,7 @@ test('JSON adapter implements the shared contract entirely offline and protects 
     const library = await service.library.list(profile.personal_node_id, signal())
     expect(library.nodes).toHaveLength(4)
     expect(library.nodes.find(node => node.id === 'saved-business')).toMatchObject({ type: 'reference', target_type: 'folder' })
-    expect((await service.learning.prepare({ node_id: profile.library_node_id, selection: 'due' }, signal())).actual_sense_count).toBe(10)
+    expect((await prepareSession(service, { node_id: profile.library_node_id, selection: 'due' }, signal())).actual_sense_count).toBe(10)
     profile.display_name = 'Mutated'
     library.nodes[0].name = 'Mutated'
     expect((await service.account.profile(signal())).display_name).toBe('Alex')
@@ -95,8 +96,8 @@ test('mock cancellation, invalid scopes and selection modes behave like a servic
   const db = structuredClone(database)
   db.summary.due = 0; db.summary.not_due = db.summary.studied; db.library.due_sense_ids = []
   const noDue = createMockServices({ database: db, now, latency: 0 })
-  expect((await noDue.learning.prepare({ node_id: db.account.library_node_id, selection: 'due' }, signal())).actual_sense_count).toBe(0)
-  expect((await noDue.learning.prepare({ node_id: db.account.library_node_id, selection: 'new', max_sense_count: 3 }, signal())).actual_sense_count).toBe(3)
+  expect((await prepareSession(noDue, { node_id: db.account.library_node_id, selection: 'due' }, signal())).actual_sense_count).toBe(0)
+  expect((await prepareSession(noDue, { node_id: db.account.library_node_id, selection: 'new', max_sense_count: 3 }, signal())).actual_sense_count).toBe(3)
 })
 
 test('preview Discovery, references and publication use the shared Library state', async () => {
@@ -236,7 +237,7 @@ test('mock search keeps surface origin priority for every supported match class'
   }
 })
 
-test('membership deltas and preparation are consistent in the mock contract', async () => {
+test('membership deltas are consistent in the mock contract', async () => {
   const services = createMockServices({ latency: 0 })
   const run = await services.dictionary.search('run', signal())
   expect(run.items[0]).toMatchObject({ kind: 'word', word_id: 1001, match_kind: 'exact' })
@@ -251,10 +252,6 @@ test('membership deltas and preparation are consistent in the mock contract', as
   const orbit = (await services.dictionary.search('orbit', signal())).items[0]
   expect(orbit.kind).toBe('reference')
   if (orbit.kind !== 'reference') throw new Error('Expected an ungenerated reference')
-  const job = await services.dictionary.prepare(orbit.reference_id, orbit.display, signal())
-  await services.dictionary.generation(job.task_id, signal())
-  expect((await services.dictionary.generation(job.task_id, signal())).status).toBe('succeeded')
-  expect((await services.dictionary.search('orbit', signal())).items[0]).toMatchObject({ kind: 'word', word_id: 1002, match_kind: 'exact' })
 })
 
 test('invented lexical fixture follows Word and Sense DTOs', () => {
@@ -279,7 +276,7 @@ test('preparation supports every selected public type, one format and K up to th
   const types = services.account.initialProfile!.settings.learning.question_types
   for (const type of types) {
     await services.account.updateSettings({ learning: { question_types: [type], formats: ['single_choice'], questions_per_sense: 3, max_sense_count: 1 } }, focusSignal)
-    const prepared = await services.learning.prepare({ node_id: 'everyday', selection: 'new' }, focusSignal)
+    const prepared = await prepareSession(services, { node_id: 'everyday', selection: 'new' }, focusSignal)
     expect(prepared.actual_question_count).toBe(3)
     for (const item of prepared.bundles[0].questions) {
       expect(item.question.question_type).toBe(type)

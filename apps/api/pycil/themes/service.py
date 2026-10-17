@@ -2,23 +2,15 @@
 
 from typing import Protocol
 
-from pydantic import BaseModel
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from pycil.infrastructure.content_revisions import capture, publish
-from pycil.infrastructure.llm import render_prompt
-from pycil.study.models import QuestionArtifact
+from pycil.infrastructure.llm import StructuredLLMProtocol, render_prompt
 from pycil.themes.errors import InvalidThemeError
 from pycil.themes.models import Theme as ThemeRow
 from pycil.themes.namespace import normalize_key
 from pycil.themes.schemas import Theme, ThemeParts
-from pycil.vocabulary.models import Definition, Example, Sense
-
-
-class StructuredLLMProtocol(Protocol):
-    async def complete[T: BaseModel](self, instruction: str, data: str, schema: type[T]) -> T: ...
 
 
 class StoreProtocol(Protocol):
@@ -56,7 +48,6 @@ async def create_theme(
             row = ThemeRow(key=norm_key, name=name, **parts.model_dump())
             session.add(row)
             await session.flush()
-            await publish(session, {("theme", row.id): None})
             return Theme.model_validate(row)
     except IntegrityError as error:
         raise InvalidThemeError("theme key already exists") from error
@@ -85,10 +76,8 @@ async def update_theme(
         )
         if row is None:
             raise InvalidThemeError("unknown theme")
-        before = await capture(session, [("theme", row.id)])
         for field, value in changes.items():
             setattr(row, field, value)
-        await publish(session, before)
         return Theme.model_validate(row)
 
 
@@ -106,28 +95,7 @@ async def delete_theme(
         )
         if theme is None:
             return False
-        before = await capture(session, [("theme", theme.id)])
-        sense_ids = (
-            select(Definition.sense_id)
-            .where(Definition.theme_id == theme.id)
-            .union(select(Example.sense_id).where(Example.theme_id == theme.id))
-        )
-        word_ids = list(
-            await session.scalars(select(Sense.word_id).where(Sense.id.in_(sense_ids)).distinct())
-        )
-        before.update(await capture(session, [("word", identifier) for identifier in word_ids]))
-        artifact_ids = list(
-            await session.scalars(
-                select(QuestionArtifact.id).where(QuestionArtifact.theme_id == theme.id)
-            )
-        )
-        before.update(
-            await capture(
-                session, [("question_artifact", identifier) for identifier in artifact_ids]
-            )
-        )
         await session.execute(delete(ThemeRow).where(ThemeRow.id == theme.id))
-        await publish(session, before)
         removed = True
     if removed:
         for store in (word_store, sense_store, artifact_store):

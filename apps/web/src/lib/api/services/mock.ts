@@ -2,6 +2,7 @@ import database from './mock/database'
 import type { AccountProfile, LearningSettings } from '../account'
 import { parseActivity, parseLibrary, parseSchedule, parseSummary } from '../study'
 import { ApiError } from '../error'
+import type { JobStatus, JobReference } from '../jobs'
 import { eventCount, reportingDay, shiftDay } from '../../../features/home/calendar'
 import type { DateWindow, FrontendServices } from './contracts'
 import { createMockLibrary } from './mock/library'
@@ -38,6 +39,12 @@ export function createMockServices(options: MockOptions = {}): FrontendServices 
     })
     if (signal.aborted) throw signal.reason ?? new DOMException('Cancelled', 'AbortError')
     return structuredClone(read())
+  }
+  const jobs = new Map<string, JobStatus>()
+  function accepted(result: unknown): JobReference {
+    const job_id = crypto.randomUUID()
+    jobs.set(job_id, { job_id, status: 'succeeded', result, error: null, retryAfterSeconds: 2 })
+    return { job_id, status_url: `/v1/jobs/${job_id}` }
   }
   return {
     mode: 'mock', notice: 'Design preview · Sample data · Nothing is saved to your account',
@@ -84,6 +91,11 @@ export function createMockServices(options: MockOptions = {}): FrontendServices 
         profile.learning_restriction = null
         return profile
       }, signal) },
+    jobs: { status: (id, signal) => respond(() => {
+      const job = jobs.get(id)
+      if (!job) throw new ApiError(404, 'job_not_found')
+      return job
+    }, signal) },
     learning: {
       summary: (id, signal) => respond(() => summary(id), signal),
       activity: (window, signal) => respond(() => {
@@ -101,7 +113,7 @@ export function createMockServices(options: MockOptions = {}): FrontendServices 
         return parseSchedule({ node_id: profile.library_node_id, as_of: asOf(), timezone: profile.settings!.timezone, start_date: window.start, end_date: window.end,
           days: dates(window).map(day => ({ day, count: scheduled.get(day) ?? 0 })) })
       }, signal),
-      prepare: (input, signal) => respond(() => questions.prepare(input, profile.effective_learning!), signal),
+      prepare: (input, signal) => respond(() => accepted(questions.prepare(input, profile.effective_learning!)), signal),
       grade: (input, signal) => respond(() => {
         if (!profile.learning_options.advanced_grading) throw new ApiError(403, 'advanced_grading_not_available')
         return questions.grade(input)
@@ -140,12 +152,11 @@ export function createMockServices(options: MockOptions = {}): FrontendServices 
       deleteNode: (id, signal) => respond(() => library.deleteNode(id), signal),
     },
     dictionary: {
+      generate: (id, signal) => respond(() => accepted(dictionary.generate(id)), signal),
       search: (query, signal) => respond(() => dictionary.search(query), signal),
       word: (id, signal) => respond(() => dictionary.word(id), signal),
       previews: (ids, signal) => respond(() => dictionary.previews(ids), signal),
       context: (id, signal) => respond(() => dictionary.context(id), signal),
-      prepare: (id, target, signal) => respond(() => dictionary.prepare(id, target), signal),
-      generation: (id, signal) => respond(() => dictionary.generation(id), signal),
     },
   }
 }

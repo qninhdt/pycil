@@ -179,7 +179,7 @@ test('exiting while real preparation is delayed leaves no session or submitted r
   user.page.on('request', request => { if (request.url().endsWith('/study:submitResults')) submitted.push(request.method()) })
   await user.page.route('**/v1/study:prepare', async route => {
     const response = await route.fetch()
-    expect(response.status()).toBe(200)
+    expect(response.status()).toBe(202)
     reached()
     await held
     await route.fulfill({ response }).catch(() => {})

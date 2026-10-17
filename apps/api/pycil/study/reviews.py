@@ -3,18 +3,18 @@
 from collections import defaultdict
 from datetime import UTC, datetime
 from uuid import UUID
+from zoneinfo import ZoneInfoNotFoundError
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from pycil.account.config import AccountConfig
 from pycil.account.lifecycle import require_user
 from pycil.account.models import User
-from pycil.account.settings import preferences
-from pycil.app.config import AppConfig
-from pycil.app.http import Problem
 from pycil.infrastructure.database import transaction_lock
-from pycil.infrastructure.observability import get_logger
+from pycil.observability import get_logger
+from pycil.study.config import StudyConfig
 from pycil.study.enums import QUESTION_ARTIFACT_MAP, QuestionType, ResponseFormat
 from pycil.study.evidence import evidence, update_elo
 from pycil.study.fsrs import next_state
@@ -30,6 +30,7 @@ from pycil.study.schemas import (
 )
 from pycil.study.types import UserSenseState
 from pycil.utils.dates import to_local_date
+from pycil.utils.errors import Conflict, InvalidInput
 from pycil.utils.hashing import sha256_canonical_json
 from pycil.vocabulary.models import Sense
 
@@ -45,10 +46,12 @@ async def review(
     user_id: UUID,
     data: ReviewBatch,
     event_key: UUID,
-    config: AppConfig,
+    policy: StudyConfig,
+    *,
+    account_config: AccountConfig,
 ) -> dict[str, object]:
-    if len(data.results) > config.product.study.limits.max_review_batch:
-        raise Problem(422, "review_batch_too_large")
+    if len(data.results) > policy.limits.max_review_batch:
+        raise InvalidInput("review_batch_too_large")
     digest = request_hash(data)
     async with session.begin():
         # Serialize first inserts and overlapping batches without a per-Sense lock query.
@@ -62,7 +65,7 @@ async def review(
                     user_id=str(user_id),
                     event_key=str(event_key),
                 )
-                raise Problem(409, "review_batch_conflict")
+                raise Conflict("review_batch_conflict")
             logger.info(
                 "review_batch_replayed",
                 user_id=str(user_id),
@@ -77,31 +80,31 @@ async def review(
             ).all()
         }
         if len(artifacts) != len(ids):
-            raise Problem(422, "question_artifact_not_found")
+            raise InvalidInput("question_artifact_not_found")
         groups: defaultdict[int, list[tuple[Review, float | None, float | None, float]]] = (
             defaultdict(list)
         )
         tracked: list[TrackedEvidence] = []
         now = datetime.now(UTC)
-        policy = config.product.study.mastery
+        mastery = policy.mastery
         for item in data.results:
             artifact = artifacts[item.question_artifact_id]
-            formats = config.product.study.pair_levels.get(item.question_type, {})
+            formats = policy.pair_levels.get(item.question_type, {})
             if (
                 QUESTION_ARTIFACT_MAP[item.question_type] != artifact.artifact_type
                 or item.format not in formats
             ):
-                raise Problem(422, "unsupported_question_format")
+                raise InvalidInput("unsupported_question_format")
             if item.answered_at > now:
-                raise Problem(422, "invalid_answered_at")
+                raise InvalidInput("invalid_answered_at")
             sense_id, recall, performance = evidence(item, artifact.sense_id)
-            difficulty = float(policy.opponent_elo[formats[item.format] - 1])
+            difficulty = float(mastery.opponent_elo[formats[item.format] - 1])
             record = item.model_dump(mode="json") | dict(
                 evaluated_sense_id=sense_id,
                 recall=recall,
                 performance=performance,
                 opponent_elo=difficulty,
-                policy_version=policy.policy_version,
+                policy_version=mastery.policy_version,
             )
             tracked.append(TrackedEvidence.model_validate(record))
             groups[sense_id].append((item, recall, performance, difficulty))
@@ -124,7 +127,7 @@ async def review(
             ).all()
         }
         if set(words) != sense_ids:
-            raise Problem(422, "sense_not_found")
+            raise InvalidInput("sense_not_found")
         for item in data.results:
             if (
                 item.question_type == QuestionType.WORD_TO_DEFINITION
@@ -134,7 +137,7 @@ async def review(
             ):
                 target = artifacts[item.question_artifact_id].sense_id
                 if words[item.diagnostics.sense_id] != words[target]:
-                    raise Problem(422, "invalid_definition_sense")
+                    raise InvalidInput("invalid_definition_sense")
         memories = {
             m.sense_id: m
             for m in (
@@ -147,7 +150,14 @@ async def review(
             ).all()
         }
         saved = await session.scalar(select(User.settings).where(User.id == user_id))
-        day = to_local_date(now, preferences(saved, config).timezone)
+        tz_val = (
+            saved.get("timezone") if isinstance(saved, dict) else None
+        ) or account_config.default_timezone
+        user_tz = str(tz_val)
+        try:
+            day = to_local_date(now, user_tz)
+        except (ZoneInfoNotFoundError, ValueError):
+            day = to_local_date(now, account_config.default_timezone)
         results: list[ReviewResult] = []
         states: list[UserSenseState] = []
         for sense_id, group in groups.items():
@@ -155,13 +165,13 @@ async def review(
             review_time = max(item.answered_at for item, _, _, _ in group)
             applied = memory is None or review_time >= memory.last_exposure_at
             if applied:
-                old_elo = memory.elo if memory else policy.initial_elo
+                old_elo = memory.elo if memory else mastery.initial_elo
                 elo = update_elo(
                     old_elo,
                     [(p, d) for _, _, p, d in group],
                     memory.last_exposure_at if memory else None,
                     review_time,
-                    policy,
+                    mastery,
                 )
                 logger.info(
                     "study_elo_updated",
@@ -171,14 +181,14 @@ async def review(
                     new_elo=elo,
                 )
                 stability, difficulty, due = next_state(
-                    memory, [r for _, r, _, _ in group], review_time, config
+                    memory, [r for _, r, _, _ in group], review_time, policy.fsrs
                 )
                 logger.info(
                     "study_fsrs_transitioned",
                     user_id=str(user_id),
                     sense_id=sense_id,
-                    new_stability=round(stability, 4),
-                    new_difficulty=round(difficulty, 4),
+                    stability=stability,
+                    difficulty=difficulty,
                     due_at=due.isoformat(),
                 )
                 state: UserSenseState = {
@@ -211,7 +221,7 @@ async def review(
                     sense_id=sense_id,
                     applied=applied,
                     elo=elo_val,
-                    level=policy.level(elo_val),
+                    level=mastery.level(elo_val),
                     stability=float(state["stability"]),
                     difficulty=float(state["difficulty"]),
                     last_exposure_at=state["last_exposure_at"],
@@ -270,7 +280,7 @@ async def review(
             "review_batch_completed",
             user_id=str(user_id),
             event_key=str(event_key),
-            total_reviews=len(data.results),
+            results_count=len(results),
             applied_count=len(states),
         )
         return result

@@ -6,21 +6,21 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from pycil.account.config import AccountConfig
 from pycil.account.lifecycle import require_user
 from pycil.account.models import UsageEvent, UsagePeriod, User
 from pycil.account.plans import Feature, Plan
 from pycil.account.types import AllowanceData
-from pycil.app.config import AppConfig
-from pycil.app.http import Problem
 from pycil.infrastructure.database import transaction_lock
-from pycil.infrastructure.observability import get_logger
+from pycil.observability import get_logger
 from pycil.utils.dates import period_bounds
+from pycil.utils.errors import Conflict, Forbidden, NotFound
 
 logger = get_logger(__name__)
 
 
 async def allowance(
-    session: AsyncSession, user: User, config: AppConfig, moment: datetime
+    session: AsyncSession, user: User, config: AccountConfig, moment: datetime
 ) -> AllowanceData:
     start, end = period_bounds(user.cycle_anchor, moment)
     period = await session.scalar(
@@ -29,7 +29,7 @@ async def allowance(
             UsagePeriod.period_start == start,
         )
     )
-    permitted = config.product.account.plans[user.plan].monthly_allowance_units
+    permitted = config.plans[user.plan].monthly_allowance_units
     used = int(period.used_units) if period else 0
     budget = max(permitted, int(period.allowance_units)) if period else permitted
     return {
@@ -44,7 +44,7 @@ async def allowance(
 async def settle(
     session: AsyncSession,
     user_id: UUID,
-    config: AppConfig,
+    config: AccountConfig,
     *,
     execution_key: UUID,
     feature: Feature,
@@ -78,7 +78,7 @@ async def settle(
                     user_id=str(user_id),
                     execution_key=str(execution_key),
                 )
-                raise Problem(409, "usage_event_conflict")
+                raise Conflict("usage_event_conflict")
             return existing
         start, end = period_bounds(user.cycle_anchor, moment)
         period = await session.scalar(
@@ -92,7 +92,7 @@ async def settle(
                 user_id=user_id,
                 period_start=start,
                 period_end=end,
-                allowance_units=config.product.account.plans[user.plan].monthly_allowance_units,
+                allowance_units=config.plans[user.plan].monthly_allowance_units,
                 used_units=0,
             )
             session.add(period)
@@ -122,7 +122,7 @@ async def change_plan(
     session: AsyncSession,
     user_id: UUID,
     plan: Plan,
-    config: AppConfig,
+    config: AccountConfig,
     moment: datetime,
 ) -> None:
     async with session.begin():
@@ -134,7 +134,7 @@ async def change_plan(
             .execution_options(populate_existing=True)
         )
         if user is None:
-            raise Problem(404, "account_not_found")
+            raise NotFound("account_not_found")
         user.plan = plan
         start, _ = period_bounds(user.cycle_anchor, moment)
         period = await session.scalar(
@@ -145,7 +145,7 @@ async def change_plan(
         )
         if period:
             period.allowance_units = max(
-                period.allowance_units, config.product.account.plans[plan].monthly_allowance_units
+                period.allowance_units, config.plans[plan].monthly_allowance_units
             )
         logger.info("account_plan_changed", user_id=str(user_id), plan=plan.value)
 
@@ -153,7 +153,7 @@ async def change_plan(
 async def admit(
     session: AsyncSession,
     user_id: UUID,
-    config: AppConfig,
+    config: AccountConfig,
     feature: Feature,
     moment: datetime,
 ) -> Plan:
@@ -162,15 +162,15 @@ async def admit(
             select(User).where(User.id == user_id).execution_options(populate_existing=True)
         )
         if user is None:
-            raise Problem(404, "account_not_found")
-        if feature not in config.product.account.plans[user.plan].features:
+            raise NotFound("account_not_found")
+        if feature not in config.plans[user.plan].features:
             logger.warning(
                 "feature_access_denied",
                 user_id=str(user_id),
                 feature=feature.value,
                 plan=user.plan.value,
             )
-            raise Problem(403, "feature_not_available")
+            raise Forbidden("feature_not_available")
         budget = await allowance(session, user, config, moment)
         remaining = int(budget["remaining_units"])
         if remaining <= 0:
@@ -179,5 +179,5 @@ async def admit(
                 user_id=str(user_id),
                 feature=feature.value,
             )
-            raise Problem(403, "allowance_exhausted")
+            raise Forbidden("allowance_exhausted")
         return user.plan

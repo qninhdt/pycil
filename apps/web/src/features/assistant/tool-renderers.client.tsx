@@ -2,7 +2,7 @@
 
 import React from 'react'
 import { Icon, type CompactIconName } from '@/components/artwork/artwork'
-import { parseWordSearch, type WordHit } from '@/lib/api/vocabulary'
+import { parseWordSearch, type SearchHit } from '@/lib/api/vocabulary'
 import { parseSummary } from '@/lib/api/study'
 
 export interface ToolRendererProps {
@@ -30,8 +30,8 @@ function DictionaryResultView({ args, result }: { args: any; result: any }) {
   const pResult = safeParse(result)
 
   const query = Array.isArray(pArgs?.queries) ? pArgs.queries.join(', ') : ''
-  let items: WordHit[]
-  try { items = parseWordSearch(pResult).items.filter((hit): hit is WordHit => hit.kind === 'word') }
+  let items: SearchHit[]
+  try { items = parseWordSearch(pResult).items }
   catch { return <p className="text-xs text-muted-foreground">Search results unavailable.</p> }
   const total = items.length
 
@@ -42,11 +42,11 @@ function DictionaryResultView({ args, result }: { args: any; result: any }) {
         <span className="font-bold uppercase tracking-wider">{total} match{total > 1 ? 'es' : ''}</span>
       </div>
       {items.map(hit => {
-        const label = hit.lemma
-        return <div key={hit.word_id} className="flex flex-wrap items-baseline gap-2 py-1.5">
+        const label = hit.kind === 'word' ? hit.lemma : hit.display
+        return <div key={hit.kind === 'word' ? hit.word_id : hit.reference_id} className="flex flex-wrap items-baseline gap-2 py-1.5">
           <span className="text-[15px] font-extrabold tracking-tight text-foreground">{label}</span>
           {hit.matched_surface !== label && <small className="text-muted-foreground">Matched “{hit.matched_surface}”</small>}
-          <small className="ml-auto text-muted-foreground">Ready</small>
+          <small className="ml-auto text-muted-foreground">{hit.kind === 'word' ? 'Ready' : 'Available to generate'}</small>
         </div>
       })}
       {total === 0 && <p className="text-xs text-muted-foreground">No entries found.</p>}
@@ -250,12 +250,11 @@ function GenericCleanView({ args, result }: { args: any; result: any }) {
 
 export const toolTitles: Record<string, { title: string; icon: CompactIconName; tone?: 'color' | 'mono' }> = {
   search_words: { title: 'Dictionary Lookup', icon: 'dictionary', tone: 'color' },
+  generate_words: { title: 'Generate words', icon: 'dictionary', tone: 'color' },
   read_vocabulary: { title: 'Vocabulary', icon: 'dictionary', tone: 'color' },
   read_library: { title: 'Library Contents', icon: 'document', tone: 'color' },
   search_nodes: { title: 'Library Search', icon: 'folder', tone: 'color' },
   learning_overview: { title: 'Learning Overview', icon: 'grid', tone: 'color' },
-  generate_words: { title: 'Prepare Vocabulary', icon: 'dictionary', tone: 'color' },
-  get_generations: { title: 'Vocabulary Preparation', icon: 'dictionary', tone: 'color' },
   create_node: { title: 'Library Action', icon: 'plus', tone: 'color' },
   update_node: { title: 'Library Action', icon: 'pencil', tone: 'color' },
   move_nodes: { title: 'Move Nodes', icon: 'pencil', tone: 'color' },
@@ -269,10 +268,11 @@ export function getToolPreview(toolName: string, args: any, result: any): string
   const pArgs = safeParse(args);
   const pResult = safeParse(result);
 
+  if (toolName === 'generate_words') return 'Word generation results'
   if (toolName === 'search_words') {
     const q = Array.isArray(pArgs?.queries) ? pArgs.queries.join(', ') : '';
     const hit = Array.isArray(pResult?.items) ? pResult.items[0] : undefined;
-    const word = hit?.lemma;
+    const word = hit?.lemma ?? hit?.display;
     if (word && word !== q) return `"${q}" → ${word}`;
     return q ? `"${q}"` : '';
   }
@@ -292,7 +292,6 @@ export function getToolPreview(toolName: string, args: any, result: any): string
     const name = pResult?.node?.name;
     return name ? `"${name}"` : '';
   }
-  if (toolName === 'generate_words') return Array.isArray(pArgs?.words) ? pArgs.words.join(', ') : '';
   if (['create_node', 'update_node', 'move_nodes', 'copy_nodes', 'delete_nodes'].includes(toolName)) {
     const name = pArgs?.name || pResult?.name;
     return name ? `"${name}"` : '';
@@ -339,6 +338,14 @@ export function ToolBodyContent({
       </div>
     );
   }
+  if (toolName === 'generate_words') {
+    const items = safeParse(result)?.items
+    if (!Array.isArray(items)) return <p className="text-xs text-muted-foreground">Generation results unavailable.</p>
+    return <div className="ai-tool-content">{items.map((item: any, index: number) => <section key={item.job_id ?? index} className="py-1.5 text-xs">
+      <p>{item.reference_id ?? 'Word generation'}: {item.error ?? item.status ?? 'queued'}</p>
+      {Array.isArray(item.senses) && <VocabularyResultView senses={item.senses} />}
+    </section>)}</div>
+  }
   if (toolName === 'search_words') {
     return <DictionaryResultView args={args} result={result} />;
   }
@@ -357,11 +364,6 @@ export function ToolBodyContent({
   if (toolName === 'read_vocabulary') {
     const senses = safeParse(result)?.senses;
     return Array.isArray(senses) ? <VocabularyResultView senses={senses} /> : <p className="text-xs text-muted-foreground">Vocabulary unavailable.</p>;
-  }
-  if (['generate_words', 'get_generations'].includes(toolName)) {
-    const items = safeParse(result)?.items;
-    if (!Array.isArray(items)) return <p className="text-xs text-muted-foreground">Vocabulary preparation unavailable.</p>;
-    return <div className="ai-tool-content">{items.map((item: any, index: number) => <section key={index} className="py-1.5 text-xs"><strong>{item.lemma ?? item.target ?? 'Word preparation'}</strong><span className="ml-2">{item.status}</span>{item.error && <p className="text-[var(--art-red)]">{item.error}</p>}{item.senses && <VocabularyResultView senses={item.senses} />}</section>)}</div>;
   }
   if (['move_nodes', 'copy_nodes', 'delete_nodes'].includes(toolName)) return <div className="ai-tool-content">{safeParse(result)?.items?.map((item: any, index: number) => <section key={index} className="py-1.5 text-xs"><strong>{item.name ?? `Item ${index + 1}`}</strong><span className="ml-2">{item.status}</span>{item.error && <p className="text-[var(--art-red)]">{item.error}</p>}</section>)}</div>;
   if (['create_node', 'update_node'].includes(toolName)) return <MutationResultView toolName={toolName} args={args} result={result} />;

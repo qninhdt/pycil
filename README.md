@@ -33,7 +33,7 @@ Pycil is a subscription vocabulary learning platform designed to help learners c
 
 ### Core Technologies
 
-- **Backend (`apps/api`)**: Python 3.14, FastAPI, SQLAlchemy 2.0 (asyncio + asyncpg), Pydantic v2, Tantivy (full-text search), `fsrs-rs-python` (spaced repetition), LangGraph, Instructor. Managed with [`uv`](https://github.com/astral-sh/uv).
+- **Backend (`apps/api`)**: Python 3.14, FastAPI, SQLAlchemy 2.1 (asyncio + asyncpg), Pydantic v2, Tantivy (full-text search), `fsrs-rs-python` (spaced repetition), LangGraph, Instructor and native Taskiq workers. Managed with [`uv`](https://github.com/astral-sh/uv).
 - **Frontend (`apps/web`)**: Next.js 16 (App Router), React 19, Tailwind CSS v4, `@shadcn/react`, TanStack Query & Table, `@assistant-ui/react`, next-intl. Managed with `pnpm`.
 - **E2E Testing (`e2e`)**: Independent Playwright test suite for critical learner and authentication journeys.
 - **Data & Storage**: PostgreSQL 18 with single baseline migrations (Alembic), Redis 8 for coordination and session caches.
@@ -94,6 +94,8 @@ Or run via `Makefile`:
 ```bash
 make api-dev
 ```
+
+Word generation and study preparation also need the separate [Taskiq worker](docs/backend/modules/jobs.md#native-worker-command); worker deployment is not yet part of Compose.
 
 The API will be available at `http://localhost:8000`. Swagger documentation is served at `/docs`.
 

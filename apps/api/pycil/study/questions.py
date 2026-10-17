@@ -1,15 +1,21 @@
 """Build public runtime exercises from persisted artifacts without inference."""
 
 import random
-from typing import cast
 
-from pycil.app.config import AppConfig
-from pycil.app.http import Problem
-from pycil.study.artifacts.schemas import Artifact
-from pycil.study.enums import QuestionType, ResponseFormat, TargetPlacement
+from pycil.study.artifacts.schemas import (
+    ARTIFACT_SCHEMAS,
+    Artifact,
+    ContextToWordArtifact,
+    ContextWordMeaningArtifact,
+    DialogueArtifact,
+    UsageArtifact,
+    WordDefinitionArtifact,
+)
+from pycil.study.config import StudyConfig
+from pycil.study.enums import QUESTION_ARTIFACT_MAP, QuestionType, ResponseFormat, TargetPlacement
 from pycil.study.models import QuestionArtifact
 from pycil.study.schemas import DialogueTurn, Option, PreparedQuestion, Question
-from pycil.study.types import CompletionPointDict
+from pycil.utils.errors import Conflict
 from pycil.vocabulary.enums import INFLECTION_CODES
 from pycil.vocabulary.schemas import Sense
 from pycil.vocabulary.text import answer_key
@@ -32,68 +38,72 @@ def build_question(
     fmt: ResponseFormat,
     sense: Sense,
     lemma: str,
-    config: AppConfig,
+    policy: StudyConfig,
 ) -> PreparedQuestion:
-    payload = cast(dict[str, object], artifact.payload)
-    count = config.product.study.artifacts.distractor_count
+    try:
+        payload_model = (
+            artifact.typed_payload
+            if isinstance(artifact, Artifact)
+            else ARTIFACT_SCHEMAS[QUESTION_ARTIFACT_MAP[question_type]].model_validate(
+                artifact.payload
+            )
+        )
+    except Exception:
+        raise Conflict("artifact_bank_incomplete") from None
+    count = policy.artifacts.distractor_count
     placement: TargetPlacement | None = None
     content: str | list[DialogueTurn]
     correct: str
     wrong: list[str]
 
-    if question_type in {QuestionType.DEFINITION_TO_WORD, QuestionType.WORD_TO_DEFINITION}:
-        corrects = cast(list[str], payload["corrects"])
-        distractors = cast(list[dict[str, str]], payload["distractors"])
-        definition = randomness.choice(corrects)
-        pairs = randomness.sample(distractors, min(count, len(distractors)))
+    if isinstance(payload_model, WordDefinitionArtifact):
+        definition = randomness.choice(payload_model.corrects)
+        pairs = randomness.sample(
+            payload_model.distractors, min(count, len(payload_model.distractors))
+        )
         if question_type == QuestionType.DEFINITION_TO_WORD:
-            content, correct, wrong = definition, lemma, [p["word"] for p in pairs]
+            content, correct, wrong = definition, lemma, [p.word for p in pairs]
         else:
-            content, correct, wrong = f"[{lemma}]", definition, [p["definition"] for p in pairs]
-    elif question_type == QuestionType.WORD_TO_USAGE:
+            content, correct, wrong = f"[{lemma}]", definition, [p.definition for p in pairs]
+    elif isinstance(payload_model, UsageArtifact):
         if sense.definition is None:
-            raise Problem(409, "artifact_bank_incomplete")
+            raise Conflict("artifact_bank_incomplete")
         content = f"[{lemma}] — {sense.definition.content}"
-        correct = randomness.choice(cast(list[str], payload["corrects"]))
-        distractors = cast(list[str], payload["distractors"])
-        wrong = randomness.sample(distractors, min(count, len(distractors)))
-    elif question_type == QuestionType.CONTEXT_TO_WORD:
-        content = cast(str, payload["context"])
+        correct = randomness.choice(payload_model.corrects)
+        wrong = randomness.sample(
+            payload_model.distractors, min(count, len(payload_model.distractors))
+        )
+    elif isinstance(payload_model, ContextToWordArtifact):
+        content = payload_model.context
         correct = lemma
-        wrong = cast(list[str], payload["distractors"])
-    elif question_type in {QuestionType.CLOZE_TO_WORD, QuestionType.MEANING_IN_CONTEXT}:
-        pair = cast(dict[str, str], payload["correct"])
-        distractor_pairs = cast(list[dict[str, str]], payload["distractors"])
+        wrong = payload_model.distractors
+    elif isinstance(payload_model, ContextWordMeaningArtifact):
         if question_type == QuestionType.CLOZE_TO_WORD:
-            content = cast(str, payload["context"])
-            correct = pair["expression"]
-            wrong = [p["expression"] for p in distractor_pairs]
+            content = payload_model.context
+            correct = payload_model.correct.expression
+            wrong = [p.expression for p in payload_model.distractors]
         else:
-            content = cast(str, payload["context"]).replace("_", tagged(pair["expression"], sense))
-            correct = pair["meaning"]
-            wrong = [p["meaning"] for p in distractor_pairs]
-    elif question_type == QuestionType.DIALOGUE_COMPLETION:
-        points = cast(list[CompletionPointDict], payload["completion_points"])
-        point = randomness.choice(points)
-        index = point["turn_index"]
-        raw_conversation = cast(list[dict[str, str | None]], payload["conversation"])
+            tagged_expr = tagged(payload_model.correct.expression, sense)
+            content = payload_model.context.replace("_", tagged_expr)
+            correct = payload_model.correct.meaning
+            wrong = [p.meaning for p in payload_model.distractors]
+    elif isinstance(payload_model, DialogueArtifact):
+        point = randomness.choice(payload_model.completion_points)
         turns = [
             DialogueTurn(speaker=next(iter(t)), text=next(iter(t.values())))
-            for t in raw_conversation
+            for t in payload_model.conversation
         ]
-        correct = turns[index].text or ""
-        wrong = point["distractors"]
+        correct = turns[point.turn_index].text or ""
+        wrong = point.distractors
         placement = TargetPlacement.OPTIONS if "[" in correct else TargetPlacement.DIALOGUE
-        turns[index].text = None
+        turns[point.turn_index].text = None
         content = turns
-    elif question_type == QuestionType.SENTENCE_REWRITE:
-        content = f"[{lemma}]\n{payload['source']}"
-        correct = cast(str, payload["correct"])
-        wrong = cast(list[str], payload["distractors"])
     else:
-        raise Problem(422, "unsupported_question_type")
+        content = f"[{lemma}]\n{payload_model.source}"
+        correct = payload_model.correct
+        wrong = payload_model.distractors
     if not wrong:
-        raise Problem(409, "artifact_bank_incomplete")
+        raise Conflict("artifact_bank_incomplete")
     correct_option = Option(id="correct", content=correct)
     distractors = [
         Option(id=f"distractor-{index}", content=text) for index, text in enumerate(wrong)
@@ -111,6 +121,6 @@ def build_question(
             target_placement=placement,
         ),
         format=fmt,
-        level=config.product.study.pair_levels[question_type][fmt],
+        level=policy.pair_levels[question_type][fmt],
         options=options,
     )

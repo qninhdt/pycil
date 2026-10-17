@@ -5,13 +5,13 @@ from uuid import uuid7
 
 from taskiq import TaskiqEvents, TaskiqState, async_shared_broker
 from taskiq.middlewares import SimpleRetryMiddleware
-from taskiq.middlewares.opentelemetry_middleware import OpenTelemetryMiddleware
 from taskiq.serializers import JSONSerializer
 from taskiq_redis import RedisAsyncResultBackend, RedisStreamBroker
 
 from pycil.app.config import AppConfig, load_config
 from pycil.app.settings import ProcessSettings, WorkerSettings
-from pycil.infrastructure.observability import configure_logging
+from pycil.observability import configure_logging
+from pycil.observability.jobs import OpenTelemetryMiddleware
 
 TASK_STREAM_KEY = "pycil:jobs:tasks"
 CONSUMER_GROUP_NAME = "pycil-workers"
@@ -26,13 +26,7 @@ class RetryableJobError(RuntimeError):
 
 
 def create_broker(config: AppConfig, deployment: ProcessSettings) -> RedisStreamBroker:
-    redis = config.runtime.redis
-    options = dict(
-        max_connection_pool_size=redis.max_connections,
-        socket_connect_timeout=redis.connect_timeout_seconds,
-        socket_timeout=redis.operation_timeout_seconds,
-        timeout=redis.operation_timeout_seconds,
-    )
+    redis = config.system.redis
     native = (
         RedisStreamBroker(
             deployment.redis_url.get_secret_value(),
@@ -41,19 +35,23 @@ def create_broker(config: AppConfig, deployment: ProcessSettings) -> RedisStream
             consumer_id="0",
             xread_block=int(min(2, redis.operation_timeout_seconds / 2) * 1000),
             xread_count=1,
-            idle_timeout=max(600_000, config.runtime.jobs.timeout_seconds * 2_000),
+            idle_timeout=max(600_000, config.jobs.timeout_seconds * 2_000),
             unacknowledged_lock_timeout=10,
-            **options,
+            max_connection_pool_size=redis.max_connections,
+            socket_connect_timeout=redis.connect_timeout_seconds,
+            socket_timeout=redis.operation_timeout_seconds,
         )
         .with_id_generator(lambda: str(uuid7()))
         .with_result_backend(
-            RedisAsyncResultBackend(
+            RedisAsyncResultBackend[object](
                 redis_url=deployment.redis_url.get_secret_value(),
                 prefix_str=TASK_RESULT_PREFIX,
-                result_ex_time=config.runtime.jobs.result_ttl_seconds,
+                result_ex_time=config.jobs.result_ttl_seconds,
                 keep_results=True,
                 serializer=JSONSerializer(),
-                **options,
+                max_connection_pool_size=redis.max_connections,
+                socket_connect_timeout=redis.connect_timeout_seconds,
+                socket_timeout=redis.operation_timeout_seconds,
             )
         )
         .with_middlewares(

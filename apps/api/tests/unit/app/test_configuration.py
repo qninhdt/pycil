@@ -7,21 +7,19 @@ from pycil.app.settings import ApiSettings, ProcessSettings, WorkerSettings
 
 def test_duplicate_yaml_keys_and_invalid_policy_are_safe_failures(tmp_path):
     path = tmp_path / "policy.yaml"
-    path.write_text("runtime:\n  caches: 1\n  caches: 2\n")
-    with pytest.raises(ValueError, match="Duplicate product-policy key"):
+    path.write_text("system:\n  http:\n    max_body_bytes: 1\n  http:\n    max_body_bytes: 2\n")
+    with pytest.raises(ValueError, match="Duplicate config key"):
         load_config(path)
     data = load_config().model_dump(mode="json")
-    data["product"]["assistant"]["defaults"]["model"] = "missing"
+    data["assistant"]["defaults"]["model"] = "missing"
     with pytest.raises(ValidationError, match="default assistant model"):
         AppConfig.model_validate(data)
     data = load_config().model_dump(mode="json")
-    data["product"]["library"]["pagination"]["page_size"] = (
-        data["product"]["projections"]["max_page_size"] + 1
-    )
+    data["library"]["page_size"] = data["library"]["max_page_size"] + 1
     with pytest.raises(ValidationError):
         AppConfig.model_validate(data)
     data = load_config().model_dump(mode="json")
-    data["product"]["assistant"]["models"].append(data["product"]["assistant"]["models"][0])
+    data["assistant"]["models"].append(data["assistant"]["models"][0])
     with pytest.raises(ValidationError, match="duplicate model ID"):
         AppConfig.model_validate(data)
 
@@ -29,19 +27,19 @@ def test_duplicate_yaml_keys_and_invalid_policy_are_safe_failures(tmp_path):
 @pytest.mark.parametrize(
     "path,value",
     [
-        ("product.study.grading.decision_threshold", -0.1),
-        ("product.study.grading.decision_threshold", 1.1),
-        ("product.study.grading.decision_threshold", float("nan")),
-        ("runtime.database.application_pool.connect_timeout_seconds", 0),
-        ("runtime.database.checkpoint_pool.timeout_seconds", -1),
-        ("runtime.database.checkpoint_pool.startup_timeout_seconds", float("inf")),
-        ("runtime.telemetry.traces.max_queue_size", 0),
-        ("runtime.telemetry.traces.max_export_batch_size", 2049),
-        ("runtime.telemetry.traces.schedule_delay_seconds", 0),
-        ("runtime.telemetry.traces.export_timeout_seconds", float("inf")),
-        ("runtime.telemetry.metrics.export_interval_seconds", 0),
-        ("runtime.telemetry.metrics.export_timeout_seconds", -1),
-        ("runtime.telemetry.metrics.shutdown_timeout_seconds", 0),
+        ("study.grading.decision_threshold", -0.1),
+        ("study.grading.decision_threshold", 1.1),
+        ("study.grading.decision_threshold", float("nan")),
+        ("system.database.application_pool.connect_timeout_seconds", 0),
+        ("system.database.checkpoint_pool.timeout_seconds", -1),
+        ("system.database.checkpoint_pool.startup_timeout_seconds", float("inf")),
+        ("system.telemetry.traces.max_queue_size", 0),
+        ("system.telemetry.traces.max_export_batch_size", 2049),
+        ("system.telemetry.traces.schedule_delay_seconds", 0),
+        ("system.telemetry.traces.export_timeout_seconds", float("inf")),
+        ("system.telemetry.metrics.export_interval_seconds", 0),
+        ("system.telemetry.metrics.export_timeout_seconds", -1),
+        ("system.telemetry.metrics.shutdown_timeout_seconds", 0),
     ],
 )
 def test_grading_database_and_telemetry_reject_invalid_budgets(path, value):

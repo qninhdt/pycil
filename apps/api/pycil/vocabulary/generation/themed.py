@@ -4,13 +4,15 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from pycil.infrastructure.content_revisions import capture, publish
+from pycil.infrastructure.database import lock_rows
 from pycil.infrastructure.kv_store import InMemoryStore
 from pycil.infrastructure.llm import render_prompt
 from pycil.themes.models import Theme
+from pycil.themes.models import Theme as ThemeRow
 from pycil.themes.namespace import normalize_key
 from pycil.vocabulary.errors import InvalidOutputError, InvalidResourceError
 from pycil.vocabulary.models import Definition, Example, Word
+from pycil.vocabulary.revisions import capture, publish
 from pycil.vocabulary.schemas import CachedWord, Sense
 from pycil.vocabulary.schemas import Word as WordSchema
 from pycil.vocabulary.text import marked_occurrences, target_sequences
@@ -91,12 +93,13 @@ async def ensure_word_theme(
         for example in group.examples:
             marked_occurrences(example, target_sequences(neutral, sense))
     async with sessions() as session, session.begin():
-        before = await capture(session, [("theme", theme.id), ("word", word_id)])
-        current_theme = before["theme", theme.id]
+        await lock_rows(session, ThemeRow, [theme.id])
+        current_theme = await session.get(ThemeRow, theme.id)
+        before = await capture(session, [word_id])
         if (
             current_theme is None
-            or current_theme["voice"] != theme.voice
-            or current_theme["diction"] != theme.diction
+            or current_theme.voice != theme.voice
+            or current_theme.diction != theme.diction
         ):
             raise InvalidResourceError("theme changed during generation")
         existing = await get_word(sessions, word_id, theme_key=key)

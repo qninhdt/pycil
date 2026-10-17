@@ -4,7 +4,7 @@ from pydantic import SecretStr
 
 from pycil.app.config import load_config
 from pycil.assistant.graph import model
-from pycil.infrastructure.observability import ObservedAsyncClient
+from pycil.observability.http import ObservedAsyncClient
 
 
 async def test_assistant_disables_native_sdk_retries_and_closes_its_client():
@@ -12,7 +12,7 @@ async def test_assistant_disables_native_sdk_retries_and_closes_its_client():
     deployment = SimpleNamespace(
         llm_api_key=SecretStr("test"), llm_base_url="https://provider.test"
     )
-    async with model(deployment, config.product.assistant.models[0], "medium", 3) as selected:
+    async with model(deployment, config.assistant.models[0], "medium", 3) as selected:
         sdk = selected.client
         assert sdk.sdk_configuration.retry_config is None
         assert sdk.sdk_configuration.timeout_ms == 3000

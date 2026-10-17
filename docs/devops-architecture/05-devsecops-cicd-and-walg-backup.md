@@ -2,6 +2,18 @@
 
 **Status:** implementation design only. Read the [overview](00-architecture-overview-and-standards.md), [resource budget](01-current-state-audit-and-capacity.md) and [infrastructure lifecycle](03-hybrid-infrastructure-vps-and-aws-iac.md) first. No deployment or backup configuration was changed during this audit.
 
+## Worker release boundary
+
+API, migration and [Taskiq worker](../backend/modules/jobs.md) use one immutable image.
+Later delivery must migrate first, replace API and worker with compatible task/result
+contracts, and budget their overlap separately. Drain workers through the native CLI;
+Uvicorn drain affects only API requests. Rolling back code does not erase queued messages
+or restore PostgreSQL. Test old/new payload/result compatibility before sharing a queue.
+Keep safe acknowledged-stream retention separate from cache expiry; never flush the task
+namespace or trim unfinished messages. Idle recovery remains a deferred upstream issue,
+and result-save failure can still ACK; do not advertise guaranteed recovery from a green
+API probe. This update specifies later delivery work, not a deployed worker service.
+
 ## 1. Existing delivery and registry decision
 
 **GHCR is already used.** [deploy.yml](../../.github/workflows/deploy.yml) waits for the `Tests` workflow to succeed on `main`, checks out that workflow's tested `head_sha`, builds the API image, and pushes `ghcr.io/qninhdt/pycil-api:<12-character-tested-sha>`. It authenticates using `GITHUB_TOKEN`, reports the image digest, and prints an operator deployment hint. It does not currently SSH-deploy, federate into AWS, run SonarQube Cloud, or scan with Trivy. The API and explicit migration command use the same image. The [API Dockerfile](../../apps/api/Dockerfile) also pulls the pinned uv tool image from GHCR.

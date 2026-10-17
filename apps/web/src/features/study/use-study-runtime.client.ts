@@ -8,6 +8,8 @@ import { invalidateLibrary } from '@/features/library/invalidate'
 import { useAccount } from '@/features/account/account.client'
 import { useServices } from '@/lib/api/services/provider.client'
 import { ApiError } from '@/lib/api/error'
+import { resumeJob } from '@/lib/api/jobs'
+import { parsePreparation } from '@/lib/api/study'
 import { libraryHref, publishedHref, publicCollectionHref } from '@/features/library/model'
 import { advanceSession, beginAttempt, completedCount, createStudySession, currentQuestion, discardSession, loadSession, pruneStaleSessions, recordAttempt, saveSession, sessionKey, type StudySession } from './session'
 import type { Diagnostic, SessionSelection } from '@/lib/api/study'
@@ -118,7 +120,12 @@ export function useStudyRuntime(initialSession?: StudySession) {
     setError('')
     setBlocked(false)
     try {
-      const prepared = await services.learning.prepare({ node_id: nodeId, selection }, controller.signal)
+      const prepared = await resumeJob(
+        queryClient,
+        `pycil:study-job:${profile.id}:${nodeId}:${selection}:${JSON.stringify(profile.effective_learning)}`,
+        () => services.learning.prepare({ node_id: nodeId, selection }, controller.signal),
+        services.jobs.status, parsePreparation, controller.signal,
+      )
       if (controller.signal.aborted) return
       if (!prepared.bundles.length) {
         setError(t('noEligibleQuestions'))
@@ -133,7 +140,7 @@ export function useStudyRuntime(initialSession?: StudySession) {
         setStarting(false)
       }
     }
-  }, [account.canMutate, profile, starting, nodeId, services.learning, selection, commit, t])
+  }, [account.canMutate, profile, starting, nodeId, services.learning, services.jobs, queryClient, selection, commit, t])
 
   useEffect(() => {
     if (!hydrated || initialSession || session || starting || !profile || !nodeId || error) return

@@ -26,14 +26,9 @@ export const webConfig = {
     // Default API metadata request deadline in ms, > 0. 12 seconds includes
     // token acquisition. Higher values tolerate slower responses but delay errors.
     timeoutMs: 12_000,
-    // Study preparation request deadline in ms, > 0. 30 seconds allows artifact
-    // generation; increasing keeps the browser waiting longer. Separate from SSE.
-    preparationTimeoutMs: 30_000,
+
   },
   polling: {
-    // Generation status polling interval in ms, > 0. 1.5 seconds preserves
-    // current feedback cadence; lower values increase API requests.
-    generationMs: 1_500,
     // Home report refresh interval in ms, > 0. One minute preserves report
     // freshness; lower values increase aggregation traffic.
     homeMs: 60_000,

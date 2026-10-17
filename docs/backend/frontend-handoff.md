@@ -20,7 +20,7 @@ Frontend changes and browser verification are outside the current backend work.
 - Explicit allowed FE origin. CORS accepts Authorization, Content-Type,
   Idempotency-Key and X-Request-ID; responses expose request correlation ID.
 - Vocabulary available in the vocabulary module. Preparation fills missing question artifact banks on demand; an empty scope can return an empty prepare.
-- Generation runs in the API process with real configured inference providers; WordNet is optional.
+- Generation and preparation use [asynchronous jobs](modules/jobs.md): submit, retain the accepted reference, then poll the owner-only status URL.
   Deterministic integration fixtures do not establish real provider readiness.
 - Pro typed grading requires current entitlement and the configured decision
   service. Multiple-choice uses generated answer keys; never call grade for it.
@@ -109,7 +109,7 @@ handle cannot be cleared; rename replaces old handle lookup, UUID stays.
 ```
 
 POST `/study:prepare`: maximum is an upper bound. Default auto and saved maximum.
-new never fills with studied; due never fills with new. Response has actual counts,
+new never fills with studied; due never fills with new. The 202 response contains a job reference. Its successful result has actual counts,
 effective preferences, native Sense bundles, runtime questions, shuffled options and reasons.
 No session ID or progress write. Local draft carries index/answers/shuffle/resume.
 

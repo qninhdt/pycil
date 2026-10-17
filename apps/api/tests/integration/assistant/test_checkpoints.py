@@ -6,11 +6,12 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
 from pycil.app.config import load_config
-from pycil.app.http import Problem
+from pycil.app.http import status_for
 from pycil.assistant.checkpoints import checkpoint_pool
 from pycil.assistant.conversations import delete_conversation, guard
 from pycil.assistant.graph import graph
 from pycil.assistant.models import Conversation
+from pycil.utils.errors import OperationError
 from tests.support.account import account
 
 
@@ -66,26 +67,26 @@ async def test_native_checkpoint_survives_pool_restart_and_owned_delete_cleans_t
         restarted = graph(resources, user.id, config, provider)
         snapshot = await restarted.aget_state(thread)
         assert snapshot.values["messages"][-1].content == result["messages"][-1].content
-        with pytest.raises(Problem) as error:
+        with pytest.raises(OperationError) as error:
             await delete_conversation(
                 resources,
                 stranger.id,
                 identifier,
-                lease_ttl=config.runtime.assistant.lease_ttl_seconds,
+                lease_ttl=config.assistant.lease_ttl_seconds,
             )
-        assert error.value.status == 404
+        assert status_for(error.value) == 404
         assert await AsyncPostgresSaver(pool).aget_tuple(thread) is not None
-        async with guard(redis, identifier, ttl=config.runtime.assistant.lease_ttl_seconds):
-            with pytest.raises(Problem) as error:
+        async with guard(redis, identifier, ttl=config.assistant.lease_ttl_seconds):
+            with pytest.raises(OperationError) as error:
                 await delete_conversation(
                     resources,
                     user.id,
                     identifier,
-                    lease_ttl=config.runtime.assistant.lease_ttl_seconds,
+                    lease_ttl=config.assistant.lease_ttl_seconds,
                 )
-            assert error.value.status == 409
+            assert status_for(error.value) == 409
         await delete_conversation(
-            resources, user.id, identifier, lease_ttl=config.runtime.assistant.lease_ttl_seconds
+            resources, user.id, identifier, lease_ttl=config.assistant.lease_ttl_seconds
         )
         assert await AsyncPostgresSaver(pool).aget_tuple(thread) is None
         async with database.sessions() as session:

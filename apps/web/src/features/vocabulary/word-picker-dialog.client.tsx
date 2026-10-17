@@ -2,7 +2,7 @@
 
 import { webConfig } from '@/config'
 
-import { useDeferredValue, useEffect, useState } from 'react'
+import { useDeferredValue, useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Search, X } from '@/components/artwork/artwork'
 import { toast } from 'sonner'
@@ -16,6 +16,7 @@ import type { DictionarySense, WordPreview } from '@/lib/api/vocabulary'
 import { invalidateLibrary } from '@/features/library/invalidate'
 import { useServices } from '@/lib/api/services/provider.client'
 import { useTranslations } from 'next-intl'
+import { resumeJob, parseGeneratedWord } from '@/lib/api/jobs'
 
 type Selection = { word: string; sense: DictionarySense }
 type Props = { open: boolean; onOpenChange: (open: boolean) => void; deckId: string }
@@ -23,22 +24,31 @@ type Props = { open: boolean; onOpenChange: (open: boolean) => void; deckId: str
 export function WordPickerDialog({ open, onOpenChange, deckId }: Props) {
   const { services, scope } = useServices(), queryClient = useQueryClient()
   const t = useTranslations('library')
-  const tDict = useTranslations('dictionary')
   const tCommon = useTranslations('common')
   const [input, setInput] = useState(''), q = useDeferredValue(input.trim())
   const [pos, setPos] = useState('all'), [selected, setSelected] = useState<Map<number, Selection>>(() => new Map())
   const [saving, setSaving] = useState(false), [error, setError] = useState('')
-  const [jobId, setJobId] = useState<string | null>(null), [pendingEntry, setPendingEntry] = useState<string | null>(null)
+  const [generating, setGenerating] = useState<string | null>(null)
+  const [generated, setGenerated] = useState<{ referenceId: string; wordId: number } | null>(null)
+  const generation = useRef<AbortController | null>(null)
+  const tDictionary = useTranslations('dictionary')
+  useEffect(() => { if (!open) generation.current?.abort(); return () => generation.current?.abort() }, [open, scope])
+  async function generateReference(referenceId: string) {
+    if (generating) return
+    const controller = new AbortController()
+    generation.current = controller
+    setGenerating(referenceId); setError('')
+    try {
+      const wordId = await resumeJob(queryClient, `pycil:word-job:${scope}:${referenceId}`, () => services.dictionary.generate(referenceId, controller.signal), services.jobs.status, parseGeneratedWord, controller.signal)
+      if (!controller.signal.aborted) setGenerated({ referenceId, wordId })
+    } catch (cause) { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : t('couldNotLoadMeanings')) }
+    finally { if (generation.current === controller) { generation.current = null; setGenerating(null) } }
+  }
   const search = useQuery({ queryKey: [services.mode, scope, 'dictionary-search', q], queryFn: ({ signal }) => services.dictionary.search(q, signal), enabled: open && Boolean(q) })
-  const ids = search.data?.items.flatMap(hit => hit.kind === 'word' ? [hit.word_id] : []) ?? []
+  // Completed content can be read by ID while this API's search index catches up.
+  const hits = search.data?.items.map(hit => hit.kind === 'reference' && generated?.referenceId === hit.reference_id ? { kind: 'word' as const, word_id: generated.wordId } : hit)
+  const ids = hits?.flatMap(hit => hit.kind === 'word' ? [hit.word_id] : []) ?? []
   const previews = useQuery({ queryKey: [services.mode, scope, 'word-previews', ids], queryFn: ({ signal }) => services.dictionary.previews(ids, signal), enabled: open && ids.length > 0 })
-  const job = useQuery({ queryKey: [services.mode, scope, 'picker-generation', jobId], queryFn: ({ signal }) => services.dictionary.generation(jobId!, signal), enabled: open && Boolean(jobId),
-    refetchInterval: query => ['running'].includes(query.state.data?.status ?? '') ? webConfig.polling.generationMs : false })
-  useEffect(() => { if (job.data?.status === 'succeeded') {
-    void queryClient.invalidateQueries({ queryKey: [services.mode, scope, 'dictionary-search'] }).then(() => {
-      setJobId(null); setPendingEntry(null)
-    })
-  } }, [job.data, queryClient, scope, services.mode])
   const availablePos = [...new Set(previews.data?.flatMap(word => word.senses.map(sense => sense.pos)) ?? [])]
   function toggle(word: WordPreview, sense: DictionarySense) {
     setSelected(previous => { const next = new Map(previous); if (next.has(sense.id)) next.delete(sense.id); else next.set(sense.id, { word: word.lemma, sense }); return next })
@@ -59,14 +69,6 @@ export function WordPickerDialog({ open, onOpenChange, deckId }: Props) {
     } catch (cause) { setError(cause instanceof Error ? cause.message : t('couldNotAddMeanings')) }
     finally { setSaving(false) }
   }
-  async function prepare(referenceId: string, display: string) {
-    setError(''); setPendingEntry(display)
-    try {
-      const result = await services.dictionary.prepare(referenceId, display, new AbortController().signal)
-      if (result.status === 'succeeded') { await queryClient.invalidateQueries({ queryKey: [services.mode, scope, 'dictionary-search'] }); setPendingEntry(null) }
-      else setJobId(result.task_id)
-    } catch (cause) { setError(cause instanceof Error ? cause.message : t('couldNotPrepareEntry')); setPendingEntry(null) }
-  }
   return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="w-[min(1360px,calc(100vw-32px))] max-w-none sm:max-w-none h-[min(90vh,900px)] max-h-none flex flex-col gap-0 p-0 bg-background [&_[data-slot=dialog-header]]:text-left [&_[data-slot=dialog-header]]:px-7 [&_[data-slot=dialog-header]]:pt-5 [&_[data-slot=dialog-header]]:pb-4.5 [&_[data-slot=dialog-header]]:border-b [&_[data-slot=dialog-header]]:border-border [&_[data-slot=dialog-title]]:text-[27px] [&_[data-slot=dialog-title]]:font-extrabold [&_[data-slot=dialog-title]]:tracking-tight [&_[data-slot=dialog-description]]:text-[13px] max-[700px]:w-[calc(100vw-16px)] max-[700px]:h-[calc(100dvh-16px)]">
     <DialogHeader><DialogTitle>{t('addWordsToDeck')}</DialogTitle><DialogDescription>{t('addWordsDescription')}</DialogDescription></DialogHeader>
     <div className="grid grid-cols-[minmax(0,7fr)_minmax(270px,3fr)] flex-1 min-h-0 max-[1000px]:grid-cols-[minmax(0,6fr)_minmax(240px,4fr)] max-[700px]:grid-cols-1 max-[700px]:overflow-auto"><div className="flex flex-col min-w-0 min-h-0 pt-5 pr-5.5 pl-7 max-[700px]:min-h-[360px] max-[700px]:px-4 max-[700px]:pt-3.5">
@@ -78,21 +80,8 @@ export function WordPickerDialog({ open, onOpenChange, deckId }: Props) {
           : search.isPending ? <p className="py-6 text-muted-foreground text-[13px]">{tCommon('loading')}</p>
             : previews.isError ? <div className="py-6 text-muted-foreground text-[13px]"><p>{t('couldNotLoadMeanings')}</p><Button variant="link" onClick={() => { void previews.refetch() }}>{tCommon('retry')}</Button></div>
               : previews.isPending && ids.length > 0 ? <p className="py-6 text-muted-foreground text-[13px]">{tCommon('loading')}</p>
-                : <>{search.data?.items.map(hit => {
-                  if (hit.kind === 'reference') return (
-                    <div className="flex items-center justify-between gap-3 py-3 border-t border-border" key={`reference:${hit.reference_id}`}>
-                      <div className="flex items-center gap-3 min-w-0">
-                        <span className="[&_>_.bauhaus-icon]:size-6 flex-none"><Icon name="document" /></span>
-                        <div className="min-w-0">
-                          <strong className="block text-sm truncate">{hit.display}</strong>
-                          <small className="block text-muted-foreground text-[11px] capitalize">{hit.entry_type.toLowerCase().replaceAll('_', ' ')}</small>
-                        </div>
-                      </div>
-                      <Button variant="outline" size="sm" onClick={() => { void prepare(hit.reference_id, hit.display) }} disabled={pendingEntry === hit.display && job.data?.status !== 'failed'}>
-                        {pendingEntry === hit.display ? tDict('requesting') : tDict('generate')}
-                      </Button>
-                    </div>
-                  )
+                : <>{hits?.map(hit => {
+                  if (hit.kind === 'reference') return <section key={hit.reference_id} className="flex items-center justify-between gap-3 border-t border-border py-4"><strong>{hit.display}</strong><Button disabled={generating !== null} onClick={() => { void generateReference(hit.reference_id) }}>{generating === hit.reference_id ? tDictionary('preparingEntry') : tDictionary('prepareEntry')}</Button></section>
                   const word = previews.data?.find(word => word.word_id === hit.word_id)
                   if (!word || !word.senses.some(sense => pos === 'all' || sense.pos === pos)) return null
                   const senses = word.senses.filter(sense => pos === 'all' || sense.pos === pos)
@@ -102,9 +91,6 @@ export function WordPickerDialog({ open, onOpenChange, deckId }: Props) {
                   </section>
                 })}
                 {search.data?.items.length === 0 && <p className="py-6 text-muted-foreground text-[13px]">{t('noEntriesFound')}</p>}</>}
-        {jobId && <p className="py-3 text-muted-foreground text-xs" role="status">{job.isError ? <>{t('couldNotCheckPreparation')} <Button variant="link" onClick={() => { void job.refetch() }}>{t('checkAgain')}</Button></>
-          : job.data?.status === 'failed' ? <>{t('preparationFailed')} <Button variant="link" onClick={() => { setJobId(null); setPendingEntry(null) }}>{tCommon('retry')}</Button></>
-            : t('preparingEntry', { entry: pendingEntry ?? 'entry' })}</p>}
       </div>
     </div><aside className="min-w-0 min-h-0 flex flex-col border-l border-border pt-5 px-5.5 max-[700px]:min-h-[210px] max-[700px]:border-l-0 max-[700px]:border-t max-[700px]:border-border max-[700px]:px-4 max-[700px]:pt-3.5" aria-label={t('selectedMeanings')}><div className="flex justify-between items-center gap-2 pb-3.5 [&_h3]:text-base [&_h3]:font-extrabold [&_h3_span]:inline-block [&_h3_span]:ml-1.5 [&_h3_span]:px-1.5 [&_h3_span]:py-0.5 [&_h3_span]:bg-accent [&_h3_span]:text-[11px]"><h3>{t('selectedMeanings')} <span>{selected.size}</span></h3><Button variant="link" disabled={!selected.size} onClick={() => setSelected(new Map())}>{t('clearAll')}</Button></div>
       <div className="flex-1 min-h-0 overflow-auto border-t border-border [&_>_p]:pt-5.5 [&_>_p]:text-muted-foreground [&_>_p]:text-xs max-[700px]:max-h-[170px]">{selected.size ? [...selected.values()].map(({ word, sense }) => <div key={sense.id} className="grid grid-cols-[28px_minmax(0,1fr)_22px] gap-2.5 items-start py-3.5 border-b border-border [&_>_svg]:size-[26px] [&_strong]:text-[13px] [&_strong_small]:text-[10px] [&_strong_small]:font-normal [&_strong_small]:text-muted-foreground [&_p]:text-xs [&_p]:leading-normal [&_p]:text-muted-foreground [&_button_svg]:size-4"><Icon name="book" /><div><strong>{word} <small>{sense.pos.toLowerCase()}</small></strong><p>{sense.definition ? <MarkedText text={sense.definition.content} /> : t('definitionUnavailable')}</p></div>

@@ -16,6 +16,7 @@ export interface ProblemDetailsPayload {
 }
 
 export class ApiError extends Error {
+  retryAfterSeconds?: number
   constructor(
     public status: number,
     public code: string,
@@ -27,7 +28,13 @@ export class ApiError extends Error {
     super(
       status === 401
         ? 'Your session has expired. Sign in again.'
-        : code === 'scope_too_large'
+        : code === 'job_failed'
+          ? 'This request could not be completed. Please retry.'
+          : code === 'job_wait_timeout'
+            ? 'This job is taking longer than expected. Return later to check its result.'
+            : code === 'job_not_found'
+              ? 'This job has expired or is no longer available. Please submit again.'
+              : code === 'scope_too_large'
           ? 'This Library is too large to calculate at once. Open a smaller folder or deck.'
           : code === 'reference_unavailable'
             ? 'This reference is no longer available.'

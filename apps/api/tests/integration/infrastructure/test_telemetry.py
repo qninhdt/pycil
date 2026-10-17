@@ -11,7 +11,7 @@ from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTrace
 
 from pycil.app.config import load_config
 from pycil.app.settings import ApiSettings
-from pycil.infrastructure.observability import telemetry
+from pycil.observability import telemetry
 
 
 def deployment_values(**overrides):
@@ -38,7 +38,7 @@ async def test_no_endpoint_does_not_install_or_start_sdk():
 
     before = metrics.get_meter_provider(), trace.get_tracer_provider()
     workers = set(threading.enumerate())
-    async with telemetry(ApiSettings(**deployment_values()), load_config().runtime.telemetry):
+    async with telemetry(ApiSettings(**deployment_values()), load_config().system.telemetry):
         assert before == (metrics.get_meter_provider(), trace.get_tracer_provider())
     assert set(threading.enumerate()) == workers
 
@@ -143,8 +143,15 @@ def test_real_otlp_transport_and_resource_cleanup(response_status, startup_failu
         for scope in batch.scope_metrics
         for metric in scope.metrics
     ]
-    assert {metric.name for metric in observations} >= {"pycil.db.pool.acquire.duration"}
+    assert {metric.name for metric in observations} >= {
+        "pycil.db.pool.acquire.duration",
+        "pycil.store.requests",
+        "pycil.store.evictions",
+        "pycil.store.entries",
+        "pycil.store.capacity",
+    }
     assert "test-only" not in str(traces) + str(metrics)
+    assert "private-cache-key" not in str(traces) + str(metrics)
 
 
 # A fresh process exercises the public OTel globals without resetting SDK internals.
@@ -160,18 +167,20 @@ from pycil.app.config import load_config
 from pycil.app.factory import create_app
 from pycil.app.resources import api_resources
 from pycil.app.settings import ApiSettings
-from pycil.infrastructure.observability import record_database_duration, telemetry
+from pycil.infrastructure.kv_store import InMemoryStore
+from pycil.observability.stores import ObservedInMemoryStore
+from pycil.observability import record_database_duration, telemetry
 
 async def main():
     deployment = ApiSettings(**json.load(sys.stdin))
     config = load_config()
     if sys.argv[2] == "1":
         data = config.model_dump()
-        data["runtime"]["telemetry"]["traces"].update(
+        data["system"]["telemetry"]["traces"].update(
             max_queue_size=8, max_export_batch_size=4, schedule_delay_seconds=0.05,
             export_timeout_seconds=0.5,
         )
-        data["runtime"]["telemetry"]["metrics"].update(
+        data["system"]["telemetry"]["metrics"].update(
             export_interval_seconds=0.05, export_timeout_seconds=0.5,
             shutdown_timeout_seconds=1,
         )
@@ -187,10 +196,15 @@ async def main():
         except RuntimeError as error:
             assert "Runtime initialization failed" in str(error)
     else:
-        async with telemetry(deployment, config.runtime.telemetry):
+        async with telemetry(deployment, config.system.telemetry):
             provider = trace.get_tracer_provider()
             with tracer.start_as_current_span("controlled-work"):
                 record_database_duration("pool.acquire", "application", perf_counter())
+                store = ObservedInMemoryStore(1, 60, name="word")
+                store.put("private-cache-key-A", "A")
+                assert store.get("private-cache-key-A") == "A"
+                store.put("private-cache-key-B", "B")
+                assert store.get("private-cache-key-A") is None
                 business_result = 6 * 7
             assert trace.get_tracer_provider() is provider
             assert perf_counter() - started < 1, "export blocked business work"
@@ -208,7 +222,7 @@ async def main():
             closing_at = perf_counter()
     assert not any(t.name.startswith("Otel") for t in threading.enumerate())
     try:
-        async with telemetry(deployment, config.runtime.telemetry):
+        async with telemetry(deployment, config.system.telemetry):
             raise AssertionError("second provider initialization was allowed")
     except RuntimeError as error:
         assert "already initialized" in str(error)

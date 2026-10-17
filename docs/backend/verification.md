@@ -11,7 +11,7 @@ deleted without reading it; current tests were written from behavior and source 
 | Fresh schema and ORM agreement | [Real PostgreSQL comparison](../../apps/api/tests/integration/infrastructure/test_schema.py) |
 | JSONL import | [Identity, replay, conflicts and atomicity](../../apps/api/tests/integration/vocabulary/test_reference_import.py) |
 | Generation/search | [Evidence validation, incremental visibility and failed-index retry](../../apps/api/tests/integration/vocabulary/test_generation.py) |
-| Job ownership | [Shared Redis status, singleflight and cancellation](../../apps/api/tests/integration/vocabulary/test_jobs.py) |
+| Native jobs | [Taskiq/real Redis worker, private status, retries, single-flight and telemetry](../../apps/api/tests/integration/jobs/test_jobs.py); idle crash-reclaim remains explicitly skipped |
 | Relations/themes/translation | [Vocabulary integrations](../../apps/api/tests/integration/vocabulary/), [theme namespaces](../../apps/api/tests/integration/themes/test_namespaces.py) |
 | Artifact banks and grading | [Study integrations](../../apps/api/tests/integration/study/) |
 | Atomic progress | [Review replay/concurrency and rollback](../../apps/api/tests/integration/study/test_reviews.py) |
@@ -116,3 +116,69 @@ Frontend changes and browser E2E are outside the current backend work. Tests do 
 live Clerk or paid model providers. No production migration, deployment, restore rehearsal,
 or production capacity/load measurement has been performed. OpenTelemetry exporters and
 Langfuse remain deferred. There is no backend system/performance/E2E suite.
+
+
+## Native Taskiq integration — 16 October 2026
+
+Application code uses Taskiq 0.13.0 and taskiq-redis 1.2.4; see the
+[job contract](modules/jobs.md) and [implementation record](../../job.md).
+The earlier complete backend run passed **524 tests** before the settings/resources
+refactor. After that refactor, the focused backend group passed **52 tests** with
+one user-deferred skip. The complete rerun collected 527 cases: **521 passed,
+5 failed, 1 skipped** in 184.39s, with 12 upstream AG-UI deprecation warnings.
+Four subprocess telemetry checks failed because a concurrent cache-to-kv-store
+rename removed a module while callers still imported it; the native CLI worker
+check timed out during that same workspace change. This run does not establish
+acceptance of the final combined workspace. Backend Ruff and scoped formatting
+passed before that concurrent change. A subsequent isolated settings run passed
+**30 tests** in 0.38s; Ruff passed again on the touched backend files.
+
+Frontend TypeScript checking passed; Vitest passed **84 tests across 27 files**.
+Two isolated browser contract checks passed: preparation waits for the job result,
+and the word picker reads the returned word ID before search catches up. They use
+controlled HTTP responses and actual components, not a live provider or deployment.
+The full Next.js browser suite was not run against the existing development server.
+Oxlint reported no errors on the touched frontend paths; existing fast-refresh and
+state-in-effect warnings remain.
+
+The assistant now exposes one `generate_words` tool. Real Redis tests submit
+multiple references before executing either job, verify that no database connection
+is held during the wait, return Word IDs/senses alongside per-item errors, and
+confirm that a wait timeout leaves the queued job intact. Repeating that request
+reuses the same job through existing domain single-flight. `get_generations` was
+removed from the tool schema, prompt and frontend rendering/mutation callers.
+
+Settings and resources use common process bases with separate API/worker subclasses.
+Tests cover API-owned CORS parsing, worker startup without API secrets, API startup
+without a generation client, cleanup after failed/cancelled initialization, and
+absence of a premature successful-initialization log.
+
+The idle-queue crash recovery check remains skipped by explicit user instruction.
+Real Redis fault tests also demonstrate native result-save/ACK non-atomicity; no
+custom receiver workaround was added. No Compose/ECS worker service, production
+deployment, live provider call or full backend typecheck was performed.
+The settings/resources role refactor is implemented; combined-workspace verification remains incomplete as recorded above.
+
+
+### Preparation concurrency and shared submission guard — 16 October 2026
+
+The shared [`singleflight` context manager](../../apps/api/pycil/jobs/singleflight.py)
+now owns submission locking and the owned pending-job lookup. Vocabulary and study
+keep their request fingerprints and direct Taskiq publication calls. No execution
+framework or Taskiq wrapper was added.
+
+The Redis artifact-bank guard and its timeout parameters were removed. Independent
+preparations may generate concurrently for the same bank. Existing PostgreSQL
+publication transactions still merge singleton increments and append unique multi-row
+artifacts. Two barrier-based integration cases require all four provider calls to
+start before any can complete, then assert one merged singleton with four increments
+or four distinct appended artifacts. Existing sufficient-bank reuse, cancellation,
+publication and domain submission tests remain.
+
+Focused study/generation/bank/review/jobs/key checks passed **44 tests**, with the
+one user-deferred idle recovery skip, in 25.89s. Lifecycle, HTTP route and subprocess
+OTLP checks passed **17 tests** in 29.47s. These focused reruns include the five cases
+that failed during the earlier concurrent cache rename; they now pass. Ruff passed
+for all backend production/tests; the 13 scoped files passed formatting checks.
+The complete backend suite was not repeated for this change. No Compose worker
+service or deployment was added.

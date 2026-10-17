@@ -17,9 +17,9 @@ from redis.exceptions import RedisError
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from pycil.app.http import Problem
 from pycil.assistant.models import Conversation
-from pycil.infrastructure.observability import get_logger
+from pycil.observability import get_logger
+from pycil.utils.errors import Conflict, NotFound, Unavailable
 
 logger = get_logger(__name__)
 
@@ -39,7 +39,7 @@ async def owned(session: AsyncSession, user_id: UUID, identifier: UUID) -> Conve
         select(Conversation).where(Conversation.id == identifier, Conversation.user_id == user_id)
     )
     if row is None:
-        raise Problem(404, "conversation_not_found")
+        raise NotFound("conversation_not_found")
     return row
 
 
@@ -55,9 +55,9 @@ async def guard(redis: Redis, conversation_id: UUID, *, ttl: float) -> AsyncGene
     try:
         acquired = bool(await lock.acquire())
     except RedisError:
-        raise Problem(503, "conversation_lock_unavailable") from None
+        raise Unavailable("conversation_lock_unavailable") from None
     if not acquired:
-        raise Problem(409, "conversation_busy")
+        raise Conflict("conversation_busy")
     lost = False
     try:
         with CancelScope() as scope:
@@ -99,7 +99,7 @@ async def guard(redis: Redis, conversation_id: UUID, *, ttl: float) -> AsyncGene
                     error_type=type(error).__name__,
                 )
     if lost:
-        raise Problem(503, "conversation_lock_lost")
+        raise Unavailable("conversation_lock_lost")
 
 
 async def delete_conversation(

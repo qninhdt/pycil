@@ -83,11 +83,17 @@ async def test_tool_batch_commits_successful_items_and_reports_unauthorized_item
     stranger, _ = await account(database.sessions)
     async with database.sessions() as session:
         owned = await create_node(
-            session, user.id, NodeCreate(type=NodeType.DECK, name="mine"), config
+            session,
+            user.id,
+            NodeCreate(type=NodeType.DECK, name="mine"),
+            config.library,
         )
     async with database.sessions() as session:
         foreign = await create_node(
-            session, stranger.id, NodeCreate(type=NodeType.DECK, name="private"), config
+            session,
+            stranger.id,
+            NodeCreate(type=NodeType.DECK, name="private"),
+            config.library,
         )
     surface = {
         tool.name: tool

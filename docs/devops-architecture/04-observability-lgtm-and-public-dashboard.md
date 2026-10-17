@@ -1,6 +1,38 @@
 # Observability: VPS LGTM and independent AWS CloudWatch
 
-**Status:** accepted stack, proposed configuration; updated 15 October 2026. Use the [budgets](01-current-state-audit-and-capacity.md), [SDK contract](02-app-12factor-and-redis-design.md) and [ingress boundaries](03-hybrid-infrastructure-vps-and-aws-iac.md). VPS uses self-hosted LGTM; AWS uses CloudWatch. Collection, queries, alerting and evidence export on AWS never require the VPS.
+**Status:** accepted stack, proposed configuration; updated 16 October 2026. Use the [budgets](01-current-state-audit-and-capacity.md), [SDK contract](02-app-12factor-and-redis-design.md) and [ingress boundaries](03-hybrid-infrastructure-vps-and-aws-iac.md). VPS uses self-hosted LGTM; AWS uses CloudWatch. Collection, queries, alerting and evidence export on AWS never require the VPS.
+
+## Application implementation status
+
+Lesson 10 implements the process-owned OTel SDK, structured log correlation,
+sanitized HTTP/SQL/client spans, native Taskiq telemetry, observed in-memory stores,
+Tantivy duration/pending-age measurements and generation/assistant stream outcomes.
+See the [current instrument semantics](../backend/configuration.md#opentelemetry-export)
+and [local Alloy verification](../../devops-course/lab/lesson10/README.md).
+Lesson 11 verifies the [local LGTM pipeline](../../devops-course/lab/lesson11/README.md):
+stored API/worker metrics, Docker API log parsing, HTTP/SQL/native Taskiq traces,
+four embedded exporters, private provisioned Grafana datasources and backend outage
+recovery. The course overlay owns this configuration until the VPS deployment gate.
+Its smaller local limits are not the production sizing below. Production deployment,
+interactive correlation, dashboards and alarms remain pending.
+
+## Native worker signals
+
+[Taskiq integration](../backend/modules/jobs.md#telemetry-and-operational-limits) reuses
+one SDK per API/worker process, `pycil-api` / `pycil-worker` service identities and native
+send/execute spans. Reuse its `tasks_sent`, `task_success`, `task_errors`,
+`task_execution_time`, `task_wait_time` and `worker_active_tasks`; do not implement a
+second set of job counters/spans. These count attempts, not unique logical jobs. Native
+`retry_error` labels indicate retry eligibility, not proof a retry occurred.
+
+Collect Redis stream lag/pending independently: no starts means no wait histogram
+observations. Configure VPS Alloy Redis exporter `check_single_streams` for the canonical
+stream configured by [the broker](../../apps/api/pycil/app/broker.py). Stream length
+includes ACKed history and is not queue depth. AWS native ElastiCache metrics do not expose
+arbitrary stream-group backlog; its supported collection path remains an explicit lesson-24
+integration decision. No Redis exporter sidecar or application polling/export loop is added.
+API readiness is not worker liveness/backlog. Correlate restarts, pending work and terminal
+results with the [documented upstream limits](../backend/modules/jobs.md#telemetry-and-operational-limits).
 
 ## 1. Collection ownership and environment-local flow
 
@@ -83,7 +115,7 @@ Use CloudWatch Dashboards, Logs Insights, traces/X-Ray integration, and CloudWat
 
 ### Shared signal contract and bounded export
 
-Keep service name `pycil-api`, immutable service.version, deployment.environment.name (`vps-docker` / `aws-fargate`) and bounded instance identity. JSON logs retain valid trace_id/span_id. Map metrics explicitly per backend: do not assume a Prometheus histogram name/buckets, resource attributes, CloudWatch dimensions and exemplars all translate unchanged. Validate metric units/temporality/aggregation, latency percentiles, cardinality and trace/log navigation with real generated requests in each environment. Backend dashboards/query languages and alerts remain separately implemented.
+Keep service name `pycil-api`, immutable service.version, deployment.environment.name (`vps` / `aws`; `local` for labs) and bounded instance identity. JSON logs retain valid trace_id/span_id. Map metrics explicitly per backend: do not assume a Prometheus histogram name/buckets, resource attributes, CloudWatch dimensions and exemplars all translate unchanged. Validate metric units/temporality/aggregation, latency percentiles, cardinality and trace/log navigation with real generated requests in each environment. Backend dashboards/query languages and alerts remain separately implemented.
 
 Allowlist attributes; never turn baggage/user IDs/raw paths into metric dimensions. Trace IDs stay in JSON fields, not metric/Loki labels. Starting collector settings: finite queues/batches, two-second export timeout, memory limiter within its budget, and alerting on dropped/refused data and backlog age. VPS remote-write WAL is bounded by its spool quota; Agent retry/durability behavior must be verified, not assumed equivalent. Telemetry failure cannot block business readiness. Flush bounded queues before teardown and record unrecoverable gaps.
 
@@ -172,7 +204,26 @@ datasources:
 
 ## 4. Dashboard contracts and SLIs
 
-Use `env` and `version` selectors privately; public dashboards use fixed sanitized queries. Proposed stable app series are `pycil_http_requests_total`, `pycil_http_request_duration_seconds_bucket`, `pycil_http_in_flight`, `pycil_cache_requests_total`, generation duration/outcome and assistant first-event/completion measurements. These must be implemented and tested; current code does not expose them. DB instrumentation records the OTel histograms `pycil.db.pool.acquire.duration` and `pycil.db.query.duration`, in seconds, with bounded `pool` / `outcome` attributes; acquisition includes queueing, opening and validation, so do not label it as pure queue wait. The SDK/export path and resulting Prometheus names still require validation. See [DB measurement semantics](../backend/configuration.md).
+Use `env` and `version` selectors privately; public dashboards use fixed sanitized queries.
+The application currently emits these OTel instruments:
+
+| Boundary | Instruments and units |
+| --- | --- |
+| HTTP | `http.server.duration` (ms, count supplies completed requests), `http.server.active_requests` |
+| Database | `pycil.db.pool.acquire.duration`, `pycil.db.query.duration` (s); acquisition includes queueing, opening and validation |
+| Process-local stores | `pycil.store.requests`, `pycil.store.evictions`, `pycil.store.entries`, `pycil.store.capacity`; bounded `store` / `backend` attributes |
+| Search | `pycil.search.duration` (s), owner-only `pycil.search.pending_age` (s) |
+| Operations | `pycil.operation.duration` (s); word generation, artifact generation, grading and assistant stream outcomes |
+| Jobs | Native Taskiq instruments listed above |
+
+See [measurement semantics](../backend/configuration.md#opentelemetry-export).
+Alloy OTLP ingestion is locally verified. Resulting Prometheus names, unit conversion,
+CloudWatch dimensions and backend queries still require validation. The PromQL below
+illustrates the intended recording-rule interface; these `pycil_http_*` names are
+not current SDK instruments or provisioned rules. Do not copy them into a live panel
+before implementing and verifying that mapping. Assistant first-event timing, index
+size/document count and owner-takeover counters are additional dashboard requirements,
+not claims about instruments already present.
 
 ```promql
 # RED rate, excluding probes.
@@ -201,18 +252,18 @@ histogram_quantile(0.95,
 | Search | Query duration/errors, index document count/disk bytes, owner presence/takeover, pending revision/visibility lag, batch failures, publication wait/timeouts and rebuild cost; one writer per index, not per environment |
 
 The selected application additions are content-generation jobs, content/artifact memory
-caches and Tantivy search. Lesson 10 adds their application instruments; lesson 12
+caches and Tantivy search. Lesson 10 reuses native Taskiq job instruments and adds missing cache/search instruments; lesson 12
 provisions their views and validates alert behavior through the existing OTel pipeline.
-These are delivery requirements, not a claim that the metrics are already implemented.
+The table includes future collection requirements; the implemented subset is listed above.
 
 - **Generation:** distinguish admitted work waiting for a slot from actively executing
   work. Measure queue wait and run time separately, count overload rejection before
   admission and record success/failure/timeout/interruption at the owning boundary.
-  A deduplicated submission is not a new job. Artifact generation currently runs in
-  its caller's async tasks; measure its duration/outcome without inventing a separate
+  A deduplicated submission is not a new job. Artifact generation runs inside the
+  preparation worker's async tasks; measure its duration/outcome without inventing a separate
   queue or queue-depth metric. Process death can prevent terminal emission: correlate
   restarts with stale job status rather than trusting completion counters alone.
-- **Memory caches:** instrument the shared cache implementation with bounded names for
+- **Memory caches:** extend the existing in-memory backend in observability, with composition-supplied bounded names for
   content/artifact instances. Validate miss, hit, capacity eviction, expiration and
   invalidation; do not count every removal as LRU eviction. Entry capacity is not a
   byte budget. Reuse process/container memory monitoring and controlled profiling
@@ -222,7 +273,7 @@ These are delivery requirements, not a claim that the metrics are already implem
   healthy. Measure rebuild duration and index disk usage; reuse process/container
   CPU/RAM signals, which include Python and other application work. Collect index
   size off the request path at a bounded cadence. Validate new-content visibility
-  and writer recovery using the [search contract](../../search_and_content_revisions.md#8-consistency-and-observability).
+  and writer recovery using the [search contract](../backend/modules/vocabulary.md#search-and-projections).
 
 Validate these instruments with controlled jobs, cache accesses and a search mutation;
 HTTP 202/200 alone does not prove background completion or index publication. Use only
@@ -262,7 +313,7 @@ Provision VPS Grafana-managed rules/contact points and AWS CloudWatch Alarms/SNS
 | Full backup late/failed | Last successful base >26h or latest attempt failed | Inspect uploader/credentials/archive coverage; run recovery procedure |
 | WAL archiving | Increasing failures, pending bytes or oldest pending segment >5m while writes exist | Investigate S3/network/credentials; idle DB alone is not failure |
 | Telemetry pipeline | Export drop/refusal, sustained backlog, missing exporter >5m | Record evidence gap and restore collector; app stays independent |
-| Search progress | Pending committed changes without reconciliation progress >30s, repeated batch failure or publication timeout | Inspect index owner/cursor and DB capture; recover writer ownership or rebuild derived storage through the [search runbook contract](../../search_and_content_revisions.md#7-startup-takeover-and-shutdown); preserve history |
+| Search progress | Pending committed changes without reconciliation progress >30s, repeated batch failure or publication timeout | Inspect index owner/cursor and DB capture; recover writer ownership or rebuild derived storage through the [search runbook contract](../backend/modules/vocabulary.md#search-and-projections); preserve history |
 | AWS six-hour reminder | Session active and `time() - pycil_aws_session_started_timestamp_seconds > 21600` | Run `make aws-down`, confirm final cleanup |
 | Inventory freshness | Last successful AWS inventory >10m while a session may exist | Do not mistake absent node/collector telemetry for destroyed infrastructure |
 | Watchdog | Always-active heartbeat routed to an external dead-man receiver | Missing heartbeat indicates failed hub/notification path |

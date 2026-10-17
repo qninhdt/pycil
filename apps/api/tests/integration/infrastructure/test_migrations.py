@@ -6,8 +6,8 @@ import pytest
 from psycopg import AsyncConnection, sql
 
 from pycil.app.migrate import MIGRATION_LOCK_KEY
+from pycil.app.schema import verify_schema
 from pycil.assistant.checkpoints import checkpoint_dsn
-from pycil.infrastructure.database import verify_schema
 from tests.support.reference import reference_file, reference_word
 
 

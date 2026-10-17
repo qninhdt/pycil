@@ -1,9 +1,9 @@
 # Architecture
 
 Pycil is one private backend organized by business domain. The API process owns HTTP,
-process-local generation jobs and a Tantivy search projection (on disk when configured). PostgreSQL stores all
+a Tantivy search projection (on disk when configured). PostgreSQL stores all
 application, content-revision and native checkpoint tables in `public`; Redis supplies optional typed caching,
-shared generation task status and coordination. The migration command is a separate finite process.
+native Taskiq transport/results and required coordination. Taskiq workers execute generation/preparation separately; the migration command is a finite process.
 
 ## Ownership
 
@@ -15,6 +15,7 @@ shared generation task status and coordination. The migration command is a separ
 | `study` | Artifact banks, exercise generation, preparation, grading, reviews and personal progress. |
 | `themes` | Theme identity, descriptors, namespaces and lifecycle. |
 | `assistant` | Conversations, agent execution, tools, approvals, streaming and checkpoint usage. |
+| `jobs` | Authenticated status API and ownership metadata; native Taskiq owns execution/results. |
 | `app` | HTTP adapters, resource assembly, deployment/product configuration and response composition. |
 | `infrastructure` | PostgreSQL, Redis, identity/provider transports, prompt rendering and observations. |
 
@@ -31,12 +32,19 @@ explicit; business functions do not need a FastAPI request or application state.
 
 [The factory](../../apps/api/pycil/app/factory.py) constructs the application without
 opening stores, calling providers or changing schema. Lifespan loads policy/deployment
-configuration and enters [process resources](../../apps/api/pycil/app/resources.py).
+configuration and enters `api_resources` in [app/resources.py](../../apps/api/pycil/app/resources.py).
 
-Resources verify the application/native setup and required reference data, ping Redis,
+`ApiResources` and `WorkerResources` extend `ProcessResources` as sibling types.
+Common acquisition registers DB, Redis, HTTP and caches on one exit stack per
+entry point. Only workers construct the structured generation client; only the API
+opens decision clients, identity caches, checkpoints and Tantivy. One cleanup deadline
+covers the entire stack; initialization success is logged only after the role's
+resources are ready. Startup failure and cancellation close acquired resources.
+
+API resources verify the application/native setup and required reference data, ping Redis,
 create scoped caching, open HTTP/provider clients and the native checkpoint pool, then
-open the Tantivy projection and start one owner/standby task per worker. An exit stack closes acquired resources after startup
-failure and shutdown; jobs close before the resources they use. Closed resources are
+open the Tantivy projection and start one owner/standby task per API process. An exit stack closes acquired resources after startup
+failure and shutdown. Closed resources are
 removed from application state.
 
 `/livez` reports process liveness. `/readyz` checks PostgreSQL, Redis and the published
@@ -50,13 +58,13 @@ Startup never runs migrations or downloads reference data.
   reads remain lazy database reads. A cached UUID is not an authorization grant.
 - Library writes take an owner transaction lock, check current paths/permissions and
   quotas, and commit the operation atomically. Reference access is resolved live.
-- Preparation reads current preferences/plan, selects authorized senses in a consistent
+- Preparation accepts a job, then its worker rechecks preferences/plan and selects authorized senses in a consistent
   SQL snapshot, retrieves or fills exercise banks, and builds public questions.
 - Grading reads lexical facts and returns diagnostics. Review submission owns progress,
   scheduler updates, idempotency receipts and daily activity.
 - Generation performs inventory and enrichment, validates evidence, publishes content
-  atomically, then incrementally updates Tantivy before reporting `ready`. Database
-  content stays committed if its derived index publication fails.
+  atomically in a Taskiq task and returns the Word ID. API index owners independently
+  reconcile content revisions; job completion is not a fleet-wide search barrier.
 - Assistant turns use an owned conversation, renewable Redis lease, persisted approval
   state, current allowance admission, graph execution/SSE and usage settlement.
   Checkpoints are native library storage in `public`, separate from learning state.
@@ -67,11 +75,9 @@ Library writes serialize per owner; reviews serialize per learner; usage settlem
 serializes per execution key and user. These transactions are separate from checkpoint
 persistence and Redis leases. Admission is not a quota reservation.
 
-Generation execution and singleflight belong to one process; polling reads shared Redis
-status. Restart loses unfinished jobs, while committed vocabulary and checkpoint data
-remain. Task status expires 24 hours after each initial/final write; a worker crash or
-failed final Redis write can leave `running` until expiry. Workers share a configured disk
-index directory. One lifetime Tantivy writer polls commit-ordered content revisions;
+Native Taskiq owns worker dispatch, retries, deadlines, results and ACK. Domain functions
+use Redis locks to suppress duplicate paid work; [jobs](modules/jobs.md) documents the
+202/polling contract and upstream reliability limits. Compatible API processes share a configured disk index directory. One lifetime Tantivy writer polls commit-ordered content revisions;
 other workers read its atomic commits and retry ownership with jitter. Independent task
 local directories each reconcile all changes. Document batches and their revision cursor
 commit together. Bootstrap uses one repeatable-read snapshot and catches up after its
@@ -96,7 +102,7 @@ and [migration/recovery](operations/migrations.md) for maintenance boundaries.
 
 Provider attempts share bounded concurrency, explicit timeouts/retries, validated output
 schemas and normalized token measurements. Structured observations bind correlation
-context and record operation outcome, duration and sanitized error category. The API owns
+context and record operation outcome, duration and sanitized error category. API and worker processes each own
 optional OpenTelemetry trace/metric export; see [configuration](configuration.md) for SDK
 lifetime and export settings. Langfuse setup remains deferred.
 

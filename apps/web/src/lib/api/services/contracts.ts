@@ -1,9 +1,10 @@
 import type { AccountProfile, PublicProfile, SettingsPatch, UsageAllowance } from '../account'
-import type { StudySummary, StudyActivity, ReviewSchedule, LibraryPage, PreparedSession, GradeResult, ReviewBatchResult, GradeInput, SubmittedResult, SessionSelection } from '../study'
+import type { StudySummary, StudyActivity, ReviewSchedule, LibraryPage, GradeResult, ReviewBatchResult, GradeInput, SubmittedResult, SessionSelection } from '../study'
 import type { DataMode } from './config'
 import type { LibraryDetails, ContentsOptions, MeaningOptions, MeaningPage, SourcesPage } from '../../../features/library/model'
-import type { WordSearch, DictionaryWord, WordContext, WordGeneration, WordPreview } from '../vocabulary'
+import type { WordSearch, DictionaryWord, WordContext, WordPreview } from '../vocabulary'
 import type { AssistantService } from '../assistant'
+import type { JobReference, JobStatus } from '../jobs'
 
 export type DateWindow = { start: string; end: string }
 export type PrepareInput = { node_id: string; selection: SessionSelection; max_sense_count?: number; questions_per_sense?: number }
@@ -21,11 +22,12 @@ export interface FrontendServices {
     updateProfile: (patch: { display_name?: string; handle?: string; bio?: string | null }, signal: AbortSignal) => Promise<AccountProfile>
     updateSettings: (patch: SettingsPatch, signal: AbortSignal) => Promise<AccountProfile>
   }
+  jobs: { status: (id: string, signal: AbortSignal) => Promise<JobStatus> }
   learning: {
     summary: (nodeId: string | undefined, signal: AbortSignal) => Promise<StudySummary>
     activity: (window: DateWindow, signal: AbortSignal) => Promise<StudyActivity>
     schedule: (window: DateWindow, signal: AbortSignal) => Promise<ReviewSchedule>
-    prepare: (input: PrepareInput, signal: AbortSignal) => Promise<PreparedSession>
+    prepare: (input: PrepareInput, signal: AbortSignal) => Promise<JobReference>
     grade: (input: GradeInput, signal: AbortSignal) => Promise<GradeResult>
     review: (input: { results: SubmittedResult[]; key: string }, signal: AbortSignal) => Promise<ReviewBatchResult>
   }
@@ -49,11 +51,10 @@ export interface FrontendServices {
     deleteNode: (nodeId: string, signal: AbortSignal) => Promise<void>
   }
   dictionary: {
+    generate: (referenceId: string, signal: AbortSignal) => Promise<JobReference>
     search: (query: string, signal: AbortSignal) => Promise<WordSearch>
     word: (wordId: number, signal: AbortSignal) => Promise<DictionaryWord>
     previews: (wordIds: number[], signal: AbortSignal) => Promise<WordPreview[]>
     context: (wordId: number, signal: AbortSignal) => Promise<WordContext>
-    prepare: (referenceId: string, target: string, signal: AbortSignal) => Promise<WordGeneration>
-    generation: (generationId: string, signal: AbortSignal) => Promise<WordGeneration>
   }
 }

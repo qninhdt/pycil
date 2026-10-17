@@ -8,8 +8,8 @@ from pycil.account.schemas import PreferencesPatch, ProfilePatch
 from pycil.account.settings import effective_learning, merge_preferences, preferences
 from pycil.account.usage import period_bounds
 from pycil.app.config import load_config
-from pycil.app.http import Problem
 from pycil.study.enums import QuestionType, ResponseFormat
+from pycil.utils.errors import OperationError
 
 
 def test_sparse_preferences_merge_preserves_saved_intent_on_free_downgrade():
@@ -22,28 +22,36 @@ def test_sparse_preferences_merge_preserves_saved_intent_on_free_downgrade():
         "assistant": {"auto_approve": True},
     }
     merged = merge_preferences(
-        saved, PreferencesPatch(learning={"questions_per_sense": 2}), Plan.PRO, config
+        saved,
+        PreferencesPatch(learning={"questions_per_sense": 2}),
+        Plan.PRO,
+        config.account,
+        config.study,
     )
     assert merged["learning"]["formats"] == [ResponseFormat.SHORT_ANSWER]
     assert merged["learning"]["questions_per_sense"] == 2
     assert merged["assistant"]["auto_approve"] is True
     assert "questions_per_sense" not in saved["learning"]
-    assert preferences(merged, config).learning.formats == [ResponseFormat.SHORT_ANSWER]
-    assert effective_learning(merged, Plan.FREE, config).formats == [ResponseFormat.SINGLE_CHOICE]
-    assert effective_learning(merged, Plan.PRO, config).formats == [ResponseFormat.SHORT_ANSWER]
+    prefs = preferences(merged, config.account, config.study)
+    assert prefs.learning.formats == [ResponseFormat.SHORT_ANSWER]
+    free_learning = effective_learning(merged, Plan.FREE, config.account, config.study)
+    assert free_learning.formats == [ResponseFormat.SINGLE_CHOICE]
+    pro_learning = effective_learning(merged, Plan.PRO, config.account, config.study)
+    assert pro_learning.formats == [ResponseFormat.SHORT_ANSWER]
 
 
 def test_infeasible_preferences_and_unavailable_free_formats_are_distinct_failures():
     config = load_config()
-    with pytest.raises(Problem) as error:
+    with pytest.raises(OperationError) as error:
         merge_preferences(
             {},
             PreferencesPatch(learning={"formats": [ResponseFormat.SHORT_ANSWER]}),
             Plan.FREE,
-            config,
+            config.account,
+            config.study,
         )
     assert error.value.code == "advanced_grading_not_available"
-    with pytest.raises(Problem) as error:
+    with pytest.raises(OperationError) as error:
         merge_preferences(
             {},
             PreferencesPatch(
@@ -53,7 +61,8 @@ def test_infeasible_preferences_and_unavailable_free_formats_are_distinct_failur
                 }
             ),
             Plan.PRO,
-            config,
+            config.account,
+            config.study,
         )
     assert error.value.code == "invalid_preferences"
 

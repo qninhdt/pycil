@@ -31470,32 +31470,15 @@
         ],
         "summary": "Generate",
         "operationId": "generate_v1_words_generate_post",
-        "security": [
-          {
-            "ClerkBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Idempotency-Key"
-            }
-          }
-        ],
         "requestBody": {
-          "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/GenerationRequest"
+                "$ref": "#/components/schemas/GenerateWord"
               }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "202": {
@@ -31503,7 +31486,1304 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Acceptance"
+                  "$ref": "#/components/schemas/Accepted"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$defs": {
+                    "InvalidParam": {
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "title": "Name"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "title": "Reason"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "name",
+                        "reason"
+                      ],
+                      "title": "InvalidParam"
+                    }
+                  },
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "title": "Type",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string",
+                      "title": "Title"
+                    },
+                    "status": {
+                      "type": "integer",
+                      "title": "Status"
+                    },
+                    "detail": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Detail"
+                    },
+                    "instance": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Instance"
+                    },
+                    "code": {
+                      "type": "string",
+                      "title": "Code"
+                    },
+                    "request_id": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Request Id"
+                    },
+                    "invalid_params": {
+                      "anyOf": [
+                        {
+                          "items": {
+                            "$ref": "#/$defs/InvalidParam"
+                          },
+                          "type": "array"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Invalid Params"
+                    },
+                    "error": {
+                      "type": "string",
+                      "title": "Error"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "title",
+                    "status",
+                    "code",
+                    "error"
+                  ],
+                  "title": "ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$defs": {
+                    "InvalidParam": {
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "title": "Name"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "title": "Reason"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "name",
+                        "reason"
+                      ],
+                      "title": "InvalidParam"
+                    }
+                  },
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "title": "Type",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string",
+                      "title": "Title"
+                    },
+                    "status": {
+                      "type": "integer",
+                      "title": "Status"
+                    },
+                    "detail": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Detail"
+                    },
+                    "instance": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Instance"
+                    },
+                    "code": {
+                      "type": "string",
+                      "title": "Code"
+                    },
+                    "request_id": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Request Id"
+                    },
+                    "invalid_params": {
+                      "anyOf": [
+                        {
+                          "items": {
+                            "$ref": "#/$defs/InvalidParam"
+                          },
+                          "type": "array"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Invalid Params"
+                    },
+                    "error": {
+                      "type": "string",
+                      "title": "Error"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "title",
+                    "status",
+                    "code",
+                    "error"
+                  ],
+                  "title": "ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$defs": {
+                    "InvalidParam": {
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "title": "Name"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "title": "Reason"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "name",
+                        "reason"
+                      ],
+                      "title": "InvalidParam"
+                    }
+                  },
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "title": "Type",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string",
+                      "title": "Title"
+                    },
+                    "status": {
+                      "type": "integer",
+                      "title": "Status"
+                    },
+                    "detail": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Detail"
+                    },
+                    "instance": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Instance"
+                    },
+                    "code": {
+                      "type": "string",
+                      "title": "Code"
+                    },
+                    "request_id": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Request Id"
+                    },
+                    "invalid_params": {
+                      "anyOf": [
+                        {
+                          "items": {
+                            "$ref": "#/$defs/InvalidParam"
+                          },
+                          "type": "array"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Invalid Params"
+                    },
+                    "error": {
+                      "type": "string",
+                      "title": "Error"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "title",
+                    "status",
+                    "code",
+                    "error"
+                  ],
+                  "title": "ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$defs": {
+                    "InvalidParam": {
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "title": "Name"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "title": "Reason"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "name",
+                        "reason"
+                      ],
+                      "title": "InvalidParam"
+                    }
+                  },
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "title": "Type",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string",
+                      "title": "Title"
+                    },
+                    "status": {
+                      "type": "integer",
+                      "title": "Status"
+                    },
+                    "detail": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Detail"
+                    },
+                    "instance": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Instance"
+                    },
+                    "code": {
+                      "type": "string",
+                      "title": "Code"
+                    },
+                    "request_id": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Request Id"
+                    },
+                    "invalid_params": {
+                      "anyOf": [
+                        {
+                          "items": {
+                            "$ref": "#/$defs/InvalidParam"
+                          },
+                          "type": "array"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Invalid Params"
+                    },
+                    "error": {
+                      "type": "string",
+                      "title": "Error"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "title",
+                    "status",
+                    "code",
+                    "error"
+                  ],
+                  "title": "ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Method Not Allowed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$defs": {
+                    "InvalidParam": {
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "title": "Name"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "title": "Reason"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "name",
+                        "reason"
+                      ],
+                      "title": "InvalidParam"
+                    }
+                  },
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "title": "Type",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string",
+                      "title": "Title"
+                    },
+                    "status": {
+                      "type": "integer",
+                      "title": "Status"
+                    },
+                    "detail": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Detail"
+                    },
+                    "instance": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Instance"
+                    },
+                    "code": {
+                      "type": "string",
+                      "title": "Code"
+                    },
+                    "request_id": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Request Id"
+                    },
+                    "invalid_params": {
+                      "anyOf": [
+                        {
+                          "items": {
+                            "$ref": "#/$defs/InvalidParam"
+                          },
+                          "type": "array"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Invalid Params"
+                    },
+                    "error": {
+                      "type": "string",
+                      "title": "Error"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "title",
+                    "status",
+                    "code",
+                    "error"
+                  ],
+                  "title": "ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$defs": {
+                    "InvalidParam": {
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "title": "Name"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "title": "Reason"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "name",
+                        "reason"
+                      ],
+                      "title": "InvalidParam"
+                    }
+                  },
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "title": "Type",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string",
+                      "title": "Title"
+                    },
+                    "status": {
+                      "type": "integer",
+                      "title": "Status"
+                    },
+                    "detail": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Detail"
+                    },
+                    "instance": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Instance"
+                    },
+                    "code": {
+                      "type": "string",
+                      "title": "Code"
+                    },
+                    "request_id": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Request Id"
+                    },
+                    "invalid_params": {
+                      "anyOf": [
+                        {
+                          "items": {
+                            "$ref": "#/$defs/InvalidParam"
+                          },
+                          "type": "array"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Invalid Params"
+                    },
+                    "error": {
+                      "type": "string",
+                      "title": "Error"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "title",
+                    "status",
+                    "code",
+                    "error"
+                  ],
+                  "title": "ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Content Too Large",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$defs": {
+                    "InvalidParam": {
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "title": "Name"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "title": "Reason"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "name",
+                        "reason"
+                      ],
+                      "title": "InvalidParam"
+                    }
+                  },
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "title": "Type",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string",
+                      "title": "Title"
+                    },
+                    "status": {
+                      "type": "integer",
+                      "title": "Status"
+                    },
+                    "detail": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Detail"
+                    },
+                    "instance": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Instance"
+                    },
+                    "code": {
+                      "type": "string",
+                      "title": "Code"
+                    },
+                    "request_id": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Request Id"
+                    },
+                    "invalid_params": {
+                      "anyOf": [
+                        {
+                          "items": {
+                            "$ref": "#/$defs/InvalidParam"
+                          },
+                          "type": "array"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Invalid Params"
+                    },
+                    "error": {
+                      "type": "string",
+                      "title": "Error"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "title",
+                    "status",
+                    "code",
+                    "error"
+                  ],
+                  "title": "ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$defs": {
+                    "InvalidParam": {
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "title": "Name"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "title": "Reason"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "name",
+                        "reason"
+                      ],
+                      "title": "InvalidParam"
+                    }
+                  },
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "title": "Type",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string",
+                      "title": "Title"
+                    },
+                    "status": {
+                      "type": "integer",
+                      "title": "Status"
+                    },
+                    "detail": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Detail"
+                    },
+                    "instance": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Instance"
+                    },
+                    "code": {
+                      "type": "string",
+                      "title": "Code"
+                    },
+                    "request_id": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Request Id"
+                    },
+                    "invalid_params": {
+                      "anyOf": [
+                        {
+                          "items": {
+                            "$ref": "#/$defs/InvalidParam"
+                          },
+                          "type": "array"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Invalid Params"
+                    },
+                    "error": {
+                      "type": "string",
+                      "title": "Error"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "title",
+                    "status",
+                    "code",
+                    "error"
+                  ],
+                  "title": "ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$defs": {
+                    "InvalidParam": {
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "title": "Name"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "title": "Reason"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "name",
+                        "reason"
+                      ],
+                      "title": "InvalidParam"
+                    }
+                  },
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "title": "Type",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string",
+                      "title": "Title"
+                    },
+                    "status": {
+                      "type": "integer",
+                      "title": "Status"
+                    },
+                    "detail": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Detail"
+                    },
+                    "instance": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Instance"
+                    },
+                    "code": {
+                      "type": "string",
+                      "title": "Code"
+                    },
+                    "request_id": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Request Id"
+                    },
+                    "invalid_params": {
+                      "anyOf": [
+                        {
+                          "items": {
+                            "$ref": "#/$defs/InvalidParam"
+                          },
+                          "type": "array"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Invalid Params"
+                    },
+                    "error": {
+                      "type": "string",
+                      "title": "Error"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "title",
+                    "status",
+                    "code",
+                    "error"
+                  ],
+                  "title": "ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$defs": {
+                    "InvalidParam": {
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "title": "Name"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "title": "Reason"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "name",
+                        "reason"
+                      ],
+                      "title": "InvalidParam"
+                    }
+                  },
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "title": "Type",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string",
+                      "title": "Title"
+                    },
+                    "status": {
+                      "type": "integer",
+                      "title": "Status"
+                    },
+                    "detail": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Detail"
+                    },
+                    "instance": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Instance"
+                    },
+                    "code": {
+                      "type": "string",
+                      "title": "Code"
+                    },
+                    "request_id": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Request Id"
+                    },
+                    "invalid_params": {
+                      "anyOf": [
+                        {
+                          "items": {
+                            "$ref": "#/$defs/InvalidParam"
+                          },
+                          "type": "array"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Invalid Params"
+                    },
+                    "error": {
+                      "type": "string",
+                      "title": "Error"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "title",
+                    "status",
+                    "code",
+                    "error"
+                  ],
+                  "title": "ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$defs": {
+                    "InvalidParam": {
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "title": "Name"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "title": "Reason"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "name",
+                        "reason"
+                      ],
+                      "title": "InvalidParam"
+                    }
+                  },
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "title": "Type",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string",
+                      "title": "Title"
+                    },
+                    "status": {
+                      "type": "integer",
+                      "title": "Status"
+                    },
+                    "detail": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Detail"
+                    },
+                    "instance": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Instance"
+                    },
+                    "code": {
+                      "type": "string",
+                      "title": "Code"
+                    },
+                    "request_id": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Request Id"
+                    },
+                    "invalid_params": {
+                      "anyOf": [
+                        {
+                          "items": {
+                            "$ref": "#/$defs/InvalidParam"
+                          },
+                          "type": "array"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Invalid Params"
+                    },
+                    "error": {
+                      "type": "string",
+                      "title": "Error"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "title",
+                    "status",
+                    "code",
+                    "error"
+                  ],
+                  "title": "ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ClerkBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/jobs/{job_id}": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Status",
+        "operationId": "status_v1_jobs__job_id__get",
+        "security": [
+          {
+            "ClerkBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobStatus"
                 }
               }
             }
@@ -32772,32 +34052,15 @@
         ],
         "summary": "Preparation",
         "operationId": "preparation_v1_study_prepare_post",
-        "security": [
-          {
-            "ClerkBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Idempotency-Key"
-            }
-          }
-        ],
         "requestBody": {
-          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/Prepare"
               }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "202": {
@@ -32805,50 +34068,50 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Acceptance"
+                  "$ref": "#/components/schemas/Accepted"
                 }
               }
             }
           },
           "400": {
+            "description": "Bad Request",
             "content": {
               "application/problem+json": {
                 "schema": {
                   "$defs": {
                     "InvalidParam": {
-                      "additionalProperties": false,
                       "properties": {
                         "name": {
-                          "title": "Name",
-                          "type": "string"
+                          "type": "string",
+                          "title": "Name"
                         },
                         "reason": {
-                          "title": "Reason",
-                          "type": "string"
+                          "type": "string",
+                          "title": "Reason"
                         }
                       },
+                      "additionalProperties": false,
+                      "type": "object",
                       "required": [
                         "name",
                         "reason"
                       ],
-                      "title": "InvalidParam",
-                      "type": "object"
+                      "title": "InvalidParam"
                     }
                   },
-                  "additionalProperties": false,
                   "properties": {
                     "type": {
-                      "default": "about:blank",
+                      "type": "string",
                       "title": "Type",
-                      "type": "string"
+                      "default": "about:blank"
                     },
                     "title": {
-                      "title": "Title",
-                      "type": "string"
+                      "type": "string",
+                      "title": "Title"
                     },
                     "status": {
-                      "title": "Status",
-                      "type": "integer"
+                      "type": "integer",
+                      "title": "Status"
                     },
                     "detail": {
                       "anyOf": [
@@ -32873,8 +34136,8 @@
                       "title": "Instance"
                     },
                     "code": {
-                      "title": "Code",
-                      "type": "string"
+                      "type": "string",
+                      "title": "Code"
                     },
                     "request_id": {
                       "anyOf": [
@@ -32902,18 +34165,19 @@
                       "title": "Invalid Params"
                     },
                     "error": {
-                      "title": "Error",
-                      "type": "string"
+                      "type": "string",
+                      "title": "Error"
                     }
                   },
+                  "additionalProperties": false,
+                  "type": "object",
                   "required": [
                     "title",
                     "status",
                     "code",
                     "error"
                   ],
-                  "title": "ProblemDetails",
-                  "type": "object"
+                  "title": "ProblemDetails"
                 }
               },
               "application/json": {
@@ -32921,48 +34185,47 @@
                   "$ref": "#/components/schemas/ProblemDetails"
                 }
               }
-            },
-            "description": "Bad Request"
+            }
           },
           "401": {
+            "description": "Unauthorized",
             "content": {
               "application/problem+json": {
                 "schema": {
                   "$defs": {
                     "InvalidParam": {
-                      "additionalProperties": false,
                       "properties": {
                         "name": {
-                          "title": "Name",
-                          "type": "string"
+                          "type": "string",
+                          "title": "Name"
                         },
                         "reason": {
-                          "title": "Reason",
-                          "type": "string"
+                          "type": "string",
+                          "title": "Reason"
                         }
                       },
+                      "additionalProperties": false,
+                      "type": "object",
                       "required": [
                         "name",
                         "reason"
                       ],
-                      "title": "InvalidParam",
-                      "type": "object"
+                      "title": "InvalidParam"
                     }
                   },
-                  "additionalProperties": false,
                   "properties": {
                     "type": {
-                      "default": "about:blank",
+                      "type": "string",
                       "title": "Type",
-                      "type": "string"
+                      "default": "about:blank"
                     },
                     "title": {
-                      "title": "Title",
-                      "type": "string"
+                      "type": "string",
+                      "title": "Title"
                     },
                     "status": {
-                      "title": "Status",
-                      "type": "integer"
+                      "type": "integer",
+                      "title": "Status"
                     },
                     "detail": {
                       "anyOf": [
@@ -32987,8 +34250,8 @@
                       "title": "Instance"
                     },
                     "code": {
-                      "title": "Code",
-                      "type": "string"
+                      "type": "string",
+                      "title": "Code"
                     },
                     "request_id": {
                       "anyOf": [
@@ -33016,18 +34279,19 @@
                       "title": "Invalid Params"
                     },
                     "error": {
-                      "title": "Error",
-                      "type": "string"
+                      "type": "string",
+                      "title": "Error"
                     }
                   },
+                  "additionalProperties": false,
+                  "type": "object",
                   "required": [
                     "title",
                     "status",
                     "code",
                     "error"
                   ],
-                  "title": "ProblemDetails",
-                  "type": "object"
+                  "title": "ProblemDetails"
                 }
               },
               "application/json": {
@@ -33035,48 +34299,47 @@
                   "$ref": "#/components/schemas/ProblemDetails"
                 }
               }
-            },
-            "description": "Unauthorized"
+            }
           },
           "403": {
+            "description": "Forbidden",
             "content": {
               "application/problem+json": {
                 "schema": {
                   "$defs": {
                     "InvalidParam": {
-                      "additionalProperties": false,
                       "properties": {
                         "name": {
-                          "title": "Name",
-                          "type": "string"
+                          "type": "string",
+                          "title": "Name"
                         },
                         "reason": {
-                          "title": "Reason",
-                          "type": "string"
+                          "type": "string",
+                          "title": "Reason"
                         }
                       },
+                      "additionalProperties": false,
+                      "type": "object",
                       "required": [
                         "name",
                         "reason"
                       ],
-                      "title": "InvalidParam",
-                      "type": "object"
+                      "title": "InvalidParam"
                     }
                   },
-                  "additionalProperties": false,
                   "properties": {
                     "type": {
-                      "default": "about:blank",
+                      "type": "string",
                       "title": "Type",
-                      "type": "string"
+                      "default": "about:blank"
                     },
                     "title": {
-                      "title": "Title",
-                      "type": "string"
+                      "type": "string",
+                      "title": "Title"
                     },
                     "status": {
-                      "title": "Status",
-                      "type": "integer"
+                      "type": "integer",
+                      "title": "Status"
                     },
                     "detail": {
                       "anyOf": [
@@ -33101,8 +34364,8 @@
                       "title": "Instance"
                     },
                     "code": {
-                      "title": "Code",
-                      "type": "string"
+                      "type": "string",
+                      "title": "Code"
                     },
                     "request_id": {
                       "anyOf": [
@@ -33130,18 +34393,19 @@
                       "title": "Invalid Params"
                     },
                     "error": {
-                      "title": "Error",
-                      "type": "string"
+                      "type": "string",
+                      "title": "Error"
                     }
                   },
+                  "additionalProperties": false,
+                  "type": "object",
                   "required": [
                     "title",
                     "status",
                     "code",
                     "error"
                   ],
-                  "title": "ProblemDetails",
-                  "type": "object"
+                  "title": "ProblemDetails"
                 }
               },
               "application/json": {
@@ -33149,48 +34413,47 @@
                   "$ref": "#/components/schemas/ProblemDetails"
                 }
               }
-            },
-            "description": "Forbidden"
+            }
           },
           "404": {
+            "description": "Not Found",
             "content": {
               "application/problem+json": {
                 "schema": {
                   "$defs": {
                     "InvalidParam": {
-                      "additionalProperties": false,
                       "properties": {
                         "name": {
-                          "title": "Name",
-                          "type": "string"
+                          "type": "string",
+                          "title": "Name"
                         },
                         "reason": {
-                          "title": "Reason",
-                          "type": "string"
+                          "type": "string",
+                          "title": "Reason"
                         }
                       },
+                      "additionalProperties": false,
+                      "type": "object",
                       "required": [
                         "name",
                         "reason"
                       ],
-                      "title": "InvalidParam",
-                      "type": "object"
+                      "title": "InvalidParam"
                     }
                   },
-                  "additionalProperties": false,
                   "properties": {
                     "type": {
-                      "default": "about:blank",
+                      "type": "string",
                       "title": "Type",
-                      "type": "string"
+                      "default": "about:blank"
                     },
                     "title": {
-                      "title": "Title",
-                      "type": "string"
+                      "type": "string",
+                      "title": "Title"
                     },
                     "status": {
-                      "title": "Status",
-                      "type": "integer"
+                      "type": "integer",
+                      "title": "Status"
                     },
                     "detail": {
                       "anyOf": [
@@ -33215,8 +34478,8 @@
                       "title": "Instance"
                     },
                     "code": {
-                      "title": "Code",
-                      "type": "string"
+                      "type": "string",
+                      "title": "Code"
                     },
                     "request_id": {
                       "anyOf": [
@@ -33244,18 +34507,19 @@
                       "title": "Invalid Params"
                     },
                     "error": {
-                      "title": "Error",
-                      "type": "string"
+                      "type": "string",
+                      "title": "Error"
                     }
                   },
+                  "additionalProperties": false,
+                  "type": "object",
                   "required": [
                     "title",
                     "status",
                     "code",
                     "error"
                   ],
-                  "title": "ProblemDetails",
-                  "type": "object"
+                  "title": "ProblemDetails"
                 }
               },
               "application/json": {
@@ -33263,48 +34527,47 @@
                   "$ref": "#/components/schemas/ProblemDetails"
                 }
               }
-            },
-            "description": "Not Found"
+            }
           },
           "405": {
+            "description": "Method Not Allowed",
             "content": {
               "application/problem+json": {
                 "schema": {
                   "$defs": {
                     "InvalidParam": {
-                      "additionalProperties": false,
                       "properties": {
                         "name": {
-                          "title": "Name",
-                          "type": "string"
+                          "type": "string",
+                          "title": "Name"
                         },
                         "reason": {
-                          "title": "Reason",
-                          "type": "string"
+                          "type": "string",
+                          "title": "Reason"
                         }
                       },
+                      "additionalProperties": false,
+                      "type": "object",
                       "required": [
                         "name",
                         "reason"
                       ],
-                      "title": "InvalidParam",
-                      "type": "object"
+                      "title": "InvalidParam"
                     }
                   },
-                  "additionalProperties": false,
                   "properties": {
                     "type": {
-                      "default": "about:blank",
+                      "type": "string",
                       "title": "Type",
-                      "type": "string"
+                      "default": "about:blank"
                     },
                     "title": {
-                      "title": "Title",
-                      "type": "string"
+                      "type": "string",
+                      "title": "Title"
                     },
                     "status": {
-                      "title": "Status",
-                      "type": "integer"
+                      "type": "integer",
+                      "title": "Status"
                     },
                     "detail": {
                       "anyOf": [
@@ -33329,8 +34592,8 @@
                       "title": "Instance"
                     },
                     "code": {
-                      "title": "Code",
-                      "type": "string"
+                      "type": "string",
+                      "title": "Code"
                     },
                     "request_id": {
                       "anyOf": [
@@ -33358,18 +34621,19 @@
                       "title": "Invalid Params"
                     },
                     "error": {
-                      "title": "Error",
-                      "type": "string"
+                      "type": "string",
+                      "title": "Error"
                     }
                   },
+                  "additionalProperties": false,
+                  "type": "object",
                   "required": [
                     "title",
                     "status",
                     "code",
                     "error"
                   ],
-                  "title": "ProblemDetails",
-                  "type": "object"
+                  "title": "ProblemDetails"
                 }
               },
               "application/json": {
@@ -33377,48 +34641,47 @@
                   "$ref": "#/components/schemas/ProblemDetails"
                 }
               }
-            },
-            "description": "Method Not Allowed"
+            }
           },
           "409": {
+            "description": "Conflict",
             "content": {
               "application/problem+json": {
                 "schema": {
                   "$defs": {
                     "InvalidParam": {
-                      "additionalProperties": false,
                       "properties": {
                         "name": {
-                          "title": "Name",
-                          "type": "string"
+                          "type": "string",
+                          "title": "Name"
                         },
                         "reason": {
-                          "title": "Reason",
-                          "type": "string"
+                          "type": "string",
+                          "title": "Reason"
                         }
                       },
+                      "additionalProperties": false,
+                      "type": "object",
                       "required": [
                         "name",
                         "reason"
                       ],
-                      "title": "InvalidParam",
-                      "type": "object"
+                      "title": "InvalidParam"
                     }
                   },
-                  "additionalProperties": false,
                   "properties": {
                     "type": {
-                      "default": "about:blank",
+                      "type": "string",
                       "title": "Type",
-                      "type": "string"
+                      "default": "about:blank"
                     },
                     "title": {
-                      "title": "Title",
-                      "type": "string"
+                      "type": "string",
+                      "title": "Title"
                     },
                     "status": {
-                      "title": "Status",
-                      "type": "integer"
+                      "type": "integer",
+                      "title": "Status"
                     },
                     "detail": {
                       "anyOf": [
@@ -33443,8 +34706,8 @@
                       "title": "Instance"
                     },
                     "code": {
-                      "title": "Code",
-                      "type": "string"
+                      "type": "string",
+                      "title": "Code"
                     },
                     "request_id": {
                       "anyOf": [
@@ -33472,18 +34735,19 @@
                       "title": "Invalid Params"
                     },
                     "error": {
-                      "title": "Error",
-                      "type": "string"
+                      "type": "string",
+                      "title": "Error"
                     }
                   },
+                  "additionalProperties": false,
+                  "type": "object",
                   "required": [
                     "title",
                     "status",
                     "code",
                     "error"
                   ],
-                  "title": "ProblemDetails",
-                  "type": "object"
+                  "title": "ProblemDetails"
                 }
               },
               "application/json": {
@@ -33491,48 +34755,47 @@
                   "$ref": "#/components/schemas/ProblemDetails"
                 }
               }
-            },
-            "description": "Conflict"
+            }
           },
           "413": {
+            "description": "Content Too Large",
             "content": {
               "application/problem+json": {
                 "schema": {
                   "$defs": {
                     "InvalidParam": {
-                      "additionalProperties": false,
                       "properties": {
                         "name": {
-                          "title": "Name",
-                          "type": "string"
+                          "type": "string",
+                          "title": "Name"
                         },
                         "reason": {
-                          "title": "Reason",
-                          "type": "string"
+                          "type": "string",
+                          "title": "Reason"
                         }
                       },
+                      "additionalProperties": false,
+                      "type": "object",
                       "required": [
                         "name",
                         "reason"
                       ],
-                      "title": "InvalidParam",
-                      "type": "object"
+                      "title": "InvalidParam"
                     }
                   },
-                  "additionalProperties": false,
                   "properties": {
                     "type": {
-                      "default": "about:blank",
+                      "type": "string",
                       "title": "Type",
-                      "type": "string"
+                      "default": "about:blank"
                     },
                     "title": {
-                      "title": "Title",
-                      "type": "string"
+                      "type": "string",
+                      "title": "Title"
                     },
                     "status": {
-                      "title": "Status",
-                      "type": "integer"
+                      "type": "integer",
+                      "title": "Status"
                     },
                     "detail": {
                       "anyOf": [
@@ -33557,8 +34820,8 @@
                       "title": "Instance"
                     },
                     "code": {
-                      "title": "Code",
-                      "type": "string"
+                      "type": "string",
+                      "title": "Code"
                     },
                     "request_id": {
                       "anyOf": [
@@ -33586,18 +34849,19 @@
                       "title": "Invalid Params"
                     },
                     "error": {
-                      "title": "Error",
-                      "type": "string"
+                      "type": "string",
+                      "title": "Error"
                     }
                   },
+                  "additionalProperties": false,
+                  "type": "object",
                   "required": [
                     "title",
                     "status",
                     "code",
                     "error"
                   ],
-                  "title": "ProblemDetails",
-                  "type": "object"
+                  "title": "ProblemDetails"
                 }
               },
               "application/json": {
@@ -33605,48 +34869,47 @@
                   "$ref": "#/components/schemas/ProblemDetails"
                 }
               }
-            },
-            "description": "Content Too Large"
+            }
           },
           "422": {
+            "description": "Unprocessable Content",
             "content": {
               "application/problem+json": {
                 "schema": {
                   "$defs": {
                     "InvalidParam": {
-                      "additionalProperties": false,
                       "properties": {
                         "name": {
-                          "title": "Name",
-                          "type": "string"
+                          "type": "string",
+                          "title": "Name"
                         },
                         "reason": {
-                          "title": "Reason",
-                          "type": "string"
+                          "type": "string",
+                          "title": "Reason"
                         }
                       },
+                      "additionalProperties": false,
+                      "type": "object",
                       "required": [
                         "name",
                         "reason"
                       ],
-                      "title": "InvalidParam",
-                      "type": "object"
+                      "title": "InvalidParam"
                     }
                   },
-                  "additionalProperties": false,
                   "properties": {
                     "type": {
-                      "default": "about:blank",
+                      "type": "string",
                       "title": "Type",
-                      "type": "string"
+                      "default": "about:blank"
                     },
                     "title": {
-                      "title": "Title",
-                      "type": "string"
+                      "type": "string",
+                      "title": "Title"
                     },
                     "status": {
-                      "title": "Status",
-                      "type": "integer"
+                      "type": "integer",
+                      "title": "Status"
                     },
                     "detail": {
                       "anyOf": [
@@ -33671,8 +34934,8 @@
                       "title": "Instance"
                     },
                     "code": {
-                      "title": "Code",
-                      "type": "string"
+                      "type": "string",
+                      "title": "Code"
                     },
                     "request_id": {
                       "anyOf": [
@@ -33700,18 +34963,19 @@
                       "title": "Invalid Params"
                     },
                     "error": {
-                      "title": "Error",
-                      "type": "string"
+                      "type": "string",
+                      "title": "Error"
                     }
                   },
+                  "additionalProperties": false,
+                  "type": "object",
                   "required": [
                     "title",
                     "status",
                     "code",
                     "error"
                   ],
-                  "title": "ProblemDetails",
-                  "type": "object"
+                  "title": "ProblemDetails"
                 }
               },
               "application/json": {
@@ -33719,48 +34983,47 @@
                   "$ref": "#/components/schemas/ProblemDetails"
                 }
               }
-            },
-            "description": "Unprocessable Content"
+            }
           },
           "429": {
+            "description": "Too Many Requests",
             "content": {
               "application/problem+json": {
                 "schema": {
                   "$defs": {
                     "InvalidParam": {
-                      "additionalProperties": false,
                       "properties": {
                         "name": {
-                          "title": "Name",
-                          "type": "string"
+                          "type": "string",
+                          "title": "Name"
                         },
                         "reason": {
-                          "title": "Reason",
-                          "type": "string"
+                          "type": "string",
+                          "title": "Reason"
                         }
                       },
+                      "additionalProperties": false,
+                      "type": "object",
                       "required": [
                         "name",
                         "reason"
                       ],
-                      "title": "InvalidParam",
-                      "type": "object"
+                      "title": "InvalidParam"
                     }
                   },
-                  "additionalProperties": false,
                   "properties": {
                     "type": {
-                      "default": "about:blank",
+                      "type": "string",
                       "title": "Type",
-                      "type": "string"
+                      "default": "about:blank"
                     },
                     "title": {
-                      "title": "Title",
-                      "type": "string"
+                      "type": "string",
+                      "title": "Title"
                     },
                     "status": {
-                      "title": "Status",
-                      "type": "integer"
+                      "type": "integer",
+                      "title": "Status"
                     },
                     "detail": {
                       "anyOf": [
@@ -33785,8 +35048,8 @@
                       "title": "Instance"
                     },
                     "code": {
-                      "title": "Code",
-                      "type": "string"
+                      "type": "string",
+                      "title": "Code"
                     },
                     "request_id": {
                       "anyOf": [
@@ -33814,18 +35077,19 @@
                       "title": "Invalid Params"
                     },
                     "error": {
-                      "title": "Error",
-                      "type": "string"
+                      "type": "string",
+                      "title": "Error"
                     }
                   },
+                  "additionalProperties": false,
+                  "type": "object",
                   "required": [
                     "title",
                     "status",
                     "code",
                     "error"
                   ],
-                  "title": "ProblemDetails",
-                  "type": "object"
+                  "title": "ProblemDetails"
                 }
               },
               "application/json": {
@@ -33833,48 +35097,47 @@
                   "$ref": "#/components/schemas/ProblemDetails"
                 }
               }
-            },
-            "description": "Too Many Requests"
+            }
           },
           "500": {
+            "description": "Internal Server Error",
             "content": {
               "application/problem+json": {
                 "schema": {
                   "$defs": {
                     "InvalidParam": {
-                      "additionalProperties": false,
                       "properties": {
                         "name": {
-                          "title": "Name",
-                          "type": "string"
+                          "type": "string",
+                          "title": "Name"
                         },
                         "reason": {
-                          "title": "Reason",
-                          "type": "string"
+                          "type": "string",
+                          "title": "Reason"
                         }
                       },
+                      "additionalProperties": false,
+                      "type": "object",
                       "required": [
                         "name",
                         "reason"
                       ],
-                      "title": "InvalidParam",
-                      "type": "object"
+                      "title": "InvalidParam"
                     }
                   },
-                  "additionalProperties": false,
                   "properties": {
                     "type": {
-                      "default": "about:blank",
+                      "type": "string",
                       "title": "Type",
-                      "type": "string"
+                      "default": "about:blank"
                     },
                     "title": {
-                      "title": "Title",
-                      "type": "string"
+                      "type": "string",
+                      "title": "Title"
                     },
                     "status": {
-                      "title": "Status",
-                      "type": "integer"
+                      "type": "integer",
+                      "title": "Status"
                     },
                     "detail": {
                       "anyOf": [
@@ -33899,8 +35162,8 @@
                       "title": "Instance"
                     },
                     "code": {
-                      "title": "Code",
-                      "type": "string"
+                      "type": "string",
+                      "title": "Code"
                     },
                     "request_id": {
                       "anyOf": [
@@ -33928,18 +35191,19 @@
                       "title": "Invalid Params"
                     },
                     "error": {
-                      "title": "Error",
-                      "type": "string"
+                      "type": "string",
+                      "title": "Error"
                     }
                   },
+                  "additionalProperties": false,
+                  "type": "object",
                   "required": [
                     "title",
                     "status",
                     "code",
                     "error"
                   ],
-                  "title": "ProblemDetails",
-                  "type": "object"
+                  "title": "ProblemDetails"
                 }
               },
               "application/json": {
@@ -33947,48 +35211,47 @@
                   "$ref": "#/components/schemas/ProblemDetails"
                 }
               }
-            },
-            "description": "Internal Server Error"
+            }
           },
           "503": {
+            "description": "Service Unavailable",
             "content": {
               "application/problem+json": {
                 "schema": {
                   "$defs": {
                     "InvalidParam": {
-                      "additionalProperties": false,
                       "properties": {
                         "name": {
-                          "title": "Name",
-                          "type": "string"
+                          "type": "string",
+                          "title": "Name"
                         },
                         "reason": {
-                          "title": "Reason",
-                          "type": "string"
+                          "type": "string",
+                          "title": "Reason"
                         }
                       },
+                      "additionalProperties": false,
+                      "type": "object",
                       "required": [
                         "name",
                         "reason"
                       ],
-                      "title": "InvalidParam",
-                      "type": "object"
+                      "title": "InvalidParam"
                     }
                   },
-                  "additionalProperties": false,
                   "properties": {
                     "type": {
-                      "default": "about:blank",
+                      "type": "string",
                       "title": "Type",
-                      "type": "string"
+                      "default": "about:blank"
                     },
                     "title": {
-                      "title": "Title",
-                      "type": "string"
+                      "type": "string",
+                      "title": "Title"
                     },
                     "status": {
-                      "title": "Status",
-                      "type": "integer"
+                      "type": "integer",
+                      "title": "Status"
                     },
                     "detail": {
                       "anyOf": [
@@ -34013,8 +35276,8 @@
                       "title": "Instance"
                     },
                     "code": {
-                      "title": "Code",
-                      "type": "string"
+                      "type": "string",
+                      "title": "Code"
                     },
                     "request_id": {
                       "anyOf": [
@@ -34042,18 +35305,19 @@
                       "title": "Invalid Params"
                     },
                     "error": {
-                      "title": "Error",
-                      "type": "string"
+                      "type": "string",
+                      "title": "Error"
                     }
                   },
+                  "additionalProperties": false,
+                  "type": "object",
                   "required": [
                     "title",
                     "status",
                     "code",
                     "error"
                   ],
-                  "title": "ProblemDetails",
-                  "type": "object"
+                  "title": "ProblemDetails"
                 }
               },
               "application/json": {
@@ -34061,10 +35325,14 @@
                   "$ref": "#/components/schemas/ProblemDetails"
                 }
               }
-            },
-            "description": "Service Unavailable"
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "ClerkBearer": []
+          }
+        ]
       }
     },
     "/v1/study:grade": {
@@ -40641,1298 +41909,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Schedule"
-                }
-              }
-            }
-          },
-          "400": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$defs": {
-                    "InvalidParam": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "name": {
-                          "title": "Name",
-                          "type": "string"
-                        },
-                        "reason": {
-                          "title": "Reason",
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "name",
-                        "reason"
-                      ],
-                      "title": "InvalidParam",
-                      "type": "object"
-                    }
-                  },
-                  "additionalProperties": false,
-                  "properties": {
-                    "type": {
-                      "default": "about:blank",
-                      "title": "Type",
-                      "type": "string"
-                    },
-                    "title": {
-                      "title": "Title",
-                      "type": "string"
-                    },
-                    "status": {
-                      "title": "Status",
-                      "type": "integer"
-                    },
-                    "detail": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Detail"
-                    },
-                    "instance": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Instance"
-                    },
-                    "code": {
-                      "title": "Code",
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Request Id"
-                    },
-                    "invalid_params": {
-                      "anyOf": [
-                        {
-                          "items": {
-                            "$ref": "#/$defs/InvalidParam"
-                          },
-                          "type": "array"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Invalid Params"
-                    },
-                    "error": {
-                      "title": "Error",
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "title",
-                    "status",
-                    "code",
-                    "error"
-                  ],
-                  "title": "ProblemDetails",
-                  "type": "object"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Bad Request"
-          },
-          "401": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$defs": {
-                    "InvalidParam": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "name": {
-                          "title": "Name",
-                          "type": "string"
-                        },
-                        "reason": {
-                          "title": "Reason",
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "name",
-                        "reason"
-                      ],
-                      "title": "InvalidParam",
-                      "type": "object"
-                    }
-                  },
-                  "additionalProperties": false,
-                  "properties": {
-                    "type": {
-                      "default": "about:blank",
-                      "title": "Type",
-                      "type": "string"
-                    },
-                    "title": {
-                      "title": "Title",
-                      "type": "string"
-                    },
-                    "status": {
-                      "title": "Status",
-                      "type": "integer"
-                    },
-                    "detail": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Detail"
-                    },
-                    "instance": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Instance"
-                    },
-                    "code": {
-                      "title": "Code",
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Request Id"
-                    },
-                    "invalid_params": {
-                      "anyOf": [
-                        {
-                          "items": {
-                            "$ref": "#/$defs/InvalidParam"
-                          },
-                          "type": "array"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Invalid Params"
-                    },
-                    "error": {
-                      "title": "Error",
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "title",
-                    "status",
-                    "code",
-                    "error"
-                  ],
-                  "title": "ProblemDetails",
-                  "type": "object"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$defs": {
-                    "InvalidParam": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "name": {
-                          "title": "Name",
-                          "type": "string"
-                        },
-                        "reason": {
-                          "title": "Reason",
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "name",
-                        "reason"
-                      ],
-                      "title": "InvalidParam",
-                      "type": "object"
-                    }
-                  },
-                  "additionalProperties": false,
-                  "properties": {
-                    "type": {
-                      "default": "about:blank",
-                      "title": "Type",
-                      "type": "string"
-                    },
-                    "title": {
-                      "title": "Title",
-                      "type": "string"
-                    },
-                    "status": {
-                      "title": "Status",
-                      "type": "integer"
-                    },
-                    "detail": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Detail"
-                    },
-                    "instance": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Instance"
-                    },
-                    "code": {
-                      "title": "Code",
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Request Id"
-                    },
-                    "invalid_params": {
-                      "anyOf": [
-                        {
-                          "items": {
-                            "$ref": "#/$defs/InvalidParam"
-                          },
-                          "type": "array"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Invalid Params"
-                    },
-                    "error": {
-                      "title": "Error",
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "title",
-                    "status",
-                    "code",
-                    "error"
-                  ],
-                  "title": "ProblemDetails",
-                  "type": "object"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$defs": {
-                    "InvalidParam": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "name": {
-                          "title": "Name",
-                          "type": "string"
-                        },
-                        "reason": {
-                          "title": "Reason",
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "name",
-                        "reason"
-                      ],
-                      "title": "InvalidParam",
-                      "type": "object"
-                    }
-                  },
-                  "additionalProperties": false,
-                  "properties": {
-                    "type": {
-                      "default": "about:blank",
-                      "title": "Type",
-                      "type": "string"
-                    },
-                    "title": {
-                      "title": "Title",
-                      "type": "string"
-                    },
-                    "status": {
-                      "title": "Status",
-                      "type": "integer"
-                    },
-                    "detail": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Detail"
-                    },
-                    "instance": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Instance"
-                    },
-                    "code": {
-                      "title": "Code",
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Request Id"
-                    },
-                    "invalid_params": {
-                      "anyOf": [
-                        {
-                          "items": {
-                            "$ref": "#/$defs/InvalidParam"
-                          },
-                          "type": "array"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Invalid Params"
-                    },
-                    "error": {
-                      "title": "Error",
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "title",
-                    "status",
-                    "code",
-                    "error"
-                  ],
-                  "title": "ProblemDetails",
-                  "type": "object"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Not Found"
-          },
-          "405": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$defs": {
-                    "InvalidParam": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "name": {
-                          "title": "Name",
-                          "type": "string"
-                        },
-                        "reason": {
-                          "title": "Reason",
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "name",
-                        "reason"
-                      ],
-                      "title": "InvalidParam",
-                      "type": "object"
-                    }
-                  },
-                  "additionalProperties": false,
-                  "properties": {
-                    "type": {
-                      "default": "about:blank",
-                      "title": "Type",
-                      "type": "string"
-                    },
-                    "title": {
-                      "title": "Title",
-                      "type": "string"
-                    },
-                    "status": {
-                      "title": "Status",
-                      "type": "integer"
-                    },
-                    "detail": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Detail"
-                    },
-                    "instance": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Instance"
-                    },
-                    "code": {
-                      "title": "Code",
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Request Id"
-                    },
-                    "invalid_params": {
-                      "anyOf": [
-                        {
-                          "items": {
-                            "$ref": "#/$defs/InvalidParam"
-                          },
-                          "type": "array"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Invalid Params"
-                    },
-                    "error": {
-                      "title": "Error",
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "title",
-                    "status",
-                    "code",
-                    "error"
-                  ],
-                  "title": "ProblemDetails",
-                  "type": "object"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Method Not Allowed"
-          },
-          "409": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$defs": {
-                    "InvalidParam": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "name": {
-                          "title": "Name",
-                          "type": "string"
-                        },
-                        "reason": {
-                          "title": "Reason",
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "name",
-                        "reason"
-                      ],
-                      "title": "InvalidParam",
-                      "type": "object"
-                    }
-                  },
-                  "additionalProperties": false,
-                  "properties": {
-                    "type": {
-                      "default": "about:blank",
-                      "title": "Type",
-                      "type": "string"
-                    },
-                    "title": {
-                      "title": "Title",
-                      "type": "string"
-                    },
-                    "status": {
-                      "title": "Status",
-                      "type": "integer"
-                    },
-                    "detail": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Detail"
-                    },
-                    "instance": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Instance"
-                    },
-                    "code": {
-                      "title": "Code",
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Request Id"
-                    },
-                    "invalid_params": {
-                      "anyOf": [
-                        {
-                          "items": {
-                            "$ref": "#/$defs/InvalidParam"
-                          },
-                          "type": "array"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Invalid Params"
-                    },
-                    "error": {
-                      "title": "Error",
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "title",
-                    "status",
-                    "code",
-                    "error"
-                  ],
-                  "title": "ProblemDetails",
-                  "type": "object"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Conflict"
-          },
-          "413": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$defs": {
-                    "InvalidParam": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "name": {
-                          "title": "Name",
-                          "type": "string"
-                        },
-                        "reason": {
-                          "title": "Reason",
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "name",
-                        "reason"
-                      ],
-                      "title": "InvalidParam",
-                      "type": "object"
-                    }
-                  },
-                  "additionalProperties": false,
-                  "properties": {
-                    "type": {
-                      "default": "about:blank",
-                      "title": "Type",
-                      "type": "string"
-                    },
-                    "title": {
-                      "title": "Title",
-                      "type": "string"
-                    },
-                    "status": {
-                      "title": "Status",
-                      "type": "integer"
-                    },
-                    "detail": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Detail"
-                    },
-                    "instance": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Instance"
-                    },
-                    "code": {
-                      "title": "Code",
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Request Id"
-                    },
-                    "invalid_params": {
-                      "anyOf": [
-                        {
-                          "items": {
-                            "$ref": "#/$defs/InvalidParam"
-                          },
-                          "type": "array"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Invalid Params"
-                    },
-                    "error": {
-                      "title": "Error",
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "title",
-                    "status",
-                    "code",
-                    "error"
-                  ],
-                  "title": "ProblemDetails",
-                  "type": "object"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Content Too Large"
-          },
-          "422": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$defs": {
-                    "InvalidParam": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "name": {
-                          "title": "Name",
-                          "type": "string"
-                        },
-                        "reason": {
-                          "title": "Reason",
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "name",
-                        "reason"
-                      ],
-                      "title": "InvalidParam",
-                      "type": "object"
-                    }
-                  },
-                  "additionalProperties": false,
-                  "properties": {
-                    "type": {
-                      "default": "about:blank",
-                      "title": "Type",
-                      "type": "string"
-                    },
-                    "title": {
-                      "title": "Title",
-                      "type": "string"
-                    },
-                    "status": {
-                      "title": "Status",
-                      "type": "integer"
-                    },
-                    "detail": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Detail"
-                    },
-                    "instance": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Instance"
-                    },
-                    "code": {
-                      "title": "Code",
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Request Id"
-                    },
-                    "invalid_params": {
-                      "anyOf": [
-                        {
-                          "items": {
-                            "$ref": "#/$defs/InvalidParam"
-                          },
-                          "type": "array"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Invalid Params"
-                    },
-                    "error": {
-                      "title": "Error",
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "title",
-                    "status",
-                    "code",
-                    "error"
-                  ],
-                  "title": "ProblemDetails",
-                  "type": "object"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Unprocessable Content"
-          },
-          "429": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$defs": {
-                    "InvalidParam": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "name": {
-                          "title": "Name",
-                          "type": "string"
-                        },
-                        "reason": {
-                          "title": "Reason",
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "name",
-                        "reason"
-                      ],
-                      "title": "InvalidParam",
-                      "type": "object"
-                    }
-                  },
-                  "additionalProperties": false,
-                  "properties": {
-                    "type": {
-                      "default": "about:blank",
-                      "title": "Type",
-                      "type": "string"
-                    },
-                    "title": {
-                      "title": "Title",
-                      "type": "string"
-                    },
-                    "status": {
-                      "title": "Status",
-                      "type": "integer"
-                    },
-                    "detail": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Detail"
-                    },
-                    "instance": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Instance"
-                    },
-                    "code": {
-                      "title": "Code",
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Request Id"
-                    },
-                    "invalid_params": {
-                      "anyOf": [
-                        {
-                          "items": {
-                            "$ref": "#/$defs/InvalidParam"
-                          },
-                          "type": "array"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Invalid Params"
-                    },
-                    "error": {
-                      "title": "Error",
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "title",
-                    "status",
-                    "code",
-                    "error"
-                  ],
-                  "title": "ProblemDetails",
-                  "type": "object"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Too Many Requests"
-          },
-          "500": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$defs": {
-                    "InvalidParam": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "name": {
-                          "title": "Name",
-                          "type": "string"
-                        },
-                        "reason": {
-                          "title": "Reason",
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "name",
-                        "reason"
-                      ],
-                      "title": "InvalidParam",
-                      "type": "object"
-                    }
-                  },
-                  "additionalProperties": false,
-                  "properties": {
-                    "type": {
-                      "default": "about:blank",
-                      "title": "Type",
-                      "type": "string"
-                    },
-                    "title": {
-                      "title": "Title",
-                      "type": "string"
-                    },
-                    "status": {
-                      "title": "Status",
-                      "type": "integer"
-                    },
-                    "detail": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Detail"
-                    },
-                    "instance": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Instance"
-                    },
-                    "code": {
-                      "title": "Code",
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Request Id"
-                    },
-                    "invalid_params": {
-                      "anyOf": [
-                        {
-                          "items": {
-                            "$ref": "#/$defs/InvalidParam"
-                          },
-                          "type": "array"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Invalid Params"
-                    },
-                    "error": {
-                      "title": "Error",
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "title",
-                    "status",
-                    "code",
-                    "error"
-                  ],
-                  "title": "ProblemDetails",
-                  "type": "object"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Internal Server Error"
-          },
-          "503": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$defs": {
-                    "InvalidParam": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "name": {
-                          "title": "Name",
-                          "type": "string"
-                        },
-                        "reason": {
-                          "title": "Reason",
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "name",
-                        "reason"
-                      ],
-                      "title": "InvalidParam",
-                      "type": "object"
-                    }
-                  },
-                  "additionalProperties": false,
-                  "properties": {
-                    "type": {
-                      "default": "about:blank",
-                      "title": "Type",
-                      "type": "string"
-                    },
-                    "title": {
-                      "title": "Title",
-                      "type": "string"
-                    },
-                    "status": {
-                      "title": "Status",
-                      "type": "integer"
-                    },
-                    "detail": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Detail"
-                    },
-                    "instance": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Instance"
-                    },
-                    "code": {
-                      "title": "Code",
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Request Id"
-                    },
-                    "invalid_params": {
-                      "anyOf": [
-                        {
-                          "items": {
-                            "$ref": "#/$defs/InvalidParam"
-                          },
-                          "type": "array"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Invalid Params"
-                    },
-                    "error": {
-                      "title": "Error",
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "title",
-                    "status",
-                    "code",
-                    "error"
-                  ],
-                  "title": "ProblemDetails",
-                  "type": "object"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Service Unavailable"
-          }
-        }
-      }
-    },
-    "/v1/jobs/{job_id}": {
-      "get": {
-        "tags": [
-          "jobs"
-        ],
-        "summary": "Status",
-        "operationId": "status_v1_jobs__job_id__get",
-        "security": [
-          {
-            "ClerkBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "job_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Job Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/JobStatus"
                 }
               }
             }
@@ -50951,20 +50927,25 @@
   },
   "components": {
     "schemas": {
-      "Acceptance": {
+      "Accepted": {
         "properties": {
           "job_id": {
             "type": "string",
             "format": "uuid",
             "title": "Job Id"
+          },
+          "status_url": {
+            "type": "string",
+            "title": "Status Url"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "job_id"
+          "job_id",
+          "status_url"
         ],
-        "title": "Acceptance"
+        "title": "Accepted"
       },
       "Activity": {
         "properties": {
@@ -51149,7 +51130,9 @@
             "title": "Name"
           },
           "args": {
-            "additionalProperties": true,
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
             "type": "object",
             "title": "Args"
           },
@@ -51940,32 +51923,6 @@
         "title": "DeveloperMessage",
         "description": "Instructions from the application developer."
       },
-      "DialogueTurn": {
-        "properties": {
-          "speaker": {
-            "type": "string",
-            "title": "Speaker"
-          },
-          "text": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Text"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "speaker",
-          "text"
-        ],
-        "title": "DialogueTurn"
-      },
       "DocumentPart": {
         "properties": {
           "type": {
@@ -52147,28 +52104,21 @@
         "title": "FunctionCall",
         "description": "The name and arguments of a tool call."
       },
-      "GenerationRequest": {
+      "GenerateWord": {
         "properties": {
           "reference_id": {
             "type": "string",
-            "maxLength": 255,
+            "maxLength": 64,
             "minLength": 1,
             "title": "Reference Id"
-          },
-          "target": {
-            "type": "string",
-            "maxLength": 512,
-            "minLength": 1,
-            "title": "Target"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "reference_id",
-          "target"
+          "reference_id"
         ],
-        "title": "GenerationRequest"
+        "title": "GenerateWord"
       },
       "GenerationState": {
         "type": "string",
@@ -52351,31 +52301,6 @@
         ],
         "title": "InvalidParam"
       },
-      "JobError": {
-        "properties": {
-          "code": {
-            "type": "string",
-            "title": "Code"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "code"
-        ],
-        "title": "JobError"
-      },
-      "JobState": {
-        "type": "string",
-        "enum": [
-          "queued",
-          "running",
-          "succeeded",
-          "failed",
-          "cancelled"
-        ],
-        "title": "JobState"
-      },
       "JobStatus": {
         "properties": {
           "job_id": {
@@ -52383,81 +52308,40 @@
             "format": "uuid",
             "title": "Job Id"
           },
-          "kind": {
+          "status": {
             "type": "string",
             "enum": [
-              "word_generation",
-              "study_preparation"
+              "queued",
+              "running",
+              "succeeded",
+              "failed"
             ],
-            "title": "Kind"
-          },
-          "status": {
-            "$ref": "#/components/schemas/JobState"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Created At"
-          },
-          "started_at": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date-time"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Started At"
-          },
-          "finished_at": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date-time"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Finished At"
+            "title": "Status"
           },
           "result": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/WordResult"
-              },
-              {
-                "$ref": "#/components/schemas/Preparation"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Result"
+            "$ref": "#/components/schemas/JsonValue"
           },
           "error": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/JobError"
+                "type": "string"
               },
               {
                 "type": "null"
               }
-            ]
+            ],
+            "title": "Error"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
           "job_id",
-          "kind",
-          "status",
-          "created_at"
+          "status"
         ],
         "title": "JobStatus"
       },
+      "JsonValue": {},
       "LearningLimits": {
         "properties": {
           "min_questions_per_sense": {
@@ -53338,25 +53222,6 @@
         ],
         "title": "NodeViewWithReference"
       },
-      "Option": {
-        "properties": {
-          "id": {
-            "type": "string",
-            "title": "Id"
-          },
-          "content": {
-            "type": "string",
-            "title": "Content"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "id",
-          "content"
-        ],
-        "title": "Option"
-      },
       "PartOfSpeech": {
         "type": "string",
         "enum": [
@@ -53505,58 +53370,6 @@
         "type": "object",
         "title": "PreferencesPatch"
       },
-      "Preparation": {
-        "properties": {
-          "node_id": {
-            "type": "string",
-            "format": "uuid",
-            "title": "Node Id"
-          },
-          "selection": {
-            "type": "string",
-            "enum": [
-              "new",
-              "due",
-              "auto"
-            ],
-            "title": "Selection"
-          },
-          "max_sense_count": {
-            "type": "integer",
-            "title": "Max Sense Count"
-          },
-          "actual_sense_count": {
-            "type": "integer",
-            "title": "Actual Sense Count"
-          },
-          "actual_question_count": {
-            "type": "integer",
-            "title": "Actual Question Count"
-          },
-          "preferences": {
-            "$ref": "#/components/schemas/LearningPreferences"
-          },
-          "bundles": {
-            "items": {
-              "$ref": "#/components/schemas/PreparedBundle"
-            },
-            "type": "array",
-            "title": "Bundles"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "node_id",
-          "selection",
-          "max_sense_count",
-          "actual_sense_count",
-          "actual_question_count",
-          "preferences",
-          "bundles"
-        ],
-        "title": "Preparation"
-      },
       "Prepare": {
         "properties": {
           "node_id": {
@@ -53607,69 +53420,6 @@
           "node_id"
         ],
         "title": "Prepare"
-      },
-      "PreparedBundle": {
-        "properties": {
-          "sense": {
-            "$ref": "#/components/schemas/Sense"
-          },
-          "reason": {
-            "type": "string",
-            "enum": [
-              "due",
-              "new",
-              "not_yet_due"
-            ],
-            "title": "Reason"
-          },
-          "questions": {
-            "items": {
-              "$ref": "#/components/schemas/PreparedQuestion"
-            },
-            "type": "array",
-            "title": "Questions"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "sense",
-          "reason",
-          "questions"
-        ],
-        "title": "PreparedBundle"
-      },
-      "PreparedQuestion": {
-        "properties": {
-          "question": {
-            "$ref": "#/components/schemas/Question"
-          },
-          "format": {
-            "$ref": "#/components/schemas/ResponseFormat"
-          },
-          "level": {
-            "type": "integer",
-            "maximum": 5.0,
-            "minimum": 1.0,
-            "title": "Level"
-          },
-          "options": {
-            "items": {
-              "$ref": "#/components/schemas/Option"
-            },
-            "type": "array",
-            "title": "Options"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "question",
-          "format",
-          "level",
-          "options"
-        ],
-        "title": "PreparedQuestion"
       },
       "ProblemDetails": {
         "properties": {
@@ -53964,68 +53714,6 @@
           "published_node_id"
         ],
         "title": "PublicProfile"
-      },
-      "Question": {
-        "properties": {
-          "question_artifact_id": {
-            "type": "integer",
-            "exclusiveMinimum": 0.0,
-            "title": "Question Artifact Id"
-          },
-          "sense_id": {
-            "type": "integer",
-            "exclusiveMinimum": 0.0,
-            "title": "Sense Id"
-          },
-          "question_type": {
-            "$ref": "#/components/schemas/QuestionType"
-          },
-          "content": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "items": {
-                  "$ref": "#/components/schemas/DialogueTurn"
-                },
-                "type": "array"
-              }
-            ],
-            "title": "Content"
-          },
-          "correct": {
-            "$ref": "#/components/schemas/Option"
-          },
-          "distractors": {
-            "items": {
-              "$ref": "#/components/schemas/Option"
-            },
-            "type": "array",
-            "title": "Distractors"
-          },
-          "target_placement": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/TargetPlacement"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "question_artifact_id",
-          "sense_id",
-          "question_type",
-          "content",
-          "correct",
-          "distractors"
-        ],
-        "title": "Question"
       },
       "QuestionType": {
         "type": "string",
@@ -55679,14 +55367,6 @@
         "title": "SystemMessage",
         "description": "Instructions from the system."
       },
-      "TargetPlacement": {
-        "type": "string",
-        "enum": [
-          "dialogue",
-          "options"
-        ],
-        "title": "TargetPlacement"
-      },
       "TextPart": {
         "properties": {
           "type": {
@@ -56484,21 +56164,6 @@
           "part_of_phrasal_family"
         ],
         "title": "WordRelationType"
-      },
-      "WordResult": {
-        "properties": {
-          "word_id": {
-            "type": "integer",
-            "exclusiveMinimum": 0.0,
-            "title": "Word Id"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "word_id"
-        ],
-        "title": "WordResult"
       }
     },
     "securitySchemes": {

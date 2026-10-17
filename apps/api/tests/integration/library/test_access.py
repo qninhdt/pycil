@@ -4,11 +4,12 @@ import pytest
 from sqlalchemy import delete
 
 from pycil.app.config import load_config
-from pycil.app.http import Problem
+from pycil.app.http import status_for
 from pycil.library.access import readable, readable_path
 from pycil.library.models import Node, NodePath, NodeRole, NodeSpace, NodeType
 from pycil.library.nodes import create_node
 from pycil.library.schemas import NodeCreate
+from pycil.utils.errors import OperationError
 from tests.support.account import account
 
 
@@ -18,7 +19,10 @@ async def test_visibility_uses_live_root_paths_and_public_breadcrumbs(database):
     config = load_config()
     async with database.sessions() as session:
         private = await create_node(
-            session, owner.id, NodeCreate(type=NodeType.DECK, name="Private"), config
+            session,
+            owner.id,
+            NodeCreate(type=NodeType.DECK, name="Private"),
+            config.library,
         )
     async with database.sessions() as session:
         public = await create_node(
@@ -30,7 +34,7 @@ async def test_visibility_uses_live_root_paths_and_public_breadcrumbs(database):
                 parent_id=roots[NodeRole.PUBLISHED_ROOT].id,
                 confirm_publication=True,
             ),
-            config,
+            config.library,
         )
     async with database.sessions() as session, session.begin():
         # A stale display-space label must never grant or revoke read authorization.
@@ -38,15 +42,15 @@ async def test_visibility_uses_live_root_paths_and_public_breadcrumbs(database):
         (await session.get(Node, public["id"])).space = NodeSpace.PERSONAL
     for viewer in [None, other.id]:
         async with database.sessions() as session:
-            with pytest.raises(Problem) as error:
-                await readable(session, private["id"], viewer, config)
-            assert error.value.status == 404
+            with pytest.raises(OperationError) as error:
+                await readable(session, private["id"], viewer)
+            assert status_for(error.value) == 404
         async with database.sessions() as session:
-            node, path = await readable_path(session, public["id"], viewer, config)
+            node, path = await readable_path(session, public["id"], viewer)
             assert node.id == public["id"]
             assert [entry.id for entry in path] == [roots[NodeRole.PUBLISHED_ROOT].id, public["id"]]
     async with database.sessions() as session:
-        assert (await readable(session, private["id"], owner.id, config)).id == private["id"]
+        assert (await readable(session, private["id"], owner.id)).id == private["id"]
 
 
 @pytest.mark.parametrize("damage", ["deleted_ancestor", "detached"])
@@ -55,14 +59,17 @@ async def test_broken_physical_ancestry_denies_even_owner_reads(database, damage
     config = load_config()
     async with database.sessions() as session:
         folder = await create_node(
-            session, owner.id, NodeCreate(type=NodeType.FOLDER, name="Parent"), config
+            session,
+            owner.id,
+            NodeCreate(type=NodeType.FOLDER, name="Parent"),
+            config.library,
         )
     async with database.sessions() as session:
         child = await create_node(
             session,
             owner.id,
             NodeCreate(type=NodeType.DECK, name="Child", parent_id=folder["id"]),
-            config,
+            config.library,
         )
     async with database.sessions() as session, session.begin():
         if damage == "deleted_ancestor":
@@ -75,6 +82,6 @@ async def test_broken_physical_ancestry_denies_even_owner_reads(database, damage
                 )
             )
     async with database.sessions() as session:
-        with pytest.raises(Problem) as error:
-            await readable(session, child["id"], owner.id, config)
+        with pytest.raises(OperationError) as error:
+            await readable(session, child["id"], owner.id)
         assert error.value.code == "node_not_found"

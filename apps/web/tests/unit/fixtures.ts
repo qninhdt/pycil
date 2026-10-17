@@ -1,5 +1,8 @@
+import { QueryClient } from '@tanstack/react-query'
+import { waitForJob } from '../../src/lib/api/jobs'
+import type { FrontendServices, PrepareInput } from '../../src/lib/api/services/contracts'
 import type { AnswerFormat } from '../../src/lib/api/account'
-import type { PreparedSession } from '../../src/lib/api/study'
+import { parsePreparation, type PreparedSession } from '../../src/lib/api/study'
 
 export function preparation(count = 1, format: AnswerFormat = 'single_choice', questionsPerSense = 1): PreparedSession {
   const options = [{ id: 'correct', content: 'bank' }, { id: 'wrong', content: 'shore' }]
@@ -16,4 +19,8 @@ export function preparation(count = 1, format: AnswerFormat = 'single_choice', q
       })),
     })),
   }
+}
+
+export async function prepareSession(services: FrontendServices, input: PrepareInput, signal: AbortSignal) {
+  return waitForJob(new QueryClient(), await services.learning.prepare(input, signal), services.jobs.status, parsePreparation, signal)
 }

@@ -1,13 +1,12 @@
 import type { LibraryDetails } from '../../../../features/library/model'
 import type { MockDatabase } from '../mock'
-import { MatchKind, parseDictionaryWord, type DictionaryWord, type WordContext, type WordGeneration, type WordHit, type WordSearch } from '../../vocabulary'
+import { MatchKind, parseDictionaryWord, type DictionaryWord, type WordContext, type WordHit, type WordSearch } from '../../vocabulary'
 import { ApiError } from '../../error'
 
 export function createMockDictionary(db: MockDatabase, now: () => Date, details: (id: string) => LibraryDetails) {
   const words = new Map<number, DictionaryWord>(db.dictionary.words.map(entry => [entry.id, parseDictionaryWord(entry)]))
-  const readyWords = db.dictionary.words as DictionaryWord[]
   const pending = new Map(db.dictionary.pending_words.map(entry => [entry.lemma, parseDictionaryWord(entry)]))
-  const jobs = new Map<string, { result: WordGeneration; polls: number; word: DictionaryWord }>()
+  const readyWords = db.dictionary.words as DictionaryWord[]
 
   function search(query: string): WordSearch {
     const normalize = (surface: string) => surface.normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase()
@@ -69,30 +68,13 @@ export function createMockDictionary(db: MockDatabase, now: () => Date, details:
     return { as_of: now().toISOString(), senses, total: senses.length, studied: senses.length - newCount,
       new: newCount, due: dueCount, not_due: senses.length - newCount - dueCount }
   }
-  function prepare(referenceId: string, target: string): WordGeneration {
-    const hit = db.dictionary.references.find(hit => hit.reference_id === referenceId && hit.display === target)
-    const candidate = hit && pending.get(hit.display)
-    if (!candidate) throw new ApiError(422, 'invalid_generation_selection')
-    const existing = [...jobs.values()].find(job => job.word.id === candidate.id)
-    if (existing) return existing.result
-    const generationId = crypto.randomUUID()
-    const result: WordGeneration = { task_id: generationId, status: 'running', word_id: null,
-      stage: null, error: null, status_url: `/v1/word-tasks/${generationId}` }
-    jobs.set(generationId, { result, polls: 0, word: candidate })
-    return result
+  function generate(referenceId: string) {
+    const hit = db.dictionary.references.find(hit => hit.reference_id === referenceId)
+    const prepared = hit && pending.get(hit.display)
+    if (!prepared) throw new ApiError(422, 'invalid_reference')
+    words.set(prepared.id, prepared)
+    readyWords.push(prepared)
+    return { word_id: prepared.id }
   }
-  function generation(id: string): WordGeneration {
-    const job = jobs.get(id)
-    if (!job) throw new ApiError(404, 'generation_not_found')
-    if (job.result.status === 'succeeded') return job.result
-    job.polls++
-    if (job.polls === 1) job.result = { ...job.result, status: 'running', stage: 'Preparing entry' }
-    else {
-      words.set(job.word.id, job.word)
-      readyWords.push(job.word)
-      job.result = { ...job.result, status: 'succeeded', word_id: job.word.id, stage: null }
-    }
-    return job.result
-  }
-  return { search, word, previews, context, prepare, generation }
+  return { search, word, previews, context, generate }
 }

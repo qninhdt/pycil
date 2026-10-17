@@ -2,7 +2,7 @@
 
 
 class VocabularyError(Exception):
-    usage = None
+    usage: list[object] | None = None
 
 
 class InvalidHandleError(VocabularyError):

@@ -6,25 +6,19 @@ import os
 from pathlib import Path
 
 from alembic import command
-from alembic.config import Config
 from psycopg import Connection
 from psycopg.errors import LockNotAvailable
 
+from pycil.app.schema import migration_config, verify_schema
 from pycil.assistant.checkpoints import checkpoint_dsn, setup_checkpoints
-from pycil.infrastructure.database import connect, verify_schema
-from pycil.infrastructure.observability import configure_logging, get_logger
+from pycil.infrastructure.database import connect
+from pycil.observability import configure_logging, get_logger
 from pycil.vocabulary.references.importer import import_reference
 
 logger = get_logger(__name__)
 MIGRATION_LOCK_KEY = "pycil:migration"
 LOCK_WAIT_SECONDS = 60
 SETUP_TIMEOUT_SECONDS = 600
-
-
-def migration_config(url: str) -> Config:
-    config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
-    config.set_main_option("sqlalchemy.url", url.replace("%", "%%"))
-    return config
 
 
 def migrate(url: str, *, reference_path: Path | None = None, baseline_content: bool = False):
@@ -39,7 +33,7 @@ def migrate(url: str, *, reference_path: Path | None = None, baseline_content: b
                 if reference_path is not None:
                     await import_reference(sessions, reference_path)
                 if baseline_content:
-                    from pycil.infrastructure.content_revisions import baseline
+                    from pycil.vocabulary.revisions import baseline
 
                     await baseline(sessions)
                 await verify_schema(engine, require_reference=reference_path is not None)

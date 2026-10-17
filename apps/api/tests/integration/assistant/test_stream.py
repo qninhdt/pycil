@@ -11,12 +11,13 @@ from sqlalchemy import func, select
 
 from pycil.account.models import UsageEvent, User
 from pycil.app.config import load_config
-from pycil.app.http import Problem
+from pycil.app.http import status_for
 from pycil.assistant import graph as agents
 from pycil.assistant.checkpoints import checkpoint_pool
 from pycil.assistant.conversations import conversation_lease_key
 from pycil.assistant.models import Conversation
 from pycil.assistant.stream import assistant_rate_limit_pattern, prepare_turn
+from pycil.utils.errors import OperationError
 from tests.support.account import account
 
 
@@ -62,7 +63,7 @@ def request(identifier, **changes):
 
 @pytest.mark.parametrize("mutation", [False, True])
 async def test_native_stream_emits_text_or_interrupt_persists_state_and_settles_once(
-    database, redis_store, stream_account, conversation_id, monkeypatch, mutation
+    database, redis_store, stream_account, conversation_id, monkeypatch, mutation, operation_metrics
 ):
     user = stream_account
     identifier = conversation_id
@@ -111,7 +112,7 @@ async def test_native_stream_emits_text_or_interrupt_persists_state_and_settles_
         )
         if mutation:
             assert any(task.interrupts for task in snapshot.tasks)
-            with pytest.raises(Problem) as error:
+            with pytest.raises(OperationError) as error:
                 async with prepare_turn(resources, None, user.id, request(identifier), config):
                     pytest.fail("new turn bypassed pending approval")
             assert error.value.code == "approval_pending"
@@ -124,11 +125,17 @@ async def test_native_stream_emits_text_or_interrupt_persists_state_and_settles_
         usage = await session.scalar(select(UsageEvent))
         assert usage.units == 0 and usage.unmetered_calls == 1
     assert not await redis.exists(conversation_lease_key(identifier))
+    points = operation_metrics()
+    assert len(points) == 1 and points[0].count == 1
+    assert points[0].attributes == {
+        "operation": "assistant_stream",
+        "outcome": "interrupted" if mutation else "succeeded",
+    }
 
 
 @pytest.mark.parametrize("cancel", [False, True])
 async def test_provider_failure_or_disconnect_closes_stream_and_settles_once(
-    database, redis_store, stream_account, conversation_id, monkeypatch, cancel
+    database, redis_store, stream_account, conversation_id, monkeypatch, cancel, operation_metrics
 ):
     import asyncio
 
@@ -204,6 +211,13 @@ async def test_provider_failure_or_disconnect_closes_stream_and_settles_once(
         usage = await session.scalar(select(UsageEvent))
         assert usage.units == 0 and usage.unmetered_calls == 1
 
+    points = operation_metrics()
+    assert len(points) == 1 and points[0].count == 1
+    assert points[0].attributes == {
+        "operation": "assistant_stream",
+        "outcome": "cancelled" if cancel else "failed",
+    }
+
 
 @pytest.mark.parametrize("foreign", [False, True])
 async def test_current_view_rechecks_access_escapes_context_and_never_persists_it(
@@ -230,7 +244,10 @@ async def test_current_view_rechecks_access_escapes_context_and_never_persists_i
     config = load_config()
     async with database.sessions() as session:
         deck = await create_node(
-            session, owner.id, NodeCreate(type=NodeType.DECK, name=name), config
+            session,
+            owner.id,
+            NodeCreate(type=NodeType.DECK, name=name),
+            config.library,
         )
     identifier = conversation_id
     provider = ObservingProvider(messages=iter([AIMessage(content="Hello.")]))
@@ -324,7 +341,7 @@ async def test_invalid_resume_keeps_approval_pending_and_rejection_does_not_char
             (valid | {"payload": {"decisions": []}}, "invalid_approval"),
             (valid | {"metadata": {"injected": True}}, "invalid_approval"),
         ]:
-            with pytest.raises(Problem) as error:
+            with pytest.raises(OperationError) as error:
                 async with prepare_turn(
                     resources,
                     None,
@@ -337,7 +354,7 @@ async def test_invalid_resume_keeps_approval_pending_and_rejection_does_not_char
             assert any(task.interrupts for task in (await agent.aget_state(thread)).tasks)
         async with database.sessions() as session, session.begin():
             (await session.get(User, user.id)).settings = {"assistant": {"auto_approve": True}}
-        with pytest.raises(Problem) as error:
+        with pytest.raises(OperationError) as error:
             async with prepare_turn(resources, None, user.id, request(identifier), config):
                 pytest.fail("enabling auto-approve must not execute an existing interrupt")
         assert error.value.code == "approval_pending"
@@ -373,24 +390,16 @@ async def test_rate_limit_rejects_second_turn_and_releases_lease_without_extra_s
     redis, _ = redis_store
     config = load_config()
     config = config.model_copy(
-        update={
-            "runtime": config.runtime.model_copy(
-                update={
-                    "assistant": config.runtime.assistant.model_copy(
-                        update={"starts_per_minute": 1}
-                    )
-                }
-            )
-        }
+        update={"assistant": config.assistant.model_copy(update={"starts_per_minute": 1})}
     )
     async with checkpoint_pool(database.url) as pool:
         resources = SimpleNamespace(sessions=database.sessions, redis=redis, checkpoint_pool=pool)
         async with prepare_turn(resources, None, user.id, request(identifier), config) as iterator:
             _ = [part async for part in iterator]
-        with pytest.raises(Problem) as error:
+        with pytest.raises(OperationError) as error:
             async with prepare_turn(resources, None, user.id, request(identifier), config):
                 pytest.fail("minute limit must reject additional turns")
-        assert error.value.status == 429 and error.value.code == "assistant_start_limit"
+        assert status_for(error.value) == 429 and error.value.code == "assistant_start_limit"
         assert not await redis.exists(conversation_lease_key(identifier))
     async with database.sessions() as session:
         assert await session.scalar(select(func.count()).select_from(UsageEvent)) == 1
@@ -409,19 +418,7 @@ async def test_auto_approve_rechecks_saved_setting_and_still_enforces_node_quota
     config = load_config()
     if limit is not None:
         config = config.model_copy(
-            update={
-                "product": config.product.model_copy(
-                    update={
-                        "library": config.product.library.model_copy(
-                            update={
-                                "quotas": config.product.library.quotas.model_copy(
-                                    update={"max_owned_nodes": limit}
-                                )
-                            }
-                        )
-                    }
-                )
-            }
+            update={"library": config.library.model_copy(update={"max_owned_nodes": limit})}
         )
     provider = Provider(
         messages=iter(

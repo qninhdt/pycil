@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from pycil.app.config import load_config
-from pycil.app.http import Problem
+from pycil.app.http import status_for
 from pycil.library.access import readable
 from pycil.library.models import NodeRole, NodeType
 from pycil.library.nodes import create_node, delete_node
@@ -11,6 +11,7 @@ from pycil.library.schemas import NodeCreate, SenseSort
 from pycil.library.senses import sense_page, sources_page
 from pycil.study.enums import LearningState
 from pycil.study.models import UserSense
+from pycil.utils.errors import OperationError
 from pycil.vocabulary.enums import PartOfSpeech, Tier
 from pycil.vocabulary.models import Definition, Sense
 from tests.support.account import account
@@ -39,7 +40,7 @@ async def library_content(database):
                     sense_id=sense_id,
                     stability=1,
                     difficulty=5,
-                    elo=config.product.study.mastery.initial_elo,
+                    elo=config.study.mastery.initial_elo,
                     last_exposure_at=now - timedelta(days=2),
                     due_at=now - timedelta(days=1),
                     review_count=1,
@@ -48,9 +49,12 @@ async def library_content(database):
             )
     async with database.sessions() as session:
         deck = await create_node(
-            session, user.id, NodeCreate(type=NodeType.DECK, name="Finance", sense_ids=ids), config
+            session,
+            user.id,
+            NodeCreate(type=NodeType.DECK, name="Finance", sense_ids=ids),
+            config.library,
         )
-    return user, roots, config, deck, ids
+    return user, roots, config.library, deck, ids
 
 
 @pytest.mark.parametrize("sort", list(SenseSort))
@@ -59,13 +63,13 @@ async def test_tied_sense_seek_returns_each_member_once_and_freezes_cutoff(
 ):
     user, _, config, deck, ids = library_content
     async with database.sessions() as session:
-        node = await readable(session, deck["id"], user.id, config)
+        node = await readable(session, deck["id"], user.id)
         first = await sense_page(
             session, node, user.id, config, database.sessions, sort=sort, limit=1
         )
     assert first["next_cursor"]
     async with database.sessions() as session:
-        node = await readable(session, deck["id"], user.id, config)
+        node = await readable(session, deck["id"], user.id)
         remaining = await sense_page(
             session,
             node,
@@ -81,7 +85,7 @@ async def test_tied_sense_seek_returns_each_member_once_and_freezes_cutoff(
     assert len(seen) == len(set(seen)) == 3 and set(seen) == set(ids)
     assert remaining["next_cursor"] is None
     async with database.sessions() as session:
-        with pytest.raises(Problem) as error:
+        with pytest.raises(OperationError) as error:
             await sense_page(
                 session,
                 node,
@@ -100,7 +104,7 @@ async def test_sense_filters_apply_before_limit_and_deleted_scope_revokes_old_cu
 ):
     user, _, config, deck, ids = library_content
     async with database.sessions() as session:
-        node = await readable(session, deck["id"], user.id, config)
+        node = await readable(session, deck["id"], user.id)
         fresh = await sense_page(
             session, node, user.id, config, database.sessions, state=LearningState.NEW, limit=1
         )
@@ -111,30 +115,20 @@ async def test_sense_filters_apply_before_limit_and_deleted_scope_revokes_old_cu
         assert no_literal_match["senses"] == []
         first = await sense_page(session, node, user.id, config, database.sessions, limit=1)
     async with database.sessions() as session:
-        await delete_node(session, user.id, deck["id"], config)
+        await delete_node(session, user.id, deck["id"])
     async with database.sessions() as session:
-        with pytest.raises(Problem) as error:
+        with pytest.raises(OperationError) as error:
             await sense_page(
                 session, node, user.id, config, database.sessions, first["next_cursor"]
             )
-        assert error.value.status == 404
+        assert status_for(error.value) == 404
 
 
 async def test_source_projection_deduplicates_reference_aliases_and_reports_inline_overflow(
     database, library_content
 ):
     user, roots, config, deck, ids = library_content
-    small = config.model_copy(
-        update={
-            "product": config.product.model_copy(
-                update={
-                    "projections": config.product.projections.model_copy(
-                        update={"inline_sources": 1}
-                    )
-                }
-            )
-        }
-    )
+    small = config.model_copy(update={"inline_sources": 1})
     async with database.sessions() as session:
         other = await create_node(
             session,
@@ -151,7 +145,7 @@ async def test_source_projection_deduplicates_reference_aliases_and_reports_inli
         )
     scope = roots[NodeRole.PERSONAL_ROOT].id
     async with database.sessions() as session:
-        root = await readable(session, scope, user.id, config)
+        root = await readable(session, scope, user.id)
         page = await sense_page(session, root, user.id, small, database.sessions, include="sources")
         item = next(item for item in page["senses"] if item["sense_id"] == ids[0])
         assert item["source_count"] == 2 and item["sources_has_more"] is True

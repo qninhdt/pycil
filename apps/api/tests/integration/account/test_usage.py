@@ -9,12 +9,13 @@ from pycil.account.models import UsageEvent, UsagePeriod
 from pycil.account.plans import Feature
 from pycil.account.usage import settle
 from pycil.app.config import load_config
-from pycil.app.http import Problem
+from pycil.app.http import status_for
+from pycil.utils.errors import OperationError
 from tests.support.account import account
 
 
 async def test_concurrent_usage_replay_charges_once_and_conflicts_roll_back(database):
-    config = load_config()
+    config = load_config().account
     user, _ = await account(database.sessions)
     key, moment = uuid4(), datetime.now(UTC)
     barrier = asyncio.Barrier(2)
@@ -38,9 +39,9 @@ async def test_concurrent_usage_replay_charges_once_and_conflicts_roll_back(data
 
     first, replay = await asyncio.gather(simultaneous_charge(), simultaneous_charge())
     assert first.id == replay.id
-    with pytest.raises(Problem) as error:
+    with pytest.raises(OperationError) as error:
         await charged(units=18)
-    assert error.value.status == 409
+    assert status_for(error.value) == 409
     with pytest.raises(ValueError):
         await charged(unmetered_calls=True)
     async with database.sessions() as session:

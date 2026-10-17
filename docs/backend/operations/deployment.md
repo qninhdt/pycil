@@ -10,12 +10,10 @@ Build from the repository root:
 docker build -f apps/api/Dockerfile -t pycil-api:local .
 ```
 
-API processes share generation task status through Redis; job execution, singleflight
-and concurrency limits remain per process. Workers must use the same Redis namespace
-(derived from database URL and Clerk issuer) and disk index directory. The Tantivy index
-lives in the `search` volume (`SEARCH_INDEX_PATH`) and is shared safely by processes. Runtime
-requires PostgreSQL with imported reference, Redis, Clerk and model provider configuration.
-WordNet is optional. There is no separate vocabulary package or service.
+The same image supports the [native Taskiq worker command](../modules/jobs.md#native-worker-command)
+as a separate process/service. Worker application code is implemented; Compose/ECS/CI
+worker deployment is deferred to the separately authorized course phase. The API retains
+its local Tantivy projection; workers initialize neither search nor checkpoint pools.
 
 The image starts one Uvicorn worker with a 75-second HTTP drain deadline,
 five-second keep-alive and a concurrency limit of 64 connections or tasks; excess
@@ -32,7 +30,7 @@ stop deadline.
 [Compose](../../../docker-compose.yml) runs PostgreSQL, Redis, an explicit one-shot
 migration service, API and Caddy. Migration imports `data/reference.jsonl.gz` through a
 read-only bind mount, applies the application baseline and runs native checkpoint setup.
-The API waits for stores and migration success. It neither migrates nor imports on startup.
+The API waits for stores and migration success. Any later worker service must use the same migration-before-start gate. It neither migrates nor imports on startup.
 
 Use [the wrapper](../../../scripts/compose.py) with an explicitly selected private file.
 Only `config -q` / `config --quiet` is permitted because resolved configuration exposes
@@ -57,16 +55,12 @@ retrying. No production deployment was performed as part of this rewrite.
 - `/livez` checks process liveness.
 - `/readyz` checks current PostgreSQL, Redis and initialized search within a bounded deadline.
 - Startup verifies schema and reference without repairing either.
-- Generation status remains in Redis for 24 hours after each initial/final write. Graceful
-  shutdown records interruption; a worker crash loses unfinished jobs and can leave
-  `running` status until expiry. Final Redis publication failures are logged and can also
-  leave stale status. Committed vocabulary remains available for reuse on retry.
-- New words are committed before incremental search publication; index failure fails the job.
-- `X-Request-ID`, task and conversation context correlate structured events. Logs redact
+- `X-Request-ID` and conversation context correlate structured events. Logs redact
   provider payloads, tokens and credentials.
 
-Provider availability is not tested by readiness. OpenTelemetry exporters and Langfuse
-remain deferred. Assistant SSE must remain unbuffered; HTTP 200 alone does not establish
+Provider availability and worker backlog are not tested by API readiness. Native Taskiq
+OTel shares the existing SDK/export path; collector deployment and Langfuse remain deferred.
+Monitor worker execution and Redis stream lag/pending independently. Assistant SSE must remain unbuffered; HTTP 200 alone does not establish
 successful completion. [Caddy](../../../Caddyfile) owns ingress limits and streaming behavior.
 
 ## Verification

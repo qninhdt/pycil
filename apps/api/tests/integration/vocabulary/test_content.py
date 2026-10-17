@@ -5,19 +5,25 @@ from cachetools import TTLCache
 from sqlalchemy import event
 
 from pycil.app.config import load_config
-from pycil.app.http import Problem
-from pycil.app.projections import viewer_context, word_previews
 from pycil.infrastructure.kv_store import InMemoryStore
 from pycil.library.models import NodeType
 from pycil.library.nodes import create_node
 from pycil.library.schemas import NodeCreate
 from pycil.study.models import UserSense
+from pycil.utils.errors import OperationError
 from pycil.vocabulary import content
+from pycil.vocabulary.config import PreviewPolicy
 from pycil.vocabulary.content import delete_word, edit_word
 from pycil.vocabulary.enums import PartOfSpeech, Tier
 from pycil.vocabulary.models import Definition, Example, Sense
 from pycil.vocabulary.schemas import CachedWord
-from pycil.vocabulary.words import get_sense_previews, get_senses, get_word
+from pycil.vocabulary.words import (
+    get_sense_previews,
+    get_senses,
+    get_word,
+    viewer_context,
+    word_previews,
+)
 from tests.support.account import account
 from tests.support.vocabulary import neutral_word
 
@@ -159,9 +165,9 @@ async def test_word_preview_hydration_keeps_complete_groups_and_rejects_overflow
     config = load_config()
     config = config.model_copy(
         update={
-            "product": config.product.model_copy(
+            "vocabulary": config.vocabulary.model_copy(
                 update={
-                    "projections": config.product.projections.model_copy(
+                    "preview": config.vocabulary.preview.model_copy(
                         update={"max_word_senses": 2, "inline_examples": 1}
                     )
                 }
@@ -183,7 +189,7 @@ async def test_word_preview_hydration_keeps_complete_groups_and_rejects_overflow
     await get_word(database.sessions, word_id, sense_store=senses)
     async with database.sessions() as session:
         result = await word_previews(
-            session, database.sessions, [word_id], config, sense_store=senses
+            session, database.sessions, [word_id], config.vocabulary.preview, sense_store=senses
         )
     assert len(senses.get(second.id).examples) == 2
     assert result[0]["senses"][1].definition is senses.get(second.id).definition
@@ -194,19 +200,9 @@ async def test_word_preview_hydration_keeps_complete_groups_and_rejects_overflow
         ([word_id], 1, "lexical_batch_too_large"),
         ([word_id, 99999], 2, "word_not_found"),
     ]:
-        limited = config.model_copy(
-            update={
-                "product": config.product.model_copy(
-                    update={
-                        "projections": config.product.projections.model_copy(
-                            update={"max_word_senses": limit}
-                        )
-                    }
-                )
-            }
-        )
+        limited = PreviewPolicy(max_word_senses=limit)
         async with database.sessions() as session:
-            with pytest.raises(Problem) as error:
+            with pytest.raises(OperationError) as error:
                 await word_previews(session, database.sessions, identifiers, limited)
             assert error.value.code == code
 
@@ -221,7 +217,7 @@ async def test_viewer_context_never_reuses_another_users_memory_or_private_sourc
             session,
             owner.id,
             NodeCreate(type=NodeType.DECK, name="Private finance", sense_ids=[sense_id]),
-            config,
+            config.library,
         )
     now = datetime.now(UTC)
     async with database.sessions() as session, session.begin():
@@ -239,14 +235,35 @@ async def test_viewer_context_never_reuses_another_users_memory_or_private_sourc
             )
         )
     async with database.sessions() as session:
-        personal = await viewer_context(session, owner.id, config, [sense_id])
+        personal = await viewer_context(
+            session,
+            owner.id,
+            [sense_id],
+            library_config=config.library,
+            study_config=config.study,
+            policy=config.vocabulary.preview,
+        )
     async with database.sessions() as session:
-        unrelated = await viewer_context(session, other.id, config, [sense_id])
+        unrelated = await viewer_context(
+            session,
+            other.id,
+            [sense_id],
+            library_config=config.library,
+            study_config=config.study,
+            policy=config.vocabulary.preview,
+        )
     assert personal["studied"] == personal["due"] == 1
     assert personal["senses"][0]["decks"][0]["id"] == deck["id"]
     assert unrelated["new"] == 1 and unrelated["studied"] == unrelated["due"] == 0
     assert unrelated["senses"][0]["decks"] == [] and unrelated["senses"][0]["deck_count"] == 0
     async with database.sessions() as session:
-        with pytest.raises(Problem) as error:
-            await viewer_context(session, owner.id, config, [sense_id, sense_id])
+        with pytest.raises(OperationError) as error:
+            await viewer_context(
+                session,
+                owner.id,
+                [sense_id, sense_id],
+                library_config=config.library,
+                study_config=config.study,
+                policy=config.vocabulary.preview,
+            )
         assert error.value.code == "context_too_large"

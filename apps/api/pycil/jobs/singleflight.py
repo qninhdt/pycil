@@ -1,6 +1,6 @@
 """Reuse an owned in-flight job while serializing matching submissions."""
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from uuid import UUID
 
@@ -13,7 +13,7 @@ from pycil.jobs.metadata import owned
 @asynccontextmanager
 async def singleflight(
     redis: Redis, broker: AsyncBroker, key: str, user: UUID
-) -> AsyncIterator[str | None]:
+) -> AsyncGenerator[str | None]:
     async with redis.lock(
         key + ":lock",
         timeout=30,
@@ -21,9 +21,9 @@ async def singleflight(
         thread_local=False,
         raise_on_release_error=False,
     ):
-        existing = None
+        existing: str | None = None
         if value := await redis.get(key):
-            job_id = value.decode()
+            job_id = value.decode() if isinstance(value, bytes) else str(value)
             if await owned(redis, job_id, user) and not await broker.result_backend.is_result_ready(
                 job_id
             ):

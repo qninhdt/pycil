@@ -5,7 +5,7 @@ from typing import Protocol
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from pycil.infrastructure.observability import get_logger
+from pycil.observability import get_logger
 from pycil.vocabulary.enums import ResolutionState
 from pycil.vocabulary.errors import InvalidOutputError
 from pycil.vocabulary.relations.decisions import RELATION_RULES, relation_selection_model

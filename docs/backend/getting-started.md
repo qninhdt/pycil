@@ -39,11 +39,7 @@ Old schema revisions require an explicit export/transfer; see [migrations](opera
 uv run --locked --env-file /absolute/path/to/development.env uvicorn pycil.main:app --reload
 ```
 
-Search uses an in-memory index unless `SEARCH_INDEX_PATH` is set. Multiple API workers
-must share the disk index directory and Redis namespace; task polling reads shared Redis
-status, while generation execution and singleflight stay per process. Restart interrupts
-active work while committed content survives. See [runtime operations](operations/deployment.md)
-for status expiry and crash limits. Requested generation may call paid providers.
+Search uses an in-memory index unless `SEARCH_INDEX_PATH` is set. Multiple API processes sharing a disk index use one writer. Start the native Taskiq worker in a separate terminal using the [worker command](modules/jobs.md#native-worker-command). Preparation and word-generation submissions require a running worker for completion.
 
 For Compose, run from the repository root:
 
@@ -53,7 +49,8 @@ python scripts/compose.py --env-file /absolute/path/to/development.env up --buil
 ```
 
 Compose mounts `data/reference.jsonl.gz` read-only into its one-shot migration service.
-The API reads reference rows from PostgreSQL and has no artifact mount. The wrapper
+The API reads reference rows from PostgreSQL and has no artifact mount. The worker service has not yet been added to Compose; start it separately with store
+addresses reachable from that process. The wrapper
 derives store addresses; use it instead of raw Compose. This workflow writes the selected
 database. Review its target before running it.
 

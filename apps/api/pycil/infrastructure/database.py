@@ -2,23 +2,19 @@
 
 from collections.abc import Iterable, Mapping, Sequence
 from enum import StrEnum
-from time import perf_counter
 
-from opentelemetry import trace
 from sqlalchemy import (
     Enum,
     FromClause,
     MetaData,
     ScalarSelect,
     cast,
-    event,
     func,
     literal,
     select,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.engine import Connection, ExceptionContext, ExecutionContext
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -26,24 +22,8 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy.pool import AsyncAdaptedQueuePool, PoolProxiedConnection
+from sqlalchemy.pool import AsyncAdaptedQueuePool
 from sqlalchemy.sql.expression import ColumnExpressionArgument
-
-from pycil.infrastructure.observability import (
-    get_logger,
-    observe_pool_acquisition,
-    record_database_duration,
-)
-
-logger = get_logger(__name__)
-_query_tracer = trace.get_tracer("pycil.database")
-_sql_operations = frozenset("SELECT INSERT UPDATE DELETE WITH SET SHOW".split())
-
-
-class ApplicationPool(AsyncAdaptedQueuePool):
-    def connect(self) -> PoolProxiedConnection:
-        with observe_pool_acquisition("application"):
-            return super().connect()
 
 
 class Base(DeclarativeBase):
@@ -79,12 +59,15 @@ def connect(
     max_overflow: int = 0,
     timeout_seconds: float = 2,
     connect_timeout_seconds: float = 60,
+    poolclass: type[AsyncAdaptedQueuePool] = AsyncAdaptedQueuePool,
+    name: str | None = None,
 ) -> tuple[AsyncEngine, async_sessionmaker[AsyncSession]]:
     if not url.startswith("postgresql+asyncpg://"):
         raise ValueError("Pycil requires an explicit PostgreSQL async URL")
     engine = create_async_engine(
         url,
-        poolclass=ApplicationPool,
+        poolclass=poolclass,
+        pool_logging_name=name,
         pool_pre_ping=True,
         pool_size=size,
         max_overflow=max_overflow,
@@ -96,66 +79,13 @@ def connect(
         },
     )
 
-    @event.listens_for(engine.sync_engine, "before_cursor_execute")
-    def query_started(
-        _connection: Connection,
-        _cursor: object,
-        statement: str,
-        _parameters: object,
-        context: ExecutionContext | None,
-        _executemany: bool,
-    ) -> None:
-        if context is not None:
-            context._pycil_query_started = perf_counter()  # pyright: ignore[reportAttributeAccessIssue]
-            operation = statement.split(None, 1)[0].upper() if statement.strip() else "SQL"
-            if operation not in _sql_operations:
-                operation = "SQL"
-            # Contrib 0.66b0 excludes SQLAlchemy 2.1; reuse these hooks without SQL capture.
-            context._pycil_query_span = _query_tracer.start_span(  # pyright: ignore[reportAttributeAccessIssue]
-                operation,
-                kind=trace.SpanKind.CLIENT,
-                attributes={"db.system.name": "postgresql", "db.operation.name": operation},
-            )
-
-    def query_finished(
-        context: ExecutionContext | None,
-        error: BaseException | None = None,
-    ) -> None:
-        if context is not None:
-            started: object = getattr(context, "_pycil_query_started", None)
-            if isinstance(started, float):
-                try:
-                    delattr(context, "_pycil_query_started")
-                except AttributeError:
-                    pass
-                record_database_duration("query", "application", started, error)
-            span_val: object = getattr(context, "_pycil_query_span", None)
-            if isinstance(span_val, trace.Span):
-                try:
-                    delattr(context, "_pycil_query_span")
-                except AttributeError:
-                    pass
-                if error is not None:
-                    span_val.set_attribute("error.type", type(error).__name__)
-                    span_val.set_status(trace.Status(trace.StatusCode.ERROR))
-                span_val.end()
-
-    @event.listens_for(engine.sync_engine, "after_cursor_execute")
-    def query_succeeded(
-        _connection: Connection,
-        _cursor: object,
-        _statement: str,
-        _parameters: object,
-        context: ExecutionContext | None,
-        _executemany: bool,
-    ) -> None:
-        query_finished(context)
-
-    @event.listens_for(engine.sync_engine, "handle_error")
-    def query_failed(context: ExceptionContext) -> None:
-        query_finished(context.execution_context, context.original_exception)
-
     return engine, async_sessionmaker(engine, expire_on_commit=False)
+
+
+async def lock_rows(session: AsyncSession, model: type[Base], identifiers: Iterable[int]) -> None:
+    column = model.__table__.c.id
+    for identifier in sorted(set(identifiers)):
+        await session.execute(select(column).where(column == identifier).with_for_update())
 
 
 async def transaction_lock(session: AsyncSession, key: str) -> None:
@@ -189,65 +119,3 @@ def json_collection(
     ).scalar_subquery()
 
 
-def register_models():
-    from pycil.account import models as account
-    from pycil.assistant import models as assistant
-    from pycil.infrastructure import content_revisions
-    from pycil.library import models as library
-    from pycil.study import models as study
-    from pycil.themes import models as themes
-    from pycil.vocabulary import models as vocabulary
-    from pycil.vocabulary.references import models as reference
-
-    return account, assistant, library, study, themes, vocabulary, reference, content_revisions
-
-
-async def verify_schema(engine: AsyncEngine, *, require_reference: bool = True) -> None:
-    """Read-only gate; missing or obsolete tables are never repaired on startup."""
-    from alembic.script import ScriptDirectory
-    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-
-    from pycil.app.migrate import migration_config
-
-    register_models()
-    head = ScriptDirectory.from_config(migration_config("postgresql+asyncpg://")).get_current_head()
-    try:
-        async with engine.connect() as connection:
-            versions = (
-                (await connection.execute(text("SELECT version_num FROM public.alembic_version")))
-                .scalars()
-                .all()
-            )
-            native = (
-                (
-                    await connection.execute(
-                        text("SELECT v FROM public.checkpoint_migrations ORDER BY v")
-                    )
-                )
-                .scalars()
-                .all()
-            )
-            if versions != [head] or native != list(range(len(AsyncPostgresSaver.MIGRATIONS))):
-                raise RuntimeError("schema_version_mismatch; run the explicit setup command")
-            required = set(Base.metadata.tables) | {
-                "checkpoints",
-                "checkpoint_blobs",
-                "checkpoint_writes",
-            }
-            existing = set(
-                (
-                    await connection.execute(
-                        text("SELECT tablename FROM pg_tables WHERE schemaname='public'")
-                    )
-                ).scalars()
-            )
-            if not required <= existing:
-                raise RuntimeError("schema_tables_missing; run the explicit setup command")
-            if require_reference and not await connection.scalar(
-                text("SELECT EXISTS(SELECT 1 FROM reference_words)")
-            ):
-                raise RuntimeError("reference_dataset_missing; import reference JSONL explicitly")
-        logger.info("schema_verification_passed")
-    except Exception as error:
-        logger.error("schema_verification_failed", error_type=type(error).__name__)
-        raise

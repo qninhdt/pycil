@@ -7,7 +7,7 @@ import { useSearchParams } from 'next/navigation'
 import { dictionaryQueries, dictionaryState } from '@/features/vocabulary/queries'
 import { updateUrl } from '@/lib/query/url'
 
-import { useDeferredValue, useEffect, useState } from 'react'
+import { useDeferredValue, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useTranslations } from 'next-intl'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -22,6 +22,7 @@ import { MeaningSources } from '@/features/library/meaning-sources.client'
 import { LearningBadge } from '@/features/library/library-shared.client'
 import { PatternList } from './pattern-badge.client'
 import { Button } from '@/components/ui/button'
+import { resumeJob, parseGeneratedWord } from '@/lib/api/jobs'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type { ReferenceHit, DictionaryWord, SenseContext } from '@/lib/api/vocabulary'
@@ -99,30 +100,33 @@ export function DictionaryPage() {
   const setInput = (value: string) => updateUrl({ q: value, word: null }, true)
   const setSelectedWordId = (id: number | null) => updateUrl({ word: id === null ? null : String(id) })
   const [reference, setReference] = useState<ReferenceHit | null>(null)
+  const [generating, setGenerating] = useState(false), [generationError, setGenerationError] = useState('')
+  const generation = useRef<AbortController | null>(null)
+  useEffect(() => () => generation.current?.abort(), [scope, reference?.reference_id, selectedWordId])
+  async function generateReference() {
+    if (!reference || !account.profile || !account.canMutate || generating) return
+    const selected = reference
+    const controller = new AbortController()
+    generation.current = controller
+    setGenerating(true); setGenerationError('')
+    try {
+      const id = await resumeJob(
+        queryClient,
+        `pycil:word-job:${account.profile.id}:${selected.reference_id}`,
+        () => services.dictionary.generate(selected.reference_id, controller.signal),
+        services.jobs.status, parseGeneratedWord, controller.signal,
+      )
+      if (controller.signal.aborted) return
+      setReference(null); setSelectedWordId(id)
+      await queryClient.invalidateQueries({ queryKey: [services.mode, scope, 'dictionary-search'] })
+    } catch (error) { if (!controller.signal.aborted) setGenerationError(error instanceof Error ? error.message : t('retryPreparation')) }
+    finally { if (generation.current === controller) { generation.current = null; setGenerating(false) } }
+  }
   useAssistantView(undefined, reference ? null : selectedWordId)
-  const [jobId, setJobId] = useState<string | null>(null), [preparing, setPreparing] = useState(false), [prepareError, setPrepareError] = useState('')
   const [senseId, setSenseId] = useState<number | null>(null)
   const queries = dictionaryQueries(services, scope, deferred, selectedWordId)
   const search = useQuery(queries.search), detail = useQuery(queries.word)
   const context = useQuery({ ...queries.context, enabled: queries.context.enabled && account.status === 'ready' })
-  const job = useQuery({ queryKey: [services.mode, scope, 'dictionary-generation', jobId], queryFn: ({ signal }) => services.dictionary.generation(jobId!, signal), enabled: Boolean(jobId),
-    refetchInterval: query => ['running'].includes(query.state.data?.status ?? '') ? webConfig.polling.generationMs : false })
-  useEffect(() => { if (job.data?.status === 'succeeded' && job.data.word_id) {
-    void queryClient.invalidateQueries({ queryKey: [services.mode, scope, 'dictionary-search'] }).then(() => {
-      setSelectedWordId(job.data!.word_id); setReference(null); setJobId(null)
-    })
-  } }, [job.data, queryClient, scope, services.mode])
-  async function prepare(hit: ReferenceHit) {
-    setPreparing(true); setPrepareError('')
-    try {
-      const result = await services.dictionary.prepare(hit.reference_id, hit.display, new AbortController().signal)
-      if (result.status === 'succeeded' && result.word_id) {
-        setSelectedWordId(result.word_id); setReference(null)
-      }
-      else setJobId(result.task_id)
-    } catch (cause) { setPrepareError(cause instanceof Error ? cause.message : 'Could not prepare this entry. Please retry.') }
-    finally { setPreparing(false) }
-  }
   async function saveSense(deckId: string) {
     if (senseId == null) return
     await services.library.updateDeckSenses(deckId, { add: [senseId], remove: [] }, new AbortController().signal)
@@ -141,7 +145,7 @@ export function DictionaryPage() {
   const results = search.data
   return <div className="w-full min-w-0 [&_h1]:font-extrabold [&_h1]:tracking-tight [&_h2]:font-extrabold [&_h2]:tracking-tight [&_h3]:font-extrabold [&_h3]:tracking-tight"><header className="grid grid-cols-[minmax(0,1.3fr)_1fr_1fr_1fr] max-[767px]:grid-cols-1 items-stretch min-h-[124px] max-[767px]:min-h-0 max-[767px]:py-4 border-b border-border [&_h1]:leading-[1.12]"><div className="col-span-3 max-[767px]:col-span-1 min-w-0 flex flex-col justify-center py-4 pr-6 max-[767px]:p-0"><h1 className="text-[clamp(2.25rem,2.6vw,3rem)] font-extrabold leading-[1.12] tracking-[-.03em] max-[700px]:text-[34px]">{t('title')}<span className="text-art-red" aria-hidden="true">.</span></h1></div><div className="header-motif-art col-span-1 max-[767px]:hidden" aria-hidden="true"><Motif name="split-circle" /></div></header>
     <form className="flex items-center gap-3 border-b border-foreground min-h-[72px] [&_>_svg]:size-5 [&_>_svg]:flex-none [&_>_svg]:ml-3.5 [&_[data-slot=input]]:flex-1 [&_[data-slot=input]]:h-14 [&_[data-slot=input]]:p-0 [&_[data-slot=input]]:border-0 [&_[data-slot=input]]:text-[17px] [&_>_[data-slot=button]:last-child]:mr-2 max-[700px]:gap-1.5 max-[700px]:[&_>_svg]:ml-1 max-[700px]:[&_[data-slot=input]]:text-sm max-[700px]:[&_>_[data-slot=button]:last-child]:px-2.5 max-[700px]:[&_>_[data-slot=button]:last-child]:text-xs" role="search" onSubmit={event => { event.preventDefault(); setSelectedWordId(null); setReference(null) }}>
-      <Search aria-hidden="true" /><Input type="text" inputMode="search" role="searchbox" disabled={!hydrated} aria-label={t('searchPlaceholder')} placeholder={t('searchPlaceholder')} value={input} maxLength={webConfig.search.maxQueryChars} onChange={event => { setInput(event.target.value); setSelectedWordId(null); setReference(null); setJobId(null) }} />
+      <Search aria-hidden="true" /><Input type="text" inputMode="search" role="searchbox" disabled={!hydrated} aria-label={t('searchPlaceholder')} placeholder={t('searchPlaceholder')} value={input} maxLength={webConfig.search.maxQueryChars} onChange={event => { setInput(event.target.value); setSelectedWordId(null); setReference(null) }} />
       {input && <Button type="button" variant="ghost" size="icon" aria-label={tCommon('clearSearch')} onClick={() => { setInput(''); setSelectedWordId(null); setReference(null) }}><X aria-hidden="true" /></Button>}
       <Button type="submit">{t('searchButton')}</Button>
     </form>
@@ -155,48 +159,12 @@ export function DictionaryPage() {
                   <Icon name="book" /><span><strong>{hit.lemma}</strong>{hit.matched_surface !== hit.lemma && <small>Matched “{hit.matched_surface}”</small>}<span className="sr-only">{t('ready')}</span></span>
                 </button>
               ) : (
-                <button key={`reference:${hit.reference_id}`} type="button" className="grid grid-cols-[30px_minmax(0,1fr)_auto] items-center gap-3 w-full min-h-12 px-3 py-2 text-left border-b border-border bg-transparent transition-colors duration-150 ease-out hover:bg-accent [&[aria-current=true]]:bg-accent focus-visible:relative focus-visible:z-[1] [&_>_.bauhaus-icon]:size-6 [&_strong]:text-sm [&_small]:block [&_small]:text-muted-foreground [&_small]:text-[11px] max-[700px]:grid-cols-[25px_minmax(0,1fr)_auto] max-[700px]:gap-2" onClick={() => { setReference(hit); setSelectedWordId(null); setJobId(null); setPrepareError('') }} aria-current={reference?.reference_id === hit.reference_id ? 'true' : undefined}>
-                  <Icon name="document" /><span><strong>{hit.display}</strong><span className="sr-only">{t('needsPreparation')}</span></span><span className="px-2 py-0.5 text-[11px] font-bold border border-art-blue/40 text-art-blue bg-art-blue/10 tracking-wider">{t('generate')}</span>
+                <button key={`reference:${hit.reference_id}`} type="button" className="grid grid-cols-[30px_minmax(0,1fr)_auto] items-center gap-3 w-full min-h-12 px-3 py-2 text-left border-b border-border bg-transparent transition-colors duration-150 ease-out hover:bg-accent [&[aria-current=true]]:bg-accent focus-visible:relative focus-visible:z-[1] [&_>_.bauhaus-icon]:size-6 [&_strong]:text-sm [&_small]:block [&_small]:text-muted-foreground [&_small]:text-[11px] max-[700px]:grid-cols-[25px_minmax(0,1fr)_auto] max-[700px]:gap-2" onClick={() => { setReference(hit); setSelectedWordId(null) }} aria-current={reference?.reference_id === hit.reference_id ? 'true' : undefined}>
+                  <Icon name="document" /><span><strong>{hit.display}</strong><span className="sr-only">{t('needsPreparation')}</span></span>
                 </button>
               ))}</div>}
       </section>}
-    {reference && <section className="border-b border-border bg-accent/25 p-6 md:p-8" aria-labelledby="reference-gen-heading">
-      <div className="max-w-[760px]">
-        <div className="flex items-center gap-2 mb-2">
-          <span className="inline-block px-2 py-0.5 text-[11px] font-bold uppercase tracking-widest bg-foreground text-background">{t('referenceTag')}</span>
-          <span className="text-xs text-muted-foreground capitalize">{reference.entry_type.toLowerCase().replaceAll('_', ' ')}</span>
-        </div>
-        <h2 id="reference-gen-heading" className="text-3xl font-extrabold tracking-tight mb-2">{reference.display}</h2>
-        <p className="text-sm text-muted-foreground leading-relaxed mb-6">{t('generateDesc')}</p>
-        {jobId ? job.isError ? (
-          <div className="border border-art-red bg-background p-4 text-sm" role="alert">
-            <p className="font-semibold text-art-red mb-2">{t('couldNotCheckPreparation')}</p>
-            <Button variant="outline" size="sm" onClick={() => { void job.refetch() }}>{t('checkAgain')}</Button>
-          </div>
-        ) : job.data?.status === 'failed' ? (
-          <div className="border border-art-red bg-background p-4 text-sm" role="alert">
-            <p className="font-semibold text-art-red mb-2">{t('preparationFailed')}{job.data.error ? `: ${job.data.error}` : '.'}</p>
-            <Button variant="outline" size="sm" onClick={() => { void prepare(reference) }}>{tCommon('retry')}</Button>
-          </div>
-        ) : (
-          <div className="border border-foreground bg-background p-5 text-sm" role="status">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="size-4 border-2 border-art-blue border-t-transparent rounded-full animate-spin" aria-hidden="true" />
-              <strong className="font-bold">{job.data?.stage ? t('generatingStage', { stage: job.data.stage }) : t('generatingWord')}</strong>
-            </div>
-            <div className="h-1.5 w-full bg-secondary overflow-hidden" aria-hidden="true"><div className="h-full bg-art-blue shimmer shimmer-bg w-3/4" /></div>
-          </div>
-        ) : account.status === 'ready' ? (
-          <div className="flex items-center gap-3">
-            <Button size="lg" onClick={() => { void prepare(reference) }} disabled={preparing}><Plus aria-hidden="true" />{preparing ? t('requesting') : t('prepareEntry')}</Button>
-            <Button variant="ghost" onClick={() => setReference(null)}>{tCommon('cancel')}</Button>
-          </div>
-        ) : (
-          <Button asChild size="lg"><Link href={`/login?returnTo=${encodeURIComponent(`/app/dictionary?q=${input.trim()}`)}`}>{t('signInToPrepare')}</Link></Button>
-        )}
-        {prepareError && <p className="mt-3 text-sm font-semibold text-art-red" role="alert">{prepareError}</p>}
-      </div>
-    </section>}
+    {reference && <section className="border-b border-border p-6"><h2 className="text-3xl font-extrabold">{reference.display}</h2><p className="text-sm text-muted-foreground">{t('prepNotice')}</p><Button className="mt-3" disabled={!account.canMutate || generating} onClick={() => { void generateReference() }}>{generating ? t('preparingEntry') : account.canMutate ? t('prepareEntry') : t('signInToPrepare')}</Button>{generationError && <p role="alert" className="mt-2 text-sm text-destructive">{generationError}</p>}</section>}
     {showDetail && (detail.isPending ? <HomeLoading label={t('word')} /> : detail.isError ? <HomeFailure label={t('word')} error={detail.error} retry={() => { void detail.refetch() }} />
       : <WordDetail key={detail.data.id} word={detail.data} contexts={context.data?.senses} contextError={context.isError ? context.error : null} retryContext={() => { void context.refetch() }} onAdd={setSenseId} onSelectWord={(id, lemma) => { setInput(lemma); setSelectedWordId(id) }} />)}
     {senseId != null && account.profile && <LibraryDestinationDialog open onOpenChange={open => { if (!open) setSenseId(null) }} profile={account.profile} kind="deck" action={t('addToDeck')}

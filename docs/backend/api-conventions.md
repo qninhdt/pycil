@@ -65,11 +65,19 @@ and unique for deck membership. Blank names fail validation.
 - Node `PUT` is a full-state save, not a merge patch. Decks require complete `sense_ids`
   even for a rename. Omitted/null parent resolves to Personal, not "keep old parent."
 - Settings `PATCH` merges only explicitly supplied known levels. Explicit null is invalid.
-- Deletes return 204 with no response body; creation returns 201; generation submission returns 202.
+- Job acceptance returns 202; read completion through its status URL.
+- Deletes return 204 with no response body; creation returns 201.
 - There is no universal idempotency middleware for all mutations.
 
 Never retry a create or publish-with-retained-reference blindly after an unknown outcome;
 inspect current state first. Review-specific replay is documented in [Study](modules/study.md).
+
+## Asynchronous request/reply
+
+Word generation and study preparation return 202 with `job_id`, `status_url`,
+`Location` and `Retry-After`. GET the owner-only `/v1/jobs/{job_id}` until a terminal
+status; acceptance is not completion. See [jobs](modules/jobs.md) for expiry,
+backoff, safe failures and retry limitations. Old word-status routes are absent.
 
 ## Errors and correlation
 

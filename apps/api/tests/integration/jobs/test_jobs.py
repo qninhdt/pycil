@@ -11,7 +11,7 @@ from taskiq import TaskiqResult
 from taskiq.depends.progress_tracker import TaskProgress, TaskState
 from taskiq.receiver import Receiver
 
-from pycil.account.auth import current_user_id
+from pycil.app.auth import current_user_id
 from pycil.app.broker import (
     CONSUMER_GROUP_NAME,
     TASK_RESULT_PREFIX,
@@ -125,16 +125,24 @@ async def test_database_connection_refusal_retries_before_domain_work(
             database.sessions, reference_file(tmp_path / "reference.jsonl", [reference_word()])
         )
         accepted = await request_generation(
-            database.sessions, redis, native, config, user.id, encode_reference_id(1)
+            database.sessions,
+            redis,
+            native,
+            config.vocabulary,
+            config.jobs,
+            user.id,
+            encode_reference_id(1),
         )
     else:
         accepted = await request_preparation(
             database.sessions,
             redis,
             native,
-            config,
+            config.study,
+            config.jobs,
             user.id,
             Prepare(node_id=roots[NodeRole.LIBRARY_ROOT].id),
+            plans=config.account.plans,
         )
     await database.engine.dispose()
     failures = []
@@ -211,7 +219,16 @@ async def test_preparation_request_coalesces_effective_options_and_native_result
     data = Prepare(node_id=roots[NodeRole.LIBRARY_ROOT].id)
     first, same = await asyncio.gather(
         *(
-            request_preparation(database.sessions, redis, native, config, user.id, data)
+            request_preparation(
+                database.sessions,
+                redis,
+                native,
+                config.study,
+                config.jobs,
+                user.id,
+                data,
+                plans=config.account.plans,
+            )
             for _ in range(2)
         )
     )
@@ -228,9 +245,11 @@ async def test_preparation_request_coalesces_effective_options_and_native_result
         database.sessions,
         redis,
         native,
-        config,
+        config.study,
+        config.jobs,
         user.id,
         Prepare(node_id=roots[NodeRole.LIBRARY_ROOT].id, questions_per_sense=1, max_sense_count=1),
+        plans=config.account.plans,
     )
     assert changed.job_id != first.job_id
 
@@ -364,7 +383,15 @@ async def test_word_tasks_keep_owner_private_and_singleflight_cross_user_work(
     reference = encode_reference_id(1)
     jobs = await asyncio.gather(
         *(
-            request_generation(database.sessions, redis, native, config, user.id, reference)
+            request_generation(
+                database.sessions,
+                redis,
+                native,
+                config.vocabulary,
+                config.jobs,
+                user.id,
+                reference,
+            )
             for user in users
         )
     )
@@ -393,7 +420,7 @@ async def test_ambiguous_publish_keeps_owner_but_does_not_reuse_an_unconfirmed_p
     database,
     monkeypatch,
 ):
-    from pycil.app.http import Problem
+    from pycil.utils.errors import OperationError
 
     native, redis, config = native_jobs
     user, roots = await account(database.sessions)
@@ -410,23 +437,27 @@ async def test_ambiguous_publish_keeps_owner_but_does_not_reuse_an_unconfirmed_p
     native.with_id_generator(identifier)
     with monkeypatch.context() as patch:
         patch.setattr(native, "kick", lost_reply)
-        with pytest.raises(Problem, match="job_submission_unavailable"):
+        with pytest.raises(OperationError, match="job_submission_unavailable"):
             await request_preparation(
                 database.sessions,
                 redis,
                 native,
-                config,
+                config.study,
+                config.jobs,
                 user.id,
                 Prepare(node_id=roots[NodeRole.LIBRARY_ROOT].id),
+                plans=config.account.plans,
             )
     assert await redis.get(owner_key(ids[0])) == str(user.id).encode()
     accepted = await request_preparation(
         database.sessions,
         redis,
         native,
-        config,
+        config.study,
+        config.jobs,
         user.id,
         Prepare(node_id=roots[NodeRole.LIBRARY_ROOT].id),
+        plans=config.account.plans,
     )
     assert str(accepted.job_id) != ids[0]
     assert await redis.xlen(native.queue_name) == 1
@@ -495,9 +526,8 @@ async def test_native_telemetry_propagates_http_context_and_closes_retry_spans(
     from sqlalchemy import text
     from taskiq.middlewares.opentelemetry_middleware import OpenTelemetryMiddleware
 
-    from pycil.app import http
-    from pycil.infrastructure import database as storage
-    from pycil.infrastructure import observability
+    from pycil.observability import database as db_obs
+    from pycil.observability import http
 
     native, redis, config = native_jobs
     spans = InMemorySpanExporter()
@@ -506,8 +536,9 @@ async def test_native_telemetry_propagates_http_context_and_closes_retry_spans(
     reader = InMemoryMetricReader()
     meter = MeterProvider(metric_readers=[reader], shutdown_on_exit=False)
     native.add_middlewares(OpenTelemetryMiddleware(tracer_provider=tracer, meter_provider=meter))
-    monkeypatch.setattr(storage, "_query_tracer", tracer.get_tracer("pycil.database"))
-    monkeypatch.setattr(observability, "_http_tracer", tracer.get_tracer("pycil.http.client"))
+    monkeypatch.setattr(db_obs, "_query_tracer", tracer.get_tracer("pycil.database"))
+    db_obs.observe_engine(database.engine, "application")
+    monkeypatch.setattr(http, "_http_tracer", tracer.get_tracer("pycil.http.client"))
     monkeypatch.setattr(
         http,
         "OpenTelemetryMiddleware",
@@ -526,7 +557,7 @@ async def test_native_telemetry_propagates_http_context_and_closes_retry_spans(
             assert await session.scalar(text("SELECT 1")) == 1
         from httpx import MockTransport, Response
 
-        async with observability.ObservedAsyncClient(
+        async with http.ObservedAsyncClient(
             transport=MockTransport(lambda request: Response(200, json={"ok": True})),
         ) as client:
             assert (
@@ -658,7 +689,8 @@ async def test_provider_failure_is_private_and_does_not_retry_paid_work(
         database.sessions,
         redis,
         native,
-        config,
+        config.vocabulary,
+        config.jobs,
         user.id,
         encode_reference_id(1),
     )
@@ -706,7 +738,11 @@ async def test_assistant_generation_waits_for_batch_and_returns_partial_results(
     resources.structured_llm = WordProvider()
     resources.word_store = InMemoryStore(max_entries=10, ttl=30)
     resources.sense_store = InMemoryStore(max_entries=10, ttl=30)
-    index = resources.search = SearchIndex(database.sessions)
+    index = resources.search = SearchIndex(
+        database.sessions,
+        policy=load_config().vocabulary.search_runtime,
+        query_policy=load_config().vocabulary.search,
+    )
     await index.start()
     invocation = None
     listener = native.listen()
@@ -772,11 +808,7 @@ async def test_assistant_wait_timeout_keeps_job_running_without_resubmission(
     resources.broker = native
     config = config.model_copy(
         update={
-            "runtime": config.runtime.model_copy(
-                update={
-                    "jobs": config.runtime.jobs.model_copy(update={"timeout_seconds": 0.05}),
-                }
-            )
+            "jobs": config.jobs.model_copy(update={"timeout_seconds": 0.05}),
         }
     )
     surface = {tool.name: tool for tool in tools(resources, user.id, config)}

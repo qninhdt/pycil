@@ -1,7 +1,8 @@
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 
-from pycil.infrastructure.database import Base, register_models, verify_schema
+from pycil.app.schema import register_models, verify_schema
+from pycil.infrastructure.database import Base
 
 
 async def test_initial_migration_matches_application_metadata(database):

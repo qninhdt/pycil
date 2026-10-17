@@ -1,15 +1,20 @@
 """Read-only diagnostic grading; review submission owns learning progress writes."""
 
 from collections.abc import Sequence
-from typing import Protocol, cast
+from typing import Protocol
 
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from pycil.infrastructure.kv_store import InMemoryStore
-from pycil.infrastructure.observability import get_logger, observe_operation
-from pycil.study.artifacts.schemas import Artifact
+from pycil.observability import get_logger, observe_operation
+from pycil.study.artifacts.schemas import (
+    Artifact,
+    ContextToWordArtifact,
+    ContextWordMeaningArtifact,
+    RewriteArtifact,
+)
 from pycil.study.artifacts.storage import get_many
 from pycil.study.config import GradingPolicy
 from pycil.study.decisions import (
@@ -144,11 +149,12 @@ async def grade_answer(
             raise InvalidResourceError("artifact meaning is unavailable")
         lemma: str = str(facts[0])
         meaning: str = str(facts[1])
+        typed = artifact.typed_payload
         if fmt is ResponseFormat.SINGLE_WORD:
-            payload_dict = artifact.payload
             correct = (
-                cast(str, cast(dict[str, object], payload_dict["correct"])["expression"])
+                typed.correct.expression
                 if kind is QuestionType.CLOZE_TO_WORD
+                and isinstance(typed, ContextWordMeaningArtifact)
                 else lemma
             )
             if answer_key(answer) == answer_key(correct):
@@ -161,20 +167,22 @@ async def grade_answer(
                     task_fit=True, spelling_error=False, sense_id=artifact.sense_id
                 )
             else:
-                context = (
-                    meaning
-                    if kind is QuestionType.DEFINITION_TO_WORD
-                    else cast(str, payload_dict.get("context", lemma))
-                )
+                if kind is QuestionType.DEFINITION_TO_WORD:
+                    context = meaning
+                elif isinstance(typed, (ContextWordMeaningArtifact, ContextToWordArtifact)):
+                    context = typed.context
+                else:
+                    context = lemma
                 result = await _single_word(
                     sessions, search, decision_llm, context, kind, answer, policy
                 )
         elif kind is QuestionType.WORD_TO_DEFINITION:
             result = await _definition(sessions, decision_llm, artifact.sense_id, answer)
         else:
-            payload_dict = artifact.payload
             source = (
-                cast(str, payload_dict["source"]) if kind is QuestionType.SENTENCE_REWRITE else None
+                typed.source
+                if kind is QuestionType.SENTENCE_REWRITE and isinstance(typed, RewriteArtifact)
+                else None
             )
             result = await _usage(decision_llm, lemma, meaning, answer, policy, kind, source)
         return result

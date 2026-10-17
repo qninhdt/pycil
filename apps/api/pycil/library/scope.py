@@ -12,11 +12,11 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 
-from pycil.app.config import AppConfig
-from pycil.app.http import Problem
-from pycil.infrastructure.observability import get_logger
 from pycil.library.access import reference_visible, visible
+from pycil.library.config import LibraryConfig
 from pycil.library.models import DeckSense, Node, NodePath, NodeRole, NodeType
+from pycil.observability import get_logger
+from pycil.utils.errors import InvalidInput, NotFound, Unavailable
 
 logger = get_logger(__name__)
 
@@ -46,20 +46,20 @@ class Scope:
 
 @asynccontextmanager
 async def bounded(
-    session: AsyncSession, config: AppConfig, budget: ScopeBudget
+    session: AsyncSession, config: LibraryConfig, budget: ScopeBudget
 ) -> AsyncGenerator[None]:
-    remaining = config.runtime.library.scope_timeout_seconds - (monotonic() - budget.started_at)
+    remaining = config.scope_timeout_seconds - (monotonic() - budget.started_at)
     if remaining <= 0:
         logger.warning(
             "library_scope_budget_exhausted",
             viewer_id=str(budget.viewer_id) if budget.viewer_id is not None else None,
         )
-        raise Problem(503, "scope_timeout")
+        raise Unavailable("scope_timeout")
     try:
         async with asyncio.timeout(remaining):
             await session.execute(
                 text("SELECT set_config('statement_timeout', :timeout, true)"),
-                {"timeout": f"{config.runtime.library.statement_timeout_ms}ms"},
+                {"timeout": f"{config.statement_timeout_ms}ms"},
             )
             yield
     except TimeoutError:
@@ -67,14 +67,14 @@ async def bounded(
             "library_scope_timeout",
             viewer_id=str(budget.viewer_id) if budget.viewer_id is not None else None,
         )
-        raise Problem(503, "scope_timeout") from None
+        raise Unavailable("scope_timeout") from None
     except DBAPIError as exc:
         if getattr(exc.orig, "sqlstate", None) == "57014":
             logger.error(
                 "library_statement_timeout",
                 viewer_id=str(budget.viewer_id) if budget.viewer_id is not None else None,
             )
-            raise Problem(503, "scope_timeout") from None
+            raise Unavailable("scope_timeout") from None
         raise
 
 
@@ -82,7 +82,7 @@ async def resolve_scopes(
     session: AsyncSession,
     identifiers: Sequence[UUID | None],
     viewer_id: UUID | None,
-    config: AppConfig,
+    config: LibraryConfig,
     *,
     budget: ScopeBudget | None = None,
     include_memberships: bool = True,
@@ -96,36 +96,34 @@ async def resolve_scopes(
             select(Node.id).where(Node.owner_id == viewer_id, Node.role == NodeRole.LIBRARY_ROOT)
         )
         if root is None:
-            raise Problem(404, "node_not_found")
+            raise NotFound("node_not_found")
         target_ids: list[UUID] = [
             root if identifier is None else identifier for identifier in identifiers
         ]
     else:
         target_ids = [identifier for identifier in identifiers if identifier is not None]
+    if not target_ids:
+        return {}
     roots = list(
         (
             await session.scalars(
                 select(Node).where(
                     Node.id.in_(target_ids),
+                    Node.deleted_at.is_(None),
                     visible(Node.__table__, viewer_id),
-                    or_(
-                        Node.owner_id == viewer_id,
-                        Node.type != NodeType.REFERENCE,
-                        reference_visible(Node.__table__, viewer_id),
-                    ),
                 )
             )
         ).all()
     )
     if {r.id for r in roots} != set(target_ids):
-        raise Problem(404, "node_not_found")
+        raise NotFound("node_not_found")
     frontier: set[UUID] = set(target_ids) - budget.nodes
     while frontier:
         paths = select(NodePath.descendant_id).where(NodePath.ancestor_id.in_(frontier))
         if materialize_candidates:
             candidates = paths.cte("scope_candidates").prefix_with("MATERIALIZED")
             paths = select(candidates.c.descendant_id)
-        remaining = config.product.library.quotas.max_scope_nodes - len(budget.nodes)
+        remaining = config.max_scope_nodes - len(budget.nodes)
         rows = list(
             (
                 await session.execute(
@@ -154,7 +152,7 @@ async def resolve_scopes(
             ).all()
         )
         if len(rows) > remaining:
-            raise Problem(422, "scope_too_large")
+            raise InvalidInput("scope_too_large")
         decks: set[UUID] = set()
         targets: set[UUID] = set()
         for node, target_visible in rows:
@@ -173,7 +171,7 @@ async def resolve_scopes(
             guard = (
                 select(DeckSense.deck_id)
                 .where(DeckSense.deck_id.in_(decks))
-                .limit(config.product.library.quotas.max_scope_memberships - budget.memberships + 1)
+                .limit(config.max_scope_memberships - budget.memberships + 1)
                 .subquery()
             )
             counts: list[tuple[UUID, int]] = [
@@ -186,8 +184,8 @@ async def resolve_scopes(
             ]
             budget.membership_counts.update(dict(counts))
             budget.memberships += sum(count for _, count in counts)
-            if budget.memberships > config.product.library.quotas.max_scope_memberships:
-                raise Problem(422, "scope_too_large")
+            if budget.memberships > config.max_scope_memberships:
+                raise InvalidInput("scope_too_large")
             budget.decks.update(decks)
         frontier = targets - budget.nodes
     result: dict[UUID, Scope] = {}
@@ -208,7 +206,7 @@ async def scope_ids(
     session: AsyncSession,
     node_id: UUID | None,
     viewer_id: UUID | None,
-    config: AppConfig,
+    config: LibraryConfig,
     *,
     budget: ScopeBudget | None = None,
 ) -> Select[int]:

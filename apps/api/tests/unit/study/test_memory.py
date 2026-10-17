@@ -124,7 +124,7 @@ def test_diagnostic_evidence_credits_correct_sense_and_separates_recall_usage(
 
 
 def test_grouped_elo_shares_one_time_budget_and_handles_extreme_scores():
-    policy = load_config().product.study.mastery
+    policy = load_config().study.mastery
     now = datetime(2026, 1, 1, tzinfo=UTC)
     base = 1000.0
     full = update_elo(base, [(1.0, base)], None, now, policy)
@@ -145,28 +145,24 @@ def test_grouped_elo_shares_one_time_budget_and_handles_extreme_scores():
 def test_fsrs_failure_in_mixed_batch_preserves_null_memory_and_caps_interval():
     config = load_config()
     now = datetime(2026, 1, 1, tzinfo=UTC)
-    good = next_state(None, [1.0], now, config)
-    again = next_state(None, [0.0], now, config)
+    good = next_state(None, [1.0], now, config.study.fsrs)
+    again = next_state(None, [0.0], now, config.study.fsrs)
     assert good[0] > again[0] > 0
-    assert next_state(None, [1.0, None, 0.0], now, config) == again
+    assert next_state(None, [1.0, None, 0.0], now, config.study.fsrs) == again
     memory = SimpleNamespace(
         stability=20.0, difficulty=5.0, last_exposure_at=now - timedelta(days=3)
     )
-    assert next_state(memory, [None, None], now, config)[:2] == (20.0, 5.0)
+    assert next_state(memory, [None, None], now, config.study.fsrs)[:2] == (20.0, 5.0)
     capped = config.model_copy(
         update={
-            "product": config.product.model_copy(
+            "study": config.study.model_copy(
                 update={
-                    "study": config.product.study.model_copy(
-                        update={
-                            "fsrs": config.product.study.fsrs.model_copy(
-                                update={"max_interval_days": 1}
-                            )
-                        }
+                    "fsrs": config.study.fsrs.model_copy(
+                        update={"max_interval_days": 1}
                     )
                 }
             )
         }
     )
-    assert next_state(memory, [None], now, capped)[2] <= now + timedelta(days=1)
-    assert next_state(memory, [1.0], now, config)[2] > now
+    assert next_state(memory, [None], now, capped.study.fsrs)[2] <= now + timedelta(days=1)
+    assert next_state(memory, [1.0], now, config.study.fsrs)[2] > now

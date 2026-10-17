@@ -7,9 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import ColumnElement
 from sqlalchemy.sql.selectable import Exists, FromClause
 
-from pycil.app.config import AppConfig
-from pycil.app.http import Problem
 from pycil.library.models import Node, NodePath, NodeRole, NodeType
+from pycil.utils.errors import NotFound
 
 
 def has_root(node: FromClause, role: NodeRole) -> Exists:
@@ -71,26 +70,26 @@ def reference_visible(node: FromClause, viewer_id: UUID | None) -> Exists:
 
 
 async def readable(
-    session: AsyncSession, node_id: UUID, viewer_id: UUID | None, config: AppConfig
+    session: AsyncSession, node_id: UUID, viewer_id: UUID | None
 ) -> Node:
     node = await session.scalar(
         select(Node).where(Node.id == node_id, visible(Node.__table__, viewer_id))
     )
     if node is None:
-        raise Problem(404, "node_not_found")
+        raise NotFound("node_not_found")
     if node.type is NodeType.REFERENCE and node.owner_id != viewer_id:
         available = await session.scalar(
             select(reference_visible(Node.__table__, viewer_id)).where(Node.id == node_id)
         )
         if not available:
-            raise Problem(404, "node_not_found")
+            raise NotFound("node_not_found")
     return node
 
 
 async def readable_path(
-    session: AsyncSession, node_id: UUID, viewer_id: UUID | None, config: AppConfig
+    session: AsyncSession, node_id: UUID, viewer_id: UUID | None
 ) -> tuple[Node, list[Node]]:
-    node = await readable(session, node_id, viewer_id, config)
+    node = await readable(session, node_id, viewer_id)
     ancestors = list(
         (
             await session.scalars(

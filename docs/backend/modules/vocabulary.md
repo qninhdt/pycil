@@ -16,14 +16,13 @@ as PostgreSQL data; setup does not ship or automatically load a generated-conten
 
 | Operation | Authentication / result |
 | --- | --- |
+| `POST /v1/words:generate` | Required; 202 job reference for an immutable reference handle |
 | `GET /v1/words:search` | Optional; ranked word/reference hits |
 | `GET /v1/words/{word_id}` | Optional; complete word and senses |
 | `POST /v1/words:batchPreview` | Optional; bounded complete word groups |
 | `GET /v1/me/words/{word_id}` | Required; viewer progress/membership |
 | `POST /v1/me/senses:batchReadContext` | Required; bounded viewer projection |
 | `GET /v1/me/senses/{sense_id}/decks` | Required; authorized deck overflow |
-| `POST /v1/words:generate` | Required; Redis-backed task acceptance |
-| `GET /v1/word-tasks/{task_id}` | Required; current shared task status |
 
 Use [OpenAPI](../openapi.json) for exact contracts. Controlled values are lowercase.
 Reference handles are opaque identities returned by search, not saved sense IDs.
@@ -57,9 +56,9 @@ documents plus cursor atomically. Unlinking/deleting a generated word restores a
 reference when no completed word consumes it. Theme/artifact-only batches advance the cursor
 without creating search documents.
 
-Generation waits for the committed revision to be visible locally before reporting ready.
-Waiting holds no database connection. Publication timeout/failure preserves committed content;
-retry does not buy another generation when canonical content already exists. Transient database
+Generation workers commit content/revisions and return the Word ID. Each API index
+reconciles independently; read completed Words directly by ID while search catches up.
+Completed canonical content is reused before another provider call. Transient database
 errors retry with the same writer, while fatal native failures mark readiness unhealthy and
 release ownership. Cancelled native work is joined before shutdown releases its dependencies.
 
@@ -85,31 +84,20 @@ process; TTL bounds stale data in other processes. Artifact caching remains inde
 
 ## Generation
 
-Submit a reference handle plus target text. The pipeline validates source/evidence,
+Submit an opaque reference handle returned by search. The pipeline validates source/evidence,
 builds an inventory, then enriches batches of at most eight senses concurrently. Invalid
 citations, forms, patterns or target-marked examples never publish. Sibling work is cancelled
 and joined after failure. Completed canonical words are reused; overlapping publication
 uses database advisory locks and a single transaction.
 
-Reference-key and normalized word-input singleflight live in the API process. Each process
-runs at most eight generation pipelines and admits at most 24 unfinished jobs (eight active
-slots plus 16 pending slots). Jobs retain admission capacity until final status publication
-finishes. A new distinct job when full returns `503 generation_overloaded` without creating
-a task or Redis status; duplicate requests still return the existing job. The configured
-generation deadline starts after acquiring an active slot.
-Task status is stored in the existing Redis namespace before acceptance, so any API
-process can poll it. Each initial/final status write has a 24-hour TTL. They finish with
-`succeeded` / `ready` only after search publication; timeout/cancellation/failure are
-sanitized. Redis read/acceptance failures return `503`, while missing/expired task IDs
-return `404`. Final status write failures are logged and may leave the initial `running`
-status until expiry. Graceful shutdown publishes interruption; a worker crash loses its
-unfinished jobs and may also leave `running` until expiry. Jobs are not recovered or
-deduplicated across processes; committed words remain reusable on retry. Word generation
-does not create personal learning state or question banks.
+Native Taskiq tasks call the existing pipeline. [Jobs](jobs.md) owns the shared
+202/polling contract. Native Redis locks plus completed-word rechecks suppress
+duplicate work across users; each user keeps a private job ID. No in-process runner
+or old word-status contract remains.
 
 Local prompts belong to the owning module. Structured provider parsing/retries and usage
 measurement belong to infrastructure. Whole-operation logging carries correlation,
-outcome and duration. Langfuse and OpenTelemetry exporters remain deferred.
+outcome and duration. Native Taskiq OTel reuses the existing SDK/export path; Langfuse remains deferred.
 
 Relation resolution uses [Pydantic decision models](../../../apps/api/pycil/vocabulary/relations/decisions.py)
 with the relation rule, neutral evidence and current candidate senses. Instructor owns
@@ -118,8 +106,7 @@ or the explicit `no_candidate` outcome; independent edge failures remain isolate
 
 ## Evidence
 
-- [Pipeline](../../../apps/api/pycil/vocabulary/generation/pipeline.py), [jobs](../../../apps/api/pycil/vocabulary/generation/jobs.py)
+- [Pipeline](../../../apps/api/pycil/vocabulary/generation/pipeline.py)
 - [Search](../../../apps/api/pycil/vocabulary/search.py), [batched content](../../../apps/api/pycil/vocabulary/words.py)
 - [Generation/publication/retry](../../../apps/api/tests/integration/vocabulary/test_generation.py)
-- [Shared status, singleflight and cancellation](../../../apps/api/tests/integration/vocabulary/test_jobs.py)
 - [Reference import](../../../apps/api/tests/integration/vocabulary/test_reference_import.py)

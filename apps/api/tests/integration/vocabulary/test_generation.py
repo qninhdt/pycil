@@ -19,7 +19,11 @@ async def test_generation_publishes_content_and_consumes_reference_search_hit(da
         database.sessions, reference_file(tmp_path / "reference.jsonl", [reference_word()])
     )
     index, provider, cache = (
-        SearchIndex(database.sessions),
+        SearchIndex(
+            database.sessions,
+            policy=load_config().vocabulary.search_runtime,
+            query_policy=load_config().vocabulary.search,
+        ),
         WordProvider(),
         InMemoryStore(max_entries=1024, ttl=30),
     )
@@ -127,11 +131,15 @@ async def test_native_instructor_reasks_for_semantic_defects_before_publication(
             },
         )
 
-    index = SearchIndex(database.sessions)
+    index = SearchIndex(
+        database.sessions,
+        policy=load_config().vocabulary.search_runtime,
+        query_policy=load_config().vocabulary.search,
+    )
     try:
         await index.start()
         async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
-            policy = load_config().runtime.providers.vocabulary.model_copy(
+            policy = load_config().vocabulary.provider.model_copy(
                 update={"max_retries": 1}
             )
             llm = StructuredLLM(
@@ -157,7 +165,11 @@ async def test_invented_citation_never_publishes_word_or_sense(database, tmp_pat
     await import_reference(
         database.sessions, reference_file(tmp_path / "reference.jsonl", [reference_word()])
     )
-    index = SearchIndex(database.sessions)
+    index = SearchIndex(
+        database.sessions,
+        policy=load_config().vocabulary.search_runtime,
+        query_policy=load_config().vocabulary.search,
+    )
     try:
         await index.start()
         with pytest.raises(InvalidOutputError):
@@ -190,7 +202,11 @@ async def test_enrichment_cannot_publish_examples_marked_for_another_word(databa
     await import_reference(
         database.sessions, reference_file(tmp_path / "reference.jsonl", [reference_word()])
     )
-    search = SearchIndex(database.sessions)
+    search = SearchIndex(
+        database.sessions,
+        policy=load_config().vocabulary.search_runtime,
+        query_policy=load_config().vocabulary.search,
+    )
     await search.start()
     try:
         with pytest.raises(InvalidOutputError):
@@ -244,7 +260,11 @@ async def test_enrichment_failure_cancels_sibling_batches_and_publishes_nothing(
     await import_reference(
         database.sessions, reference_file(tmp_path / "reference.jsonl", [reference_word()])
     )
-    index = SearchIndex(database.sessions)
+    index = SearchIndex(
+        database.sessions,
+        policy=load_config().vocabulary.search_runtime,
+        query_policy=load_config().vocabulary.search,
+    )
     await index.start()
     try:
         with pytest.raises(RuntimeError, match="enrichment unavailable"):

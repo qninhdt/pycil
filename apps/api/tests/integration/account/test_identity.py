@@ -11,13 +11,14 @@ from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import SecretStr
 from sqlalchemy import event, func, select
 
-from pycil.account.auth import current_user_id, optional_user_id
 from pycil.account.models import User
+from pycil.app.auth import current_user_id, optional_user_id
 from pycil.app.config import load_config
-from pycil.app.http import Problem
+from pycil.app.http import status_for
 from pycil.infrastructure.clerk import Identity
 from pycil.infrastructure.kv_store import InMemoryStore
 from pycil.library.models import Node, NodePath
+from pycil.utils.errors import OperationError
 
 
 async def test_verified_identity_provisions_once_and_invalid_tokens_cannot_use_cache(
@@ -30,7 +31,9 @@ async def test_verified_identity_provisions_once_and_invalid_tokens_cannot_use_c
         clerk_audience="pycil",
         clerk_secret_key=SecretStr("test-only"),
     )
-    identity = Identity(deployment)
+    identity = Identity(
+        deployment.clerk_jwks_url, deployment.clerk_issuer, deployment.clerk_audience
+    )
     # Only key retrieval is substituted; JWT validation stays real.
     monkeypatch.setattr(
         identity.keys,
@@ -58,7 +61,11 @@ async def test_verified_identity_provisions_once_and_invalid_tokens_cannot_use_c
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(profile)) as http:
         state = SimpleNamespace(
-            identity=identity, deployment=deployment, http=http, config=load_config()
+            identity=identity,
+            deployment=deployment,
+            http=http,
+            config=load_config(),
+            user_id_store=store,
         )
 
         async def authenticate(value):
@@ -71,7 +78,6 @@ async def test_verified_identity_provisions_once_and_invalid_tokens_cannot_use_c
             )
             credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=value)
             async with database.sessions() as session:
-                session.info["user_id_store"] = store
                 return await current_user_id(request, session, credentials)
 
         first, second = await asyncio.gather(authenticate(token), authenticate(token))
@@ -99,13 +105,13 @@ async def test_verified_identity_provisions_once_and_invalid_tokens_cannot_use_c
             {"exp": datetime.now(UTC) - timedelta(minutes=1)},
         ):
             invalid = jwt.encode(claims | replacement, private_key, algorithm="RS256")
-            with pytest.raises(Problem) as error:
+            with pytest.raises(OperationError) as error:
                 await authenticate(invalid)
-            assert error.value.status == 401
+            assert status_for(error.value) == 401
         forged_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-        with pytest.raises(Problem) as error:
+        with pytest.raises(OperationError) as error:
             await authenticate(jwt.encode(claims, forged_key, algorithm="RS256"))
-        assert error.value.status == 401
+        assert status_for(error.value) == 401
         assert calls == 2
 
 
@@ -132,13 +138,13 @@ async def test_remote_identity_failure_does_not_create_accounts(database, status
             }
         )
         async with database.sessions() as session:
-            with pytest.raises(Problem) as error:
+            with pytest.raises(OperationError) as error:
                 await optional_user_id(
                     request,
                     session,
                     HTTPAuthorizationCredentials(scheme="Bearer", credentials="verified"),
                 )
-            assert error.value.status == expected
+            assert status_for(error.value) == expected
         async with database.sessions() as session:
             assert await session.scalar(select(func.count()).select_from(User)) == 0
             assert await session.scalar(select(func.count()).select_from(Node)) == 0

@@ -24,21 +24,21 @@ async def test_overlapping_decks_and_references_count_distinct_senses_and_hide_a
             session,
             owner.id,
             NodeCreate(type=NodeType.DECK, name="One", sense_ids=[sense_id]),
-            config,
+            config.library,
         )
     async with database.sessions() as session:
         await create_node(
             session,
             owner.id,
             NodeCreate(type=NodeType.DECK, name="Two", sense_ids=[sense_id]),
-            config,
+            config.library,
         )
     async with database.sessions() as session:
         await create_node(
             session,
             owner.id,
             NodeCreate(type=NodeType.REFERENCE, name="Alias", reference_id=deck["id"]),
-            config,
+            config.library,
         )
     async with database.sessions() as session, session.begin():
         session.add(
@@ -56,7 +56,11 @@ async def test_overlapping_decks_and_references_count_distinct_senses_and_hide_a
         )
     async with database.sessions() as session:
         values = await progress.summaries(
-            session, owner.id, config, [roots[NodeRole.PERSONAL_ROOT].id, deck["id"]]
+            session,
+            owner.id,
+            config.study,
+            [roots[NodeRole.PERSONAL_ROOT].id, deck["id"]],
+            library_config=config.library,
         )
     assert all(value["total"] == value["studied"] == value["due"] == 1 for value in values)
     assert all(value["new"] == value["not_due"] == 0 for value in values)
@@ -71,10 +75,18 @@ async def test_overlapping_decks_and_references_count_distinct_senses_and_hide_a
                 confirm_publication=True,
                 sense_ids=[sense_id],
             ),
-            config,
+            config.library,
         )
     async with database.sessions() as session:
-        anonymous = (await progress.summaries(session, None, config, [published["id"]]))[0]
+        anonymous = (
+            await progress.summaries(
+                session,
+                None,
+                config.study,
+                [published["id"]],
+                library_config=config.library,
+            )
+        )[0]
     assert anonymous["total"] == 1
     assert anonymous["studied"] is anonymous["due"] is anonymous["coverage"] is None
 
@@ -100,7 +112,7 @@ async def test_schedule_excludes_overdue_and_equal_cutoff_and_uses_current_timez
             session,
             user.id,
             NodeCreate(type=NodeType.DECK, name="Timing", sense_ids=[first, second_id]),
-            config,
+            config.library,
         )
     now = datetime(2026, 1, 1, 18, tzinfo=UTC)
     monkeypatch.setattr(progress, "datetime", frozen_datetime(now))
@@ -120,15 +132,28 @@ async def test_schedule_excludes_overdue_and_equal_cutoff_and_uses_current_timez
                 )
             )
     async with database.sessions() as session:
-        scheduled = await progress.schedule(session, user.id, config, deck["id"])
+        scheduled = await progress.schedule(
+            session,
+            user.id,
+            config.study,
+            deck["id"],
+            account_config=config.account,
+            library_config=config.library,
+        )
     assert scheduled["timezone"] == "Asia/Ho_Chi_Minh"
     assert scheduled["start_date"] == (now + timedelta(hours=7)).date()
     assert scheduled["days"][0]["count"] == 1
     assert sum(day["count"] for day in scheduled["days"]) == 1
     async with database.sessions() as session:
-        await delete_node(session, user.id, deck["id"], config)
+        await delete_node(session, user.id, deck["id"])
     async with database.sessions() as session:
-        empty = await progress.schedule(session, user.id, config)
+        empty = await progress.schedule(
+            session,
+            user.id,
+            config.study,
+            account_config=config.account,
+            library_config=config.library,
+        )
     assert sum(day["count"] for day in empty["days"]) == 0
     async with database.sessions() as session:
         assert await session.get(UserSense, (user.id, first)) is not None
@@ -153,7 +178,14 @@ async def test_activity_uses_stored_acceptance_dates_and_lifetime_streak_outside
                 )
             )
     async with database.sessions() as session:
-        report = await progress.activity(session, user.id, config, today - timedelta(days=2), today)
+        report = await progress.activity(
+            session,
+            user.id,
+            config.study,
+            today - timedelta(days=2),
+            today,
+            account_config=config.account,
+        )
     assert report["current_streak"] == 2
     assert report["longest_streak"] == 4
     assert [day["applied_events"] for day in report["days"]] == [0, 1, 1]

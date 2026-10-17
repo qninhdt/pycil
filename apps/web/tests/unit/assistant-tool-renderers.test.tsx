@@ -54,19 +54,17 @@ test('deck content shows senses and partial batch failures remain visible', () =
   expect(batch).toContain('node_not_found')
 })
 
-test('word generation renders JSON results, pending states and explicit malformed output', () => {
-  const html = render('generate_words', JSON.stringify({ items: [
-    { target: 'wizard', lemma: 'wizard', status: 'succeeded', task_id: 'task', senses: [
-      { sense_id: 19404, lemma: 'wizard', pos: 'noun', definition: 'A person with magical powers.' },
-    ] },
-    { target: 'wand', status: 'running', task_id: 'waiting' },
-    { target: 'missing', status: 'failed', error: 'generation_failed' },
-  ] }), { words: ['wizard', 'wand', 'missing'] })
-  expect(html).toContain('A person with magical powers.')
-  expect(html).toContain('running')
-  expect(html).toContain('generation_failed')
-  expect(render('generate_words', 'invalid provider output')).toContain('Vocabulary preparation unavailable.')
+test('word search renders lexical results', () => {
   expect(render('search_words', { items: [
     { kind: 'word', word_id: 1, lemma: 'wizard', entry_type: 'word', match_kind: 'exact', matched_surface: 'wizard' },
   ] }, { queries: ['wizard'] })).toContain('wizard')
+})
+
+
+test('generation references and completed senses remain visible', () => {
+  expect(render('search_words', { items: [
+    { kind: 'reference', reference_id: 'entry_bank', display: 'bank', entry_type: 'word', match_kind: 'exact', matched_surface: 'bank' },
+  ] })).toContain('Available to generate')
+  expect(render('generate_words', { items: [{ job_id: 'pending' }, { error: 'invalid_reference' }] })).toContain('invalid_reference')
+  expect(render('generate_words', { items: [{ status: 'running' }, { status: 'succeeded', senses: [{ sense_id: 1, lemma: 'bank', pos: 'noun', definition: 'a financial institution' }] }] })).toContain('a financial institution')
 })

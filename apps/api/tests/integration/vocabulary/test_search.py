@@ -2,6 +2,7 @@ import asyncio
 
 import pytest
 
+from pycil.app.config import load_config
 from pycil.vocabulary.enums import (
     EntryType,
     GenerationState,
@@ -48,7 +49,11 @@ async def test_search_ranking_alias_forms_deduplication_and_reference_selection(
                 ),
             ]
         )
-    index = SearchIndex(database.sessions)
+    index = SearchIndex(
+        database.sessions,
+        policy=load_config().vocabulary.search_runtime,
+        query_policy=load_config().vocabulary.search,
+    )
     await index.start()
     try:
         results = (await index.search("bank", True, limit=10)).items
@@ -74,7 +79,7 @@ async def test_search_ranking_alias_forms_deduplication_and_reference_selection(
 def fast_policy():
     from pycil.app.config import load_config
 
-    return load_config().runtime.search.model_copy(
+    return load_config().vocabulary.search_runtime.model_copy(
         update={
             "poll_interval_seconds": 0.02,
             "ownership_retry_seconds": 0.02,
@@ -86,7 +91,7 @@ def fast_policy():
 
 
 async def create_word(sessions, lemma):
-    from pycil.infrastructure.content_revisions import publish
+    from pycil.vocabulary.revisions import publish
 
     async with sessions() as session, session.begin():
         word = Word(
@@ -97,26 +102,31 @@ async def create_word(sessions, lemma):
         )
         session.add(word)
         await session.flush()
-        await publish(session, {("word", word.id): None})
+        await publish(session, {word.id: None})
         return word.id
 
 
 async def test_owner_replaces_edits_deletions_and_restores_unlinked_reference(database, tmp_path):
     from sqlalchemy import delete
 
-    from pycil.infrastructure.content_revisions import capture, publish
     from pycil.vocabulary.content import delete_word, edit_word
+    from pycil.vocabulary.revisions import capture, publish
 
     await import_reference(
         database.sessions, reference_file(tmp_path / "reference.jsonl", [reference_word()])
     )
-    index = SearchIndex(database.sessions, str(tmp_path / "index"), policy=fast_policy())
+    index = SearchIndex(
+        database.sessions,
+        str(tmp_path / "index"),
+        policy=fast_policy(),
+        query_policy=load_config().vocabulary.search,
+    )
     await index.start()
     try:
         word_id = await create_word(database.sessions, "bank")
         other_id = await create_word(database.sessions, "untouched")
         async with database.sessions() as session, session.begin():
-            before = await capture(session, [("word", word_id)])
+            before = await capture(session, [word_id])
             session.add(WordReference(word_id=word_id, source_id=1))
             revision = await publish(session, before)
         await index.wait_for_revision(revision)
@@ -128,7 +138,7 @@ async def test_owner_replaces_edits_deletions_and_restores_unlinked_reference(da
         assert not (await index.search("bank")).items
         assert (await index.search("financial institution")).items[0].word_id == word_id
         async with database.sessions() as session, session.begin():
-            before = await capture(session, [("word", word_id)])
+            before = await capture(session, [word_id])
             await session.execute(delete(WordReference).where(WordReference.word_id == word_id))
             revision = await publish(session, before)
         await index.wait_for_revision(revision)
@@ -148,8 +158,18 @@ async def test_shared_directory_has_one_owner_and_takeover_reuses_cursor(
 
     directory = str(tmp_path / "shared")
     first, second = (
-        SearchIndex(database.sessions, directory, policy=fast_policy()),
-        SearchIndex(database.sessions, directory, policy=fast_policy()),
+        SearchIndex(
+            database.sessions,
+            directory,
+            policy=fast_policy(),
+            query_policy=load_config().vocabulary.search,
+        ),
+        SearchIndex(
+            database.sessions,
+            directory,
+            policy=fast_policy(),
+            query_policy=load_config().vocabulary.search,
+        ),
     )
     await asyncio.gather(first.start(), second.start())
     owner, standby = (first, second) if first.is_owner else (second, first)
@@ -179,8 +199,18 @@ async def test_independent_indexes_apply_all_revisions_and_disconnected_reader_c
 ):
     from pycil.vocabulary.content import edit_word
 
-    first = SearchIndex(database.sessions, str(tmp_path / "one"), policy=fast_policy())
-    second = SearchIndex(database.sessions, str(tmp_path / "two"), policy=fast_policy())
+    first = SearchIndex(
+        database.sessions,
+        str(tmp_path / "one"),
+        policy=fast_policy(),
+        query_policy=load_config().vocabulary.search,
+    )
+    second = SearchIndex(
+        database.sessions,
+        str(tmp_path / "two"),
+        policy=fast_policy(),
+        query_policy=load_config().vocabulary.search,
+    )
     await asyncio.gather(first.start(), second.start())
     try:
         word = await create_word(database.sessions, "bank")
@@ -209,7 +239,12 @@ async def test_native_shutdown_joins_inflight_owner_and_rolls_back_uncommitted_b
     from pycil.vocabulary.content import edit_word
 
     word = await create_word(database.sessions, "bank")
-    index = SearchIndex(database.sessions, str(tmp_path / "index"), policy=fast_policy())
+    index = SearchIndex(
+        database.sessions,
+        str(tmp_path / "index"),
+        policy=fast_policy(),
+        query_policy=load_config().vocabulary.search,
+    )
     await index.start()
     started, release = threading.Event(), threading.Event()
     documents = index.documents
@@ -248,6 +283,7 @@ async def test_bootstrap_snapshot_and_catchup_include_writes_during_build(
         database.sessions,
         str(tmp_path / "index"),
         policy=fast_policy().model_copy(update={"rebuild_batch_size": 1}),
+        query_policy=load_config().vocabulary.search,
     )
     projection = index.projection
     inserted = None
@@ -273,7 +309,12 @@ async def test_failed_batch_keeps_checkpoint_and_restarts_without_rebuilding(
     from pycil.vocabulary.content import edit_word
 
     word = await create_word(database.sessions, "bank")
-    index = SearchIndex(database.sessions, str(tmp_path / "index"), policy=fast_policy())
+    index = SearchIndex(
+        database.sessions,
+        str(tmp_path / "index"),
+        policy=fast_policy(),
+        query_policy=load_config().vocabulary.search,
+    )
     await index.start()
     previous = index.cursor()
     documents = index.documents
@@ -299,21 +340,25 @@ async def test_failed_batch_keeps_checkpoint_and_restarts_without_rebuilding(
         await index.close()
 
 
-async def test_artifact_theme_only_revisions_advance_cursor_and_idle_index_stays_healthy(
+async def test_theme_changes_do_not_publish_search_revisions_and_idle_index_stays_healthy(
     database, tmp_path
 ):
-    from pycil.infrastructure.content_revisions import publish
     from pycil.themes.models import Theme
+    from pycil.vocabulary.revisions import head
 
-    index = SearchIndex(database.sessions, policy=fast_policy())
+    index = SearchIndex(
+        database.sessions,
+        policy=fast_policy(),
+        query_policy=load_config().vocabulary.search,
+    )
     await index.start()
     try:
         async with database.sessions() as session, session.begin():
             theme = Theme(key="plain", name="Plain", voice="Calm", diction="Simple")
             session.add(theme)
             await session.flush()
-            revision = await publish(session, {("theme", theme.id): None})
-        await index.wait_for_revision(revision)
+            revision = await head(session)
+        assert revision == index.cursor()
         assert not (await index.search("plain")).items
         await index.health()
         index.last_success -= 1000
@@ -330,8 +375,8 @@ async def test_four_process_readers_share_one_poller_and_recover_after_owner_sig
 ):
     import multiprocessing
 
-    from pycil.infrastructure.content_revisions import head
     from pycil.vocabulary.content import delete_word, edit_word
+    from pycil.vocabulary.revisions import head
     from tests.support.search_worker import run
 
     context = multiprocessing.get_context("spawn")
@@ -405,7 +450,12 @@ async def test_transient_bootstrap_database_error_retries_with_same_writer(
 ):
     from sqlalchemy.exc import DBAPIError
 
-    index = SearchIndex(database.sessions, str(tmp_path / "index"), policy=fast_policy())
+    index = SearchIndex(
+        database.sessions,
+        str(tmp_path / "index"),
+        policy=fast_policy(),
+        query_policy=load_config().vocabulary.search,
+    )
     rebuild = index.rebuild
     attempts = []
 
@@ -427,12 +477,13 @@ async def test_transient_bootstrap_database_error_retries_with_same_writer(
 async def test_publication_timeout_keeps_committed_content_and_releases_database_connections(
     database, tmp_path, monkeypatch
 ):
-    from pycil.infrastructure.content_revisions import replay
+    from pycil.vocabulary.revisions import replay
 
     index = SearchIndex(
         database.sessions,
         str(tmp_path / "index"),
         policy=fast_policy().model_copy(update={"publication_timeout_seconds": 0.05}),
+        query_policy=load_config().vocabulary.search,
     )
     await index.start()
     resume = asyncio.Event()
@@ -449,7 +500,7 @@ async def test_publication_timeout_keeps_committed_content_and_releases_database
             await index.wait_for_revision(10**9)
         assert database.engine.pool.checkedout() == 0
         async with database.sessions() as session:
-            assert (await replay(session, "word", word))["lemma"] == "bank"
+            assert (await replay(session, word))["lemma"] == "bank"
         resume.set()
         await index.update(word)
     finally:
@@ -493,7 +544,12 @@ async def test_sigkill_at_batch_commit_keeps_documents_and_cursor_atomic(
         assert await asyncio.to_thread(reached.wait, 10)
         process.kill()
         await asyncio.to_thread(process.join, 5)
-        replica = SearchIndex(database.sessions, directory, policy=fast_policy())
+        replica = SearchIndex(
+            database.sessions,
+            directory,
+            policy=fast_policy(),
+            query_policy=load_config().vocabulary.search,
+        )
         # Inspect the durable commit before catch-up: documents and cursor agree.
         replica.snapshot = replica.open()
         cursor = replica.cursor()

@@ -1,16 +1,17 @@
 import { webConfig } from '@/config'
 import { parseAccountProfile, parsePublicProfile, parseUsageAllowance } from '../account'
-import { parseActivity, parseGrade, parseLibrary, parsePreparation, parseReviewBatch, parseSchedule, parseSummary } from '../study'
+import { parseActivity, parseGrade, parseLibrary, parseReviewBatch, parseSchedule, parseSummary } from '../study'
 import { ApiError } from '../error'
 import { apiRequest, apiToken } from '../http'
 import type { FrontendServices, DateWindow } from './contracts'
 import { parseMeaningPage, parseNodeDetails, parseSources } from '../library'
 import { createAssistantService } from '../assistant'
-import { parseDictionaryWord, parseWordContext, parseWordGeneration, parseWordPreviews, parseWordSearch } from '../vocabulary'
+import { parseJobReference, parseJobStatus } from '../jobs'
+import { parseDictionaryWord, parseWordContext, parseWordPreviews, parseWordSearch } from '../vocabulary'
 
 export function createHttpServices(getToken: () => Promise<string | null>): FrontendServices {
-  async function request<T>(path: string, parse: (value: unknown) => T, signal: AbortSignal, body?: unknown, method?: 'POST' | 'PATCH' | 'DELETE', publicRead = false, headers?: Record<string, string>) {
-    const boundedSignal = AbortSignal.any([signal, AbortSignal.timeout(path === 'study:prepare' ? webConfig.requests.preparationTimeoutMs : webConfig.requests.timeoutMs)])
+  async function request<T>(path: string, parse: (value: unknown, response?: Response) => T, signal: AbortSignal, body?: unknown, method?: 'POST' | 'PATCH' | 'DELETE', publicRead = false, headers?: Record<string, string>) {
+    const boundedSignal = AbortSignal.any([signal, AbortSignal.timeout(webConfig.requests.timeoutMs)])
     return apiRequest(path, publicRead ? null : await apiToken(getToken, boundedSignal), parse, boundedSignal, body, method, headers)
   }
   const validateWindow = <T extends { start_date: string; end_date: string }>(value: T, window: DateWindow): T => {
@@ -46,11 +47,12 @@ export function createHttpServices(getToken: () => Promise<string | null>): Fron
     usage: signal => request('me/usage', parseUsageAllowance, signal),
     updateProfile: (patch, signal) => request('me/profile', parseAccountProfile, signal, patch, 'PATCH'),
     updateSettings: (patch, signal) => request('me/settings', parseAccountProfile, signal, patch, 'PATCH') },
+    jobs: { status: (id, signal) => request(`jobs/${encodeURIComponent(id)}`, parseJobStatus, signal) },
     learning: {
       summary: (nodeId, signal) => request(`study/progress${nodeId ? `?node_id=${encodeURIComponent(nodeId)}` : ''}`, parseSummary, signal),
       activity: (window, signal) => request(`study/activity?${windowQuery(window)}`, value => validateWindow(parseActivity(value), window), signal),
       schedule: (window, signal) => request(`study/review-schedule?${windowQuery(window)}`, value => validateWindow(parseSchedule(value), window), signal),
-      prepare: (input, signal) => request('study:prepare', parsePreparation, signal, input),
+      prepare: (input, signal) => request('study:prepare', parseJobReference, signal, input),
       grade: (input, signal) => request('study:grade', parseGrade, signal, input),
       review: ({ results, key }, signal) => request('study:submitResults', parseReviewBatch, signal, { results }, 'POST', false, { 'Idempotency-Key': key }),
     },
@@ -108,12 +110,11 @@ export function createHttpServices(getToken: () => Promise<string | null>): Fron
       deleteNode: (id, signal) => request(`nodes/${encodeURIComponent(id)}`, () => undefined, signal, undefined, 'DELETE'),
     },
     dictionary: {
+      generate: (referenceId, signal) => request('words:generate', parseJobReference, signal, { reference_id: referenceId }),
       search: (query, signal) => request(`words:search?query=${encodeURIComponent(query)}&include_reference=true`, parseWordSearch, signal, undefined, undefined, true),
       word: (id, signal) => request(`words/${id}`, parseDictionaryWord, signal, undefined, undefined, true),
       previews: (ids, signal) => request('words:batchPreview', parseWordPreviews, signal, { word_ids: ids }, 'POST', true),
       context: (id, signal) => request(`me/words/${id}`, parseWordContext, signal),
-      prepare: (referenceId, target, signal) => request('words:generate', parseWordGeneration, signal, { reference_id: referenceId, target }),
-      generation: (id, signal) => request(`word-tasks/${encodeURIComponent(id)}`, parseWordGeneration, signal),
     },
   }
 }

@@ -28,7 +28,9 @@ class UnavailableProvider:
         raise RuntimeError("private upstream payload must not be logged")
 
 
-async def test_generation_rejects_leaked_answers_and_observes_atomic_failure(database):
+async def test_generation_rejects_leaked_answers_and_observes_atomic_failure(
+    database, operation_metrics
+):
     _, sense_id = await neutral_word(database.sessions)
     saved = await generate_artifacts(
         database.sessions,
@@ -54,11 +56,19 @@ async def test_generation_rejects_leaked_answers_and_observes_atomic_failure(dat
     assert outcomes[0]["error_type"] == "RuntimeError"
     assert outcomes[0]["duration_ms"] >= 0
     assert "private upstream payload" not in str(logs)
+    points = operation_metrics()
+    assert {point.attributes["operation"] for point in points} == {"artifact_generation"}
+    assert {point.attributes["outcome"]: point.count for point in points} == {
+        "succeeded": 1,
+        "failed": 1,
+    }
     async with database.sessions() as session:
         assert await session.scalar(select(func.count()).select_from(QuestionArtifact)) == 1
 
 
-async def test_shared_artifact_views_use_maximum_demand_and_reuse_sufficient_bank(database):
+async def test_shared_artifact_views_use_maximum_demand_and_reuse_sufficient_bank(
+    database, operation_metrics
+):
     from pycil.study.artifacts.generation import retrieve_artifacts
     from pycil.study.enums import QuestionType
 
@@ -96,9 +106,12 @@ async def test_shared_artifact_views_use_maximum_demand_and_reuse_sufficient_ban
     assert len(first) == len(second) == 1
     assert first[0].id == second[0].id
     assert provider.calls == 1
+    points = operation_metrics()
+    assert len(points) == 1 and points[0].count == 1
+    assert points[0].attributes == {"operation": "artifact_generation", "outcome": "succeeded"}
 
 
-async def test_unusable_generated_increment_leaves_bank_empty(database):
+async def test_unusable_generated_increment_leaves_bank_empty(database, operation_metrics):
     from pydantic import ValidationError
 
     _, sense_id = await neutral_word(database.sessions)
@@ -119,6 +132,9 @@ async def test_unusable_generated_increment_leaves_bank_empty(database):
         )
     async with database.sessions() as session:
         assert await session.scalar(select(func.count()).select_from(QuestionArtifact)) == 0
+    points = operation_metrics()
+    assert len(points) == 1 and points[0].count == 1
+    assert points[0].attributes == {"operation": "artifact_generation", "outcome": "failed"}
 
 
 @pytest.mark.parametrize("singleton", [False, True])

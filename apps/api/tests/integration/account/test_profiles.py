@@ -11,7 +11,7 @@ from pycil.account.profiles import public_projection, update_profile
 from pycil.account.schemas import ProfilePatch
 from pycil.account.usage import admit, allowance, change_plan, settle
 from pycil.app.config import load_config
-from pycil.app.http import Problem
+from pycil.utils.errors import OperationError
 from tests.support.account import account
 
 
@@ -28,7 +28,7 @@ async def test_concurrent_handle_claims_have_one_winner_and_atomic_loser(databas
 
     results = await asyncio.gather(*(claim(user) for user in users), return_exceptions=True)
     assert sum(isinstance(result, User) for result in results) == 1
-    errors = [result for result in results if isinstance(result, Problem)]
+    errors = [result for result in results if isinstance(result, OperationError)]
     assert len(errors) == 1 and errors[0].code == "handle_unavailable"
     async with database.sessions() as session:
         saved = list(await session.scalars(select(User)))
@@ -48,7 +48,7 @@ async def test_concurrent_handle_claims_have_one_winner_and_atomic_loser(databas
 
 
 async def test_allowance_read_is_readonly_and_plan_changes_keep_current_cycle_budget(database):
-    config = load_config()
+    config = load_config().account
     user, _ = await account(database.sessions)
     moment = datetime.now(UTC)
     async with database.sessions() as session:
@@ -75,13 +75,13 @@ async def test_allowance_read_is_readonly_and_plan_changes_keep_current_cycle_bu
         assert current.plan is Plan.FREE
         assert (
             budget["allowance_units"]
-            == config.product.account.plans[Plan.PRO].monthly_allowance_units
+            == config.plans[Plan.PRO].monthly_allowance_units
         )
         assert budget["remaining_units"] == budget["allowance_units"] - 1
 
 
 async def test_cross_user_usage_replay_is_rejected_and_admission_rechecks_current_plan(database):
-    config = load_config()
+    config = load_config().account
     user, _ = await account(database.sessions)
     other, _ = await account(database.sessions)
     moment, key = datetime.now(UTC), uuid4()
@@ -97,7 +97,7 @@ async def test_cross_user_usage_replay_is_rejected_and_admission_rechecks_curren
             moment=moment,
         )
     async with database.sessions() as session:
-        with pytest.raises(Problem) as error:
+        with pytest.raises(OperationError) as error:
             await settle(
                 session,
                 other.id,
@@ -110,20 +110,27 @@ async def test_cross_user_usage_replay_is_rejected_and_admission_rechecks_curren
             )
         assert error.value.code == "usage_event_conflict"
     async with database.sessions() as session:
-        with pytest.raises(Problem) as error:
-            await admit(session, user.id, config, Feature.ADVANCED_GRADING, moment)
+        with pytest.raises(OperationError) as error:
+            await admit(
+                session, user.id, config, Feature.ADVANCED_GRADING, moment
+            )
         assert error.value.code == "feature_not_available"
     async with database.sessions() as session:
         await change_plan(session, user.id, Plan.PRO, config, moment)
     async with database.sessions() as session:
-        assert await admit(session, user.id, config, Feature.ADVANCED_GRADING, moment) is Plan.PRO
+        assert (
+            await admit(
+                session, user.id, config, Feature.ADVANCED_GRADING, moment
+            )
+            is Plan.PRO
+        )
 
 
 async def test_exhausted_allowance_denies_new_work_without_creating_extra_events(database):
-    config = load_config()
+    config = load_config().account
     user, _ = await account(database.sessions)
     moment = datetime.now(UTC)
-    quota = config.product.account.plans[user.plan].monthly_allowance_units
+    quota = config.plans[user.plan].monthly_allowance_units
     async with database.sessions() as session:
         await settle(
             session,
@@ -136,7 +143,7 @@ async def test_exhausted_allowance_denies_new_work_without_creating_extra_events
             moment=moment,
         )
     async with database.sessions() as session:
-        with pytest.raises(Problem) as error:
+        with pytest.raises(OperationError) as error:
             await admit(session, user.id, config, Feature.ASSISTANT, moment)
         assert error.value.code == "allowance_exhausted"
     async with database.sessions() as session:

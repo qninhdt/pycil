@@ -1,7 +1,7 @@
 """Typed data structures and dictionaries for the study domain."""
 
 from datetime import date, datetime
-from typing import TypedDict
+from typing import Literal, TypedDict
 from uuid import UUID
 
 from pycil.study.enums import LearningState
@@ -101,3 +101,11 @@ class BatchResultDict(TypedDict):
     accepted: bool
     results: list[dict[str, object]]
     activity_day: date
+
+
+class LearningPreviewDict(TypedDict):
+    state: Literal[LearningState.NEW, LearningState.DUE, LearningState.NOT_YET_DUE]
+    due_at: datetime | None
+    elo: float | None
+    level: int | None
+    last_reviewed_at: datetime | None

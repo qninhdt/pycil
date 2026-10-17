@@ -49,7 +49,7 @@ def word_payload(senses):
 
 
 def test_representative_cache_capacity():
-    policy = load_config().runtime.caches
+    policy = load_config().system.caches
     # Decode independent DTOs: sharing nested lists/strings would undercount memory.
     word = Word.model_validate_json(word_payload(8))
     metadata_adapter = TypeAdapter(CachedWord)

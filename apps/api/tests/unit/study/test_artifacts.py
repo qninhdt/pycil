@@ -6,7 +6,6 @@ import pytest
 from pydantic import ValidationError
 
 from pycil.app.config import load_config
-from pycil.app.http import Problem
 from pycil.study import questions
 from pycil.study.artifacts.schemas import ARTIFACT_SCHEMAS, validate_artifact
 from pycil.study.enums import (
@@ -17,6 +16,7 @@ from pycil.study.enums import (
     TargetPlacement,
 )
 from pycil.study.enums import QuestionArtifactType as Kind
+from pycil.utils.errors import OperationError
 from pycil.vocabulary.errors import InvalidOutputError
 from tests.support.artifacts import lexical_target, payloads
 
@@ -91,7 +91,9 @@ def test_runtime_questions_map_answers_and_identity_for_supported_pairs(monkeypa
     word, sense = lexical_target()
     data = payloads()[QUESTION_ARTIFACT_MAP[kind]]
     artifact = SimpleNamespace(id=42, payload=copy.deepcopy(data))
-    built = questions.build_question(artifact, kind, fmt, sense, word.lemma, load_config())
+    built = questions.build_question(
+        artifact, kind, fmt, sense, word.lemma, load_config().study
+    )
     assert built.format is fmt
     assert built.question.question_artifact_id == 42
     assert built.question.sense_id == sense.id
@@ -125,7 +127,7 @@ def test_dialogue_blank_outside_target_preserves_target_in_dialogue():
         ResponseFormat.SINGLE_CHOICE,
         sense,
         word.lemma,
-        load_config(),
+        load_config().study,
     )
     assert built.question.content[0].text is None
     assert built.question.content[1].text == "At the [bank]."
@@ -134,13 +136,13 @@ def test_dialogue_blank_outside_target_preserves_target_in_dialogue():
 
 def test_runtime_questions_reject_empty_bank():
     word, sense = lexical_target()
-    with pytest.raises(Problem) as error:
+    with pytest.raises(OperationError) as error:
         questions.build_question(
             SimpleNamespace(id=42, payload={"context": "Deposit money.", "distractors": []}),
             QuestionType.CONTEXT_TO_WORD,
             ResponseFormat.SINGLE_CHOICE,
             sense,
             word.lemma,
-            load_config(),
+            load_config().study,
         )
     assert error.value.code == "artifact_bank_incomplete"

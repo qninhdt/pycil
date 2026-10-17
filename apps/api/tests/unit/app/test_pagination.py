@@ -5,8 +5,9 @@ from uuid import uuid4
 
 import pytest
 
-from pycil.app.http import Problem
+from pycil.app.http import status_for
 from pycil.app.pagination import decode, encode
+from pycil.utils.errors import OperationError
 
 
 def test_cursor_roundtrip_preserves_typed_seek_and_frozen_time():
@@ -17,7 +18,7 @@ def test_cursor_roundtrip_preserves_typed_seek_and_frozen_time():
         [now, identifier, "bank", 1, 0.5],
         now,
     )
-    with pytest.raises(Problem) as error:
+    with pytest.raises(OperationError) as error:
         decode(
             token, binding | {"viewer": "other"}, ["time", "uuid", "text", "id", "rank"], timed=True
         )
@@ -41,13 +42,13 @@ def test_cursor_roundtrip_preserves_typed_seek_and_frozen_time():
 def test_untrusted_cursor_types_and_nonfinite_values_are_rejected(seek, kind):
     body = {"v": 1, "binding": {}, "seek": seek, "as_of": None}
     token = base64.urlsafe_b64encode(json.dumps(body).encode()).decode()
-    with pytest.raises(Problem) as error:
+    with pytest.raises(OperationError) as error:
         decode(token, {}, [kind])
     assert error.value.code == "invalid_cursor"
 
 
 @pytest.mark.parametrize("token", ["", "%%%", "e30", "W10", "bnVsbA", "x" * 2049])
 def test_cursor_malformed_structures_are_safe_validation_errors(token):
-    with pytest.raises(Problem) as error:
+    with pytest.raises(OperationError) as error:
         decode(token, {}, ["id"])
-    assert error.value.status == 422
+    assert status_for(error.value) == 422

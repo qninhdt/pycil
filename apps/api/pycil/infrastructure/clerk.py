@@ -1,16 +1,12 @@
 """Clerk verification and transport; account provisioning belongs to the account domain."""
 
 import asyncio
-from typing import TYPE_CHECKING, TypedDict, cast
+from typing import TypedDict, cast
 from urllib.parse import quote
 
 import httpx
 import jwt
-
-from pycil.infrastructure.observability import get_logger
-
-if TYPE_CHECKING:
-    from pycil.app.settings import ApiSettings
+from structlog import get_logger
 
 logger = get_logger(__name__)
 
@@ -38,10 +34,17 @@ class IdentityServiceUnavailable(RuntimeError):
 
 class Identity:
     def __init__(
-        self, deployment: ApiSettings, *, timeout: float = 30, lifespan: float = 300
+        self,
+        jwks_url: str,
+        issuer: str,
+        audience: str | None = None,
+        *,
+        timeout: float = 30,
+        lifespan: float = 300,
     ) -> None:
-        self.deployment = deployment
-        self.keys = jwt.PyJWKClient(deployment.clerk_jwks_url, timeout=timeout, lifespan=lifespan)
+        self.issuer = issuer
+        self.audience = audience
+        self.keys = jwt.PyJWKClient(jwks_url, timeout=timeout, lifespan=lifespan)
 
     async def subject(self, token: str) -> str:
         try:
@@ -50,11 +53,11 @@ class Identity:
                 token,
                 key.key,
                 algorithms=["RS256"],
-                issuer=self.deployment.clerk_issuer,
-                audience=self.deployment.clerk_audience,
+                issuer=self.issuer,
+                audience=self.audience,
                 options={
                     "require": ["exp", "sub", "iss"],
-                    "verify_aud": self.deployment.clerk_audience is not None,
+                    "verify_aud": self.audience is not None,
                 },
             )
             subject = claims.get("sub")
@@ -67,13 +70,13 @@ class Identity:
 
 
 async def clerk_user(
-    http: httpx.AsyncClient, deployment: ApiSettings, subject: str, *, timeout: float
+    http: httpx.AsyncClient, secret_key: str, subject: str, *, timeout: float
 ) -> ClerkUserProfile:
     try:
         response = await http.request(
             "GET",
             "https://api.clerk.com/v1/users/" + quote(subject, safe=""),
-            headers={"Authorization": "Bearer " + deployment.clerk_secret_key.get_secret_value()},
+            headers={"Authorization": "Bearer " + secret_key},
             timeout=timeout,
         )
     except httpx.HTTPError as exc:

@@ -17,19 +17,18 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from pycil.app.config import SearchRuntime, load_config
-from pycil.infrastructure.content_revisions import ContentRevision, replay_many
-from pycil.infrastructure.content_revisions import head as revision_head
-from pycil.infrastructure.observability import get_logger
+from pycil.observability import get_logger
 from pycil.utils.concurrency import shielded_to_thread
 from pycil.utils.strings import ngrams
 from pycil.vocabulary import models as rows
-from pycil.vocabulary.config import SearchPolicy
+from pycil.vocabulary.config import SearchPolicy, SearchRuntime
 from pycil.vocabulary.enums import EntryType, GenerationState, HitKind, MatchKind
 from pycil.vocabulary.errors import InvalidResourceError
 from pycil.vocabulary.patterns import matches_pattern, surface_head_key
 from pycil.vocabulary.references.models import ReferenceWord
 from pycil.vocabulary.references.reference import encode_reference_id
+from pycil.vocabulary.revisions import ContentRevision, replay_many
+from pycil.vocabulary.revisions import head as revision_head
 from pycil.vocabulary.schemas import ReferenceHit, SearchResult, WordHit
 from pycil.vocabulary.text import answer_key
 from pycil.vocabulary.types import SearchPayload
@@ -84,22 +83,15 @@ class SearchIndex:
         sessions: async_sessionmaker[AsyncSession],
         path: str | None = None,
         *,
-        policy: SearchRuntime | None = None,
-        query_policy: SearchPolicy | None = None,
+        policy: SearchRuntime,
+        query_policy: SearchPolicy,
     ) -> None:
         self.sessions = sessions
         self.path = path
         self.snapshot: tantivy.Index | None = None
         self.lock = asyncio.Lock()
-        if policy is None or query_policy is None:
-            defaults = load_config()
-            self.policy = policy if policy is not None else defaults.runtime.search
-            self.query_policy = (
-                query_policy if query_policy is not None else defaults.product.vocabulary.search
-            )
-        else:
-            self.policy = policy
-            self.query_policy = query_policy
+        self.policy = policy
+        self.query_policy = query_policy
         self.task: asyncio.Task[None] | None = None
         self.failure: Exception | None = None
         self.is_owner = False
@@ -349,20 +341,23 @@ class SearchIndex:
         writer.add_document(self.meta(cursor))
         writer.commit()
 
+    async def pending_revisions(self, session: AsyncSession, cursor: int) -> list[ContentRevision]:
+        return list(
+            await session.scalars(
+                select(ContentRevision)
+                .where(ContentRevision.id > cursor, ContentRevision.entity_type == "word")
+                .order_by(ContentRevision.id)
+                .limit(self.policy.revision_batch_size)
+            )
+        )
+
     async def synchronize(self, writer: tantivy.IndexWriter) -> bool:
         cursor = self.cursor()
         assert cursor is not None
         started = perf_counter()
         async with self.sessions() as session, session.begin():
             await session.connection(execution_options={"isolation_level": "REPEATABLE READ"})
-            changes = list(
-                await session.scalars(
-                    select(ContentRevision)
-                    .where(ContentRevision.id > cursor)
-                    .order_by(ContentRevision.id)
-                    .limit(self.policy.revision_batch_size)
-                )
-            )
+            changes = await self.pending_revisions(session, cursor)
             if not changes:
                 self.last_success = perf_counter()
                 logger.debug(
@@ -385,7 +380,7 @@ class SearchIndex:
             )
             reference_ids: set[int] = set(projection[4])
             # Restore references unlinked since the last committed checkpoint.
-            for previous in (await replay_many(session, "word", word_ids, through=cursor)).values():
+            for previous in (await replay_many(session, word_ids, through=cursor)).values():
                 if previous and "reference_links" in previous:
                     links = cast(list[dict[str, int]], previous["reference_links"])
                     reference_ids.update(link["source_id"] for link in links)

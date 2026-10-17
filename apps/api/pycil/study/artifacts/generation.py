@@ -2,15 +2,15 @@
 
 import asyncio
 from collections.abc import Sequence
-from typing import Any, Protocol, cast
+from typing import Any, cast
 
-from pydantic import BaseModel, Field, create_model, model_validator
+from pydantic import Field, create_model, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from pycil.infrastructure.kv_store import InMemoryStore
-from pycil.infrastructure.llm import render_prompt
-from pycil.infrastructure.observability import get_logger, observe_operation
+from pycil.infrastructure.llm import StructuredLLMProtocol, render_prompt
+from pycil.observability import get_logger, observe_operation
 from pycil.study.artifacts.schemas import (
     ARTIFACT_SCHEMAS,
     Artifact,
@@ -35,10 +35,6 @@ from pycil.vocabulary.models import Definition, Sense
 from pycil.vocabulary.schemas import forms_adapter
 
 logger = get_logger(__name__)
-
-
-class StructuredLLMProtocol(Protocol):
-    async def complete[T: BaseModel](self, instruction: str, data: str, schema: type[T]) -> T: ...
 
 
 async def generate_artifacts(
@@ -135,7 +131,7 @@ async def generate_artifacts(
                         distractor_count,
                         correct_count,
                     )
-                except ValueError, InvalidOutputError:
+                except (ValueError, InvalidOutputError):
                     continue
                 accepted.append(payload.model_dump())
             if not accepted or (singleton and len(accepted) != 1):

@@ -5,7 +5,7 @@ import pytest
 from sqlalchemy import func, select
 
 from pycil.app.config import load_config
-from pycil.app.http import Problem
+from pycil.app.http import status_for
 from pycil.library.models import DeckSense, Node, NodePath, NodeRole, NodeType
 from pycil.library.nodes import (
     copy_node,
@@ -16,6 +16,7 @@ from pycil.library.nodes import (
     update_node,
 )
 from pycil.library.schemas import NodeCreate, NodeDestination, NodeMove, NodePatch, SenseDelta
+from pycil.utils.errors import OperationError
 from pycil.vocabulary.enums import PartOfSpeech, Tier
 from pycil.vocabulary.models import Sense
 from tests.support.account import account
@@ -31,7 +32,10 @@ async def library(database):
     async def create(kind, name, **options):
         async with database.sessions() as session:
             return await create_node(
-                session, user.id, NodeCreate(type=kind, name=name, **options), config
+                session,
+                user.id,
+                NodeCreate(type=kind, name=name, **options),
+                config.library,
             )
 
     return SimpleNamespace(user=user, roots=roots, sense=sense_id, config=config, create=create)
@@ -43,7 +47,12 @@ async def test_membership_is_idempotent_and_invalid_delta_rolls_back_metadata(da
     async def patch(metadata=None, membership=None):
         async with database.sessions() as session:
             return await update_node(
-                session, library.user.id, deck["id"], metadata, membership, library.config
+                session,
+                library.user.id,
+                deck["id"],
+                metadata,
+                membership,
+                library.config.library,
             )
 
     barrier = asyncio.Barrier(2)
@@ -57,7 +66,7 @@ async def test_membership_is_idempotent_and_invalid_delta_rolls_back_metadata(da
         add_member(),
     )
     assert sum(result["added_count"] for result in results) == 1
-    with pytest.raises(Problem) as error:
+    with pytest.raises(OperationError) as error:
         await patch(NodePatch(name="must roll back"), SenseDelta(add=[999999]))
     assert error.value.code == "sense_not_found"
     await patch(NodePatch(description=None))
@@ -87,7 +96,7 @@ async def test_move_rebuilds_external_closure_preserves_internal_paths_and_rejec
             library.user.id,
             source["id"],
             NodeMove(parent_id=destination["id"]),
-            library.config,
+            library.config.library,
         )
     async with database.sessions() as session:
         paths = {
@@ -108,13 +117,13 @@ async def test_move_rebuilds_external_closure_preserves_internal_paths_and_rejec
         ) == [library.sense]
     for parent in [source["id"], child["id"]]:
         async with database.sessions() as session:
-            with pytest.raises(Problem):
+            with pytest.raises(OperationError):
                 await move_node(
                     session,
                     library.user.id,
                     source["id"],
                     NodeMove(parent_id=parent),
-                    library.config,
+                    library.config.library,
                 )
     async with database.sessions() as session:
         assert (await session.get(Node, source["id"])).parent_id == destination["id"]
@@ -134,7 +143,7 @@ async def test_copy_remaps_internal_references_and_memberships_independently(dat
             library.user.id,
             source["id"],
             NodeDestination(parent_id=library.roots[NodeRole.PERSONAL_ROOT].id),
-            library.config,
+            library.config.library,
         )
     async with database.sessions() as session:
         children = list(await session.scalars(select(Node).where(Node.parent_id == copied["id"])))
@@ -154,7 +163,7 @@ async def test_copy_remaps_internal_references_and_memberships_independently(dat
             clone_deck.id,
             None,
             SenseDelta(remove=[library.sense]),
-            library.config,
+            library.config.library,
         )
     async with database.sessions() as session:
         assert list(
@@ -169,33 +178,25 @@ async def test_copy_quota_failure_leaves_no_partial_tree_and_deletion_releases_q
     child = await library.create(NodeType.DECK, "Deck", parent_id=folder["id"])
     limited = library.config.model_copy(
         update={
-            "product": library.config.product.model_copy(
-                update={
-                    "library": library.config.product.library.model_copy(
-                        update={
-                            "quotas": library.config.product.library.quotas.model_copy(
-                                update={"max_owned_nodes": 5}
-                            )
-                        }
-                    )
-                }
+            "library": library.config.library.model_copy(
+                update={"max_owned_nodes": 5}
             )
         }
     )
     async with database.sessions() as session:
-        with pytest.raises(Problem) as error:
+        with pytest.raises(OperationError) as error:
             await copy_node(
                 session,
                 library.user.id,
                 folder["id"],
                 NodeDestination(parent_id=library.roots[NodeRole.PERSONAL_ROOT].id),
-                limited,
+                limited.library,
             )
         assert error.value.code == "quota_exceeded"
     async with database.sessions() as session:
         assert await session.scalar(select(func.count()).select_from(Node)) == 5
     async with database.sessions() as session:
-        await delete_node(session, library.user.id, folder["id"], limited)
+        await delete_node(session, library.user.id, folder["id"])
     async with database.sessions() as session:
         assert (await session.get(Node, child["id"])).deleted_at is not None
         assert (
@@ -208,7 +209,10 @@ async def test_copy_quota_failure_leaves_no_partial_tree_and_deletion_releases_q
         )
     async with database.sessions() as session:
         created = await create_node(
-            session, library.user.id, NodeCreate(type=NodeType.DECK, name="replacement"), limited
+            session,
+            library.user.id,
+            NodeCreate(type=NodeType.DECK, name="replacement"),
+            limited.library,
         )
     assert created["deleted_at"] is None
 
@@ -220,22 +224,26 @@ async def test_system_roots_and_foreign_nodes_cannot_be_mutated(database, librar
         (foreign.id, library.roots[NodeRole.PERSONAL_ROOT].id),
     ]:
         async with database.sessions() as session:
-            with pytest.raises(Problem) as error:
-                await delete_node(session, owner, node, library.config)
-            assert error.value.status == (422 if owner == library.user.id else 404)
+            with pytest.raises(OperationError) as error:
+                await delete_node(session, owner, node)
+            assert status_for(error.value) == (422 if owner == library.user.id else 404)
 
 
 async def test_node_seek_survives_deleted_anchor_and_binds_parent_and_viewer(database, library):
     nodes = [await library.create(NodeType.DECK, name) for name in ["A", "B", "C"]]
     parent = library.roots[NodeRole.PERSONAL_ROOT].id
     async with database.sessions() as session:
-        first = await list_nodes(session, library.user.id, parent, None, library.config, limit=1)
+        first = await list_nodes(
+            session, library.user.id, parent, None, library.config.library, limit=1
+        )
     token = first["next_cursor"]
     assert token
     async with database.sessions() as session:
-        await delete_node(session, library.user.id, first["nodes"][0]["id"], library.config)
+        await delete_node(session, library.user.id, first["nodes"][0]["id"])
     async with database.sessions() as session:
-        second = await list_nodes(session, library.user.id, parent, token, library.config, limit=5)
+        second = await list_nodes(
+            session, library.user.id, parent, token, library.config.library, limit=5
+        )
         assert {n["id"] for n in second["nodes"]} == {n["id"] for n in nodes} - {
             first["nodes"][0]["id"]
         }
@@ -244,24 +252,16 @@ async def test_node_seek_survives_deleted_anchor_and_binds_parent_and_viewer(dat
         (library.user.id, library.roots[NodeRole.PUBLISHED_ROOT].id),
     ]:
         async with database.sessions() as session:
-            with pytest.raises(Problem) as error:
-                await list_nodes(session, viewer, scope, token, library.config)
+            with pytest.raises(OperationError) as error:
+                await list_nodes(session, viewer, scope, token, library.config.library)
             assert error.value.code == "invalid_cursor"
 
 
 async def test_concurrent_growth_obeys_exact_node_quota(database, library):
     limited = library.config.model_copy(
         update={
-            "product": library.config.product.model_copy(
-                update={
-                    "library": library.config.product.library.model_copy(
-                        update={
-                            "quotas": library.config.product.library.quotas.model_copy(
-                                update={"max_owned_nodes": 3}
-                            )
-                        }
-                    )
-                }
+            "library": library.config.library.model_copy(
+                update={"max_owned_nodes": 3}
             )
         }
     )
@@ -271,12 +271,15 @@ async def test_concurrent_growth_obeys_exact_node_quota(database, library):
         await barrier.wait()
         async with database.sessions() as session:
             return await create_node(
-                session, library.user.id, NodeCreate(type=NodeType.DECK, name=name), limited
+                session,
+                library.user.id,
+                NodeCreate(type=NodeType.DECK, name=name),
+                limited.library,
             )
 
     results = await asyncio.gather(create("A"), create("B"), return_exceptions=True)
     assert sum(isinstance(result, dict) for result in results) == 1
-    failure = next(result for result in results if isinstance(result, Problem))
+    failure = next(result for result in results if isinstance(result, OperationError))
     assert failure.code == "quota_exceeded"
     async with database.sessions() as session:
         assert await session.scalar(select(func.count()).select_from(Node)) == 4
@@ -292,16 +295,8 @@ async def test_over_limit_memberships_allow_reduction_but_not_growth(database, l
     deck = await library.create(NodeType.DECK, "Deck", sense_ids=[library.sense, second])
     limited = library.config.model_copy(
         update={
-            "product": library.config.product.model_copy(
-                update={
-                    "library": library.config.product.library.model_copy(
-                        update={
-                            "quotas": library.config.product.library.quotas.model_copy(
-                                update={"max_senses_per_deck": 1, "max_owned_memberships": 1}
-                            )
-                        }
-                    )
-                }
+            "library": library.config.library.model_copy(
+                update={"max_senses_per_deck": 1, "max_owned_memberships": 1}
             )
         }
     )
@@ -312,18 +307,18 @@ async def test_over_limit_memberships_allow_reduction_but_not_growth(database, l
             deck["id"],
             NodePatch(name="repaired"),
             SenseDelta(remove=[second]),
-            limited,
+            limited.library,
         )
     assert repaired["sense_ids"] == [library.sense]
     async with database.sessions() as session:
-        with pytest.raises(Problem) as error:
+        with pytest.raises(OperationError) as error:
             await update_node(
                 session,
                 library.user.id,
                 deck["id"],
                 NodePatch(name="must roll back"),
                 SenseDelta(add=[third]),
-                limited,
+                limited.library,
             )
         assert error.value.code == "deck_sense_limit_exceeded"
     async with database.sessions() as session:
@@ -341,27 +336,19 @@ async def test_move_respects_subtree_height_and_rejects_descendant_reference_to_
     destination = await library.create(NodeType.FOLDER, "Destination")
     limited = library.config.model_copy(
         update={
-            "product": library.config.product.model_copy(
-                update={
-                    "library": library.config.product.library.model_copy(
-                        update={
-                            "quotas": library.config.product.library.quotas.model_copy(
-                                update={"max_depth": 3}
-                            )
-                        }
-                    )
-                }
+            "library": library.config.library.model_copy(
+                update={"max_depth": 3}
             )
         }
     )
     async with database.sessions() as session:
-        with pytest.raises(Problem) as error:
+        with pytest.raises(OperationError) as error:
             await move_node(
                 session,
                 library.user.id,
                 source["id"],
                 NodeMove(parent_id=destination["id"]),
-                limited,
+                limited.library,
             )
         assert error.value.code == "node_depth_exceeded"
     await library.create(
@@ -371,13 +358,13 @@ async def test_move_respects_subtree_height_and_rejects_descendant_reference_to_
         reference_id=destination["id"],
     )
     async with database.sessions() as session:
-        with pytest.raises(Problem) as error:
+        with pytest.raises(OperationError) as error:
             await move_node(
                 session,
                 library.user.id,
                 source["id"],
                 NodeMove(parent_id=destination["id"]),
-                library.config,
+                library.config.library,
             )
         assert error.value.code == "node_cycle"
     async with database.sessions() as session:

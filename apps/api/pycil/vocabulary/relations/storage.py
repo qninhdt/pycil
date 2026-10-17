@@ -9,11 +9,11 @@ from sqlalchemy import and_, select, text, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import aliased
 
-from pycil.infrastructure.content_revisions import GRAPH_KEY, capture, publish
 from pycil.infrastructure.database import transaction_lock
 from pycil.utils.hashing import sha256_hex
 from pycil.vocabulary.enums import GenerationState, PartOfSpeech, SenseRelationType
 from pycil.vocabulary.models import Definition, Sense, SenseRelation, Word
+from pycil.vocabulary.revisions import GRAPH_KEY, capture, publish
 
 
 class ClearableStore(Protocol):
@@ -146,7 +146,7 @@ async def apply_resolution(
         )
         if owner_id is None:
             return False
-        before = await capture(session, [("word", owner_id)])
+        before = await capture(session, [owner_id])
         edge = await session.scalar(
             select(SenseRelation).where(SenseRelation.id == expected.edge_id).with_for_update()
         )

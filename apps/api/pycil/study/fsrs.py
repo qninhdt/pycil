@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 
 from fsrs_rs_python import DEFAULT_PARAMETERS, FSRS, MemoryState
 
-from pycil.app.config import AppConfig
+from pycil.study.config import FSRSPolicy
 from pycil.study.models import UserSense
 
 _DEFAULT_FSRS = FSRS(DEFAULT_PARAMETERS)
@@ -15,9 +15,8 @@ def next_state(
     memory: UserSense | None,
     recalls: Sequence[int | float | None],
     now: datetime,
-    config: AppConfig,
+    policy: FSRSPolicy,
 ) -> tuple[float, float, datetime]:
-    policy = config.product.study.fsrs
     fsrs = _DEFAULT_FSRS
     observed = [r for r in recalls if r is not None]
     if observed:
