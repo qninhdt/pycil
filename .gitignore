@@ -33,7 +33,7 @@ storybook-static/
 test-results/
 playwright-report/
 *.tsbuildinfo
-.e2e/.artifacts/
+/e2e/.artifacts/
 
 # Logs
 *.log

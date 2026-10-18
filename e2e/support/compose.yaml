@@ -65,6 +65,25 @@ services:
       - ${E2E_ARTIFACTS}:/artifacts
     depends_on:
       migration: {condition: service_completed_successfully}
+  worker:
+    <<: *api
+    environment:
+      DB_URL: postgresql+asyncpg://e2e:e2e@postgres:5432/e2e
+      REDIS_URL: redis://redis:6379/0
+      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_BASE_URL: ${LLM_BASE_URL}
+    volumes: []
+    command: [
+      taskiq, worker, pycil.app.broker:worker_broker,
+      pycil.vocabulary.generation.tasks, pycil.study.tasks,
+      --workers, '1', --max-async-tasks, '4', --max-prefetch, '0',
+      --ack-type, when_saved, --wait-tasks-timeout, '90',
+      --shutdown-timeout, '10', --no-configure-logging
+    ]
+    stop_grace_period: 120s
+    depends_on:
+      migration: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
   api:
     <<: *api
     stop_grace_period: 120s

@@ -122,11 +122,7 @@ export async function createUser(page: Page): Promise<User> {
         document.cookie = `__client_uat=${uat}; path=/; max-age=31536000; samesite=lax`
       }
     })
-    try {
-      await page.waitForURL(url => url.pathname === '/app', { timeout: 15_000 })
-    } catch {
-      await page.goto('/auth/complete?returnTo=%2Fapp')
-    }
+    await page.goto('/auth/complete?returnTo=%2Fapp')
     await expect.poll(() => new URL(page.url()).pathname).toBe('/app')
     await clerk.loaded({ page })
     api = await Api.create(page)

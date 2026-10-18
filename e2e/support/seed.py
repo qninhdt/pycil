@@ -136,7 +136,7 @@ async def user_state(
             now = datetime.now(UTC)
             if exhausted:
                 start, end = period_bounds(user.cycle_anchor, now)
-                budget = config.product.account.plans[user.plan].monthly_allowance_units
+                budget = config.account.plans[user.plan].monthly_allowance_units
                 period = await session.scalar(
                     select(UsagePeriod).where(
                         UsagePeriod.user_id == identifier,

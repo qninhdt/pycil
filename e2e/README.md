@@ -34,6 +34,11 @@ performed through the browser. They do not import frontend parsers or inspect th
 Study session to find correct answers. Ordinary provider scenarios control only
 external protocols; unmatched model requests fail. Container startup uses the
 production API Dockerfile and genuine migration/reference/checkpoint gates.
+The disposable stack runs API and native Taskiq worker services from that same
+image. The worker consumes preparation/generation jobs from the stack's Redis;
+it receives database, Redis and model-provider configuration, with no Clerk
+credentials or published HTTP port. Its command is owned by
+[`support/compose.yaml`](support/compose.yaml).
 
 `pnpm --dir e2e typecheck` checks this package. `pnpm --dir e2e test:support`
 checks provider/identity recovery boundaries without external services or containers. Test collection
@@ -42,9 +47,10 @@ containers, identities, or frontend processes.
 
 ## Ownership and diagnostics
 
-Each test user has a fresh Clerk identity and session. User setup and auth
-journeys share the real custom-form sign-in/verification flow. The native Clerk
-testing helper handles its JSON endpoints; the handshake redirect continues through
+Each test user has a fresh Clerk identity and session. Ordinary setup activates
+a real Clerk ticket session and navigates directly through `/auth/complete`;
+authentication journeys exercise the real custom sign-in/verification form. The
+native Clerk testing helper handles its JSON endpoints; the handshake redirect continues through
 the actual browser network because it can legitimately return HTML. Exact owned emails/IDs are
 recorded in an ignored private run ledger; normal global teardown reconciles
 identities and removes the owned Compose project and volumes. Baseline lexical
