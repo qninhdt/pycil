@@ -343,3 +343,20 @@ Verification completed so far:
 - Unpublish-after-open E2E: both public HTML and OG image return 404 after the owner moves the deck back to Personal.
 
 No claim is made about Google re-verification, external social-platform caches/previews, production deployment, or resolving the separate production latency investigation. The sitemap deliberately seeds at most 50 eligible discovery entries; deeper items remain linked from public pages.
+
+
+Release validation on 19 October 2026 found stale E2E accessible names after the
+shared library UI change, a resize assertion racing the asynchronous background
+layout, a search-metric assertion racing synchronization completion, and missing
+backup/observability inputs in the Compose CI check. These checks now follow the
+actual public/private controls and wait for the observed operation to finish;
+no product assertions were removed. The PostgreSQL bootstrap user finding is
+limited to its Dockerfile in the shared Trivy policy; live PostgreSQL runs as
+`postgres`, and the backup utility uses UID 999.
+
+The complete backend run passed 582 tests with one existing skip. The local E2E
+run passed 83 of 84 before the final card-link locator correction; both publication
+journeys passed in the targeted rerun. The artwork resize test passed five repeated
+runs, and local/VPS Compose, Caddy, and three deployment checks passed. The full
+frontend CI job passed. Production promotion still waits for the final revision's
+CI and verified backend image publication.

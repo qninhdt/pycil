@@ -59,7 +59,7 @@ test('publishing a subtree retains its Personal reference and deleting it revoke
   expect(retained).toHaveLength(1)
   data.track(retained[0].id)
   await guest.goto(`/u/${user.account.id}/${folder.id}`)
-  await guest.getByRole('link', { name: deck.name, exact: true }).click()
+  await guest.getByRole('link', { name: `Open ${deck.name}, Deck`, exact: true }).click()
   await expect(guest.getByRole('heading', { level: 1 })).toContainText(deck.name)
   await settings.click()
   await user.page.getByRole('menuitem', { name: 'Delete', exact: true }).click()

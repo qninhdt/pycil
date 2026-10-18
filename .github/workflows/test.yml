@@ -238,6 +238,11 @@ jobs:
           RELEASE_IMAGE: pycil-api:ci
           BLUE_API_IMAGE: pycil-api:ci
           GREEN_API_IMAGE: pycil-api:ci
+          POSTGRES_WALG_IMAGE: pycil-postgres:ci
+          WALG_S3_PREFIX: s3://configuration-check/vps/1/pg18
+          BACKUP_KEY_FINGERPRINT: configuration-check
+          GRAFANA_ENV_FILE: /dev/null
+          ALLOY_ENV_FILE: /dev/null
           LLM_API_KEY: test-only
           LLM_BASE_URL: https://inference.invalid/v1
           DECISION_API_KEY: test-only

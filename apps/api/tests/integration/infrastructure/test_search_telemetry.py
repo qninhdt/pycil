@@ -140,7 +140,9 @@ async def test_query_keeps_reading_committed_snapshot_during_synchronization(
     await index.wait_for_revision(revision)
     assert (await index.search("bank")).items[0].word_id == word.id
     assert count("rebuild", "succeeded") == 1
-    assert count("synchronize", "succeeded") >= 1
+    async with asyncio.timeout(5):
+        while count("synchronize", "succeeded") < 1:
+            await asyncio.sleep(0.01)
     assert count("synchronize", "idle") >= 1
     assert count("publication_wait", "succeeded") == 1
     async with asyncio.timeout(5):
