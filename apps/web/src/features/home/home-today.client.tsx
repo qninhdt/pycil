@@ -8,7 +8,8 @@ import { Empty, EmptyHeader, EmptyTitle, EmptyDescription, EmptyContent } from '
 import type { HomeResource } from '@/features/home/use-home.client'
 import type { StudySummary } from '@/lib/api/study'
 import { dayLabel } from '@/features/home/calendar'
-import { HomeFailure, HomeLoading, StatusShape } from './home-state.client'
+import { HomeFailure, StatusShape } from './home-state.client'
+import { TodaySkeleton } from './home-skeletons'
 
 export function HomeToday({ summary, today }: { summary: HomeResource<StudySummary>; today: string | null }) {
   const t = useTranslations('home')
@@ -17,9 +18,9 @@ export function HomeToday({ summary, today }: { summary: HomeResource<StudySumma
   return <section aria-labelledby="home-today-title">
     <div className="flex items-center justify-between gap-4 mb-6 [&_h2]:text-[22px] [&_h2]:leading-snug [&_h3]:text-lg [&_h3]:leading-snug [&_p]:text-muted-foreground [&_p]:text-[13px] [&_p]:mt-1.5 max-md:[&_h2]:text-xl"><div><h2 id="home-today-title">{t('today')}</h2>{today && <p><time dateTime={today}>{dayLabel(today, { weekday: 'long', month: 'short', day: 'numeric' })}</time></p>}</div>
       <Button variant="ghost" size="icon" onClick={summary.retry} disabled={summary.status === 'loading'} aria-label={t('refreshCounts')}><RotateCcw aria-hidden="true" /></Button></div>
-    {summary.status === 'loading' ? <HomeLoading label={t('libraryCounts')} /> : summary.status === 'error' ? <HomeFailure label={t('libraryCounts')} error={summary.error} retry={summary.retry} />
+    {summary.status === 'loading' ? <TodaySkeleton /> : summary.status === 'error' ? <HomeFailure label={t('libraryCounts')} error={summary.error} retry={summary.retry} />
       : data && data.total === 0 ? <Empty className="min-h-[196px]"><EmptyHeader><EmptyTitle>{t('todayEmptyTitle')}</EmptyTitle><EmptyDescription>{t('todayEmptyDesc')}</EmptyDescription></EmptyHeader>
-        <EmptyContent><Button asChild size="lg"><Link href="/app/personal?create=deck"><Plus className="size-4 mr-2" aria-hidden="true" />{t('createDeck')}</Link></Button><Button asChild variant="link"><Link href="/app/discovery">{t('exploreDiscovery')}</Link></Button></EmptyContent></Empty>
+        <EmptyContent><Button asChild size="lg"><Link href="/app/personal?create=deck"><Plus className="size-4 mr-2" aria-hidden="true" />{t('createDeck')}</Link></Button><Button asChild variant="link"><Link href="/discovery">{t('exploreDiscovery')}</Link></Button></EmptyContent></Empty>
       : data && <>
         <dl className="grid grid-cols-[1.2fr_1fr_1fr] gap-5 items-end my-7 [&_>_div]:min-w-0 [&_dt]:flex [&_dt]:items-center [&_dt]:gap-2 [&_dt]:text-[13px] [&_dt]:font-[650] [&_dd]:text-[clamp(30px,3.5vw,46px)] [&_dd]:font-extrabold [&_dd]:leading-none [&_dd]:tracking-tight [&_dd]:tabular-nums [&_dd]:my-4 [&_dd]:mb-2 [&_dd]:break-words [&_p]:text-xs [&_p]:leading-normal [&_p]:text-muted-foreground max-xl:gap-3 max-md:my-4 max-md:gap-2 max-md:grid-cols-3 max-md:[&_dt]:text-[11px] max-md:[&_dt]:gap-1 max-md:[&_dd]:text-[34px] max-md:[&_dd]:my-1.5 max-md:[&_p]:text-[11px] max-md:[&_p]:line-clamp-2">
           <div className="home-count-due [&_dd]:text-art-red [&_dd]:text-[clamp(52px,5vw,72px)] max-md:[&_dd]:text-[34px]"><dt><StatusShape state="due" />{t('dueNow')}</dt><dd>{data.due.toLocaleString('en')}</dd><p>{t('dueDesc')}</p></div>

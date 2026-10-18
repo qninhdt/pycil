@@ -28,12 +28,14 @@ test('an empty deck offers a route back to its library', async ({ user, data }) 
 
 test('the 101st distinct meaning is reachable across the backend page boundary', async ({ user, data, vocabulary }) => {
   const deck = await data.create({ name: 'Full flashcard pagination', type: 'deck', sense_ids: vocabulary.pagination.map(item => item.sense_id) })
+  await user.page.goto('/app')
+  await user.page.evaluate(({ user, node }) => {
+    localStorage.setItem(`pycil:flashcards:${user}:${node}`, JSON.stringify({ index: 99, revealed: false }))
+  }, { user: user.account.id, node: deck.id })
   await user.page.goto(`/app/flashcards?node=${deck.id}`)
   const next = user.page.getByRole('button', { name: 'Next flashcard', exact: true })
-  for (let position = 1; position <= 100; position++) {
-    await expect(user.page.getByText(`${position} / 101`, { exact: true })).toBeVisible()
-    await next.click()
-  }
+  await expect(user.page.getByText('100 / 101', { exact: true })).toBeVisible()
+  await next.click()
   await expect(user.page.getByText('101 / 101', { exact: true })).toBeVisible()
   await expect(next).toBeDisabled()
   await user.page.getByRole('button', { name: /^Reveal meaning of/ }).click()

@@ -11,8 +11,8 @@ test('only submission records learning, shared senses have the same progress in 
   await answerChoice(user.page, 'bank')
   expect(await user.api.call(`study/progress?node_id=${deck.id}`)).toMatchObject({ new: 1, studied: 0 })
   await finishStudy(user.page)
-  for (const node of [deck, other]) expect(await user.api.call(`study/progress?node_id=${node.id}`)).toMatchObject({ new: 0, studied: 1, total: 1 })
-  expect(await user.api.call('study/progress')).toMatchObject({ total: 1, studied: 1 })
+  for (const node of [deck, other]) expect(await user.api.call(`study/progress?node_id=${node.id}`)).toMatchObject({ new: 0, studied: 1, total: 1, not_due: 1, due: 0 })
+  expect(await user.api.call('study/progress')).toMatchObject({ total: 1, studied: 1, not_due: 1, due: 0 })
 })
 
 test('review selects due meanings and practice accepts a meaning that is not yet due', async ({ user, data, vocabulary }) => {

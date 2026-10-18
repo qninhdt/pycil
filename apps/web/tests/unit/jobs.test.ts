@@ -1,10 +1,11 @@
 import { QueryClient, focusManager } from '@tanstack/react-query'
-import { afterEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { ApiError } from '../../src/lib/api/error'
 import { parseGeneratedWord, parseJobReference, parseJobStatus, resumeJob, waitForJob, type JobStatus } from '../../src/lib/api/jobs'
 
 // QueryObserver disables interval timers during SSR; these tests exercise browser polling.
-vi.hoisted(() => { Object.assign(globalThis, { window: {} }) })
+vi.hoisted(() => { vi.stubGlobal('window', {}) })
+beforeEach(() => { vi.stubGlobal('window', {}) })
 const client = () => new QueryClient()
 const id = '019a08b8-0000-7000-8000-000000000001'
 const job = { job_id: id, status_url: `/v1/jobs/${id}` }

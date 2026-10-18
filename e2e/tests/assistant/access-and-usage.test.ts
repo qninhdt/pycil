@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import { test, expect } from '../../fixtures/index.ts'
 import { openAssistant, sendMessage, completion, completedResponse } from '../../support/assistant.ts'
+import { apiURL } from '../../support/environment.ts'
 
-test('a completed turn consumes the user allowance and another account cannot read its checkpoint', async ({ user, secondary, scenarios }) => {
+test('a completed turn consumes the user allowance and another account cannot read its checkpoint', async ({ user, request, scenarios }) => {
   const id = randomUUID()
   const before = await user.api.call<{ used_units: number }>('me/usage')
   await scenarios.register({ id, path: '/chat/completions', contains: id, responses: [{ status: 200, chunks: completion('Your own account keeps this response.') }] })
@@ -13,7 +14,8 @@ test('a completed turn consumes the user allowance and another account cannot re
   await expect.poll(async () => (await user.api.call<{ used_units: number }>('me/usage')).used_units).toBeGreaterThan(before.used_units)
   const history = await user.api.call<{ conversations: { id: string }[] }>('assistant/conversations')
   expect(history.conversations).toHaveLength(1)
-  await secondary.api.call(`assistant/conversations/${history.conversations[0].id}`, 'GET', undefined, [403, 404])
+  const response = await request.get(`${apiURL}/v1/assistant/conversations/${history.conversations[0].id}`)
+  expect([401, 403, 404]).toContain(response.status())
 })
 
 test('an exhausted allowance rejects a browser turn before reaching the model', async ({ user, data }) => {

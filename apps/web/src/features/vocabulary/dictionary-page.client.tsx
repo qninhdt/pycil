@@ -16,7 +16,8 @@ import { toast } from 'sonner'
 import { Motif, Icon } from '@/components/artwork/artwork'
 import { useAccount } from '@/features/account/account.client'
 import { MarkedText } from '@/components/content/marked-text'
-import { HomeFailure, HomeLoading } from '@/features/home/home-state.client'
+import { HomeFailure } from '@/features/home/home-state.client'
+import { DictionarySearchSkeleton, WordDetailSkeleton } from './dictionary-skeletons'
 import { LibraryDestinationDialog } from '@/features/library/library-destination-dialog.client'
 import { MeaningSources } from '@/features/library/meaning-sources.client'
 import { LearningBadge } from '@/features/library/library-shared.client'
@@ -74,7 +75,7 @@ export function WordDetail({ word, contexts, contextError, retryContext, onAdd, 
                 : <span>{t('notInYourDecks')}</span>}
             </div>}
           </div><div className="[&_[data-slot=button]]:whitespace-nowrap max-[700px]:col-start-2">{account.status === 'ready' ? <Button variant="outline" onClick={() => onAdd(sense.id)}><Plus aria-hidden="true" />{t('addToDeck')}</Button>
-            : <Button asChild variant="outline"><Link href={`/login?returnTo=${encodeURIComponent(`/app/dictionary?q=${word.lemma}`)}`}>{t('signInToAdd')}</Link></Button>}</div>
+            : <Button asChild variant="outline"><Link href={`/login?returnTo=${encodeURIComponent(`/dictionary?q=${encodeURIComponent(word.lemma)}&word=${word.id}`)}`}>{t('signInToAdd')}</Link></Button>}</div>
         </section>
       })}</div>
     </article>
@@ -152,7 +153,7 @@ export function DictionaryPage() {
     {!deferred && !showDetail ? <div className="flex items-center gap-5 min-h-[220px] border-b border-border text-muted-foreground [&_svg]:size-[68px] [&_svg]:ml-5"><Icon name="book" /><p>{t('searchPrompt')}</p></div>
       : deferred && <section className="border-b border-border pt-3.5 pb-4.5" aria-label="Search results"><div className="flex justify-between items-baseline gap-5 mb-2 [&_h2]:text-[15px] [&_span]:text-muted-foreground [&_span]:text-[13px]"><h2>{t('resultsFor', { query: deferred })}</h2>{search.isFetching && <span>{t('searching')}</span>}</div>
         {search.isError ? <HomeFailure label={t('dictionaryResults')} error={search.error} retry={() => { void search.refetch() }} />
-          : search.isPending ? <HomeLoading label={t('dictionaryResults')} />
+          : search.isPending ? <DictionarySearchSkeleton />
             : !results || results.items.length === 0 ? <p className="text-muted-foreground text-[13px]">{t('noEntries')}</p>
               : <div className="grid max-h-[260px] overflow-auto border-t border-border">{results.items.map(hit => hit.kind === 'word' ? (
                 <button key={`word:${hit.word_id}`} type="button" className="grid grid-cols-[30px_minmax(0,1fr)] items-center gap-3 w-full min-h-12 px-3 py-2 text-left border-b border-border bg-transparent transition-colors duration-150 ease-out hover:bg-accent [&[aria-current=true]]:bg-accent focus-visible:relative focus-visible:z-[1] [&_>_.bauhaus-icon]:size-6 [&_strong]:text-sm [&_small]:block [&_small]:text-muted-foreground [&_small]:text-[11px] max-[700px]:grid-cols-[25px_minmax(0,1fr)] max-[700px]:gap-2" onClick={() => { setSelectedWordId(hit.word_id); setReference(null) }} aria-current={selectedWordId === hit.word_id && showDetail ? 'true' : undefined}>
@@ -164,8 +165,8 @@ export function DictionaryPage() {
                 </button>
               ))}</div>}
       </section>}
-    {reference && <section className="border-b border-border p-6"><h2 className="text-3xl font-extrabold">{reference.display}</h2><p className="text-sm text-muted-foreground">{t('prepNotice')}</p><Button className="mt-3" disabled={!account.canMutate || generating} onClick={() => { void generateReference() }}>{generating ? t('preparingEntry') : account.canMutate ? t('prepareEntry') : t('signInToPrepare')}</Button>{generationError && <p role="alert" className="mt-2 text-sm text-destructive">{generationError}</p>}</section>}
-    {showDetail && (detail.isPending ? <HomeLoading label={t('word')} /> : detail.isError ? <HomeFailure label={t('word')} error={detail.error} retry={() => { void detail.refetch() }} />
+    {reference && <section className="border-b border-border p-6"><h2 className="text-3xl font-extrabold">{reference.display}</h2><p className="text-sm text-muted-foreground">{t('prepNotice')}</p><div className="mt-3">{account.signedIn ? <Button disabled={!account.canMutate || generating} onClick={() => { void generateReference() }}>{generating ? t('preparingEntry') : t('prepareEntry')}</Button> : <Button asChild><Link href={`/login?returnTo=${encodeURIComponent(`/dictionary?q=${encodeURIComponent(reference.display)}`)}`}>{t('signInToPrepare')}</Link></Button>}</div>{generationError && <p role="alert" className="mt-2 text-sm text-destructive">{generationError}</p>}</section>}
+    {showDetail && (detail.isPending ? <WordDetailSkeleton /> : detail.isError ? <HomeFailure label={t('word')} error={detail.error} retry={() => { void detail.refetch() }} />
       : <WordDetail key={detail.data.id} word={detail.data} contexts={context.data?.senses} contextError={context.isError ? context.error : null} retryContext={() => { void context.refetch() }} onAdd={setSenseId} onSelectWord={(id, lemma) => { setInput(lemma); setSelectedWordId(id) }} />)}
     {senseId != null && account.profile && <LibraryDestinationDialog open onOpenChange={open => { if (!open) setSenseId(null) }} profile={account.profile} kind="deck" action={t('addToDeck')}
       onConfirm={destination => saveSense(destination.id)} onCreateDeck={createDeck} />}

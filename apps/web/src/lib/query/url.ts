@@ -9,6 +9,13 @@ export function searchParams(values: SearchValues): URLSearchParams {
   return params
 }
 
+export function paginationHref(pathname: string, params: URLSearchParams, cursors: string[]) {
+  const next = new URLSearchParams(params)
+  next.delete('cursor')
+  for (const cursor of cursors) next.append('cursor', cursor)
+  return `${pathname}${next.size ? `?${next}` : ''}`
+}
+
 export function updateUrl(changes: Record<string, string | string[] | null>, replace = false) {
   const url = new URL(window.location.href)
   for (const [key, value] of Object.entries(changes)) {

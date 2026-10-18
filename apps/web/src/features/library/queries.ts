@@ -15,12 +15,12 @@ export function nodeQuery(services: FrontendServices, scope: string, id: string)
   return queryOptions({ queryKey: [services.mode, scope, 'library-node', id],
     queryFn: ({ signal }) => scope === 'signed-out' ? services.library.publicNode(id, signal) : services.library.metadata(id, signal), enabled: Boolean(id) })
 }
-export function contentsQuery(services: FrontendServices, scope: string, id: string, options: ContentsOptions) {
-  const publicRead = scope === 'signed-out'
-  return queryOptions({ queryKey: [services.mode, scope, 'library-contents', id, options, publicRead], queryFn: ({ signal }) => services.library.contents(id, options, signal, publicRead) })
+export function contentsQuery(services: FrontendServices, scope: string, id: string, options: ContentsOptions, publicRead = scope === 'signed-out') {
+  return queryOptions({ queryKey: [services.mode, publicRead ? 'public' : scope, 'library-contents', id, options, publicRead], queryFn: ({ signal }) => services.library.contents(id, options, signal, publicRead) })
 }
-export function meaningsQuery(services: FrontendServices, scope: string, id: string, options: MeaningOptions) {
-  return queryOptions({ queryKey: [services.mode, scope, 'library-meanings', id, options], queryFn: ({ signal }) => services.library.meanings(id, options, signal) })
+export function meaningsQuery(services: FrontendServices, scope: string, id: string, options: MeaningOptions, publicRead = scope === 'signed-out') {
+  const selection = publicRead ? { ...options, state: 'all' as const, sort: 'lemma_asc' as const } : options
+  return queryOptions({ queryKey: [services.mode, publicRead ? 'public' : scope, 'library-meanings', id, selection], queryFn: ({ signal }) => services.library.meanings(id, selection, signal, publicRead) })
 }
 
 export function progressQuery(services: FrontendServices, scope: string, id: string) {

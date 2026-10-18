@@ -3,7 +3,7 @@ import { accountPlatform,navigationPlatform } from './fixtures/api-fixtures'
 import { buildFixture,renderFixture } from './fixtures/render-fixture'
 
 test('Dictionary adds one meaning to an existing deck and creates a deck with a meaning', async ({ page }) => {
-  await page.goto('/app/dictionary')
+  await page.goto('/dictionary')
   await page.getByRole('searchbox', { name: 'Search word or expression' }).fill('run')
   await page.getByRole('button', { name: /run.*Ready/i }).click()
   await expect(page.getByRole('heading', { name: 'run', exact: true })).toBeVisible()
@@ -43,17 +43,17 @@ test('Word picker keeps sense selection across searches and saves a batch', asyn
 })
 
 test('Reference entry prepares into a readable word', async ({ page }) => {
-  await page.goto('/app/dictionary')
+  await page.goto('/dictionary')
   await page.getByRole('searchbox', { name: 'Search word or expression' }).fill('orbit')
   await page.getByRole('button', { name: /orbit.*Needs preparation/i }).click()
   await expect(page.getByRole('heading', { name: 'orbit', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Prepare entry' }).click()
-  await expect(page).toHaveURL(/\/app\/dictionary\?q=.+&word=\d+$/)
+  await expect(page).toHaveURL(/\/dictionary\?q=.+&word=\d+$/)
   await expect(page.getByText('the curved path of an object around a planet or star')).toBeVisible()
 })
 
 test('Destination search opens a nested folder with its full breadcrumb', async ({ page }) => {
-  await page.goto('/app/dictionary')
+  await page.goto('/dictionary')
   await page.getByRole('searchbox', { name: 'Search word or expression' }).fill('run')
   await page.getByRole('button', { name: /run.*Ready/i }).click()
   await page.getByRole('button', { name: 'Add to deck' }).first().click()
@@ -65,14 +65,14 @@ test('Destination search opens a nested folder with its full breadcrumb', async 
 })
 
 test('Dictionary selection stays on one page and reveals native sense detail', async ({ page }) => {
-  await page.goto('/app/dictionary')
+  await page.goto('/dictionary')
   const search = page.getByRole('searchbox', { name: 'Search word or expression' })
   await expect(search).toHaveAttribute('type', 'text')
   await search.fill('bank')
   await expect(page.getByRole('button', { name: 'Clear search' })).toHaveCount(1)
   await page.evaluate(() => { Object.defineProperty(window, 'dictionaryNavigationProbe', { value: true }) })
   await page.getByRole('button', { name: /bank.*Ready/i }).click()
-  await expect(page).toHaveURL(/\/app\/dictionary\?q=.+&word=\d+$/)
+  await expect(page).toHaveURL(/\/dictionary\?q=.+&word=\d+$/)
   expect(await page.evaluate(() => 'dictionaryNavigationProbe' in window)).toBe(true)
   await expect(page.getByText('5 senses')).toBeVisible()
   await expect(page.getByText('CEFR A2').first()).toBeVisible()

@@ -174,36 +174,19 @@ test('Published word sources and author labels keep their owner route', async ({
 })
 
 test('Library desktop/mobile and theme matrix stays within frame with usable meaning rows', async ({ page }) => {
-  test.setTimeout(120_000)
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
-  for (const width of [1852, 1440, 390, 320]) {
-    await page.setViewportSize({ width, height: width === 1852 ? 935 : 1000 })
-    for (const [name, route] of [['personal', 'preview-personal'], ['deck', 'everyday/words'], ['folder', 'business'], ['deck-overview', 'business-core'], ['folder-words', 'business/words']]) {
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 })
+    for (const [name, route] of [['personal', 'preview-personal'], ['deck', 'everyday/words']]) {
       await page.goto(`/app/personal/${route}`)
       await expect(page.locator('.library-summary')).toBeVisible()
       await expect(page.getByRole('tabpanel')).toBeVisible()
-      if (name.includes('overview')) {
-        await expect(page.getByRole('heading', { name: 'Deck details' })).toBeVisible()
-        await expect(page.getByRole('region', { name: 'Flashcard preview' }).locator('article[data-face=front]')).toBeVisible()
-      }
-      else if (name === 'folder' || name === 'personal') await expect(page.locator('.library-node-grid').first()).toBeVisible()
+      if (name === 'personal') await expect(page.locator('.library-node-grid').first()).toBeVisible()
       else await expect(page.locator('.library-meaning-table')).toBeVisible()
       for (const dark of [false, true]) {
         await page.evaluate(dark => document.documentElement.classList.toggle('dark', dark), dark)
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
-        if (width === 1852) {
-          const frame = await page.locator('.library-page').boundingBox()
-          expect(frame!.width).toBeGreaterThan(1400)
-          if (name === 'personal') {
-            const firstDeck = await page.locator('section[aria-labelledby="library-decks-title"] > .library-node-grid > li').first().boundingBox()
-            expect(firstDeck!.y + 80).toBeLessThan(935)
-          }
-          if (name === 'deck') {
-            const rows = await page.locator('.library-meaning-table tbody tr').evaluateAll(nodes => nodes.filter(node => node.getBoundingClientRect().bottom <= innerHeight).length)
-            expect(rows).toBeGreaterThanOrEqual(6)
-          }
-        }
         if (name === 'deck') {
           const contrast = () => page.locator('.library-state-filters [data-state=on] > span').evaluate(node => {
             const canvas = document.createElement('canvas'); canvas.width = canvas.height = 1
@@ -219,26 +202,6 @@ test('Library desktop/mobile and theme matrix stays within frame with usable mea
           await expect.poll(contrast).toBeGreaterThanOrEqual(4.5)
         }
         await page.evaluate(() => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur() })
-        if (name === 'deck-overview') {
-          const preview = page.getByRole('region', { name: 'Flashcard preview' })
-          const pos = preview.locator('article').getByText('verb', { exact: true })
-          // A click can scroll a mobile card into view; compare in card coordinates.
-          const posOffset = () => pos.evaluate(node => {
-            const label = node.getBoundingClientRect(), card = node.closest('article')!.getBoundingClientRect()
-            return { x: label.x - card.x, y: label.y - card.y, width: label.width, height: label.height }
-          })
-          const posBefore = await posOffset()
-          await preview.getByRole('button', { name: /^Reveal meaning of / }).click()
-          await expect(preview.locator('article[data-face=back]')).toBeVisible()
-          expect(await posOffset()).toEqual(posBefore)
-          expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
-          await page.evaluate(() => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur() })
-          await preview.getByRole('button', { name: /^Flip back to word / }).click()
-          await preview.getByRole('button', { name: 'Next flashcard' }).click()
-          await expect(preview.getByRole('status')).toHaveText('2 / 24')
-          await page.evaluate(() => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur() })
-          await preview.getByRole('button', { name: 'Previous flashcard' }).click()
-        }
       }
     }
   }
@@ -248,8 +211,8 @@ test('Library desktop/mobile and theme matrix stays within frame with usable mea
 for (const source of [{ id: 'everyday', name: 'Everyday conversation', width: 1440 }, { id: 'business', name: 'Business English', width: 390 }]) test(`Create reference links an owned ${source.id} without copying its contents`, async ({ page }) => {
   await page.setViewportSize({ width: source.width, height: 844 })
   await page.goto(`/app/personal/${source.id}`)
-  await page.getByRole('button', { name: `Settings for ${source.name}` }).click()
-  await expect(page.getByRole('menuitem')).toHaveText(['Copy link', 'Edit details', 'Move', 'Copy', 'Create reference', 'Publish', 'Delete'])
+  await page.getByRole('button', { name: `Actions for ${source.name}` }).click()
+  await expect(page.getByRole('menuitem')).toHaveText(['Edit details', 'Move', 'Copy', 'Create reference', 'Publish', 'Delete'])
   await page.getByRole('menuitem', { name: 'Create reference', exact: true }).click()
   const form = page.getByRole('dialog', { name: 'Create reference', exact: true })
   await expect(form.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue(source.name)

@@ -20,11 +20,12 @@ async function openFixture(page: Page, query = '') {
   await renderFixture(page, bundle, 'home', query)
 }
 
-type MockOptions = { summary?: object; fail?: string; empty?: boolean; delay?: number }
+type MockOptions = { summary?: object; fail?: string; empty?: boolean; delay?: number; pending?: Promise<void> }
 
 async function mockHome(page: Page, options: MockOptions = {}) {
   await page.route('**/*v1/**', async route => {
     const url = new URL(route.request().url())
+    if (options.pending) await options.pending
     if (options.delay) await new Promise(resolve => setTimeout(resolve, options.delay))
     if (options.fail && url.pathname.endsWith(options.fail.replace(/^.*\/v1/, '/v1'))) return route.fulfill({ status: 503, json: { error: 'not_ready' } })
     expect(route.request().headers().authorization).toBe('Bearer test-only-bearer')
@@ -143,13 +144,17 @@ test('independent errors never masquerade as zero and recover without hiding oth
 })
 
 test('private Home data disappears synchronously on account change, including pending requests', async ({ page }) => {
-  await mockHome(page, { delay: 200 })
+  let release!: () => void
+  const pending = new Promise<void>(resolve => { release = resolve })
+  await mockHome(page, { pending })
   await openFixture(page)
-  await expect(page.getByRole('status', { name: 'Loading Library counts' })).toBeVisible()
+  await expect(page.getByRole('status', { name: 'Loading today counts' })).toBeVisible()
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('test-account-change', { detail: null })))
   await expect(page.getByText('Signed out of the test fixture.')).toBeVisible()
   await expect(page.locator('.home-counts')).toHaveCount(0)
   await expect(page.locator('.home-library-list')).toHaveCount(0)
+  release()
+  await expect(page.locator('.home-counts')).toHaveCount(0)
 })
 
 test('native and Radix scrollbars share rectangular themed rails', async ({ page }) => {
@@ -161,20 +166,21 @@ test('native and Radix scrollbars share rectangular themed rails', async ({ page
   for (const dark of [false, true]) {
     await page.evaluate(dark => document.documentElement.classList.toggle('dark', dark), dark)
     await expect.poll(() => viewport.evaluate(node => getComputedStyle(node).colorScheme)).toBe(dark ? 'dark' : 'light')
-    await page.waitForTimeout(200)
-    const colors = await page.locator('[data-slot=scroll-area-thumb]').evaluate(node => {
+    await expect.poll(() => page.locator('[data-slot=scroll-area-thumb]').evaluate(node => {
       const baseProbe = document.createElement('span'), hoverProbe = document.createElement('span')
       baseProbe.style.backgroundColor = 'var(--scrollbar-thumb)'
       hoverProbe.style.backgroundColor = 'var(--scrollbar-thumb-hover)'
       document.body.append(baseProbe, hoverProbe)
       const base = getComputedStyle(baseProbe).backgroundColor, hover = getComputedStyle(hoverProbe).backgroundColor
       baseProbe.remove(); hoverProbe.remove()
-      return { radius: getComputedStyle(node).borderRadius, thumb: getComputedStyle(node).backgroundColor, native: getComputedStyle(document.documentElement, '::-webkit-scrollbar-thumb').backgroundColor, base, hover }
-    })
-    expect(colors.radius).toBe('0px')
-    expect([colors.base, colors.hover]).toContain(colors.thumb)
-    // Chromium reports host hover when querying a native scrollbar pseudo-element.
-    expect([colors.base, colors.hover]).toContain(colors.native)
+      const thumb = getComputedStyle(node).backgroundColor
+      const native = getComputedStyle(document.documentElement, '::-webkit-scrollbar-thumb').backgroundColor
+      return {
+        radius: getComputedStyle(node).borderRadius,
+        validThumb: [base, hover].includes(thumb),
+        validNative: [base, hover].includes(native),
+      }
+    })).toEqual({ radius: '0px', validThumb: true, validNative: true })
     await viewport.evaluate(node => node.scrollTo({ top: 100 }))
     expect(await viewport.evaluate(node => node.scrollTop)).toBe(100)
   }

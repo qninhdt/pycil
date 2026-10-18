@@ -18,7 +18,8 @@ export async function vocabulary(): Promise<Vocabulary> {
 
 export class Data {
   private nodes = new Set<string>()
-  constructor(private user: User) {}
+  private user: User
+  constructor(user: User) { this.user = user }
 
   track(id: string) { this.nodes.add(id); return id }
 
@@ -47,7 +48,9 @@ export class Data {
   }
 
   async cleanup() {
-    const results = await Promise.allSettled([...this.nodes].reverse().map(id => this.user.api.call(`nodes/${id}`, 'DELETE', undefined, [204, 404])))
+    const toDelete = [...this.nodes].reverse()
+    this.nodes.clear()
+    const results = await Promise.allSettled(toDelete.map(id => this.user.api.call(`nodes/${id}`, 'DELETE', undefined, [204, 404])))
     const errors = results.filter(result => result.status === 'rejected').map(result => result.reason)
     if (errors.length) throw new AggregateError(errors, 'Owned node cleanup failed')
   }

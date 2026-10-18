@@ -99,3 +99,4 @@ screenshots/*
 docs/screenshots/*
 
 devops-course/
+.vercel

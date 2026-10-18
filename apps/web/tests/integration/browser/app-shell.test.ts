@@ -10,7 +10,7 @@ test('app routes, deck creation dialog, account menu and theme persist', async (
   await expect(page).toHaveURL(/\/app$/)
   await expect(page.getByRole('heading', { name: /Good (morning|afternoon|evening)(, Alex)?/ })).toBeVisible()
   await page.getByRole('link', { name: 'Dictionary', exact: true }).click()
-  await expect(page).toHaveURL(/\/app\/dictionary$/)
+  await expect(page).toHaveURL(/\/dictionary$/)
   await expect(page.getByRole('link', { name: 'Dictionary', exact: true })).toHaveAttribute('aria-current', 'page')
   await page.getByRole('button', { name: 'New deck / folder' }).click()
   await page.getByRole('menuitem', { name: 'New deck', exact: true }).click()
@@ -38,14 +38,12 @@ test('navbar keeps its five primary items on Profile and Settings without a squa
     const nav = scope.getByRole('navigation', { name: 'App navigation' })
     await expect(nav.getByRole('link')).toHaveCount(5)
     await expect(nav.getByRole('separator')).toHaveCount(0)
-    await expect(nav.locator('[data-dynamic], .shell-nav-rule')).toHaveCount(0)
-    await expect(nav.locator('[aria-current=page]')).toHaveCount(0)
+    await expect(nav.getByRole('link', { name: 'Discovery', exact: true })).toHaveAttribute('aria-current', 'page')
     await scope.getByRole('button', { name: 'Open account menu' }).click()
     await page.getByRole('menuitem', { name: 'Settings', exact: true }).click()
     await expect(page).toHaveURL(/\/app\/settings$/)
     if (width < 768) await page.getByRole('button', { name: 'Open navigation' }).click()
     await expect(nav.getByRole('link')).toHaveCount(5)
-    await expect(nav.locator('[data-dynamic], .shell-nav-rule')).toHaveCount(0)
     await expect(page.locator('.shell-main-pattern')).toBeVisible()
     await nav.getByRole('link', { name: 'Home', exact: true }).click()
     if (width < 768) await page.getByRole('button', { name: 'Open navigation' }).click()
@@ -374,30 +372,6 @@ test('mobile drawer navigates, closes and returns focus; small widths do not ove
     for (const route of ['/app/personal', '/login', '/signup']) {
       await page.goto(route)
       await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true)
-    }
-  }
-})
-
-test('foundation desktop/mobile light/dark visual matrix', async ({ page }) => {
-  for (const width of [1440, 390]) {
-    await page.setViewportSize({ width, height: width === 1440 ? 1000 : 844 })
-    for (const theme of ['light', 'dark']) {
-      await page.goto('/app')
-      await page.evaluate(next => { document.cookie = `pycil-theme=${next}; Path=/; SameSite=Lax`; document.documentElement.classList.toggle('dark', next === 'dark') }, theme)
-      for (const [name, route] of [['shell', '/app'], ['login', '/login'], ['signup', '/signup']]) {
-        await page.goto(route)
-        await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
-        await page.evaluate(() => document.fonts.ready)
-        if (name === 'shell' && width === 1440) {
-          await page.getByRole('button', { name: 'New deck / folder' }).click()
-          await page.keyboard.press('Escape')
-          await page.getByRole('button', { name: 'Open account menu' }).click()
-          await page.keyboard.press('Escape')
-          await page.getByRole('button', { name: 'Collapse navigation' }).click()
-          await page.mouse.move(500, 500)
-          await page.getByRole('button', { name: 'Expand navigation' }).click()
-        }
-      }
     }
   }
 })

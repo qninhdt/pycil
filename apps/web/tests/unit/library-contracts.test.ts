@@ -1,6 +1,7 @@
 import { expect,test } from 'vitest'
 
-import { libraryHref,publishedHref } from '../../src/features/library/model'
+import { libraryHref,publishedHref, publicCollectionHref, nodeHref } from '../../src/features/library/model'
+import { paginationHref } from '../../src/lib/query/url'
 
 import { parseMeaningPage,parseNodeDetails } from '../../src/lib/api/library'
 
@@ -21,5 +22,8 @@ test('Library contracts reject incomplete DTOs and links safely encode node iden
   expect(libraryHref('everyday', 'overview')).toBe('/app/personal/everyday')
   expect(libraryHref()).toBe('/app/personal')
   expect(publishedHref('node ?', 'words')).toBe('/app/published/node%20%3F/words')
+  expect(publicCollectionHref('sam', 'deck/a', 'words')).toBe('/u/sam/deck%2Fa/words')
+  expect(nodeHref({ id: 'deck', owner_id: 'sam', space: 'published' }, 'words')).toBe('/u/sam/deck/words')
+  expect(paginationHref('/u/sam/deck/words', new URLSearchParams('q=bank&cursor=old'), ['old', 'next+one'])).toBe('/u/sam/deck/words?q=bank&cursor=old&cursor=next%2Bone')
   expect(parseMeaningPage({ senses: [], next_cursor: null }).senses).toEqual([])
 })

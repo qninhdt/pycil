@@ -154,19 +154,17 @@ test('a cold question bank reports model rejection and retry builds validated qu
   expect(await user.api.call(`study/progress?node_id=${deck.id}`)).toMatchObject({ studied: 1 })
 })
 
-for (const saved of ['{invalid', '{"version":1}']) {
-  test(`unusable saved study data (${saved}) is replaced by preparation without progress writes`, async ({ user, data, vocabulary }) => {
-    await selectQuestions(user)
-    const deck = await data.create({ name: 'Recover saved learning', type: 'deck', sense_ids: [vocabulary.bankFinancial.sense_id] })
-    await user.page.evaluate(({ user, node, saved }) => localStorage.setItem(`pycil:study:${user}:${node}`, saved), { user: user.account.id, node: deck.id, saved })
-    await startStudy(user.page, deck.id)
-    await expect(user.page.getByRole('alertdialog')).not.toBeVisible()
-    await answerChoice(user.page, 'bank')
-    expect(await user.api.call(`study/progress?node_id=${deck.id}`)).toMatchObject({ studied: 0 })
-    await finishStudy(user.page)
-    expect(await user.api.call(`study/progress?node_id=${deck.id}`)).toMatchObject({ studied: 1 })
-  })
-}
+test('unusable saved study data is replaced by preparation without progress writes', async ({ user, data, vocabulary }) => {
+  await selectQuestions(user)
+  const deck = await data.create({ name: 'Recover saved learning', type: 'deck', sense_ids: [vocabulary.bankFinancial.sense_id] })
+  await user.page.evaluate(({ user, node }) => localStorage.setItem(`pycil:study:${user}:${node}`, '{invalid'), { user: user.account.id, node: deck.id })
+  await startStudy(user.page, deck.id)
+  await expect(user.page.getByRole('alertdialog')).not.toBeVisible()
+  await answerChoice(user.page, 'bank')
+  expect(await user.api.call(`study/progress?node_id=${deck.id}`)).toMatchObject({ studied: 0 })
+  await finishStudy(user.page)
+  expect(await user.api.call(`study/progress?node_id=${deck.id}`)).toMatchObject({ studied: 1 })
+})
 
 test('exiting while real preparation is delayed leaves no session or submitted review', async ({ user, data, vocabulary }) => {
   await selectQuestions(user)

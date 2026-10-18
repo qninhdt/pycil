@@ -6,6 +6,8 @@ import { dataMode } from './config'
 import { createMockServices } from './mock'
 import { createHttpServices } from './http'
 
+export const getPublicServices = cache(() => dataMode === 'mock' ? createMockServices() : createHttpServices(async () => null))
+
 export const getServerServices = cache(async () => {
   if (dataMode === 'mock') return createMockServices()
   if (!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) return createHttpServices(async () => null)

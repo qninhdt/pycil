@@ -10,10 +10,16 @@ import { ApiError } from '@/lib/api/error'
 
 export function HomeLoading({ label }: { label: string }) {
   const t = useTranslations('home')
-  return <div className="flex flex-col gap-5 min-h-[196px] py-6" role="status" aria-label={t('loadingLabelAria', { label })}>
-    <Skeleton className="h-10 w-2/5" aria-hidden="true" />
-    <Skeleton className="h-4 w-4/5" aria-hidden="true" />
-    <Skeleton className="h-4 w-3/5" aria-hidden="true" />
+  return <div className="flex flex-col gap-5 min-h-[196px] py-6 w-full animate-in fade-in duration-150" role="status" aria-label={t('loadingLabelAria', { label })}>
+    <div className="flex flex-col gap-2">
+      <Skeleton className="h-8 w-48 max-w-full" aria-hidden="true" />
+      <Skeleton className="h-4 w-72 max-w-full" aria-hidden="true" />
+    </div>
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-2">
+      <Skeleton className="h-36 w-full" aria-hidden="true" />
+      <Skeleton className="h-36 w-full" aria-hidden="true" />
+      <Skeleton className="h-36 w-full" aria-hidden="true" />
+    </div>
     <span className="sr-only">{t('loadingLabelSr', { label })}</span>
   </div>
 }

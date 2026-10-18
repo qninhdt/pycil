@@ -1,5 +1,6 @@
 'use client'
 
+import { useHydrated } from '@/lib/use-hydrated.client'
 import { reportingDay } from '@/features/home/calendar'
 
 import Link from 'next/link'
@@ -42,15 +43,17 @@ export function HomeDashboard({ profile, initialDay = reportingDay(new Date(), p
 
 export function HomePage({ initialDay }: { initialDay?: string } = {}) {
   const account = useAccount()
+  const hydrated = useHydrated()
   const tHome = useTranslations('home')
   const tNav = useTranslations('nav')
+  if (!hydrated) return <HomeDashboardSkeleton />
   if (account.status === 'ready' && account.profile) return <HomeDashboard key={account.profile.id} profile={account.profile} initialDay={initialDay} />
   if (account.status === 'loading') return <HomeDashboardSkeleton />
   return <div className="w-full [&_h1]:font-extrabold [&_h1]:tracking-tight [&_h2]:font-extrabold [&_h2]:tracking-tight [&_h3]:font-extrabold [&_h3]:tracking-tight"><HomeHeader />
     {account.status === 'error' ? <HomeFailure label={tNav('yourAccount')} error={new Error(account.error || 'Please retry.')} retry={account.retry} />
       : <Empty className="min-h-[480px] border-y border-foreground [&_[data-slot=empty-icon]]:w-40 [&_[data-slot=empty-icon]]:h-[120px] [&_[data-slot=empty-title]]:text-[28px] [&_[data-slot=empty-title]]:font-extrabold [&_[data-slot=empty-title]]:leading-tight [&_[data-slot=empty-title]]:tracking-tight max-md:px-0"><EmptyHeader><EmptyMedia><Motif name="modular" /></EmptyMedia><EmptyTitle>{tHome('welcomeTitle')}</EmptyTitle><EmptyDescription>{account.status === 'task' ? tHome('welcomeDescTask') : tHome('welcomeDescGuest')}</EmptyDescription></EmptyHeader><EmptyContent>
         <Button asChild variant="red" size="lg"><Link href="/login?returnTo=%2Fapp">{account.status === 'task' ? tHome('continueSetup') : tHome('signInHome')}</Link></Button>
-        <Button asChild variant="link"><Link href="/app/discovery">{tHome('explorePublished')}</Link></Button>
+        <Button asChild variant="link"><Link href="/discovery">{tHome('explorePublished')}</Link></Button>
       </EmptyContent></Empty>}
   </div>
 }

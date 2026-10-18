@@ -29,7 +29,15 @@ export async function cleanBuild(id: string, web = `${root}/apps/web`) {
 
 async function cleanStoppedBuild(id: string) {
   buildDirectory(`${root}/apps/web`, id)
-  await requireFreePort(3200)
+  for (let attempt = 0; attempt < 10; attempt++) {
+    try {
+      await requireFreePort(3200)
+      break
+    } catch (error) {
+      if (attempt === 9) throw error
+      await new Promise(resolve => setTimeout(resolve, 500))
+    }
+  }
   await cleanBuild(id)
 }
 

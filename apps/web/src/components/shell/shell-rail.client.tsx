@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useState } from 'react'
+import { useHydrated } from '@/lib/use-hydrated.client'
 import { Plus, X, Icon } from '@/components/artwork/artwork'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -23,11 +24,12 @@ export function ShellRail({
   collapsed?: boolean
   toggleCollapsed?: () => void
 }) {
+  const hydrated = useHydrated()
   const path = usePathname() ?? ''
   const account = useAccount()
   const tNav = useTranslations('nav')
   const tCommon = useTranslations('common')
-  const isActive = (href: string) => href === '/app/discovery' && /^\/u\/[^/]+\/[^/]+/.test(path)
+  const isActive = (href: string) => href === '/discovery' && /^\/u\//.test(path)
     || (href === '/app' ? path === href : path === href || path.startsWith(`${href}/`))
   const [tooltip, setTooltip] = useState<string | null>(null)
 
@@ -54,7 +56,7 @@ export function ShellRail({
           aria-label={tNav('appNav')}
           className="shell-nav flex flex-col [&_>_a]:relative [&_>_a]:flex [&_>_a]:items-center [&_>_a]:h-14 [&_>_a]:flex-none [&_>_a]:p-0 [&_>_a]:overflow-hidden [&_>_a]:border-b [&_>_a]:border-foreground [&_>_a]:text-sm [&_>_a]:font-semibold [&_>_a]:no-underline [&_>_a]:transition-colors [&_>_a]:duration-150 [&_>_a:hover]:bg-accent [&_>_a[aria-current=page]]:bg-accent [&_>_a[aria-current=page]]:text-foreground [&_>_a[aria-current=page]]:font-bold [&_>_a[aria-current=page]]:border-l-4 [&_>_a[aria-current=page]]:border-l-art-red"
         >
-          {pages.map(page => {
+          {pages.filter(page => account.signedIn || page.key === 'discovery' || page.key === 'dictionary').map(page => {
             const title = tNav(page.key)
             return (
               <Tooltip
@@ -98,7 +100,7 @@ export function ShellRail({
           })}
         </nav>
         <div className="flex-1 min-h-10" />
-        <DropdownMenu>
+        {account.status === 'ready' && <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
               className="shell-new relative isolate overflow-hidden flex items-center w-full text-left p-0 h-[92px] border-y border-foreground transition-colors duration-150 shrink-0 [&_>_svg:first-child]:absolute [&_>_svg:first-child]:left-[25.5px] [&_>_svg:first-child]:size-5 [&_>_svg:first-child]:stroke-[1.5] [&_>_span]:absolute [&_>_span]:left-[66px] [&_>_span]:max-w-[calc(100%-82px)] [&_>_span]:overflow-hidden [&_>_span]:whitespace-nowrap [&_strong]:text-xl [&_strong]:font-extrabold [&_strong]:tracking-[-.025em] [&_small]:block [&_small]:text-xs [&_small]:mt-1 [&_small]:whitespace-nowrap hover:bg-[var(--palette-yellow-soft)] data-[state=open]:bg-[var(--palette-yellow-soft)] focus:outline-none focus-visible:shadow-[inset_3px_0_0_var(--ring)] focus-visible:bg-[var(--palette-yellow-soft)] [&_>_span]:opacity-100 [&_>_span]:transition-opacity [&_>_span]:duration-200 motion-reduce:[&_>_span]:transition-none"
@@ -143,7 +145,7 @@ export function ShellRail({
               </Link>
             </DropdownMenuItem>
           </DropdownMenuContent>
-        </DropdownMenu>
+        </DropdownMenu>}
       </div>
       <div className="relative h-[84px] shrink-0 transition-colors hover:bg-accent has-[button[data-state=open]]:bg-accent">
         <AccountMenu mobile={!!close} collapsed={collapsed} close={close} />
@@ -157,6 +159,7 @@ export function ShellRail({
             aria-label={collapsed ? tNav('expandNav') : tNav('collapseNav')}
             aria-expanded={!collapsed}
             aria-controls="desktop-app-navigation"
+            disabled={!hydrated}
             title={collapsed ? tNav('expandNav') : tNav('collapseNav')}
           >
             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">

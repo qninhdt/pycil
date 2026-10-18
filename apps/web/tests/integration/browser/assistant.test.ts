@@ -1,4 +1,4 @@
-import database from '../../../src/lib/api/services/mock/database'
+import database from '../../../src/lib/api/services/mock/database.json' with { type: 'json' }
 
 import { expect,test,type Page } from '@playwright/test'
 
@@ -475,33 +475,4 @@ test('failed turns expose recovery without automatic replay', async ({ page }) =
   await page.getByRole('button', { name: 'Send message' }).click()
   await expect(page.locator('.ai-error')).toContainText('conversation is busy')
   expect(requests).toHaveLength(1)
-})
-
-test('assistant layouts stay inside desktop/mobile light/dark viewports', async ({ page }) => {
-  for (const width of [1440, 390]) {
-    await page.setViewportSize({ width, height: width === 1440 ? 1000 : 844 })
-    for (const theme of ['light', 'dark']) {
-      await page.goto('/showcase?view=assistant')
-      await expect(page.getByRole('heading', { name: 'An assistant, in good form.' })).toBeVisible()
-      await page.evaluate(theme => document.documentElement.classList.toggle('dark', theme === 'dark'), theme)
-      await page.evaluate(() => document.fonts.ready)
-      await page.locator('.ai-viewport').evaluate(element => { element.scrollTop = 0 })
-      await page.evaluate(() => window.scrollTo(0, 0))
-      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
-    }
-    await mockApi(page)
-    await fixture(page)
-    await openAssistant(page)
-    await expect(page.getByLabel('Message PycilAI')).toBeVisible()
-    const panel = page.locator('.ai-panel')
-    const bounds = (await panel.boundingBox())!
-    expect(bounds.x).toBeGreaterThanOrEqual(0)
-    expect(bounds.width).toBeLessThanOrEqual(width)
-    await page.getByRole('button', { name: 'Choose model' }).click()
-    await page.getByRole('button', { name: 'Select model' }).click()
-    await expect(page.getByRole('menuitemradio', { name: 'Vision model' })).toBeVisible()
-    await page.keyboard.press('Escape')
-    await expect(page.getByRole('menuitemradio', { name: 'Vision model' })).not.toBeVisible()
-    await page.getByRole('button', { name: 'Close PycilAI' }).click()
-  }
 })

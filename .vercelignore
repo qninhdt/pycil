@@ -1,0 +1,15 @@
+devops-course
+apps/api
+infra
+plans
+data
+docs
+e2e
+scripts
+.git
+.github
+.agents
+.claude
+.codegraph
+.codex
+.impeccable

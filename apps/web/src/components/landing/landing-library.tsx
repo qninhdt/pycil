@@ -30,7 +30,7 @@ export async function LandingLibrary() {
           <div><Icon name="collection" /><strong>{tLanding('deckPlaces')}</strong><span>{tLanding('deck')}</span></div>
         </div>
         <p>{tLanding('libraryPrivacy')}</p>
-        <Link className="inline-flex min-h-11 items-center justify-between gap-3.5 text-[13px] font-bold underline-offset-4 hover:underline [&_svg]:size-[18px]" href="/app/discovery">{tLanding('explorePublishedDecks')} <ArrowUpRight /></Link>
+        <Link className="inline-flex min-h-11 items-center justify-between gap-3.5 text-[13px] font-bold underline-offset-4 hover:underline [&_svg]:size-[18px]" href="/discovery">{tLanding('explorePublishedDecks')} <ArrowUpRight /></Link>
       </div>
     </section>
   )

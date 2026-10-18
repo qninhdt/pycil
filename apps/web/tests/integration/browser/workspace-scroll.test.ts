@@ -47,7 +47,7 @@ test('page navigation starts at the top and history restores each visit in the w
       await expect.poll(() => workspace.evaluate(element => element.scrollTop)).toBe(top)
     }
     await navigate('Dictionary')
-    await expect(page).toHaveURL(/\/app\/dictionary$/)
+    await expect(page).toHaveURL(/\/dictionary$/)
     await expect.poll(() => workspace.evaluate(element => element.scrollTop)).toBe(0)
     await navigate('Home')
     await expect(page).toHaveURL(/\/app$/)

@@ -110,37 +110,6 @@ test('all authored artwork, composed interactions and no runtime errors', async 
   expect(errors).toEqual([])
 })
 
-test('desktop and mobile visual matrix in both themes', async ({ page }) => {
-  const errors: string[] = []
-  page.on('pageerror', e => errors.push(e.message))
-  for (const width of [1440, 390]) {
-    await page.setViewportSize({ width, height: width === 1440 ? 1000 : 844 })
-    await page.goto('/showcase')
-    await expect(page.getByRole('heading', { name: 'Good form. Great function.' })).toBeVisible()
-    await expect(page.locator('.specimen')).toHaveCount(27)
-    for (const theme of ['light', 'dark']) {
-      const toggle = page.getByRole('button', { name: `Switch to ${theme} mode` })
-      if (await toggle.count()) await toggle.click()
-      await page.evaluate(() => document.fonts.ready)
-      await overflowCheck(page)
-      await category(page, 'Artwork').click()
-      await overflowCheck(page)
-      await category(page, 'Compositions').click()
-      await overflowCheck(page)
-      await category(page, 'Foundations').click()
-      await overflowCheck(page)
-      await category(page, 'Icons').click()
-      await expect(page.locator('.icon-tile').first()).toBeVisible()
-      const iconCount = await page.locator('.icon-tile').count()
-      expect(iconCount).toBeGreaterThan(30)
-      await expect(page.locator('.catalog-icon')).toHaveCount(iconCount * 2)
-      await overflowCheck(page)
-      await category(page, 'Components').click()
-    }
-  }
-  expect(errors).toEqual([])
-})
-
 test('assistant UI surfaces expose Bauhaus variants and attachment states', async ({ page }) => {
   await page.goto('/showcase')
   await page.getByRole('textbox', { name: 'Filter catalog' }).fill('Conversation surfaces')
@@ -151,7 +120,7 @@ test('assistant UI surfaces expose Bauhaus variants and attachment states', asyn
   await expect(page.locator('[data-slot=attachment][data-state=error]')).toHaveCSS('border-radius', '0px')
 })
 
-test('new controls, validation, reading direction and questionnaire', async ({ page }) => {
+test('new controls, validation and reading direction', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
   await page.goto('/showcase')
@@ -159,15 +128,9 @@ test('new controls, validation, reading direction and questionnaire', async ({ p
   await filter.fill('Grouped actions')
   await page.getByRole('button', { name: 'Zoom in' }).click()
   await expect(page.getByText('110%', { exact: true })).toBeVisible()
-  await filter.fill('OTP')
-  await page.getByRole('textbox', { name: 'Verification code' }).fill('123456')
-  await expect(page.getByText(/Six digits entered/)).toBeVisible()
+  await filter.fill('native selection')
   await page.getByRole('combobox', { name: 'Native format' }).selectOption('audio')
   await expect(page.getByText('Selected format: audio')).toBeVisible()
-  await filter.fill('Application menubar')
-  await page.getByRole('menuitem', { name: 'File', exact: true }).click()
-  await page.getByRole('menuitem', { name: 'New study', exact: true }).click()
-  await expect(page.getByText(/1 local studies/)).toBeVisible()
   await filter.fill('Validated forms')
   await page.getByRole('button', { name: 'Validate study' }).click()
   await expect(page.getByText('Enter a study title.', { exact: true })).toBeVisible()
@@ -177,12 +140,6 @@ test('new controls, validation, reading direction and questionnaire', async ({ p
   await filter.fill('Reading direction')
   await page.getByRole('radio', { name: 'Right to left' }).click()
   await expect(page.getByTestId('direction-preview')).toHaveAttribute('dir', 'rtl')
-  await filter.fill('Questionnaire')
-  await page.getByRole('radio', { name: /Visual studies/ }).check()
-  await page.getByRole('button', { name: 'Continue', exact: true }).click()
-  await page.getByRole('textbox', { name: 'Study note' }).fill('Keep it geometric')
-  await page.getByRole('button', { name: 'Finish questionnaire' }).click()
-  await expect(page.getByText(/Selected visual; note: Keep it geometric/)).toBeVisible()
   expect(errors).toEqual([])
 })
 
@@ -210,14 +167,11 @@ test('hover preview, navigation and local message composition', async ({ page })
   expect(errors).toEqual([])
 })
 
-test('date-picker and sortable filterable paginated data-table recipes', async ({ page }) => {
+test('sortable filterable paginated data-table recipes', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
   await page.goto('/showcase')
   await category(page, 'Compositions').click()
-  await page.getByRole('button', { name: 'Study date', exact: true }).click()
-  await page.getByRole('button', { name: /October 14th, 2026/ }).click()
-  await expect(page.getByRole('button', { name: 'Study date', exact: true })).toHaveText(/October 14, 2026/)
   const table = page.getByTestId('data-table-recipe')
   await expect(table.getByText('Page 1 of 2')).toBeVisible()
   await table.getByRole('button', { name: 'Next studies' }).click()

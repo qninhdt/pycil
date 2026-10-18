@@ -1,4 +1,4 @@
-import { prepareSession } from '../../unit/fixtures'
+import { prepareSession } from '../fixtures'
 import database from '../../../src/lib/api/services/mock/database.json' with { type: 'json' }
 
 import { expect,test } from 'vitest'
@@ -293,7 +293,7 @@ test('public account contract omits private settings and supports bio before a h
   const services = createMockServices({ database: fixture, latency: 0 })
   const signal = new AbortController().signal
   expect(await services.account.publicProfile('preview-alex', signal)).not.toHaveProperty('settings')
-  await expect(services.library.publicContents('preview-personal', undefined, signal)).rejects.toMatchObject({ status: 404 })
+  await expect(services.library.contents('preview-personal', {}, signal, true)).rejects.toMatchObject({ status: 404 })
   const edited = await services.account.updateProfile({ bio: 'A public introduction.' }, signal)
   expect(edited.handle).toBeNull()
   expect((await services.account.publicProfile('preview-alex', signal)).bio).toBe('A public introduction.')

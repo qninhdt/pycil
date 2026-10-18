@@ -61,7 +61,7 @@ export function AccountMenu({
       >
         <DropdownMenuLabel>{account.signedIn ? account.name : tNav('yourAccount')}</DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuItem asChild>
+        {account.signedIn && <><DropdownMenuItem asChild>
           <Link href={account.profile ? `/u/${encodeURIComponent(account.profile.id)}` : '/login'} onClick={close}>
             <Icon name="person" className="size-5" />
             {tNav('profile')}
@@ -72,7 +72,7 @@ export function AccountMenu({
             <Icon name="settings" className="size-5" />
             {tNav('settings')}
           </Link>
-        </DropdownMenuItem>
+        </DropdownMenuItem></>}
         <DropdownMenuItem
           className="shell-theme-setting [&_>_[data-slot=switch]]:ml-auto"
           role="menuitemcheckbox"

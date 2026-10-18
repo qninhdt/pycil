@@ -6,12 +6,14 @@ import { Sheet, SheetTrigger, SheetContent, SheetTitle, SheetDescription } from 
 import { PycilBrand } from './brand'
 import { ShellRail } from './shell-rail.client'
 import { useAiPanelState } from '@/features/assistant/use-panel-state.client'
+import { useAccount } from '@/features/account/account.client'
 import { useTranslations } from 'next-intl'
 
 export function MobileAppBar() {
   const trigger = useRef<HTMLButtonElement>(null)
   const [mobileOpen, setMobileOpen] = useState(false)
   const { setOpen: setAiOpen } = useAiPanelState()
+  const account = useAccount()
   const tNav = useTranslations('nav')
 
   return (
@@ -41,7 +43,7 @@ export function MobileAppBar() {
       <div className="flex items-center justify-center h-full px-2 min-w-0">
         <PycilBrand compact />
       </div>
-      <button
+      {account.status === 'ready' && <button
         type="button"
         onClick={() => setAiOpen(true)}
         className="grid place-items-center h-full w-14 border-l border-foreground hover:bg-accent text-foreground transition-colors cursor-pointer"
@@ -49,7 +51,7 @@ export function MobileAppBar() {
         title="PycilAI"
       >
         <Icon name="spark" tone="color" className="size-5" />
-      </button>
+      </button>}
     </header>
   )
 }

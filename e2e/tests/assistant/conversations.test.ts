@@ -30,10 +30,12 @@ test('partial response is visible before completion and persisted follow-up surv
 })
 
 test('history loads older conversations and deletion removes the selected conversation only', async ({ user }) => {
-  const created: { id: string; title: string }[] = []
-  for (let index = 0; index < 26; index++) {
-    created.push(await user.api.call('assistant/conversations', 'POST', { title: `Reading conversation ${index + 1}` }, 201))
-  }
+  const created = await Promise.all(
+    Array.from({ length: 26 }, (_, index) =>
+      user.api.call<{ id: string; title: string; updated_at: string }>('assistant/conversations', 'POST', { title: `Reading conversation ${index + 1}` }, 201)
+    )
+  )
+  created.sort((a, b) => a.updated_at.localeCompare(b.updated_at))
   await user.page.goto('/app')
   await openAssistant(user.page)
   await user.page.getByRole('button', { name: 'Conversation history', exact: true }).click()

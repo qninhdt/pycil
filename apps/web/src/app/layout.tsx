@@ -1,3 +1,4 @@
+import { siteOrigin, searchIndexable } from '@/lib/seo'
 import type { Metadata } from 'next'
 import { ClerkProvider } from '@clerk/nextjs'
 import { getLocale, getMessages } from 'next-intl/server'
@@ -8,10 +9,13 @@ import { resolveTheme, themeCookie } from '@/lib/preferences/theme'
 import { UiProvider } from '@/lib/preferences/ui-provider.client'
 import { dataMode } from '@/lib/api/services/config'
 import { initialUiScript } from '@/lib/preferences/browser'
+import NextTopLoader from 'nextjs-toploader'
 import './globals.css'
 
 
 export const metadata: Metadata = {
+  metadataBase: new URL(siteOrigin),
+  robots: { index: searchIndexable, follow: true },
   title: { default: 'Pycil', template: '%s — Pycil' },
   description: 'Organize the meanings you want to learn. Practice, review, and return at your own pace.',
   icons: {
@@ -39,6 +43,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
       <script dangerouslySetInnerHTML={{ __html: initialUiScript }} />
     </head>
-    <body>{authenticated}</body>
+    <body>
+      <NextTopLoader color="var(--art-blue, #2563eb)" showSpinner={false} height={3} crawlSpeed={200} speed={200} />
+      {authenticated}
+    </body>
   </html>
 }

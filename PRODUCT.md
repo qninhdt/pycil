@@ -92,7 +92,9 @@ two decks does not create two independent learning histories.
 - A signed-in learner has one Library containing Personal and Published.
 - Preferences cover interface language, reporting timezone, translation language,
   question types, answer formats, questions per sense, session size, and explanations.
-- Visitors can browse published content. Personal progress and learning actions require sign-in.
+- Visitors can browse public profiles, published folders/decks, their Words, Discovery and Dictionary without signing in, in the same product shell as authenticated learners.
+- Personal progress and learning actions require sign-in. Guest Save/Study returns to the selected material after login; Save asks for a destination before creating a reference.
+- Public profile and non-empty collection Overview pages support search/social previews; Words, filters, empty material and private workspace pages are not indexed. Public previews contain no personal progress or private account data.
 - A public profile contains public identity information and the author's Published tree,
   not their Personal tree, account settings, activity, or private preferences.
 - When a plan does not support a selected answer format, the learning experience uses

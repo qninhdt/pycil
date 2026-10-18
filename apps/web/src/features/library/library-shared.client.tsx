@@ -9,6 +9,7 @@ import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupButton } from '
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription, EmptyContent } from '@/components/ui/empty'
 import { StatusShape } from '@/features/home/home-state.client'
 import { learningLabel, type LearningState } from '@/features/library/model'
+import Link from 'next/link'
 
 export function LearningBadge({ state }: { state: LearningState }) {
   return <Badge variant="outline"><StatusShape state={state === 'due' ? 'due' : state === 'new' ? 'new' : 'not-due'} />{learningLabel(state)}</Badge>
@@ -30,11 +31,11 @@ export function LibraryEmpty({ title, description, reset }: { title: string; des
   </Empty>
 }
 
-export function LibraryPagination({ previous, next, page, busy = false }: { previous?: () => void; next?: () => void; page: number; busy?: boolean }) {
+export function LibraryPagination({ previous, next, previousHref, nextHref, page, busy = false }: { previous?: () => void; next?: () => void; previousHref?: string; nextHref?: string; page: number; busy?: boolean }) {
   const t = useTranslations('library')
   const tCommon = useTranslations('common')
   return <nav className="flex items-center justify-between gap-4 border-t border-border pt-5 mt-3 text-xs text-muted-foreground [&_>_div]:flex [&_>_div]:gap-2 max-[767px]:items-start max-[767px]:flex-wrap" aria-label={t('pagination')}><span aria-live="polite">{tCommon('page', { page })}</span><div>
-    <Button variant="outline" size="sm" onClick={previous} disabled={!previous || busy} aria-label={t('previousPage')}><ArrowLeft data-icon="inline-start" aria-hidden="true" />{tCommon('previous')}</Button>
-    <Button variant="outline" size="sm" onClick={next} disabled={!next || busy} aria-label={t('nextPage')}>{tCommon('next')}<ArrowRight data-icon="inline-end" aria-hidden="true" /></Button>
+    <Button asChild={!!previousHref && !busy} variant="outline" size="sm" onClick={previousHref ? undefined : previous} disabled={!previous || busy} aria-label={t('previousPage')}>{previousHref && !busy ? <Link href={previousHref}><ArrowLeft data-icon="inline-start" aria-hidden="true" />{tCommon('previous')}</Link> : <><ArrowLeft data-icon="inline-start" aria-hidden="true" />{tCommon('previous')}</>}</Button>
+    <Button asChild={!!nextHref && !busy} variant="outline" size="sm" onClick={nextHref ? undefined : next} disabled={!next || busy} aria-label={t('nextPage')}>{nextHref && !busy ? <Link href={nextHref}>{tCommon('next')}<ArrowRight data-icon="inline-end" aria-hidden="true" /></Link> : <>{tCommon('next')}<ArrowRight data-icon="inline-end" aria-hidden="true" /></>}</Button>
   </div></nav>
 }

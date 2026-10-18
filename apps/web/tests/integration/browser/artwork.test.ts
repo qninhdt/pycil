@@ -36,7 +36,6 @@ test('main pattern renders complete responsive tiles before hydration without Ja
     await preview.goto('/app')
     await expect(preview.locator('.shell-main-pattern')).toHaveCSS('height', '32px')
     await expect(preview.locator('.shell-main-pattern .fit-tile:visible')).toHaveCount(37)
-    await expect(preview.locator('.shell-nav-rule')).toHaveCount(0)
     for (const width of [1024, 390, 768, 1440]) {
       await preview.setViewportSize({ width, height: 844 })
       const contentWidth = width - (width >= 768 ? 256 : 0)
@@ -107,6 +106,7 @@ test.describe('local-time artwork', () => {
     await page.addInitScript(key => localStorage.setItem(key, 'true'), navigationCollapsedKey)
     await page.route(url => url.pathname.endsWith('.js'), route => route.abort())
     await page.goto('/app', { waitUntil: 'domcontentloaded' })
+    await expect(page.getByRole('button', { name: 'Collapse navigation' })).toBeDisabled()
     await expect(page.locator('html')).toHaveAttribute('data-time-of-day', 'night')
     await expect(page.locator('html')).toHaveAttribute('data-navigation-collapsed', 'true')
     await expect(page.locator('.shell-desktop')).toHaveCSS('width', '72px')

@@ -1,5 +1,6 @@
-import { webConfig } from '@/config'
 "use client";
+
+import { webConfig } from '@/config'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {

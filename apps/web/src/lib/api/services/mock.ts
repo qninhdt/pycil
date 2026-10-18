@@ -1,4 +1,4 @@
-import database from './mock/database'
+import database from './mock/database.json' with { type: 'json' }
 import type { AccountProfile, LearningSettings } from '../account'
 import { parseActivity, parseLibrary, parseSchedule, parseSummary } from '../study'
 import { ApiError } from '../error'
@@ -125,24 +125,22 @@ export function createMockServices(options: MockOptions = {}): FrontendServices 
       sources: (id, senseId, cursor, signal) => respond(() => library.sources(id, senseId, cursor), signal),
       createReference: (parentId, targetId, name, signal, confirmPublication) => respond(() => library.createReference(parentId, targetId, name, confirmPublication), signal),
       list: (parentId, signal) => respond(() => parseLibrary(library.contents(parentId, { limit: 4 })), signal),
-      publicContents: (parentId, cursor, signal) => respond(() => {
-        if (library.details(parentId).space !== 'published') throw new ApiError(404, 'node_not_found')
-        const page = library.contents(parentId, { cursor, limit: 12 })
-        return parseLibrary({ ...page, nodes: page.nodes.map(node => ({ ...node, summary: null })) })
-      }, signal),
       publicNode: (nodeId, signal) => respond(() => {
         const detail = library.details(nodeId)
         if (detail.space !== 'published') throw new ApiError(404, 'node_not_found')
         return { ...detail, summary: null }
       }, signal),
-      publicMeanings: (nodeId, cursor, signal) => respond(() => {
-        if (library.details(nodeId).space !== 'published') throw new ApiError(404, 'node_not_found')
-        const page = library.meanings(nodeId, { cursor, limit: 12 })
-        return { ...page, senses: page.senses.map(sense => ({ ...sense, learning: null, sources: [], sources_has_more: false })) }
-      }, signal),
       metadata: (id, signal) => respond(() => library.details(id), signal),
-      contents: (id, options, signal) => respond(() => library.contents(id, options), signal),
-      meanings: (id, options, signal) => respond(() => library.meanings(id, options), signal),
+      contents: (id, options, signal, publicRead = false) => respond(() => {
+        if (publicRead && library.details(id).space !== 'published') throw new ApiError(404, 'node_not_found')
+        const page = library.contents(id, options)
+        return publicRead ? { ...page, nodes: page.nodes.map(node => ({ ...node, summary: null })) } : page
+      }, signal),
+      meanings: (id, options, signal, publicRead = false) => respond(() => {
+        if (publicRead && library.details(id).space !== 'published') throw new ApiError(404, 'node_not_found')
+        const page = library.meanings(id, publicRead ? { ...options, state: 'all', sort: 'lemma_asc' } : options)
+        return publicRead ? { ...page, senses: page.senses.map(sense => ({ ...sense, learning: null, sources: [], sources_has_more: false })) } : page
+      }, signal),
       updateDeckSenses: (id, change, signal) => respond(() => library.updateDeckSenses(id, change), signal),
       createDeck: (parentId, name, senseIds, signal) => respond(() => library.createDeck(parentId, name, senseIds), signal),
       createNode: (input, signal) => respond(() => library.createNode(input.parentId, input.type, input.name, input.description), signal),

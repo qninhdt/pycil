@@ -14,6 +14,8 @@ import { useRouter } from 'next/navigation'
 import { setLocaleCookie } from '@/lib/preferences/locale'
 import { useServices } from '@/lib/api/services/provider.client'
 import type { AccountProfile, AnswerFormat, SettingsPatch } from '@/lib/api/account'
+import { isTimezoneValid, validateLearningSettings } from './settings-validation'
+import { SettingsSkeleton } from './settings-skeletons'
 
 
 
@@ -40,16 +42,12 @@ export function SettingsPage() {
   if (account.status === 'signed-out') return <div className="w-full"><SettingsHeader /><div className="py-8"><p className="mb-5 text-muted-foreground">{t('signInToSettings')}</p><Button asChild><Link href="/login">{tNav('signIn')}</Link></Button></div></div>
   if (account.status === 'error') return <div className="w-full" role="alert"><SettingsHeader /><div className="py-8"><p className="mb-5 text-muted-foreground">{account.error || 'Could not load your account.'}</p><Button variant="outline" onClick={account.retry}>{tCommon('retry')}</Button></div></div>
   if (account.status === 'task') return <div className="w-full"><SettingsHeader /><div className="py-8"><p className="mb-5 text-muted-foreground">{t('verifyToEditSettings')}</p><Button asChild><Link href="/auth/continue">{tNav('continueVerification')}</Link></Button></div></div>
-  if (account.status === 'loading' || !profile || !draft) return <div className="w-full py-10 text-muted-foreground" role="status">{tCommon('loading')}</div>
+  if (account.status === 'loading' || !profile || !draft) return <SettingsSkeleton />
   const savedSettings = profile.settings
   const learning = draft.learning, options = profile.learning_options
   const changed = JSON.stringify(draft) !== JSON.stringify(savedSettings)
-  let timezoneValid = true
-  try { new Intl.DateTimeFormat('en', { timeZone: draft.timezone }) } catch { timezoneValid = false }
-  const valid = timezoneValid && learning.question_types.length > 0 && learning.formats.length > 0 &&
-    learning.question_types.some(type => (options.advanced_grading ? learning.formats : ['single_choice']).some(format => options.pairs.some(pair => pair.question_type === type && pair.format === format))) &&
-    learning.questions_per_sense >= options.limits.min_questions_per_sense && learning.questions_per_sense <= options.limits.max_questions_per_sense &&
-    learning.max_sense_count >= 1 && learning.max_sense_count <= 20 && learning.questions_per_sense * learning.max_sense_count <= options.limits.max_questions_per_prepare
+  const timezoneValid = isTimezoneValid(draft.timezone)
+  const valid = validateLearningSettings(draft, options)
   const updateLearning = (patch: Partial<typeof learning>) => setDraft({ ...draft, learning: { ...learning, ...patch } })
   const toggle = (values: string[], value: string) => values.includes(value) ? values.filter(item => item !== value) : [...values, value]
   async function save() {

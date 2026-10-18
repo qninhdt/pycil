@@ -16,7 +16,7 @@ Open the URL printed by Next.js. In development, the mock data mode needs no API
 For live authentication, set `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` in
 `apps/web/.env.local` for the same Clerk instance used by the API, and use
 `NEXT_PUBLIC_DATA_MODE=live`. The frontend uses `@clerk/nextjs` and Clerk request protection in `src/proxy.ts`;
-server account loading also requires the matching `CLERK_SECRET_KEY`. Clerk issues the
+server authentication and preference completion also require the matching `CLERK_SECRET_KEY`. Clerk issues the
 session token, which the frontend sends as a bearer token directly to the API at
 `NEXT_PUBLIC_PYCIL_API_URL` (default `http://127.0.0.1:8000`), under `/v1/*`.
 Server reads prefer the server-only `PYCIL_API_URL` when configured, then the public API address. Set `NEXT_PUBLIC_PYCIL_API_URL` separately when the backend has a private server address. The API verifies
@@ -44,16 +44,33 @@ Testing uses unit, integration and E2E levels. See [test ownership and commands]
 
 ## Rendering and state ownership
 
-Routes and layouts render initial data from Pycil on the server. Interactive domain
-views receive a matching dehydrated TanStack cache with 60 seconds of freshness.
-Filters, cursors, selection and ordinary mutations call Pycil directly from the
-browser; Next.js has no CRUD forwarding endpoints or Server Actions. Same-page
-controls update native history so Back, Forward and reload retain the current URL.
+The frontend is hybrid. Landing and legal pages use the public website layout.
+`/u/[identifier]` and nested published folders/decks render anonymous public data
+on the server and hydrate the matching TanStack Query cache. Personal `/app/*`
+views load account and domain data in the browser. Fresh browser queries are
+reused for 60 seconds across ordinary product navigation.
+
+Personal pages, public profiles/material, `/discovery`, and `/dictionary` share
+one product shell and provider. Guests see only public navigation and authentication
+actions; PycilAI mounts after the account is ready. `/app/*` remains protected,
+with learning routes using their existing fullscreen layout. Previously deployed
+`/app/discovery` and `/app/dictionary` links redirect to the public routes.
+
+Public server reads never attach a bearer token or load personal learning data.
+Account/progress enrichment loads independently in the browser. Public and personal
+views reuse folder, flashcard, and Words presentations; guest views omit learning
+filters, private sources, and owner actions. Save/Study sends guests through the
+existing login flow with a validated return path. Save then opens destination
+selection; Study opens preparation. The continuation is consumed before acting.
+
+Filters, cursors, selection and mutations call Pycil directly from the browser;
+Next.js has no CRUD forwarding endpoints or Server Actions. Native history owns
+Overview/Words state, including direct URLs, reload and Back/Forward. Pagination
+also has real link destinations for anonymous server rendering.
 
 The browser cache is scoped to the active Clerk session and cleared on a session
-change. Account display and settings use the canonical account query. Initial
-account content renders before the Clerk browser SDK finishes loading; operations
-requiring its token wait for the SDK.
+change. Public query keys omit the viewer identity; account and learning queries
+remain scoped. Public reading does not wait for Clerk or account enrichment.
 
 The `pycil-theme` cookie owns light/dark rendering. NextIntl owns locale messages;
 the locale cookie, Accept-Language and English fallback determine server rendering.
@@ -66,13 +83,36 @@ Domain views live in `src/features/{home,account,auth,library,vocabulary,study,a
 Shared controls, artwork and shell live in `src/components`. Shared HTTP, identity,
 query and preference boundaries live in `src/lib/{api,auth,query,preferences}`.
 
+## Public metadata and sharing
+
+Set `NEXT_PUBLIC_SITE_URL` to the canonical frontend origin (production defaults to
+`https://pycil.qninhdt.com`). Public profiles and non-empty published Overview pages
+have canonical, Open Graph and Twitter metadata. Words, search/cursor variants,
+empty public collections, auth and private pages are not indexable. Development,
+mock mode and Vercel preview builds are not indexable.
+
+Native `robots.txt` and `sitemap.xml` expose crawl guidance and a bounded seed of
+the latest 50 eligible Discovery entries, with at most five concurrent validations.
+Deeper content remains reachable through public links; the sitemap is not an
+exhaustive export of every published node. Public social-image routes use bundled
+logo/fonts, return 1200 × 630 PNG, recheck visibility and send `private, no-store`.
+Public HTML is also read without a shared Next data cache. External search/social
+services can retain their own previews after unpublishing.
+
 ## Landing page
 
 `/` is the public Bauhaus landing page; `/app` opens the learning application.
 The landing page's English learning worksheet lets visitors choose a meaning of
 “bank” and try its contextual question. It is a labeled local example: it does
 not save Library changes or submit learning progress. Signup and sign-in actions
-use the existing `/signup` and `/login` routes.
+use the existing `/signup` and `/login` routes. Signed-in visitors see Open app
+and their Clerk account menu instead; the rest of the landing page remains server-rendered.
+
+`/privacy` and `/terms` are public, server-rendered legal pages linked from the
+landing footer. Keep their data-handling descriptions aligned with the deployed
+providers and retention behavior. Google OAuth Branding and Clerk production
+must reference these same URLs; domain ownership is verified separately through
+Google Search Console using the OAuth project's owner account.
 
 The page uses Tailwind, shared palette tokens, artwork and shadcn buttons. Static
 content lives in `src/components/landing/landing-page.tsx`; the interactive example

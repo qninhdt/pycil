@@ -1,8 +1,6 @@
-import Link from 'next/link'
 import { getTranslations } from 'next-intl/server'
 import { PycilBrand } from '@/components/shell/brand'
-import { ArrowUpRight } from '@/components/artwork/artwork'
-import { Button } from '@/components/ui/button'
+import { LandingAccount } from './landing-account.client'
 
 export async function LandingHeader() {
   const tLanding = await getTranslations('landing')
@@ -15,14 +13,9 @@ export async function LandingHeader() {
         aria-label={tNav('mainNav')}
         className="flex items-center gap-8 text-[13px] font-semibold [&_>_a:not([data-slot]):hover]:underline [&_>_a]:underline-offset-4 max-[1100px]:gap-5 max-md:gap-4 max-md:[&_>_a:nth-child(-n+2)]:hidden max-md:[&_[data-slot=button]]:px-3 max-[359px]:[&_>_a:nth-child(3)]:hidden"
       >
-        <a href="#learning-map">{tLanding('howItWorks')}</a>
-        <a href="#library">{tLanding('yourLibrary')}</a>
-        <Link href="/login">{tLanding('signIn')}</Link>
-        <Button asChild>
-          <Link href="/signup">
-            {tLanding('getStarted')} <ArrowUpRight />
-          </Link>
-        </Button>
+        <a href="/#learning-map">{tLanding('howItWorks')}</a>
+        <a href="/#library">{tLanding('yourLibrary')}</a>
+        <LandingAccount />
       </nav>
     </header>
   )

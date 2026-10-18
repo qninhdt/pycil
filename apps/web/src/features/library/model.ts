@@ -29,15 +29,15 @@ export function libraryHref(nodeId?: string, tab?: LibraryTab): string {
   return `/app/personal/${encodeURIComponent(nodeId)}${tab === 'words' ? '/words' : ''}`
 }
 
-export function publicCollectionHref(identifier: string, nodeId?: string): string {
+export function publicCollectionHref(identifier: string, nodeId?: string, tab?: LibraryTab): string {
   const base = `/u/${encodeURIComponent(identifier)}`
-  return nodeId ? `${base}/${encodeURIComponent(nodeId)}` : base
+  return nodeId ? `${base}/${encodeURIComponent(nodeId)}${tab === 'words' ? '/words' : ''}` : base
 }
 export function publishedHref(nodeId?: string, tab?: LibraryTab): string {
   return nodeId ? `/app/published/${encodeURIComponent(nodeId)}${tab === 'words' ? '/words' : ''}` : '/app/published'
 }
 export function nodeHref(node: Pick<LibraryDetails, 'id' | 'owner_id' | 'space'>, tab?: LibraryTab, viewerId?: string): string {
-  return node.space === 'published' ? node.owner_id === viewerId ? publishedHref(node.id, tab) : publicCollectionHref(node.owner_id, node.id) : libraryHref(node.id, tab)
+  return node.space === 'published' ? node.owner_id === viewerId ? publishedHref(node.id, tab) : publicCollectionHref(node.owner_id, node.id, tab) : libraryHref(node.id, tab)
 }
 
 export function libraryMotif(id: string) {

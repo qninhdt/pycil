@@ -458,9 +458,9 @@ Deck and folder pages share a common architecture:
 
 Folder overview then exposes `Subfolders` and `Decks` as structured lists/cards. Deck `Words` view uses the table pattern.
 
-Library routing is path-based: `/app/personal/<node_id>` opens the learner's Personal tree, while `/app/u/<owner_id>/published` and `/app/u/<owner_id>/published/<node_id>` open an author's Published tree. Node routes default to Overview and append `/words` for Words. My Library points to the Personal root; Published points to the current user's Published root. Another author's Published route highlights Discovery. The Personal root has no Personal/Published switch; each space has its own menu entry. Breadcrumbs start with `Personal`, `Me > Published`, or `<author name> > Published`, according to ownership. Author attribution reads `Me` for the current user. Node links use `libraryHref`, `publishedHref`, or `nodeHref` according to the node's space and owner. The `/app/library` route is removed.
+Library routing is path-based: `/app/personal/<node_id>` and `/app/published/<node_id>` are the owner's management views. Public profiles use `/u/<handle-or-id>` and public material uses `/u/<handle-or-id>/<node_id>`. Append `/words` to node routes for Words. One pathname-aware tab owner handles root pages, nodes, references, refresh and browser history. My Library points to Personal; Published points to owned Published management. Public material highlights Discovery. Public child links and breadcrumbs remain in the public tree even when its owner is signed in. The common shell/provider remains mounted when navigating between these surfaces. Guests see Discovery, Dictionary and authentication controls, with no private navigation, progress or assistant. Discovery retains the same geometric header motif treatment as Dictionary.
 
-Word tables show Word, Definition, Status and Last reviewed; there is no Source decks column. Provenance remains in word detail. Overview/Words tab triggers have no outer focus frame; keyboard focus uses an underline and subtle fill.
+Personal word tables show Word, Definition, Status and Last reviewed; public tables show Word and Definition. Learning enrichment loads separately from anonymous content; there is no Source decks column. Provenance remains in word detail. Overview/Words tab triggers have no outer focus frame; keyboard focus uses an underline and subtle fill.
 
 Library uses the available shell width with compact headers, summary bands and list rows. References retain the target's visual identity: `deck-reference` and `folder-reference` reuse the corresponding deck/folder artwork with a small corner-arrow marker. Folder references appear with subfolders; deck references appear under `Decks`. There is no standalone chain-link reference icon. Unavailable targets use a neutral document rather than a guessed type.
 
@@ -474,7 +474,7 @@ Flashcard backgrounds are selected deterministically per sense ID from the exist
 
 ### Focus mode
 
-`/focus/flashcards?node=<node_id>` and `/focus/learn?node=<node_id>&selection=<DUE|NEW|AUTO>` are fullscreen routes without the app sidebar. Home and Library launch them with the current scope. Flashcards use the existing word card and preserve the current card and revealed face in local storage; they do not submit scheduler results. Previous/next controls remain outside the card.
+`/app/flashcards?node=<node_id>` and `/app/learn?node=<node_id>&selection=<due|new|auto>` are fullscreen routes without the app sidebar. Home and Library launch them with the current scope. Flashcards use the existing word card and preserve the current card and revealed face in local storage; they do not submit scheduler results. Previous/next controls remain outside the card.
 
 Quiz mode prepares questions using the user's learning settings, then presents the seven backend question types through choice, single-word, or short-answer controls as permitted by the prepared format. Each question has a deterministic art background with a translucent overlay. Questions are grouped into rounds of up to eight. A miss or partial answer returns in the next round, with at most three attempts per question. Round recaps show cleared and returning questions. The final recap shows one Again/Hard/Good/Easy rating per sense and whether its scheduler result was applied.
 
@@ -517,7 +517,7 @@ Authentication is a fullscreen independent page with a split layout:
 ### Empty, loading, and error states
 
 - Empty state: one large geometric motif + concise headline + one clear action.
-- Loading: use simple bars or skeleton blocks aligned to the existing grid; no playful bouncing blobs.
+- Loading: align skeletons to the actual profile header, folder listing, deck preview or Words table. Before node type is known, show the shared header/tabs without guessing a grid. Guest skeletons omit personal progress. No playful bouncing blobs.
 - Error: red is permitted but pair it with text/icon, never color alone.
 - Success: use Nephritis sparingly and only for explicit completion feedback.
 

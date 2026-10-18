@@ -6,7 +6,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import type { HomeResource } from '@/features/home/use-home.client'
 import type { StudyActivity, ReviewSchedule } from '@/lib/api/study'
 import { activityLevel, dayLabel, eventCount, monthCells, shiftDay } from '@/features/home/calendar'
-import { HomeFailure, HomeLoading } from './home-state.client'
+import { HomeFailure } from './home-state.client'
+import { StreakSkeleton, ActivitySkeleton, ScheduleSkeleton } from './home-skeletons'
 
 const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
@@ -23,7 +24,7 @@ export function HomeStreak({ activity, today }: { activity: HomeResource<StudyAc
   const data = activity.data
   return <section aria-labelledby="home-streak-title">
     <div className="flex items-center justify-between gap-4 mb-6 [&_h2]:text-[22px] [&_h2]:leading-snug [&_h3]:text-lg [&_h3]:leading-snug [&_p]:text-muted-foreground [&_p]:text-[13px] [&_p]:mt-1.5 max-md:[&_h2]:text-xl"><h2 id="home-streak-title">{t('studyStreak')}</h2><span className="size-3.5 rounded-full bg-art-red" aria-hidden="true" /></div>
-    {activity.status === 'loading' ? <HomeLoading label={t('studyStreakLabel')} /> : activity.status === 'error' ? <HomeFailure label={t('studyStreakLabel')} error={activity.error} retry={activity.retry} /> : data && today && <>
+    {activity.status === 'loading' ? <StreakSkeleton /> : activity.status === 'error' ? <HomeFailure label={t('studyStreakLabel')} error={activity.error} retry={activity.retry} /> : data && today && <>
       <p className="home-streak-number flex items-baseline gap-3 my-8 mb-3 max-lg:mt-0 max-md:my-4 [&_strong]:text-7xl max-md:[&_strong]:text-5xl [&_strong]:font-extrabold [&_strong]:leading-none [&_strong]:tracking-tight [&_strong]:tabular-nums [&_>_span]:text-base"><strong>{data.current_streak}</strong><span>{data.current_streak === 1 ? t('day') : t('days')}</span></p>
       <div className="grid grid-cols-7 gap-2.5 my-7 max-lg:max-w-[320px] max-md:my-4 max-md:max-w-none max-md:gap-1.5 [&_>_div]:flex [&_>_div]:items-center [&_>_div]:flex-col [&_>_div]:gap-2.5 [&_span]:size-4.5 [&_span]:rounded-full [&_span]:bg-border [&_span]:border [&_span]:border-border [&_[data-active=true]_span]:bg-art-red [&_[data-active=true]_span]:border-art-red [&_[data-today=true]_span]:outline [&_[data-today=true]_span]:outline-1 [&_[data-today=true]_span]:outline-foreground [&_[data-today=true]_span]:outline-offset-[3px] [&_small]:text-[11px] [&_small]:text-muted-foreground" aria-label={t('activitySevenDaysAria')}>{Array.from({ length: 7 }, (_, index) => {
         const date = shiftDay(today, index - 6)
@@ -49,7 +50,7 @@ export function HomeActivity({ activity, today }: { activity: HomeResource<Study
 
   return <section aria-labelledby="home-activity-title">
     <div className="flex items-center justify-between gap-4 mb-6 [&_h2]:text-[22px] [&_h2]:leading-snug [&_h3]:text-lg [&_h3]:leading-snug [&_p]:text-muted-foreground [&_p]:text-[13px] [&_p]:mt-1.5 max-md:[&_h2]:text-xl"><h2 id="home-activity-title">{t('studyActivity')}</h2>{today && <span className="text-[13px] text-muted-foreground leading-relaxed">{dayLabel(today, { month: 'long', year: 'numeric' })}</span>}</div>
-    {activity.status === 'loading' ? <HomeLoading label={t('studyActivityLabel')} /> : activity.status === 'error' ? <HomeFailure label={t('studyActivityLabel')} error={activity.error} retry={activity.retry} /> : data && today && <>
+    {activity.status === 'loading' ? <ActivitySkeleton /> : activity.status === 'error' ? <HomeFailure label={t('studyActivityLabel')} error={activity.error} retry={activity.retry} /> : data && today && <>
       <div className="flex flex-wrap gap-6 text-[13px] mb-6 [&_strong]:text-2xl [&_strong]:font-extrabold [&_strong]:tabular-nums [&_strong]:mr-1.5"><p><strong>{activeDays}</strong> {t('activeDays')}</p><p><strong>{events.toLocaleString('en')}</strong> {t('learningEvents')}</p></div>
       <div className="grid gap-2 w-full max-w-[448px]"><div className="home-calendar-weekdays grid grid-cols-7 gap-2 text-center text-muted-foreground text-[11px] max-md:gap-1" aria-hidden="true">{weekdays.map((day, index) => <span key={index}>{day}</span>)}</div>
         <div className="home-calendar grid grid-cols-7 gap-2 max-md:gap-1" aria-label={t('monthlyActivityAria')}>{monthCells(today).map((date, index) => {
@@ -75,7 +76,7 @@ export function HomeSchedule({ schedule, today }: { schedule: HomeResource<Revie
 
   return <section aria-labelledby="home-schedule-title">
     <div className="flex items-center justify-between gap-4 mb-6 [&_h2]:text-[22px] [&_h2]:leading-snug [&_h3]:text-lg [&_h3]:leading-snug [&_p]:text-muted-foreground [&_p]:text-[13px] [&_p]:mt-1.5 max-md:[&_h2]:text-xl"><h2 id="home-schedule-title">{t('upcomingReviews')}</h2><span className="text-[13px] text-muted-foreground leading-relaxed">{t('next7Days')}</span></div>
-    {schedule.status === 'loading' ? <HomeLoading label={t('reviewScheduleLabel')} /> : schedule.status === 'error' ? <HomeFailure label={t('reviewScheduleLabel')} error={schedule.error} retry={schedule.retry} /> : data && <>
+    {schedule.status === 'loading' ? <ScheduleSkeleton /> : schedule.status === 'error' ? <HomeFailure label={t('reviewScheduleLabel')} error={schedule.error} retry={schedule.retry} /> : data && <>
       <ol className="home-schedule-list my-2 mb-5 [&_>_li]:grid [&_>_li]:grid-cols-[78px_minmax(0,1fr)_40px] [&_>_li]:gap-4 [&_>_li]:items-center [&_>_li]:py-3 [&_>_li]:border-b [&_>_li]:border-border [&_>_li]:text-xs [&_time]:whitespace-nowrap [&_strong]:text-right [&_strong]:tabular-nums">{data.days.map(day => <li key={day.day}><time dateTime={day.day}>{day.day === today ? t('laterToday') : day.day === shiftDay(today!, 1) ? t('tomorrow') : dayLabel(day.day, { weekday: 'short', day: 'numeric' })}</time><span className="h-1.5 bg-secondary [&_>_i]:h-full [&_>_i]:block [&_>_i]:bg-art-blue" aria-hidden="true"><i style={{ width: `${day.count / largest * 100}%` }} /></span><strong>{day.count.toLocaleString('en')}<span className="sr-only"> {t('meanings')}</span></strong></li>)}</ol>
       {total === 0 && <p className="text-[13px] text-muted-foreground leading-relaxed">{t('noFutureReviews')}</p>}
     </>}

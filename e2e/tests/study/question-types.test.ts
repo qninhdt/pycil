@@ -4,13 +4,7 @@ import { answerChoice, finishStudy, selectQuestions, startStudy } from '../../su
 
 const choices = [
   ['definition_to_word', 'bank'],
-  ['word_to_definition', 'an institution where people keep and borrow money'],
-  ['cloze_to_word', 'bank'],
-  ['context_to_word', 'bank'],
-  ['meaning_in_context', 'an institution where people keep and borrow money'],
   ['word_to_usage', 'She deposited her savings at the bank.'],
-  ['dialogue_completion', 'You can deposit them at the bank.'],
-  ['sentence_rewrite', 'She deposited her savings at the bank.'],
 ] as const
 
 for (const [kind, answer] of choices) {

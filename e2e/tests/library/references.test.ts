@@ -24,8 +24,11 @@ test('a reference created through UI follows source membership and deduplicates 
 
 test('source deck pagination retains every canonical source without duplicates', async ({ user, data, vocabulary }) => {
   const folder = await data.create({ name: 'Many source collections', type: 'folder' })
-  const sources = []
-  for (let index = 0; index < 22; index++) sources.push(await data.create({ name: `Finance source ${String(index).padStart(2, '0')}`, type: 'deck', parent_id: folder.id, sense_ids: [vocabulary.bankFinancial.sense_id] }))
+  const sources = await Promise.all(
+    Array.from({ length: 22 }, (_, index) =>
+      data.create({ name: `Finance source ${String(index).padStart(2, '0')}`, type: 'deck', parent_id: folder.id, sense_ids: [vocabulary.bankFinancial.sense_id] })
+    )
+  )
   await user.page.goto(`/app/personal/${folder.id}/words`)
   await user.page.getByRole('button', { name: /View bank: an institution/ }).click()
   const dialog = user.page.getByRole('dialog')

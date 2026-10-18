@@ -11,7 +11,8 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from '@/components/ui/empty'
 import { useLibraryPreview } from '@/features/home/use-home.client'
-import { HomeFailure, HomeLoading, StatusShape } from './home-state.client'
+import { HomeFailure, StatusShape } from './home-state.client'
+import { HomeLibraryListSkeleton } from './home-skeletons'
 
 export function HomeLibrary({ personalId, publishedId }: { personalId: string; publishedId: string }) {
   const account = useAccount()
@@ -24,7 +25,7 @@ export function HomeLibrary({ personalId, publishedId }: { personalId: string; p
     <div className="flex items-center justify-between gap-4 mb-6 [&_h2]:text-[22px] [&_h2]:leading-snug [&_h3]:text-lg [&_h3]:leading-snug [&_p]:text-muted-foreground [&_p]:text-[13px] [&_p]:mt-1.5 max-md:[&_h2]:text-xl"><h2 id="home-library-title">{t('fromYourLibrary')}</h2><Button asChild variant="link"><Link href={space === 'published' && account.profile ? publishedHref() : libraryHref()}>{space === 'published' ? t('viewPublished') : t('viewLibrary')}<ArrowUpRight data-icon="inline-end" aria-hidden="true" /></Link></Button></div>
     <Tabs value={space} onValueChange={setSpace}><TabsList aria-label={t('fromYourLibrary')}><TabsTrigger value="personal">{t('personal')}</TabsTrigger><TabsTrigger value="published">{t('published')}</TabsTrigger></TabsList>
       {['personal', 'published'].map(value => <TabsContent key={value} value={value}>
-        {library.status === 'loading' ? <HomeLoading label={space === 'personal' ? t('personalLibraryLabel') : t('publishedLibraryLabel')} /> : library.status === 'error' ? <HomeFailure label={space === 'personal' ? t('personalLibraryLabel') : t('publishedLibraryLabel')} error={library.error} retry={library.retry} />
+        {library.status === 'loading' ? <HomeLibraryListSkeleton /> : library.status === 'error' ? <HomeFailure label={space === 'personal' ? t('personalLibraryLabel') : t('publishedLibraryLabel')} error={library.error} retry={library.retry} />
           : library.data?.nodes.length === 0 ? <Empty className="min-h-[196px]"><EmptyHeader><EmptyTitle>{space === 'personal' ? t('emptyLibraryTitle') : t('emptyPublishedTitle')}</EmptyTitle><EmptyDescription>{space === 'personal' ? t('emptyLibraryDesc') : t('emptyPublishedDesc')}</EmptyDescription></EmptyHeader></Empty>
           : <ul className="mt-3 [&_>_li]:border-t [&_>_li]:border-border [&_>_li:last-child]:border-b [&_>_li:last-child]:border-border">{library.data?.nodes.map(node => <li key={node.id}>
             <Link href={space === 'published' ? publishedHref(node.id) : libraryHref(node.id)} className="grid grid-cols-[40px_minmax(0,1fr)_auto_20px] items-center gap-[18px] px-2 py-5 no-underline transition-colors duration-160 hover:bg-accent max-lg:grid-cols-[32px_minmax(0,1fr)_18px] max-lg:gap-3">

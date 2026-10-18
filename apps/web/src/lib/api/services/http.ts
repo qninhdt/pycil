@@ -68,7 +68,6 @@ export function createHttpServices(getToken: () => Promise<string | null>): Fron
       sources: (id, senseId, cursor, signal) => request(`nodes/${encodeURIComponent(id)}/senses/${senseId}/sources?limit=${webConfig.pagination.picker}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, parseSources, signal),
       createReference: (parentId, targetId, name, signal, confirmPublication = false) => request('nodes', nodeId, signal, { type: 'reference', name, parent_id: parentId, reference_id: targetId, confirm_publication: confirmPublication }),
       list: (parentId, signal) => libraryPage(`nodes?parent_id=${encodeURIComponent(parentId)}&include=summary&limit=${webConfig.pagination.preview}`, signal),
-      publicContents: (parentId, cursor, signal) => libraryPage(`nodes?parent_id=${encodeURIComponent(parentId)}&limit=${webConfig.pagination.library}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, signal, true),
       publicNode: async (nodeId, signal) => {
         const node = await request(`nodes/${encodeURIComponent(nodeId)}`, parseNodeDetails, signal, undefined, undefined, true)
         if (node.type !== 'reference' || !node.reference_id || node.reference_available === false) return node
@@ -76,7 +75,6 @@ export function createHttpServices(getToken: () => Promise<string | null>): Fron
         if (target.type === 'reference') throw new ApiError(502, 'invalid_response')
         return { ...node, target: { id: target.id, name: target.name, type: target.type, owner_id: target.owner_id, space: target.space } }
       },
-      publicMeanings: (nodeId, cursor, signal) => request(`nodes/${encodeURIComponent(nodeId)}/senses?limit=${webConfig.pagination.library}&sort=lemma_asc&state=all&include=examples${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, parseMeaningPage, signal, undefined, undefined, true),
       metadata: async (id, signal) => {
         const node = await request(`nodes/${encodeURIComponent(id)}`, parseNodeDetails, signal)
         if (node.type === 'reference' && node.reference_available === false) return node
@@ -95,11 +93,11 @@ export function createHttpServices(getToken: () => Promise<string | null>): Fron
         query.set('parent_id', id)
         return libraryPage(`nodes?${query}`, signal, publicRead)
       },
-      meanings: (id, options, signal) => {
-        const query = new URLSearchParams({ limit: String(options.limit ?? webConfig.pagination.library), include: 'examples,sources', state: options.state ?? 'all', sort: options.sort ?? 'lemma_asc' })
+      meanings: (id, options, signal, publicRead = false) => {
+        const query = new URLSearchParams({ limit: String(options.limit ?? webConfig.pagination.library), include: publicRead ? 'examples' : 'examples,sources', state: publicRead ? 'all' : options.state ?? 'all', sort: publicRead ? 'lemma_asc' : options.sort ?? 'lemma_asc' })
         if (options.q?.trim()) query.set('q', options.q.trim())
         if (options.cursor) query.set('cursor', options.cursor)
-        return request(`nodes/${encodeURIComponent(id)}/senses?${query}`, parseMeaningPage, signal)
+        return request(`nodes/${encodeURIComponent(id)}/senses?${query}`, parseMeaningPage, signal, undefined, undefined, publicRead)
       },
       updateDeckSenses: (deckId, change, signal) => request(`nodes/${encodeURIComponent(deckId)}:modifySenses`, () => undefined, signal, change, 'POST'),
       createDeck: (parentId, name, senseIds, signal, confirmPublication = false) => request('nodes', nodeId, signal, { type: 'deck', name, parent_id: parentId, sense_ids: senseIds, confirm_publication: confirmPublication }),

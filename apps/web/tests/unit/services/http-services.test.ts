@@ -82,7 +82,7 @@ test('live action requests preserve payloads, review keys and bearer authenticat
     await expect(service.dictionary.previews([1, 2], signal())).rejects.toMatchObject({ status: 503 })
     await expect(service.account.publicProfile('a+b', signal())).rejects.toMatchObject({ status: 503 })
     await expect(service.library.contents('folder', { q: 'bank & river' }, signal())).rejects.toMatchObject({ status: 503 })
-    await expect(service.library.publicMeanings('published', undefined, signal())).rejects.toMatchObject({ status: 503 })
+    await expect(service.library.meanings('published', { state: 'due', sort: 'last_reviewed_desc' }, signal(), true)).rejects.toMatchObject({ status: 503 })
     expect(calls.slice(0, 3).map(({ path, method, body }) => ({ path, method, body }))).toEqual([
       { path: `${apiBase}/study:prepare`, method: 'POST', body: prepare },
       { path: `${apiBase}/study:grade`, method: 'POST', body: grade },
@@ -101,6 +101,7 @@ test('live action requests preserve payloads, review keys and bearer authenticat
     expect(publicMeanings.pathname).toBe('/v1/nodes/published/senses')
     expect(publicMeanings.searchParams.get('sort')).toBe('lemma_asc')
     expect(publicMeanings.searchParams.get('state')).toBe('all')
+    expect(publicMeanings.searchParams.get('include')).toBe('examples')
     expect(calls[7].headers.get('Authorization')).toBeNull()
   } finally { globalThis.fetch = original }
 })

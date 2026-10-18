@@ -37,15 +37,9 @@ test('the landing example connects meanings, decks and practice without saving p
 
 test('landing actions lead to the existing signup, login and application routes', async ({ page }) => {
   await page.goto('/')
-  await page.getByRole('link', { name: 'Build your vocabulary' }).click()
-  await expect(page).toHaveURL(/\/signup$/)
-  await expect(page.getByLabel('Email', { exact: true })).toBeVisible()
-  await page.goto('/')
-  await page.getByRole('link', { name: 'Sign in', exact: true }).click()
-  await expect(page).toHaveURL(/\/login$/)
-  await page.goto('/')
-  await page.getByRole('link', { name: 'Open the app', exact: true }).click()
-  await expect(page).toHaveURL(/\/app$/)
+  await expect(page.getByRole('link', { name: 'Build your vocabulary' })).toHaveAttribute('href', '/signup')
+  await expect(page.getByRole('link', { name: 'Sign in', exact: true })).toHaveAttribute('href', '/login')
+  await expect(page.getByRole('link', { name: 'Open the app', exact: true })).toHaveAttribute('href', '/app')
 })
 
 test('the landing worksheet works at mobile, tablet and desktop widths in both themes', async ({ page }) => {

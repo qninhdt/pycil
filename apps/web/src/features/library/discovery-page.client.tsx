@@ -9,7 +9,9 @@ import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { useServices } from '@/lib/api/services/provider.client'
 import { publicCollectionHref } from '@/features/library/model'
-import { HomeFailure, HomeLoading } from '@/features/home/home-state.client'
+import { HomeFailure } from '@/features/home/home-state.client'
+import { LibraryCardGridSkeleton } from './library-skeletons'
+import { Motif } from '@/components/artwork/artwork'
 import { NativeSelect } from '@/components/ui/native-select'
 import { LibraryAuthor } from './library-author.client'
 import { LibraryNodeIcon } from './library-node-icon'
@@ -26,9 +28,9 @@ export function DiscoveryPage() {
   const setCursors = (values: string[]) => updateUrl({ cursor: values })
   const query = useQuery(discoveryQuery(services, scope, { q, type, cursor }))
   return <div className="w-full min-w-0">
-    <header className="py-6 border-b border-border"><h1 className="text-[clamp(2.25rem,2.6vw,3rem)] font-extrabold tracking-tight">{t('discoveryTitle')}<span className="text-art-red" aria-hidden="true">.</span></h1><p className="mt-2 text-sm text-muted-foreground">{t('discoveryDesc')}</p></header>
+    <header className="grid grid-cols-[minmax(0,3fr)_1fr] border-b border-border"><div className="py-6 pr-6"><h1 className="text-[clamp(2.25rem,2.6vw,3rem)] font-extrabold tracking-tight">{t('discoveryTitle')}<span className="text-art-red" aria-hidden="true">.</span></h1><p className="mt-2 text-sm text-muted-foreground">{t('discoveryDesc')}</p></div><div className="header-motif-art max-md:hidden" aria-hidden="true"><Motif name="split-circle" /></div></header>
     <div className="flex flex-wrap gap-3 py-4"><LibrarySearch label={t('searchPublished')} value={search} onChange={value => { setSearch(value) }} /><NativeSelect aria-label={t('materialType')} value={type} onChange={event => { setType(event.target.value as typeof type) }}><option value="all">{t('allMaterial')}</option><option value="folder">{t('folders')}</option><option value="deck">{t('decks')}</option></NativeSelect></div>
-    {query.isError ? <HomeFailure label={t('publishedMaterial').toLowerCase()} error={query.error} retry={() => { setCursors([]); void query.refetch() }} /> : query.isPending ? <HomeLoading label={t('publishedMaterial').toLowerCase()} /> : query.data.nodes.length === 0 ? <LibraryEmpty title={q ? t('noMatchingMaterial') : t('noPublishedMaterial')} reset={q || type !== 'all' ? () => { setSearch(''); setType('all'); setCursors([]) } : undefined} /> : <>
+    {query.isError ? <HomeFailure label={t('publishedMaterial').toLowerCase()} error={query.error} retry={() => { setCursors([]); void query.refetch() }} /> : query.isPending ? <LibraryCardGridSkeleton count={6} /> : query.data.nodes.length === 0 ? <LibraryEmpty title={q ? t('noMatchingMaterial') : t('noPublishedMaterial')} reset={q || type !== 'all' ? () => { setSearch(''); setType('all'); setCursors([]) } : undefined} /> : <>
       <ul className="grid grid-cols-3 gap-3 max-[1100px]:grid-cols-2 max-[650px]:grid-cols-1" aria-label={t('publishedMaterial')}>{query.data.nodes.map(node => <li key={node.id} className="border border-border p-5 hover:bg-accent">
         <Link href={publicCollectionHref(node.owner_id!, node.id)} className="flex items-start gap-3 focus-visible:outline-2 focus-visible:outline-ring"><LibraryNodeIcon node={node} /><span className="min-w-0"><strong className="block font-bold wrap-anywhere">{node.name}</strong><small className="block mt-1 text-muted-foreground">{node.type === 'folder' ? t('folder') : node.type === 'deck' ? t('deck') : t('reference')}</small>{node.description && <p className="mt-2 text-sm text-muted-foreground wrap-anywhere">{node.description}</p>}</span></Link>
         <div className="mt-3"><LibraryAuthor ownerId={node.owner_id} /></div>

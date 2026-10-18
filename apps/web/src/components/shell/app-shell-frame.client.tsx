@@ -8,6 +8,7 @@ import { MobileAppBar } from './mobile-app-bar.client'
 import { AppShellStatus } from './app-shell-status.client'
 import { PatternPanel } from '@/components/artwork/pattern-panel'
 import { PycilAI } from '@/features/assistant/pycil-ai.client'
+import { useAccount } from '@/features/account/account.client'
 
 export function AppShellFrame({
   children,
@@ -17,6 +18,7 @@ export function AppShellFrame({
   skipToContentText: string
 }) {
   const workspace = useWorkspaceScroll()
+  const account = useAccount()
   const { collapsed, toggleCollapsed } = useNavigationState()
 
   return (
@@ -46,7 +48,7 @@ export function AppShellFrame({
           <PatternPanel className="shell-main-pattern" seed="pycil-1923" />
         </main>
       </div>
-      <PycilAI />
+      {account.status === 'ready' && <PycilAI />}
     </div></AssistantViewProvider>
   )
 }

@@ -3,6 +3,8 @@ import { defineConfig } from '@playwright/test'
 const integrationURL = 'http://127.0.0.1:3100'
 
 export default defineConfig({
+  timeout: 60_000,
+  expect: { timeout: 10_000 },
   workers: 2,
   fullyParallel: false,
   retries: 0,

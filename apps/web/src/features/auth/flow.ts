@@ -11,7 +11,7 @@ export type AuthDriver = {
 
 export function safeReturnTo(value: string | null | undefined) {
   // Only product routes are valid post-auth destinations.
-  if (!value || !/^\/(?:app|u)(?:\/|\?|$)/.test(value) || /[\\\r\n]/.test(value)) return '/app'
+  if (!value || !/^\/(?:app|u|discovery|dictionary)(?:\/|\?|$)/.test(value) || /[\\\r\n]/.test(value)) return '/app'
   return value
 }
 

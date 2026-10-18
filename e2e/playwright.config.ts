@@ -12,7 +12,7 @@ if (selected.length === 1) process.env.E2E_SELECTED_PROJECT = selected[0]
 if (!collecting) credentials(live)
 process.env.E2E_PROVIDER_PROFILE = live ? 'live' : 'default'
 
-const critical = ['**/public/landing.test.ts', '**/library/editing.test.ts', '**/study/session.test.ts']
+const critical = ['**/vocabulary/dictionary.test.ts', '**/library/editing.test.ts', '**/study/session.test.ts']
 export default defineConfig({
   testDir: './tests',
   fullyParallel: true,

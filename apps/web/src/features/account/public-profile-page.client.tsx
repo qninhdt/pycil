@@ -24,13 +24,15 @@ import { useServices } from '@/lib/api/services/provider.client'
 import { ApiError } from '@/lib/api/error'
 import { LibraryFolder } from '@/features/library/library-folder.client'
 import { useTranslations, useLocale } from 'next-intl'
+import { PublicProfileSkeleton } from './public-profile-skeleton'
+import { HomeFailure } from '@/features/home/home-state.client'
 
 export function PublicProfilePage({ identifier, publishedBase }: { identifier: string; nodeId?: string; publishedBase?: string }) {
   const { services, scope } = useServices(), account = useAccount(), queryClient = useQueryClient(), router = useRouter()
   const t = useTranslations('account')
   const tCommon = useTranslations('common')
   const locale = useLocale()
-  const query = useQuery(publicProfileQuery(services, scope, identifier))
+  const query = useQuery(publicProfileQuery(services, identifier))
   const [displayName, setDisplayName] = useState('')
   const [editing, setEditing] = useState(false), [handle, setHandle] = useState(''), [bio, setBio] = useState(''), [saving, setSaving] = useState(false)
   useAssistantView(query.data?.published_node_id)
@@ -53,7 +55,8 @@ export function PublicProfilePage({ identifier, publishedBase }: { identifier: s
       if ((bio.trim() || null) !== profile.bio) patch.bio = bio.trim() || null
       const next = await services.account.updateProfile(patch, new AbortController().signal)
       queryClient.setQueryData([services.mode, scope, 'account'], next)
-      await queryClient.invalidateQueries({ queryKey: [services.mode, scope, 'public-profile'] })
+      await queryClient.invalidateQueries({ queryKey: [services.mode, 'public', 'public-profile'] })
+      await queryClient.invalidateQueries({ queryKey: [services.mode, 'public', 'public-author'] })
       setEditing(false)
       if (next.handle !== profile.handle) router.replace(`/u/${encodeURIComponent(next.handle || next.id)}`)
       toast.success(t('profileUpdated'))
@@ -61,7 +64,8 @@ export function PublicProfilePage({ identifier, publishedBase }: { identifier: s
     finally { setSaving(false) }
   }
 
-  if (query.isPending) return <div className="w-full py-6 text-muted-foreground" role="status">{t('loadingProfile')}</div>
+  if (query.isPending) return <PublicProfileSkeleton />
+  if (query.isError && !(query.error instanceof ApiError && [403, 404].includes(query.error.status))) return <HomeFailure label="public profile" error={query.error} retry={() => { void query.refetch() }} />
   if (query.isError || !profile) return <div className="w-full py-6 text-muted-foreground" role="alert"><h1 className="text-2xl font-extrabold tracking-tight">{t('profileUnavailable')}</h1><p className="mt-2 mb-4">{t('profileNotFound')}</p><Button variant="outline" onClick={() => { void query.refetch() }}>{t('tryAgain')}</Button></div>
 
   return (
@@ -180,7 +184,7 @@ export function PublicProfilePage({ identifier, publishedBase }: { identifier: s
           name={profile.display_name || profile.handle || t('publishedCollections')}
           space="published"
           canCreate={own}
-          publishedBase={publishedBase}
+          publishedBase={publishedBase ?? `/u/${encodeURIComponent(profile.handle || profile.id)}`}
         />
       </section>
     </div>

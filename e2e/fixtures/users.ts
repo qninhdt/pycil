@@ -1,14 +1,15 @@
 import { createClerkClient } from '@clerk/backend'
 import { isClerkAPIResponseError } from '@clerk/backend/errors'
-import { clerk, setupClerkTestingToken } from '@clerk/testing/playwright'
+import { setupClerkTestingToken } from '@clerk/testing/playwright'
 import { appendFile, mkdir, readFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
-import { expect, type Page } from '@playwright/test'
-import { artifacts, runId } from '../support/environment.ts'
+import { expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
+import { artifacts, runId, webURL } from '../support/environment.ts'
 import { Api, type Account } from '../support/api.ts'
+import type { Data } from './data.ts'
 
 const backend = () => createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY! })
-export type User = { subject: string; email: string; password: string; page: Page; api: Api; account: Account }
+export type User = { subject: string; email: string; password: string; page: Page; api: Api; account: Account; data?: Data }
 
 export function identityFailure(error: unknown) {
   return isClerkAPIResponseError(error)
@@ -20,15 +21,92 @@ function identityTransportFailure(error: unknown) {
   return isClerkAPIResponseError(error) && (error.status === undefined || error.errors.some(item => item.code === 'unexpected_error'))
 }
 
-export async function provisionIdentity(client: ReturnType<typeof createClerkClient>, email: string, password: string) {
-  try { return await client.users.createUser({ emailAddress: [email], password }) }
-  catch (error) {
-    if (!identityTransportFailure(error)) throw error
-    console.warn('Clerk fixture: creation lost its response; checking the reserved email before one bounded retry.')
-    const users = await client.users.getUserList({ emailAddress: [email] })
-    const existing = users.data.find(user => user.emailAddresses.some(address => address.emailAddress === email))
-    return existing ?? await client.users.createUser({ emailAddress: [email], password })
+export function isRateLimitError(error: unknown): boolean {
+  if (isClerkAPIResponseError(error)) {
+    return error.status === 429 || error.errors.some(item => item.code === 'rate_limit_exceeded')
   }
+  if (error && typeof error === 'object') {
+    if ('status' in error && (error as { status: unknown }).status === 429) return true
+    if ('message' in error && typeof (error as { message: unknown }).message === 'string' && (error as { message: string }).message.includes('HTTP 429')) return true
+    if (error instanceof AggregateError) {
+      return error.errors.some(isRateLimitError)
+    }
+  }
+  return false
+}
+
+export type RetryOptions = {
+  maxAttempts?: number
+  initialDelayMs?: number
+  maxDelayMs?: number
+  jitterRatio?: number
+}
+
+export async function withClerkRetry<T>(
+  action: () => Promise<T>,
+  options: RetryOptions = {}
+): Promise<T> {
+  const { maxAttempts = 5, initialDelayMs = 250, maxDelayMs = 5000, jitterRatio = 0.25 } = options
+  let attempt = 0
+  while (true) {
+    try {
+      return await action()
+    } catch (error) {
+      attempt++
+      if (attempt >= maxAttempts || !isRateLimitError(error)) {
+        throw error
+      }
+      let baseDelay = initialDelayMs * Math.pow(2, attempt - 1)
+      if (isClerkAPIResponseError(error) && typeof error.retryAfter === 'number' && error.retryAfter > 0) {
+        baseDelay = Math.max(baseDelay, error.retryAfter * 1000)
+      }
+      baseDelay = Math.min(baseDelay, maxDelayMs)
+      const minJitter = 1 - jitterRatio
+      const maxJitter = 1 + jitterRatio
+      const delay = Math.round(baseDelay * (minJitter + Math.random() * (maxJitter - minJitter)))
+      console.warn(`Clerk fixture: rate limit (HTTP 429) encountered. Retrying in ${delay}ms (attempt ${attempt}/${maxAttempts})...`)
+      await new Promise(resolve => setTimeout(resolve, delay))
+    }
+  }
+}
+
+export async function createSignInToken(
+  clientOrUserId: ReturnType<typeof createClerkClient> | string,
+  maybeUserId?: string,
+  expiresInSeconds = 300,
+  retryOptions?: RetryOptions
+) {
+  let client: ReturnType<typeof createClerkClient>
+  let userId: string
+  if (typeof clientOrUserId === 'string') {
+    client = backend()
+    userId = clientOrUserId
+  } else {
+    client = clientOrUserId
+    userId = maybeUserId!
+  }
+  return await withClerkRetry(
+    () => client.signInTokens.createSignInToken({ userId, expiresInSeconds }),
+    retryOptions
+  )
+}
+
+export async function provisionIdentity(
+  client: ReturnType<typeof createClerkClient>,
+  email: string,
+  password: string,
+  retryOptions?: RetryOptions
+) {
+  return await withClerkRetry(async () => {
+    try { return await client.users.createUser({ emailAddress: [email], password }) }
+    catch (error) {
+      if (!identityTransportFailure(error)) throw error
+      console.warn('Clerk fixture: creation lost its response; checking the reserved email before one bounded retry.')
+      const users = await client.users.getUserList({ emailAddress: [email] })
+      const existing = users.data.find(user => user.emailAddresses.some(address => address.emailAddress === email))
+      return existing ?? await client.users.createUser({ emailAddress: [email], password })
+    }
+  }, retryOptions)
 }
 
 export async function deleteIdentityUser(client: ReturnType<typeof createClerkClient>, subject: string) {
@@ -82,8 +160,7 @@ export async function signIn(page: Page, email: string, password: string, destin
   await expect.poll(() => new URL(page.url()).pathname).toBe(destination)
 }
 
-
-export async function createUser(page: Page): Promise<User> {
+async function attemptCreateUser(page: Page): Promise<User> {
   const identity = await createIdentity()
   let api: Api | undefined
   try {
@@ -96,9 +173,20 @@ export async function createUser(page: Page): Promise<User> {
         url: 'http://localhost:3200',
       },
     ])
-    await page.goto('/login')
-    await clerk.loaded({ page })
-    const ticketToken = await backend().signInTokens.createSignInToken({ userId: identity.subject, expiresInSeconds: 300 })
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        await page.goto('/login')
+        break
+      } catch (e: any) {
+        if (attempt < 2 && (e?.message?.includes('ERR_NETWORK_CHANGED') || e?.message?.includes('chromewebdata') || e?.message?.includes('interrupted by another navigation'))) {
+          await new Promise(r => setTimeout(r, 500))
+          continue
+        }
+        throw e
+      }
+    }
+    await page.waitForFunction(() => window.Clerk !== undefined && Boolean(window.Clerk.loaded), undefined, { timeout: 30_000 })
+    const ticketToken = await createSignInToken(backend(), identity.subject, 300)
     const signInResult = await page.evaluate(async (ticket) => {
       try {
         const client = window.Clerk?.client
@@ -122,9 +210,17 @@ export async function createUser(page: Page): Promise<User> {
         document.cookie = `__client_uat=${uat}; path=/; max-age=31536000; samesite=lax`
       }
     })
-    await page.goto('/auth/complete?returnTo=%2Fapp')
+    try {
+      await page.goto('/auth/complete?returnTo=%2Fapp')
+    } catch (e: any) {
+      if (e?.message?.includes('ERR_NETWORK_CHANGED')) {
+        await page.goto('/auth/complete?returnTo=%2Fapp')
+      } else {
+        throw e
+      }
+    }
     await expect.poll(() => new URL(page.url()).pathname).toBe('/app')
-    await clerk.loaded({ page })
+    await page.waitForFunction(() => window.Clerk !== undefined && Boolean(window.Clerk.loaded), undefined, { timeout: 30_000 })
     api = await Api.create(page)
     const account = await api.call<Account>('me')
     return { ...identity, page, api, account }
@@ -135,6 +231,95 @@ export async function createUser(page: Page): Promise<User> {
     if (errors.length) throw new AggregateError([failure, ...errors], 'User setup and cleanup failed')
     throw failure
   }
+}
+
+export async function createUser(page: Page, retryOptions?: RetryOptions): Promise<User> {
+  return await withClerkRetry(() => attemptCreateUser(page), retryOptions)
+}
+
+export async function installLocalhostCookieFix(context: BrowserContext) {
+  await context.addInitScript(() => {
+    const proto = Document.prototype
+    const desc = Object.getOwnPropertyDescriptor(proto, 'cookie')
+    if (desc && desc.set) {
+      const orig = desc.set
+      Object.defineProperty(document, 'cookie', {
+        configurable: true,
+        enumerable: true,
+        get() { return desc.get ? desc.get.call(this) : '' },
+        set(val) {
+          if (typeof val === 'string' && (window.location.hostname === 'localhost' || !window.location.hostname.includes('.'))) {
+            val = val.replace(/;\s*domain=\.?localhost/gi, '')
+          }
+          return orig.call(this, val)
+        }
+      })
+    }
+  })
+}
+
+export type WorkerCachedUser = {
+  identity: { subject: string; email: string; password: string }
+  account: Account
+  storageStatePath: string
+  storageState: { cookies: unknown[]; origins: unknown[] }
+  page: Page
+  context: BrowserContext
+  api: Api
+  dispose: () => Promise<void>
+}
+
+export async function createWorkerUser(browser: Browser, workerIndex: number): Promise<WorkerCachedUser> {
+  await mkdir(artifacts, { recursive: true, mode: 0o700 })
+  const storageStatePath = `${artifacts}/worker-storage-${workerIndex}.json`
+  const context = await browser.newContext({
+    baseURL: webURL,
+    ignoreHTTPSErrors: true,
+  })
+  await installLocalhostCookieFix(context)
+  const page = await context.newPage()
+  const user = await createUser(page)
+  await context.storageState({ path: storageStatePath })
+  const storageState = JSON.parse(await readFile(storageStatePath, 'utf8'))
+  return {
+    identity: {
+      subject: user.subject,
+      email: user.email,
+      password: user.password,
+    },
+    account: user.account,
+    storageStatePath,
+    storageState,
+    page: user.page,
+    context,
+    api: user.api,
+    dispose: async () => {
+      const results = await Promise.allSettled([
+        user.api.dispose(),
+        context.close(),
+        deleteIdentity(user.subject),
+      ])
+      const errors = results.filter(r => r.status === 'rejected').map(r => r.reason)
+      if (errors.length) throw new AggregateError(errors, 'Worker user cleanup failed')
+    },
+  }
+}
+
+export async function createSharedUserContext(
+  browser: Browser,
+  workerUser: WorkerCachedUser,
+  contextOptions?: Parameters<Browser['newContext']>[0]
+) {
+  const context = await browser.newContext({
+    ...contextOptions,
+    baseURL: webURL,
+    storageState: workerUser.storageStatePath,
+    ignoreHTTPSErrors: true,
+  })
+  await installLocalhostCookieFix(context)
+  await setupClerkTestingToken({ context })
+  await context.route('**/v1/client/handshake?**', route => route.continue())
+  return context
 }
 
 export async function deleteIdentity(subject: string) {

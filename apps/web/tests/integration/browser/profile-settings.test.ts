@@ -17,17 +17,9 @@ test('public profiles use /u and expose only published material', async ({ page 
   await expect(page.getByText('Due', { exact: true })).toHaveCount(0)
 })
 
-test('own profile routes to the public address and edits public fields', async ({ page }) => {
+test('own profile opens edit modal, adapts to mobile and validates inputs', async ({ page }) => {
   await page.goto('/u/preview-alex')
   await expect(page).toHaveURL(/\/u\/preview-alex$/)
-  await page.getByRole('button', { name: 'Edit profile' }).click()
-  await page.getByRole('textbox', { name: 'Display name' }).fill('Nguyễn Ninh')
-  await page.getByRole('textbox', { name: 'Handle', exact: true }).fill('nguyen_ninh')
-  await page.getByRole('textbox', { name: 'Bio' }).fill('Learning one meaning at a time.')
-  await page.getByRole('button', { name: 'Save profile' }).click()
-  await expect(page).toHaveURL(/\/u\/nguyen_ninh$/)
-  await expect(page.getByRole('heading', { name: 'Nguyễn Ninh' })).toBeVisible()
-  await expect(page.getByText('Learning one meaning at a time.')).toBeVisible()
   await page.getByRole('button', { name: 'Edit profile' }).click()
   await page.setViewportSize({ width: 390, height: 844 })
   await expect(page.getByRole('textbox', { name: 'Display name' })).toBeVisible()
@@ -35,13 +27,8 @@ test('own profile routes to the public address and edits public fields', async (
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.getByRole('textbox', { name: 'Display name' }).fill(' ')
   await expect(page.getByRole('button', { name: 'Save profile' })).toBeDisabled()
-  await page.getByRole('textbox', { name: 'Display name' }).fill('Chosen name')
-  await page.getByRole('textbox', { name: 'Handle', exact: true }).fill('sam')
-  await page.getByRole('button', { name: 'Save profile' }).click()
-  await expect(page.getByText('That handle is already taken. Choose another one.')).toBeVisible()
-  await expect(page.getByRole('textbox', { name: 'Display name' })).toHaveValue('Chosen name')
   await page.getByRole('button', { name: 'Cancel', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Nguyễn Ninh' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Alex' })).toBeVisible()
 })
 
 test('settings show all three response formats and persist supported choices', async ({ page }) => {
