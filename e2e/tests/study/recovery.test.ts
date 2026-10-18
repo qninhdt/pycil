@@ -128,7 +128,7 @@ test('a failed typed grade keeps the entered answer available for a real retry',
   })
   await user.page.getByRole('button', { name: /^Check answer/ }).click()
   await expect(input).toHaveValue('bank')
-  await expect(user.page.getByRole('alert')).toBeVisible()
+  await expect(user.page.getByRole('alert').filter({ hasText: 'Failed to fetch' })).toBeVisible()
   expect(await user.api.call(`study/progress?node_id=${deck.id}`)).toMatchObject({ studied: 0 })
   await user.page.getByRole('button', { name: 'Retry grading', exact: true }).click()
   await expect(user.page.getByText('That fits.', { exact: true })).toBeVisible()
