@@ -10,7 +10,7 @@ from sqlalchemy import select
 
 from pycil.account.models import User
 from pycil.account.plans import Feature
-from pycil.app.auth import UserId, Viewer
+from pycil.app.auth import UserId
 from pycil.app.dependencies import Config, Runtime, Session
 from pycil.app.http import Problem
 from pycil.app.pagination import strict_query
@@ -31,7 +31,6 @@ from pycil.study.schemas import (
     ReviewBatch,
     Schedule,
     Summary,
-    SummaryBatch,
 )
 from pycil.study.tasks import request_preparation
 from pycil.study.types import SummaryDict
@@ -137,19 +136,6 @@ async def summary(
     return (await summaries(session, user, config.study, [node_id], library_config=config.library))[
         0
     ]
-
-
-@router.post(":batchSummarize", response_model=list[Summary], openapi_extra={"security": [{}]})
-async def cards(
-    data: SummaryBatch, viewer: Viewer, session: Session, config: Config
-) -> list[SummaryDict]:
-    return await summaries(
-        session,
-        viewer,
-        config.study,
-        data.node_ids,
-        library_config=config.library,
-    )
 
 
 @router.get("/activity", response_model=Activity)

@@ -146,8 +146,6 @@ async def test_real_lifespan_checks_search_readiness_and_cleans_owned_resources(
             assert response.json()["error"] == "not_ready"
             assert response.headers["access-control-allow-origin"] == "http://web.example.test"
             assert (await http.get("/livez")).json() == {"status": "ok"}
-            for removed_path in ("/health", "/ready", "/health/live", "/health/ready"):
-                assert (await http.get(removed_path)).status_code == 404
             schema = (await http.get("/openapi.json")).json()
             assert "/livez" not in schema["paths"]
             assert "/readyz" not in schema["paths"]

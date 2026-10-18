@@ -1,4 +1,5 @@
-from pycil.infrastructure.llm import UsageRecorder, merge_usage, openai_usage, record
+from pycil.infrastructure.llm import merge_usage, openai_usage, record
+from tests.support.inference import UsageRecorder
 
 
 def response(**usage):

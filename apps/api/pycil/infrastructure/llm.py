@@ -10,8 +10,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from functools import cache, reduce
 from time import perf_counter
-from types import TracebackType
-from typing import Annotated, Any, Literal, Protocol, Self, cast
+from typing import Annotated, Any, Literal, Protocol, cast
 
 import httpx
 import instructor
@@ -134,26 +133,6 @@ def merge_usage(values: list[TokenUsage]) -> list[TokenUsage]:
             continue
         grouped[value.model_id] = grouped[value.model_id] + value
     return [grouped[key] for key in sorted(grouped, key=lambda key: (key is None, key or ""))]
-
-
-class UsageRecorder:
-    def __enter__(self) -> Self:
-        self.records: list[TokenUsage] = []
-        self.token = records.set(self.records)
-        return self
-
-    def __exit__(
-        self,
-        _kind: type[BaseException] | None,
-        error: BaseException | None,
-        _traceback: TracebackType | None,
-    ) -> None:
-        records.reset(self.token)
-        if error is not None:
-            setattr(error, "usage", merge_usage(self.records))  # noqa: B010
-
-    def finish[T](self, value: T) -> tuple[T, list[TokenUsage]]:
-        return value, merge_usage(self.records)
 
 
 environment = Environment(

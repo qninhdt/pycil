@@ -1,10 +1,14 @@
 import asyncio
 from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select
 
+from pycil.account.models import User
 from pycil.app.config import load_config
+from pycil.app.factory import create_app
 from pycil.app.http import status_for
 from pycil.library.models import DeckSense, Node, NodePath, NodeRole, NodeType
 from pycil.library.nodes import (
@@ -13,6 +17,7 @@ from pycil.library.nodes import (
     delete_node,
     list_nodes,
     move_node,
+    patch_senses,
     update_node,
 )
 from pycil.library.schemas import NodeCreate, NodeDestination, NodeMove, NodePatch, SenseDelta
@@ -21,6 +26,14 @@ from pycil.vocabulary.enums import PartOfSpeech, Tier
 from pycil.vocabulary.models import Sense
 from tests.support.account import account
 from tests.support.vocabulary import neutral_word
+
+
+class Identity:
+    def __init__(self, subject):
+        self.value = subject
+
+    async def subject(self, token):
+        return self.value
 
 
 @pytest.fixture
@@ -360,3 +373,124 @@ async def test_move_respects_subtree_height_and_rejects_descendant_reference_to_
             NodeRole.PERSONAL_ROOT
         ].id
         assert (await session.get(Node, child["id"])).parent_id == source["id"]
+
+
+async def test_patch_senses_modifies_deck_membership_and_omits_internal_counts(database, library):
+    deck = await library.create(NodeType.DECK, "French Vocabulary")
+    folder = await library.create(NodeType.FOLDER, "Grammar")
+
+    # Add sense to deck
+    async with database.sessions() as session:
+        result = await patch_senses(
+            session,
+            library.user.id,
+            deck["id"],
+            SenseDelta(add=[library.sense]),
+            library.config.library,
+        )
+    assert result["id"] == deck["id"]
+    assert result["sense_ids"] == [library.sense]
+    assert "added_count" not in result
+    assert "removed_count" not in result
+
+    # Verify persisted in database
+    async with database.sessions() as session:
+        stored = list(
+            await session.scalars(select(DeckSense.sense_id).where(DeckSense.deck_id == deck["id"]))
+        )
+        assert stored == [library.sense]
+
+    # Remove sense from deck
+    async with database.sessions() as session:
+        removed = await patch_senses(
+            session,
+            library.user.id,
+            deck["id"],
+            SenseDelta(remove=[library.sense]),
+            library.config.library,
+        )
+    assert removed["sense_ids"] == []
+    assert "added_count" not in removed
+    assert "removed_count" not in removed
+
+    # Verify database after removal
+    async with database.sessions() as session:
+        stored = list(
+            await session.scalars(select(DeckSense.sense_id).where(DeckSense.deck_id == deck["id"]))
+        )
+        assert stored == []
+
+    # Attempting to patch senses on a folder must fail
+    async with database.sessions() as session:
+        with pytest.raises(OperationError) as error:
+            await patch_senses(
+                session,
+                library.user.id,
+                folder["id"],
+                SenseDelta(add=[library.sense]),
+                library.config.library,
+            )
+        assert error.value.code == "membership_is_deck_only"
+        assert status_for(error.value) == 422
+
+
+async def test_http_modify_senses_endpoint(database, library):
+    deck = await library.create(NodeType.DECK, "HTTP Deck")
+    folder = await library.create(NodeType.FOLDER, "HTTP Folder")
+
+    async with database.sessions() as session, session.begin():
+        saved = await session.get(User, library.user.id)
+        saved.display_name, saved.handle = "Alice", "alice"
+
+    app = create_app()
+    app.state.sessions = database.sessions
+    app.state.config = load_config()
+    app.state.identity = Identity(library.user.clerk_id)
+    app.state.deployment = SimpleNamespace(allowed_origins=[])
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api.test") as client:
+        headers = {"Authorization": "Bearer test-token"}
+
+        # Unauthorized request fails
+        unauth = await client.post(
+            f"/v1/nodes/{deck['id']}:modifySenses", json={"add": [library.sense]}
+        )
+        assert unauth.status_code == 401
+
+        # Modify senses: add sense
+        response = await client.post(
+            f"/v1/nodes/{deck['id']}:modifySenses",
+            headers=headers,
+            json={"add": [library.sense], "remove": []},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == str(deck["id"])
+        assert data["sense_ids"] == [library.sense]
+        assert data["type"] == "deck"
+
+        # Modify senses: remove sense
+        remove_response = await client.post(
+            f"/v1/nodes/{deck['id']}:modifySenses",
+            headers=headers,
+            json={"add": [], "remove": [library.sense]},
+        )
+        assert remove_response.status_code == 200
+        assert remove_response.json()["sense_ids"] == []
+
+        # Calling modifySenses on a folder returns 422
+        invalid = await client.post(
+            f"/v1/nodes/{folder['id']}:modifySenses",
+            headers=headers,
+            json={"add": [library.sense]},
+        )
+        assert invalid.status_code == 422
+        assert invalid.json()["error"] == "membership_is_deck_only"
+
+        # Calling modifySenses on non-existent node returns 404
+        non_existent = await client.post(
+            f"/v1/nodes/{uuid4()}:modifySenses",
+            headers=headers,
+            json={"add": [library.sense]},
+        )
+        assert non_existent.status_code == 404

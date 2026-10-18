@@ -8,8 +8,9 @@ from instructor.decisions import Noul, Question
 from pydantic import BaseModel
 
 from pycil.app.config import load_config
-from pycil.infrastructure.llm import DecisionLLM, UsageRecorder
+from pycil.infrastructure.llm import DecisionLLM
 from pycil.infrastructure.retry import ProviderOutputError, ProviderTimeoutError
+from tests.support.inference import UsageRecorder
 
 
 class Assessment(BaseModel):
@@ -29,7 +30,7 @@ def response(*, choice="yes", probability=0.85, inputs=15):
 
 def client(http, *, retries=0, timeout=5):
     policy = load_config().vocabulary.provider.model_copy(
-        update={"max_retries": retries, "timeout_seconds": timeout}
+        update={"max_retries": retries, "timeout_seconds": timeout, "retry_min_seconds": 0.001}
     )
     return DecisionLLM(
         policy, api_key="test", endpoint="https://decision.test/decisions", http_client=http

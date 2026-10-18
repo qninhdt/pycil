@@ -238,16 +238,6 @@ class Summary(Strict):
     reachable_decks: int
 
 
-class SummaryBatch(Strict):
-    node_ids: list[UUID] = Field(min_length=1, max_length=50)
-
-    @model_validator(mode="after")
-    def unique(self) -> Self:
-        if len(set(self.node_ids)) != len(self.node_ids):
-            raise ValueError("duplicate node IDs")
-        return self
-
-
 class ActivityDay(Strict):
     day: date
     applied_events: int

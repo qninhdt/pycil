@@ -2,11 +2,8 @@
 
 from pycil.utils.concurrency import shielded_to_thread
 from pycil.utils.dates import (
-    date_range,
     period_bounds,
-    resolve_date_window,
     to_local_date,
-    utc_now,
 )
 from pycil.utils.encoding import base64url_decode, base64url_encode
 from pycil.utils.hashing import sha256_canonical_json, sha256_hex
@@ -39,7 +36,6 @@ __all__ = [
     "StrictModel",
     "base64url_decode",
     "base64url_encode",
-    "date_range",
     "decode_cursor",
     "encode_cursor",
     "has_control_or_invisible_chars",
@@ -50,7 +46,6 @@ __all__ = [
     "normalize_nfkc_whitespace",
     "period_bounds",
     "phrase_to_flexible_regex",
-    "resolve_date_window",
     "row_data",
     "sha256_canonical_json",
     "sha256_hex",
@@ -58,5 +53,4 @@ __all__ = [
     "slugify",
     "strip_accents",
     "to_local_date",
-    "utc_now",
 ]

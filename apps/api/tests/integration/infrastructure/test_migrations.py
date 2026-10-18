@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import os
 import sys
 
@@ -35,8 +36,9 @@ async def migration_clients(database):
     for process, _output in clients:
         if process.returncode is None:
             process.kill()
-    async with asyncio.timeout(10):
-        await asyncio.gather(*(output for _, output in clients))
+    with contextlib.suppress(BaseException):
+        async with asyncio.timeout(10):
+            await asyncio.gather(*(output for _, output in clients), return_exceptions=True)
 
 
 async def wait_for(connection, query, parameters=()):

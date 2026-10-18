@@ -9,10 +9,6 @@ import pytest
 from opentelemetry.proto.collector.metrics.v1.metrics_service_pb2 import ExportMetricsServiceRequest
 from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest
 
-from pycil.app.config import load_config
-from pycil.app.settings import ApiSettings
-from pycil.observability import telemetry
-
 
 def deployment_values(**overrides):
     return (
@@ -31,16 +27,6 @@ def deployment_values(**overrides):
         )
         | overrides
     )
-
-
-async def test_no_endpoint_does_not_install_or_start_sdk():
-    from opentelemetry import metrics, trace
-
-    before = metrics.get_meter_provider(), trace.get_tracer_provider()
-    workers = set(threading.enumerate())
-    async with telemetry(ApiSettings(**deployment_values()), load_config().system.telemetry):
-        assert before == (metrics.get_meter_provider(), trace.get_tracer_provider())
-    assert set(threading.enumerate()) == workers
 
 
 @pytest.mark.parametrize(

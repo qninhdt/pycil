@@ -149,16 +149,6 @@ class WordIDs(Strict):
         return self
 
 
-class SenseIDs(Strict):
-    sense_ids: list[PositiveID] = Field(min_length=1, max_length=100)
-
-    @model_validator(mode="after")
-    def unique(self) -> Self:
-        if len(set(self.sense_ids)) != len(self.sense_ids):
-            raise ValueError("duplicate sense IDs")
-        return self
-
-
 class WordPreview(Strict):
     word_id: int
     lemma: str

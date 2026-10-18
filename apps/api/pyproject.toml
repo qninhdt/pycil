@@ -86,7 +86,14 @@ markers = [
 ]
 
 [tool.coverage.run]
+parallel = true
 source = ["pycil"]
+
+[tool.coverage.paths]
+source = [
+    "pycil",
+    "*/pycil",
+]
 
 [tool.ruff]
 line-length = 100

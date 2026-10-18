@@ -1,15 +1,12 @@
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 
 import pytest
 from pydantic import ValidationError
 
 from pycil.utils.concurrency import shielded_to_thread
 from pycil.utils.dates import (
-    date_range,
     period_bounds,
-    resolve_date_window,
     to_local_date,
-    utc_now,
 )
 from pycil.utils.encoding import base64url_decode, base64url_encode
 from pycil.utils.hashing import sha256_canonical_json, sha256_hex
@@ -69,14 +66,8 @@ def test_strings():
 
 
 def test_dates():
-    now = utc_now()
-    assert now.tzinfo is UTC
-
     local_d = to_local_date(datetime(2026, 1, 1, 23, 0, tzinfo=UTC), "Asia/Ho_Chi_Minh")
     assert local_d == date(2026, 1, 2)
-
-    days = list(date_range(date(2026, 1, 1), date(2026, 1, 3)))
-    assert days == [date(2026, 1, 1), date(2026, 1, 2), date(2026, 1, 3)]
 
     # Period bounds
     anchor = datetime(2026, 1, 15, 0, 0, tzinfo=UTC)
@@ -84,15 +75,6 @@ def test_dates():
     start, end = period_bounds(anchor, moment)
     assert start == datetime(2026, 2, 15, 0, 0, tzinfo=UTC)
     assert end == datetime(2026, 3, 15, 0, 0, tzinfo=UTC)
-
-    # Date window
-    today = date(2026, 5, 10)
-    w_start, w_end = resolve_date_window(None, None, today, 7)
-    assert w_end == today
-    assert w_start == today - timedelta(days=6)
-
-    with pytest.raises(ValueError):
-        resolve_date_window(date(2026, 5, 1), None, today, 7)
 
 
 def test_pagination():

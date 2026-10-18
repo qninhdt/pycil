@@ -38,6 +38,14 @@ jobs:
       - run: pnpm run typecheck
       - run: pnpm run lint
       - run: node node_modules/@playwright/test/cli.js install --with-deps chromium
+      - name: Cache Next.js build
+        uses: actions/cache@v4
+        with:
+          path: |
+            apps/web/.next/cache
+          key: ${{ runner.os }}-nextjs-frontend-${{ hashFiles('apps/web/pnpm-lock.yaml', 'apps/web/src/**') }}
+          restore-keys: |
+            ${{ runner.os }}-nextjs-frontend-
       - run: pnpm run build:mock
       - run: pnpm test:vitest
       - run: pnpm test:browser
@@ -106,7 +114,9 @@ jobs:
         working-directory: apps/api
       # Each test creates/drops only its own database; providers are deterministic.
       # Testcontainers owns the real PostgreSQL/Redis services.
-      - run: uv run --locked coverage run -m pytest tests -q --tb=short
+      - run: uv run --locked coverage run --parallel-mode -m pytest tests -n 2 -q --tb=short
+        working-directory: apps/api
+      - run: uv run --locked coverage combine
         working-directory: apps/api
 
       - run: uv run --locked coverage xml -o coverage.xml
@@ -222,16 +232,35 @@ jobs:
           CLERK_JWKS_URL: https://identity.invalid/jwks
           CLERK_ISSUER: https://identity.invalid
           CLERK_SECRET_KEY: test-only
+          POSTGRES_ADMIN_PASSWORD: test-admin-only
+          ALLOWED_ORIGINS: https://app.example.test
+          RELEASE_IMAGE: pycil-api:ci
+          BLUE_API_IMAGE: pycil-api:ci
+          GREEN_API_IMAGE: pycil-api:ci
           LLM_API_KEY: test-only
           LLM_BASE_URL: https://inference.invalid/v1
           DECISION_API_KEY: test-only
           DECISION_BASE_URL: https://decision.invalid
-        run: python scripts/compose.py --env-file /dev/null config -q
+        run: |
+          python scripts/compose.py --env-file /dev/null config -q
+          python scripts/compose.py --env-file /dev/null --file infra/vps/compose.yaml config -q
+          python -m unittest discover -s infra/vps/tests -v
+          bash -n infra/vps/deploy.sh infra/vps/cd.sh infra/vps/init-application-role.sh
       - name: Validate Caddy routes
-        run: >-
-          docker run --rm -e DOMAIN=app.example.test
-          -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro"
-          caddy:2.11.6-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+        run: |
+          docker run --rm -e DOMAIN=app.example.test \
+            -v "$PWD/infra/local/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            caddy:2.11.6-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+          tls_dir=$(mktemp -d)
+          trap 'rm -rf -- "$tls_dir"' EXIT
+          openssl req -x509 -newkey ed25519 -noenc -days 1 -subj /CN=api.pycil.qninhdt.com \
+            -keyout "$tls_dir/origin.key" -out "$tls_dir/origin.crt"
+          docker run --rm \
+            -v "$PWD/infra/vps/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            -v "$PWD/infra/vps:/etc/caddy/routing:ro" \
+            -v "$tls_dir:/run/secrets/tls:ro" \
+            caddy:2.11.6-alpine@sha256:c776e0c6413b544d0459665e54ec7b8b2a15000c0cbee8b254da0067b1d184ff \
+            caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 
       - name: Transfer the scanned image to trusted publication
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'

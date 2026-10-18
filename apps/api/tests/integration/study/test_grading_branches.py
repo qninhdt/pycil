@@ -330,3 +330,48 @@ async def test_grading_failures_do_not_publish_content_or_learning_state(databas
         assert await session.scalar(select(func.count()).select_from(UserSense)) == 0
         assert await session.scalar(select(func.count()).select_from(ReviewReceipt)) == 0
         assert await session.scalar(select(func.count()).select_from(Definition)) == before
+
+
+async def test_exact_match_fast_path_bypasses_llm(database):
+    _word_id, sense_id = await neutral_word(database.sessions)
+    artifacts = await append(
+        database.sessions,
+        [
+            Artifact(
+                id=0,
+                sense_id=sense_id,
+                theme_id=None,
+                artifact_type=Kind.WORD_DEFINITION,
+                payload={
+                    "corrects": ["a financial institution"],
+                    "distractors": [{"word": "shop", "definition": "a place to buy goods"}],
+                },
+            )
+        ],
+    )
+    identifier = artifacts[0].id
+
+    class CountingDecision:
+        def __init__(self):
+            self.calls = 0
+
+        async def decide(self, schema, context):
+            self.calls += 1
+            raise AssertionError("LLM should not be called on exact match")
+
+    decision_llm = CountingDecision()
+    config = load_config()
+    exact = await grade_answer(
+        database.sessions,
+        None,
+        decision_llm,
+        None,
+        identifier,
+        QuestionType.DEFINITION_TO_WORD,
+        ResponseFormat.SINGLE_WORD,
+        " BANK ",
+        config.study.grading,
+        allowed_pairs=ALLOWED_PAIRS,
+    )
+    assert exact.sense_id == sense_id and exact.task_fit and not exact.spelling_error
+    assert decision_llm.calls == 0

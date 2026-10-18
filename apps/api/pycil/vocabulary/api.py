@@ -1,14 +1,8 @@
-from fastapi import APIRouter, Query, Request, Response
-from sqlalchemy import select
+from fastapi import APIRouter, Response
 
 from pycil.app.auth import UserId, Viewer
 from pycil.app.dependencies import Config, Runtime, Session
-from pycil.app.pagination import strict_query
 from pycil.jobs.schemas import Accepted
-from pycil.library.models import Node, NodeRole
-from pycil.library.schemas import Sources
-from pycil.library.senses import sources_page
-from pycil.library.types import SourcesPageDict
 from pycil.utils.errors import InvalidInput, NotFound
 from pycil.vocabulary.errors import InvalidResourceError
 from pycil.vocabulary.generation.tasks import request_generation
@@ -16,22 +10,28 @@ from pycil.vocabulary.schemas import (
     Context,
     GenerateWord,
     SearchResult,
-    SenseIDs,
     Word,
     WordIDs,
     WordPreview,
 )
-from pycil.vocabulary.words import get_word, viewer_context, word_context, word_previews
+from pycil.vocabulary.words import get_word, word_context, word_previews
 
 router = APIRouter(prefix="/v1", tags=["vocabulary"])
 
 
 @router.get("/words:search", response_model=SearchResult, openapi_extra={"security": [{}]})
 async def search(
-    query: str, viewer: Viewer, resources: Runtime, include_reference: bool = False
+    viewer: Viewer,
+    resources: Runtime,
+    query: str | None = None,
+    q: str | None = None,
+    include_reference: bool = False,
 ) -> SearchResult:
+    target = query or q
+    if not target:
+        raise InvalidInput("invalid_lexical_query")
     try:
-        return await resources.search.search(query, include_reference=include_reference)
+        return await resources.search.search(target, include_reference=include_reference)
     except InvalidResourceError:
         raise InvalidInput("invalid_lexical_query") from None
 
@@ -76,39 +76,6 @@ async def personal_word(
         study_config=config.study,
         policy=config.vocabulary.preview,
     )
-
-
-@router.post("/me/senses:batchReadContext", response_model=Context)
-async def personal_senses(
-    data: SenseIDs, user: UserId, session: Session, config: Config
-) -> dict[str, object]:
-    return await viewer_context(
-        session,
-        user,
-        data.sense_ids,
-        library_config=config.library,
-        study_config=config.study,
-        policy=config.vocabulary.preview,
-    )
-
-
-@router.get("/me/senses/{sense_id}/decks", response_model=Sources)
-async def containing_decks(
-    request: Request,
-    sense_id: int,
-    user: UserId,
-    session: Session,
-    config: Config,
-    cursor: str | None = Query(default=None, max_length=2048),
-    limit: int | None = Query(default=None, ge=1, le=100),
-) -> SourcesPageDict:
-    strict_query(request, {"cursor", "limit"})
-    root = await session.scalar(
-        select(Node.id).where(Node.owner_id == user, Node.role == NodeRole.LIBRARY_ROOT)
-    )
-    if root is None:
-        raise NotFound("library_root_not_found")
-    return await sources_page(session, root, sense_id, user, config.library, cursor, limit)
 
 
 @router.post("/words:generate", response_model=Accepted, status_code=202)
