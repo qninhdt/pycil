@@ -26,6 +26,12 @@ const config: NextConfig = {
     NEXT_PUBLIC_DATA_MODE: mode,
     NEXT_PUBLIC_PYCIL_API_URL: process.env.NEXT_PUBLIC_PYCIL_API_URL || localApiOrigin,
   },
+  experimental: {
+    staleTimes: {
+      dynamic: 60,
+      static: 180,
+    },
+  },
   turbopack: { root: fileURLToPath(new URL('./', import.meta.url)) },
 }
 

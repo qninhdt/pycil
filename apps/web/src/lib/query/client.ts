@@ -10,7 +10,7 @@ export function makeQueryClient(): QueryClient {
         retry: (attempt, error) =>
           attempt < webConfig.query.retries &&
           (!('status' in error) || ![401, 403, 404, 422].includes(Number((error as { status?: number }).status))),
-        refetchOnWindowFocus: true,
+        refetchOnWindowFocus: false,
       },
       mutations: {
         retry: false,
