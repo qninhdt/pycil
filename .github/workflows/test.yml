@@ -55,7 +55,6 @@ jobs:
       LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
       DECISION_API_KEY: ${{ secrets.DECISION_API_KEY }}
       DECISION_BASE_URL: ${{ secrets.DECISION_BASE_URL }}
-      E2E_CACHE_BUILD: "1"
       DOCKER_BUILDKIT: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -81,6 +80,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-nextjs-e2e-
       - run: pnpm --dir e2e test
+        env:
+          E2E_CACHE_BUILD: "1"
       - run: pnpm --dir e2e test:live
         if: ${{ inputs.live_provider }}
       # Reports contain authentication data. No public artifact upload is configured.
