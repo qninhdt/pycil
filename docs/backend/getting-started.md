@@ -41,7 +41,8 @@ uv run --locked --env-file /absolute/path/to/development.env uvicorn pycil.main:
 
 Search uses an in-memory index unless `SEARCH_INDEX_PATH` is set. Multiple API processes sharing a disk index use one writer. Start the native Taskiq worker in a separate terminal using the [worker command](modules/jobs.md#native-worker-command). Preparation and word-generation submissions require a running worker for completion.
 
-For Compose, run from the repository root:
+For the [local Compose stack](../../infra/local/compose.yaml), run from the repository root.
+The wrapper selects this manifest by default; `--file` overrides it:
 
 ```sh
 python scripts/compose.py --env-file /absolute/path/to/development.env config -q

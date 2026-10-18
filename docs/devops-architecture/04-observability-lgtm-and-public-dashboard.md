@@ -146,15 +146,15 @@ VPS runs may retain bounded Grafana snapshots **with populated panel data** alon
 ## 3. Provisioning and three-way correlation
 
 ```text
-infra/observability/grafana/
+infra/vps/observability/grafana/
   provisioning/datasources/lgtm.yaml
   provisioning/dashboards/providers.yaml
   provisioning/alerting/{rules,contact-points,policies}.yaml
   dashboards/{api-red,vps-use,postgres-deep-dive,redis,benchmark-comparison,public-api}.json
-infra/observability/prometheus/{recording-rules,health-rules}.yaml
+infra/vps/observability/prometheus/{recording-rules,health-rules}.yaml
 ```
 
-The Grafana provisioning and correlation examples below apply to VPS. AWS dashboard/alarms configuration lives under `infra/aws/` and uses IAM-authorized CloudWatch resources. Use fixed datasource UIDs `prometheus`, `loki`, `tempo`; dashboard UIDs are stable across envs. Dashboard provider uses `allowUiUpdates: false`, an explicit folder and read-only versioned files. Grafana provisioning expands only secret environment references in private runtime mounts; JSON dashboard bodies and contact-point secrets are separate concerns. Datasource URLs are private Docker DNS, not Internet endpoints. [Grafana provisioning](https://grafana.com/docs/grafana/latest/administration/provisioning/).
+The Grafana provisioning and correlation examples below apply to VPS. AWS dashboard/alarms configuration lives under `infra/aws/workload/` and uses IAM-authorized CloudWatch resources. Use fixed datasource UIDs `prometheus`, `loki`, `tempo`; dashboard UIDs are stable across envs. Dashboard provider uses `allowUiUpdates: false`, an explicit folder and read-only versioned files. Grafana provisioning expands only secret environment references in private runtime mounts; JSON dashboard bodies and contact-point secrets are separate concerns. Datasource URLs are private Docker DNS, not Internet endpoints. [Grafana provisioning](https://grafana.com/docs/grafana/latest/administration/provisioning/).
 
 Datasource correlation fragment:
 

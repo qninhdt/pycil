@@ -1,0 +1,7 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 30s
+# Collection still belongs exclusively to Alloy.
+scrape_configs: []
+rule_files:
+  - /etc/prometheus/rules/recording-rules.yaml

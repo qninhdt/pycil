@@ -1,6 +1,6 @@
 # Application startup never migrates. Invoke migrate against an explicit target.
 .PHONY: api-dev migrate docker-build docker-up docker-down lint test test-api \
-	test-unit test-integration test-benchmark openapi storybook storybook-build
+	test-unit test-integration test-benchmark openapi storybook storybook-build vps-deploy vps-rollback
 
 storybook:
 	cd apps/web && pnpm run storybook
@@ -22,6 +22,12 @@ docker-up:
 
 docker-down:
 	python scripts/compose.py down
+
+vps-deploy:
+	timeout --foreground --kill-after=30s 1800s bash infra/vps/deploy.sh deploy "$(RELEASE)"
+
+vps-rollback:
+	timeout --foreground --kill-after=30s 1800s bash infra/vps/deploy.sh rollback
 
 lint:
 	cd apps/api && uv run --locked ruff check pycil tests migrations ../../scripts/export_openapi.py

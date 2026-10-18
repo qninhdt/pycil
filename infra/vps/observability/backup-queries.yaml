@@ -1,0 +1,21 @@
+pycil_wal_archive:
+  query: >-
+    SELECT archived_count, failed_count,
+      COALESCE(EXTRACT(EPOCH FROM last_archived_time), 0) AS last_success_timestamp_seconds,
+      COALESCE(EXTRACT(EPOCH FROM last_failed_time), 0) AS last_failure_timestamp_seconds
+    FROM pg_stat_archiver
+  metrics:
+    - archived_count: {usage: COUNTER, description: Successfully archived WAL segments}
+    - failed_count: {usage: COUNTER, description: Failed archive attempts}
+    - last_success_timestamp_seconds: {usage: GAUGE, description: Most recent successful WAL archive}
+    - last_failure_timestamp_seconds: {usage: GAUGE, description: Most recent failed WAL archive}
+pycil_wal_backlog:
+  query: >-
+    SELECT COUNT(*) AS segments,
+      COUNT(*) * pg_size_bytes(current_setting('wal_segment_size')) AS bytes,
+      COALESCE(EXTRACT(EPOCH FROM now() - MIN(modification)), 0) AS oldest_seconds
+    FROM pg_ls_archive_statusdir() WHERE name ~ '^[0-9A-F]{24}[.]ready$'
+  metrics:
+    - segments: {usage: GAUGE, description: Completed segments still waiting for archiving}
+    - bytes: {usage: GAUGE, description: Bytes in completed segments waiting for archiving}
+    - oldest_seconds: {usage: GAUGE, description: Age of oldest segment waiting for archiving}

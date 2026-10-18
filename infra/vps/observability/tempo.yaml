@@ -1,0 +1,38 @@
+stream_over_http_enabled: true
+server:
+  http_listen_port: 3200
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+live_store:
+  max_live_traces_bytes: 33554432
+  query_block_concurrency: 2
+  complete_block_concurrency: 1
+  max_trace_idle: 5s
+  max_block_duration: 5m
+  max_block_bytes: 1000000
+storage:
+  trace:
+    backend: local
+    wal:
+      path: /var/tempo/wal
+    local:
+      path: /var/tempo/blocks
+    pool:
+      max_workers: 4
+      queue_depth: 100
+overrides:
+  defaults:
+    compaction:
+      block_retention: 168h
+    ingestion:
+      rate_limit_bytes: 1048576
+      burst_size_bytes: 2097152
+      max_traces_per_user: 1000
+    global:
+      max_bytes_per_trace: 262144
+usage_report:
+  reporting_enabled: false

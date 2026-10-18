@@ -1,6 +1,15 @@
 # DevSecOps delivery, backup and operational recovery
 
-**Status:** delivery and backup remain implementation designs. The persistent AWS foundation has been applied; see [lesson 15 execution evidence](../../devops-course/lab/lesson15/README.md) for verified scope and remaining gates. Read the [overview](00-architecture-overview-and-standards.md), [resource budget](01-current-state-audit-and-capacity.md) and [infrastructure lifecycle](03-hybrid-infrastructure-vps-and-aws-iac.md) first.
+**Status:** VPS production is live with two APIs, one native worker, monitoring,
+continuous WAL archiving and a daily full-backup timer. An encrypted production
+base and required WAL were independently restored off-host on 18 October 2026.
+The [VPS runbook](../../infra/vps/README.md) owns the live routes, credential
+sources, commissioning scope and remaining unattended-delivery/pruning gates.
+AWS workload deployment remains separate work. The persistent AWS foundation has
+been applied; see [lesson 15 execution evidence](../../devops-course/lab/lesson15/README.md).
+Read the [overview](00-architecture-overview-and-standards.md),
+[resource budget](01-current-state-audit-and-capacity.md) and
+[infrastructure lifecycle](03-hybrid-infrastructure-vps-and-aws-iac.md) first.
 
 ## Worker release boundary
 
@@ -12,7 +21,7 @@ or restore PostgreSQL. Test old/new payload/result compatibility before sharing 
 Keep safe acknowledged-stream retention separate from cache expiry; never flush the task
 namespace or trim unfinished messages. Idle recovery remains a deferred upstream issue,
 and result-save failure can still ACK; do not advertise guaranteed recovery from a green
-API probe. This update specifies later delivery work, not a deployed worker service.
+API probe. VPS delivery includes a worker service; live production activation remains gated.
 
 ## 1. Existing delivery and registry decision
 
@@ -28,7 +37,9 @@ match the archive. Tags contain the full source SHA; deployment consumes digest
 references from `release.json`. API, worker and migration use the same image.
 
 GHCR serves the VPS; ECR serves ECS's execution-role-authenticated pull path.
-Neither workflow currently deploys runtime services. Keep package visibility
+The optional VPS job calls the [delivery controller](../../infra/vps/README.md)
+after publication; it remains disabled until bootstrap/activation gates pass.
+AWS runtime delivery remains later work. Keep package visibility
 private unless the operator explicitly changes it. A private GHCR pull outside
 Actions still needs authorized package credentials; CI uses its scoped, expiring
 `GITHUB_TOKEN`. [GHCR authentication](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry).
@@ -73,8 +84,9 @@ migration must additionally serialize at the database boundary.
 
 Actions are pinned to verified full commits with release comments in the owning
 YAML; runners use `ubuntu-24.04`. Versions, commands and trust expressions belong
-in those workflows rather than a copied configuration example here. Deployment,
-migration compatibility and rollback remain lesson-19 work.
+in those workflows rather than a copied configuration example here. The VPS
+[controller and runbook](../../infra/vps/README.md) own deployment checks,
+compatible rollback and the remaining activation gates.
 [GitHub workflow-run security](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run).
 
 ## 3. AWS OIDC, runtime secrets and VPS delivery credentials
@@ -124,7 +136,7 @@ VPS secret retrieval from SSM, if used, must be through its temporary Roles Anyw
 
 Use the same digest with `python -m pycil.app.migrate`; provide `DB_URL` through secrets, never a CLI URL printed in logs. `--reference <validated-artifact-path>` is for initial import or an explicitly reviewed reference update, not every rolling deploy. The current [migration module](../../apps/api/pycil/app/migrate.py) runs Alembic, native checkpoint setup and optional reference import separately; native checkpoint setup needs its documented autocommit behavior. See [application design](02-app-12factor-and-redis-design.md).
 
-**VPS:** acquire a deployment `flock`; verify manifest, free memory/disk and recent recoverability; pull candidate while old API serves; run a bounded one-off migration; start the inactive color; require five consecutive successful `/readyz` checks plus neutral word/auth smoke checks; validate Caddy config; reload Caddy to route new traffic; observe RED metrics for five minutes; drain old connections, then stop old API. Caddy rollback restores the previous upstream and reloads. Keep both digests independent, existing DB volumes untouched, and migration/backup/test jobs out of the two-API memory peak. The current `scripts/deploy.sh` stops API before migration: it needs this redesign before anyone claims zero downtime.
+**VPS:** acquire a deployment `flock`; verify manifest, free memory/disk and recent recoverability; pull candidate while old API serves; run a bounded one-off migration; start the inactive color; require five consecutive successful `/readyz` checks plus neutral word/auth smoke checks; validate Caddy config; reload Caddy to route new traffic; observe RED metrics for five minutes; drain old connections, then stop old API. Caddy rollback restores the previous upstream and reloads. Keep both digests independent, existing DB volumes untouched, and migration/backup/test jobs out of the two-API memory peak. The implemented [controller](../../infra/vps/README.md) follows this sequence and preserves independent slot records. It currently rejects cross-head Alembic releases because application startup enforces exact schema-head equality; even additive DDL needs a separately planned maintenance procedure until that startup contract changes. It does not promise uninterrupted long streams or jobs.
 
 **AWS:** register a reviewed task definition with the tested ECR digest, one API process plus CloudWatch Agent, private networking, exact secret references and bounded resources. Run one finite ECS migration task against RDS and require its container exit zero before updating the service. For reference import, a bounded initialization task must download/verify the artifact into its local writable mount first. Do not run migrations in every API task.
 
@@ -269,12 +281,12 @@ Proposed root `Makefile` delegates to a small set of reviewed shell scripts. Kee
 
 | Command | Contract / owning script | Preconditions and rollback |
 | --- | --- | --- |
-| `make vps-deploy RELEASE=v1.0.0` | `scripts/deploy.sh`: migrate then blue-green, readiness/business gate | Reviewed digest/backup; per-host lock; rollback previous Caddy upstream |
-| `make aws-up RELEASE=v1.0.0 TTL_HOURS=8` | `scripts/aws-up.sh`: apply ECS/Fargate/managed CloudWatch workload, restore from S3, migrate, validate AWS-local telemetry, activate DNS | No live VPS dependency; foundation/keys/artifacts ready, full cost checked; on error preserve report then clean partial workload |
-| `make aws-down` | `scripts/aws-down.sh`: verify S3 evidence export before workload telemetry removal, withdraw DNS, destroy workload, inventory residuals | Retry idempotently; no foundation destroy; reconcile ECS tasks/services, managed telemetry storage and finite restore EC2/EBS as well as stores/network |
+| `make vps-deploy RELEASE=/private/path/release.json` | `infra/vps/deploy.sh`: migrate then blue-green, readiness/business gate | Reviewed digest/backup; per-host lock; rollback previous Caddy upstream |
+| `make aws-up RELEASE=v1.0.0 TTL_HOURS=8` | `infra/aws/up.sh`: apply ECS/Fargate/managed CloudWatch workload, restore from S3, migrate, validate AWS-local telemetry, activate DNS | No live VPS dependency; foundation/keys/artifacts ready, full cost checked; on error preserve report then clean partial workload |
+| `make aws-down` | `infra/aws/down.sh`: verify S3 evidence export before workload telemetry removal, withdraw DNS, destroy workload, inventory residuals | Retry idempotently; no foundation destroy; reconcile ECS tasks/services, managed telemetry storage and finite restore EC2/EBS as well as stores/network |
 | `make k6-vps TEST=load RELEASE=v1.0.0` | `scripts/run-k6.sh`: independent runner, fixture/token validation and telemetry export | No automatic stress against production; require explicit target/run contract |
 | `make k6-aws TEST=spike RELEASE=v1.0.0` | Same k6 wrapper and scripts | Healthy AWS environment, remaining TTL, task/process/count/cost ceilings |
-| `make backup-now` | `scripts/backup.sh`: bounded full backup, completion/chain metadata | No concurrent deploy/stress/rebuild; never prune first |
+| `make backup-now` | `infra/vps/backup/backup.sh`: bounded full backup, completion/chain metadata | No concurrent deploy/stress/rebuild; never prune first |
 | `make restore-drill TARGET_TIME=<utc>` | `scripts/restore-drill.sh`: isolated physical PITR plus invariants/report | Named backup/key/space verified; preserve source; destroy only own disposable resources |
 
 An independent **8-hour safety teardown** runs even if the VPS/GitHub job is unavailable: foundation holds a CodeBuild project with a pinned Terraform/tool image, scoped workload cleanup role and fixed, normally disabled EventBridge Scheduler universal `codebuild:StartBuild` target. Before apply, `aws-up` updates its absolute expiry/state and allowlisted artifact/version/workload input under the operational ownership described in document 03. The project consumes a reviewed IaC archive from S3, checks that the current session ID matches the scheduled ID, acquires the same Terraform state lock, withdraws DNS using the scoped Cloudflare secret, destroys layer 2 and reports residual inventory. Pass only allowlisted run identifiers; do not accept arbitrary shell/code overrides. Foundation itself is protected from deletion by this role. Cleanup disables the fixed schedule; normal `aws-down` also disables it after residual verification. CodeBuild logs/artifacts have finite retention. CodeBuild has no idle hourly compute bill, but cleanup execution and artifact storage must be counted. [Scheduler universal targets](https://docs.aws.amazon.com/scheduler/latest/UserGuide/managing-targets-universal.html).

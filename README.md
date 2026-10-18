@@ -37,7 +37,12 @@ Pycil is a subscription vocabulary learning platform designed to help learners c
 - **Frontend (`apps/web`)**: Next.js 16 (App Router), React 19, Tailwind CSS v4, `@shadcn/react`, TanStack Query & Table, `@assistant-ui/react`, next-intl. Managed with `pnpm`.
 - **E2E Testing (`e2e`)**: Independent Playwright test suite for critical learner and authentication journeys.
 - **Data & Storage**: PostgreSQL 18 with single baseline migrations (Alembic), Redis 8 for coordination and session caches.
-- **Operations & DevOps**: Docker Compose, Caddy reverse proxy with automated TLS, WAL-G automated backups, LGTM observability pipeline.
+- **Operations & DevOps**: Docker Compose, Caddy TLS ingress, WAL-G encrypted backups, LGTM observability pipeline.
+
+Production runs at [pycil.qninhdt.com](https://pycil.qninhdt.com), with the API at
+[api-pycil.qninhdt.com](https://api-pycil.qninhdt.com). See the
+[VPS operational runbook](infra/vps/README.md) for topology, credentials, backup
+and deployment checks.
 
 ---
 
@@ -60,9 +65,10 @@ Pycil is a subscription vocabulary learning platform designed to help learners c
 ├── docs/                      # Technical documentation
 │   ├── backend/               # Architecture, API conventions, modules, operations
 │   └── devops-architecture/   # Infrastructure, 12-factor design, hybrid VPS/AWS specs
-├── scripts/                   # Tooling scripts (compose.py, deploy.sh, export_openapi.py)
-├── Caddyfile                  # Production & staging Caddy ingress rules
-├── docker-compose.yml         # Local & deployment Docker Compose stack
+├── infra/
+│   ├── local/                 # Local Compose stack and Caddy ingress configuration
+│   └── vps/                   # Production Compose, ingress, delivery checks and rollback runbook
+├── scripts/                   # Shared tooling (compose.py, export_openapi.py, publish-image.sh)
 ├── Makefile                   # Unified developer workflow commands
 ├── PRODUCT.md                 # Product requirements and learner experience specification
 └── DESIGN.md                  # Visual design system, color palette, and component tokens
@@ -95,7 +101,7 @@ Or run via `Makefile`:
 make api-dev
 ```
 
-Word generation and study preparation also need the separate [Taskiq worker](docs/backend/modules/jobs.md#native-worker-command); worker deployment is not yet part of Compose.
+Word generation and study preparation also need the separate [Taskiq worker](docs/backend/modules/jobs.md#native-worker-command). [VPS Compose](infra/vps/README.md) includes this service; local Compose currently requires starting the worker separately.
 
 The API will be available at `http://localhost:8000`. Swagger documentation is served at `/docs`.
 

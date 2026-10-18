@@ -1,0 +1,902 @@
+{
+  "date_utc": "2026-10-18",
+  "method": "Sequential HTTP requests from the operator machine; per arm one curl process reusing connections; first sample excluded from warm medians. Source/build/route limitations are in findings.md.",
+  "groups": [
+    {
+      "source": "network-warm.json",
+      "target": "api_proxy",
+      "samples": [
+        {
+          "http_code": 200,
+          "time_connect": 0.184109,
+          "time_appconnect": 0.244293,
+          "time_starttransfer": 0.359656,
+          "time_total": 0.360421,
+          "num_connects": 1
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.114211,
+          "time_total": 0.115012,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.11425,
+          "time_total": 0.114376,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.12044,
+          "time_total": 0.120689,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.117918,
+          "time_total": 0.118386,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.119742,
+          "time_total": 0.119941,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.117158,
+          "time_total": 0.117344,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.10355,
+          "time_total": 0.104553,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.11913,
+          "time_total": 0.119707,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.121011,
+          "time_total": 0.121222,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.151123,
+          "time_total": 0.15118,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.102872,
+          "time_total": 0.102929,
+          "num_connects": 0
+        }
+      ],
+      "warm_median_ttfb_ms": 117.918,
+      "warm_median_total_ms": 118.386
+    },
+    {
+      "source": "network-warm.json",
+      "target": "api_ssh_origin",
+      "samples": [
+        {
+          "http_code": 200,
+          "time_connect": 0.000119,
+          "time_appconnect": 0.059193,
+          "time_starttransfer": 0.116607,
+          "time_total": 0.116647,
+          "num_connects": 1
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.036644,
+          "time_total": 0.0367,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.03725,
+          "time_total": 0.037286,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.034078,
+          "time_total": 0.034114,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.035249,
+          "time_total": 0.035286,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.037868,
+          "time_total": 0.037905,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.037366,
+          "time_total": 0.037405,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.037928,
+          "time_total": 0.037975,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.037121,
+          "time_total": 0.037163,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.0346,
+          "time_total": 0.03464,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.036119,
+          "time_total": 0.036162,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.036295,
+          "time_total": 0.036351,
+          "num_connects": 0
+        }
+      ],
+      "warm_median_ttfb_ms": 36.644,
+      "warm_median_total_ms": 36.7
+    },
+    {
+      "source": "network-warm.json",
+      "target": "web_proxy",
+      "samples": [
+        {
+          "http_code": 200,
+          "time_connect": 0.086351,
+          "time_appconnect": 0.152482,
+          "time_starttransfer": 0.486548,
+          "time_total": 0.590671,
+          "num_connects": 1
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.291821,
+          "time_total": 0.31406,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.199267,
+          "time_total": 0.23364,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.190037,
+          "time_total": 0.211364,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.233854,
+          "time_total": 0.25535,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.235187,
+          "time_total": 0.256747,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.268683,
+          "time_total": 0.290486,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.179681,
+          "time_total": 0.201212,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.243212,
+          "time_total": 0.264765,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.226254,
+          "time_total": 0.247885,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.277029,
+          "time_total": 0.691904,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.188815,
+          "time_total": 0.464643,
+          "num_connects": 0
+        }
+      ],
+      "warm_median_ttfb_ms": 233.854,
+      "warm_median_total_ms": 256.747
+    },
+    {
+      "source": "network-warm.json",
+      "target": "web_direct",
+      "samples": [
+        {
+          "http_code": 200,
+          "time_connect": 0.036183,
+          "time_appconnect": 0.105242,
+          "time_starttransfer": 0.271264,
+          "time_total": 0.334525,
+          "num_connects": 1
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.167728,
+          "time_total": 0.209164,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.171471,
+          "time_total": 0.211829,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.299642,
+          "time_total": 0.540486,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.158239,
+          "time_total": 0.19675,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.156198,
+          "time_total": 0.194831,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.185846,
+          "time_total": 0.205811,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.168636,
+          "time_total": 0.192874,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.15714,
+          "time_total": 0.161422,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.155133,
+          "time_total": 0.191432,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.167927,
+          "time_total": 0.16951,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_connect": 0.0,
+          "time_appconnect": 0.0,
+          "time_starttransfer": 0.156494,
+          "time_total": 0.21039,
+          "num_connects": 0
+        }
+      ],
+      "warm_median_ttfb_ms": 167.728,
+      "warm_median_total_ms": 196.75
+    },
+    {
+      "source": "network-authenticated.json",
+      "target": "web_app_proxy",
+      "samples": [
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.816571,
+          "time_total": 1.176666,
+          "num_connects": 1
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.288762,
+          "time_total": 0.516112,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.23386,
+          "time_total": 0.467765,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.349022,
+          "time_total": 0.627432,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.262625,
+          "time_total": 0.486755,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.396959,
+          "time_total": 0.93366,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.238885,
+          "time_total": 0.46004,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.240187,
+          "time_total": 0.44971,
+          "num_connects": 0
+        }
+      ],
+      "warm_median_ttfb_ms": 262.625,
+      "warm_median_total_ms": 486.755
+    },
+    {
+      "source": "network-authenticated.json",
+      "target": "web_app_direct",
+      "samples": [
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.444812,
+          "time_total": 0.677824,
+          "num_connects": 1
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.23251,
+          "time_total": 0.512173,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.238571,
+          "time_total": 0.433728,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.254924,
+          "time_total": 0.497992,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.240097,
+          "time_total": 0.482691,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.229243,
+          "time_total": 0.466586,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.263982,
+          "time_total": 0.474669,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.226818,
+          "time_total": 0.480251,
+          "num_connects": 0
+        }
+      ],
+      "warm_median_ttfb_ms": 238.571,
+      "warm_median_total_ms": 480.251
+    },
+    {
+      "source": "network-authenticated.json",
+      "target": "api_me_proxy",
+      "samples": [
+        {
+          "http_code": 200,
+          "time_starttransfer": 1.801077,
+          "time_total": 1.801291,
+          "num_connects": 1
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.133304,
+          "time_total": 0.135005,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.133042,
+          "time_total": 0.133181,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.131473,
+          "time_total": 0.131758,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.142371,
+          "time_total": 0.142534,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.147152,
+          "time_total": 0.147342,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.144469,
+          "time_total": 0.144689,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.144376,
+          "time_total": 0.144858,
+          "num_connects": 0
+        }
+      ],
+      "warm_median_ttfb_ms": 142.371,
+      "warm_median_total_ms": 142.534
+    },
+    {
+      "source": "network-authenticated.json",
+      "target": "api_me_ssh",
+      "samples": [
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.104877,
+          "time_total": 0.104913,
+          "num_connects": 1
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.038813,
+          "time_total": 0.038863,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.037606,
+          "time_total": 0.037643,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.036632,
+          "time_total": 0.036673,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.041055,
+          "time_total": 0.041094,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.035307,
+          "time_total": 0.035379,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.039602,
+          "time_total": 0.03964,
+          "num_connects": 0
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.038383,
+          "time_total": 0.038423,
+          "num_connects": 0
+        }
+      ],
+      "warm_median_ttfb_ms": 38.383,
+      "warm_median_total_ms": 38.423
+    },
+    {
+      "source": "network-selfhost.json",
+      "target": "vps_privacy",
+      "samples": [
+        {
+          "http_code": 200,
+          "time_starttransfer": 1.192921,
+          "time_total": 1.222788,
+          "num_connects": 1,
+          "size_download": 24044
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.203669,
+          "time_total": 0.217195,
+          "num_connects": 0,
+          "size_download": 24044
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.072971,
+          "time_total": 0.097337,
+          "num_connects": 0,
+          "size_download": 24044
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.067428,
+          "time_total": 0.090654,
+          "num_connects": 0,
+          "size_download": 24044
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.065004,
+          "time_total": 0.089755,
+          "num_connects": 0,
+          "size_download": 24044
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.060171,
+          "time_total": 0.082886,
+          "num_connects": 0,
+          "size_download": 24044
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.062138,
+          "time_total": 0.086494,
+          "num_connects": 0,
+          "size_download": 24044
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.054385,
+          "time_total": 0.079536,
+          "num_connects": 0,
+          "size_download": 24044
+        }
+      ],
+      "warm_median_ttfb_ms": 65.004,
+      "warm_median_total_ms": 89.755
+    },
+    {
+      "source": "network-selfhost.json",
+      "target": "vps_app",
+      "samples": [
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.588699,
+          "time_total": 0.899977,
+          "num_connects": 1,
+          "size_download": 37560
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.13094,
+          "time_total": 0.43316,
+          "num_connects": 0,
+          "size_download": 37561
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.114394,
+          "time_total": 0.341404,
+          "num_connects": 0,
+          "size_download": 37556
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.105046,
+          "time_total": 0.401565,
+          "num_connects": 0,
+          "size_download": 37560
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.097149,
+          "time_total": 0.397014,
+          "num_connects": 0,
+          "size_download": 37558
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.110961,
+          "time_total": 0.370077,
+          "num_connects": 0,
+          "size_download": 37559
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.104116,
+          "time_total": 0.364385,
+          "num_connects": 0,
+          "size_download": 37560
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.106418,
+          "time_total": 0.405578,
+          "num_connects": 0,
+          "size_download": 37558
+        }
+      ],
+      "warm_median_ttfb_ms": 106.418,
+      "warm_median_total_ms": 397.014
+    },
+    {
+      "source": "network-selfhost.json",
+      "target": "vercel_app_proxy",
+      "samples": [
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.860688,
+          "time_total": 1.290026,
+          "num_connects": 1,
+          "size_download": 35106
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.302611,
+          "time_total": 0.587708,
+          "num_connects": 0,
+          "size_download": 35118
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.233515,
+          "time_total": 0.479109,
+          "num_connects": 0,
+          "size_download": 35121
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.342328,
+          "time_total": 0.479342,
+          "num_connects": 0,
+          "size_download": 35119
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.230378,
+          "time_total": 0.403064,
+          "num_connects": 0,
+          "size_download": 35123
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.228879,
+          "time_total": 0.473398,
+          "num_connects": 0,
+          "size_download": 35115
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.204697,
+          "time_total": 0.408919,
+          "num_connects": 0,
+          "size_download": 35117
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.199686,
+          "time_total": 0.451663,
+          "num_connects": 0,
+          "size_download": 35116
+        }
+      ],
+      "warm_median_ttfb_ms": 230.378,
+      "warm_median_total_ms": 473.398
+    },
+    {
+      "source": "network-selfhost.json",
+      "target": "vercel_app_direct",
+      "samples": [
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.428176,
+          "time_total": 0.653029,
+          "num_connects": 1,
+          "size_download": 34819
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.346714,
+          "time_total": 0.44025,
+          "num_connects": 0,
+          "size_download": 34814
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.23841,
+          "time_total": 0.425586,
+          "num_connects": 0,
+          "size_download": 34814
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.299945,
+          "time_total": 0.504254,
+          "num_connects": 0,
+          "size_download": 34812
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.241068,
+          "time_total": 0.436306,
+          "num_connects": 0,
+          "size_download": 34757
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.249004,
+          "time_total": 0.458347,
+          "num_connects": 0,
+          "size_download": 34811
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.232996,
+          "time_total": 0.448677,
+          "num_connects": 0,
+          "size_download": 34809
+        },
+        {
+          "http_code": 200,
+          "time_starttransfer": 0.256648,
+          "time_total": 0.468466,
+          "num_connects": 0,
+          "size_download": 34810
+        }
+      ],
+      "warm_median_ttfb_ms": 249.004,
+      "warm_median_total_ms": 448.677
+    }
+  ]
+}

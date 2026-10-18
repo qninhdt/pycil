@@ -1,0 +1,50 @@
+groups:
+- name: pycil-vps
+  interval: 30s
+  rules:
+  - record: pycil:http_requests:rate5m
+    expr: sum by (env, version, http_target, http_status_code) (rate(http_server_duration_milliseconds_count{service_name="pycil-api",http_target!~"/livez|/readyz|unmatched|/v1/assistant:run"}[5m]))
+  - record: pycil:http_requests:increase5m
+    expr: sum by (env) (increase(http_server_duration_milliseconds_count{service_name="pycil-api",http_target!~"/livez|/readyz|unmatched|/v1/assistant:run"}[5m]))
+  - record: pycil:http_errors:ratio5m
+    expr: (sum by (env) (pycil:http_requests:rate5m{http_status_code=~"5.."}) or sum by (env) (pycil:http_requests:rate5m)
+      * 0) / sum by (env) (pycil:http_requests:rate5m)
+  - record: pycil:http_duration_ms_bucket:rate5m
+    expr: sum by (env, version, http_target, le) (rate(http_server_duration_milliseconds_bucket{service_name="pycil-api",http_target!~"/livez|/readyz|unmatched|/v1/assistant:run"}[5m]))
+  - record: pycil:http_duration_ms_sum:rate5m
+    expr: sum by (env, version, http_target) (rate(http_server_duration_milliseconds_sum{service_name="pycil-api",http_target!~"/livez|/readyz|unmatched|/v1/assistant:run"}[5m]))
+  - record: pycil:http_duration_ms_count:rate5m
+    expr: sum by (env, version, http_target) (rate(http_server_duration_milliseconds_count{service_name="pycil-api",http_target!~"/livez|/readyz|unmatched|/v1/assistant:run"}[5m]))
+  - record: pycil:api_errors:condition
+    expr: (pycil:http_errors:ratio5m > bool 0.02) * on (env) (pycil:http_requests:increase5m >= bool 50)
+  - record: pycil:host_memory:condition
+    expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) > bool 0.85
+  - record: pycil:host_disk:condition
+    expr: ((node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay"})
+      < bool 0.15)
+  - record: pycil:host_inodes:condition
+    expr: (node_filesystem_files_free{mountpoint="/"} / node_filesystem_files{mountpoint="/"}) < bool 0.15
+  - record: pycil:search_progress:condition
+    expr: max by (env, index) (pycil_search_pending_age_seconds and (timestamp(pycil_search_pending_age_seconds)
+      > time() - 60)) > bool 30
+  - record: pycil:search_failures:condition
+    expr: (sum by (env, index) (increase(pycil_search_duration_seconds_count{operation=~"synchronize|publication_wait",outcome="failed"}[5m]))
+      or sum by (env, index) (increase(pycil_search_duration_seconds_count{operation=~"synchronize|publication_wait"}[5m]))
+      * 0) > bool 0
+  - record: pycil:jobs_backlog
+    expr: sum by (env, stream, group) (redis_stream_group_lag{stream="pycil:jobs:tasks",group="pycil-workers"} +
+      redis_stream_group_messages_pending{stream="pycil:jobs:tasks",group="pycil-workers"})
+  - record: pycil:jobs_stalled:condition
+    expr: (pycil:jobs_backlog > bool 0) * on (env, stream, group) (sum by (env, stream, group) (increase(redis_stream_group_entries_read{stream="pycil:jobs:tasks",group="pycil-workers"}[5m]))
+      == bool 0)
+  - record: pycil:telemetry_missing:condition
+    expr: (sum by (env) (up{env="vps"} * (timestamp(up{env="vps"}) > bool time() - 60)) < bool 9) or on (env)
+      absent(up{env="vps"})
+  - record: pycil:app_telemetry_missing:condition
+    expr: max by (env) (1 - present_over_time(pycil_store_capacity{env="vps",service_name=~"pycil-api|pycil-worker"}[2m])
+      or absent_over_time(pycil_store_capacity{env="vps",service_name="pycil-api"}[2m]) or absent_over_time(pycil_store_capacity{env="vps",service_name="pycil-worker"}[2m]))
+  - record: pycil:telemetry_drops:condition
+    expr: max by (env) (label_replace(increase(otelcol_exporter_send_failed_spans_total[5m]), "signal", "export",
+      "__name__", ".*") or label_replace(increase(otelcol_receiver_refused_spans_total[5m]), "signal", "refused",
+      "__name__", ".*") or label_replace(increase(loki_write_dropped_entries_total[5m]), "signal", "logs", "__name__",
+      ".*")) > bool 0

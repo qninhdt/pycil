@@ -2,17 +2,71 @@
 
 **Status:** proposed infrastructure configuration. Do not execute mutation examples until this design is approved. Resource limits are owned by [01](01-current-state-audit-and-capacity.md), application contracts by [02](02-app-12factor-and-redis-design.md), and orchestration/recovery by [05](05-devsecops-cicd-and-walg-backup.md).
 
+## Repository layout
+
+The accepted target groups deployment configuration and operations by environment:
+
+```text
+infra/
+  local/{compose.yaml,Caddyfile}
+  vps/
+    compose.yaml
+    Caddyfile
+    deploy.sh
+    observability/
+    backup/
+  aws/
+    foundation/
+    workload/
+.github/workflows/
+scripts/{compose.py,export_openapi.py,publish-image.sh}
+```
+
+`infra/local/` owns developer-machine configuration; `infra/vps/` owns production
+Compose, ingress, rollout, self-hosted monitoring and backup configuration.
+`infra/aws/foundation/` and `infra/aws/workload/` own the two Terraform roots;
+ECS task and CloudWatch configuration belongs to workload. Environment-specific
+operation scripts live with that environment. Shared repository tools stay in
+`scripts/`. GitHub Actions stays in `.github/workflows/`; no separate `ci/` or
+`infra/ci/` directory is needed. Makefile and workflows call the owning scripts
+without copying their deployment logic.
+
+Local and VPS use the same application Dockerfile with separate runtime
+configuration. Course labs and execution evidence remain in `devops-course/`;
+production commands must not depend on course files. Create directories when they
+have real contents. Keep README, Makefile and tool-discovered root configuration
+in place. Removal of `PRODUCT.md` and `DESIGN.md` is deferred; it must also update
+their consumers, including the frontend test that reads `DESIGN.md`.
+
+Local Compose and its Caddyfile now live in `infra/local/`; the existing deploy
+script lives in `infra/vps/deploy.sh`. The shared wrapper defaults to the local
+manifest, preserving project/volume names, and still accepts `--file` or
+`COMPOSE_FILE` for another stack. Makefile commands use that same default.
+The [VPS application manifest and controller](../../infra/vps/README.md) now select
+production configuration explicitly and implement candidate checks, Caddy switching,
+worker replacement and compatible rollback. Monitoring/backup promotion and live
+activation remain gated; other paths in the tree are created when implemented.
+Moving Terraform source later must preserve resource addresses and existing S3
+state keys; a source-directory rename does not authorize resource replacement or
+state migration. Secrets, runtime data and Terraform state are not source files.
+
 ## Independent API and worker deployment
 
 Application code now supports a separate [native Taskiq worker](../backend/modules/jobs.md#native-worker-command).
-In the authorized deployment phase add a VPS Compose worker service and a separate ECS
-worker service using the same release digest as API/migration. Workers need store/provider
+VPS Compose includes a native worker; a separate ECS worker service remains later
+work. Both use the same release digest as API/migration. Workers need store/provider
 egress and telemetry, no ALB target, ingress port, Tantivy volume or checkpoint pool.
 Inject only worker-required secrets and use `pycil-worker` telemetry identity. Migrate
 before either service starts. Size worker concurrency, memory, DB/Redis pools and rollout
 overlap independently; existing API-only resource totals do not include this extra service.
 Do not apply the API CPU autoscaling policy to workers without queue/provider evidence.
 No worker infrastructure is created by the application implementation.
+
+The accepted [VPS starting topology](01-current-state-audit-and-capacity.md#accepted-starting-topology--18-october-2026)
+is two one-process API containers, one worker execution process and four concurrent
+jobs per worker. Two API replicas per blue/green slot temporarily require four
+APIs; replica-aware delivery is still pending. Tune these counts in lessons 20–21.
+This decision does not change AWS task counts or autoscaling.
 
 ## 1. VPS network and deployment topology
 
@@ -54,7 +108,7 @@ The API joins frontend/backend/monitoring networks and needs outbound HTTPS for 
 
 ### Production Compose specification
 
-Implement production configuration under `infra/vps/compose.production.yaml`, keeping local development behavior separate. Extend `scripts/compose.py` to accept the production file selection while preserving canonical URL parsing and its ban on printing resolved secrets. Production must remove inherited `ports`, rather than assuming an empty YAML merge deletes them. Validate the final effective configuration quietly.
+Implement production configuration under `infra/vps/compose.yaml` and local configuration under `infra/local/compose.yaml`. Select the file through `scripts/compose.py --file`, preserving canonical URL parsing and its ban on printing resolved secrets. Production must not inherit local published ports; an empty YAML merge does not delete them. Validate the final effective configuration quietly.
 
 Fragment showing the complete required contract for an API slot; image values come from a release manifest and must resolve to real `@sha256` digests:
 
@@ -182,17 +236,12 @@ WAF/rate-rule availability depends on the actual account plan. Implement narrow 
 
 ## 4. Two independent Terraform layers
 
-```text
-terraform/
-  01-foundation/{versions,backend,storage,registry,identity,certificates,budgets,parameters,outputs}.tf
-  02-workload/{versions,backend,network,security,ecs,rds,redis,observability,autoscaling,dns,outputs}.tf
-infra/vps/{compose.production.yaml,Caddyfile,postgresql.conf,redis-coordination.conf,redis-cache.conf}
-infra/aws/{task-definition.json,cloudwatch-agent.json,dashboards,alarms}/
-infra/observability/{alloy,prometheus,loki,tempo,grafana}/
-scripts/{deploy,aws-up,aws-down,backup,restore-drill,run-k6}.sh
-```
-
-These are proposed paths, not files created by this task. Use native provider resources initially: external Terraform modules are unnecessary at this scale. If introduced later, pin each module's exact version and review its interfaces.
+Use the two Terraform roots in the [repository layout](#repository-layout):
+`infra/aws/foundation/` for persistent resources and `infra/aws/workload/` for the
+ephemeral environment. Keep each root's provider/backend configuration and lock
+file with it. These are proposed paths, not files created by this task. Use native
+provider resources initially: external Terraform modules are unnecessary at this
+scale. If introduced later, pin each module's exact version and review its interfaces.
 
 | Layer | Persistent ownership | Protection / billing |
 | --- | --- | --- |
@@ -221,10 +270,14 @@ Supply the bucket through a non-secret backend config; never place credentials i
 
 ### Runtime AWS credentials by workload
 
-`aws_signing_helper` is a general IAM Roles Anywhere credential tool. Lesson 16
-currently installs it in the PostgreSQL/WAL-G image for backup access. When an API
-or worker needs an AWS service on the VPS, install the same pinned helper in that
-consumer's image and configure the SDK's native `credential_process` provider.
+`aws_signing_helper` is a general IAM Roles Anywhere credential tool. Install one
+verified, pinned binary at `/opt/pycil/bin/aws_signing_helper` on the VPS and bind
+mount it read-only into each consumer that needs AWS access. WAL-G is the current
+consumer; its identity is under `/etc/pycil/aws/wal-g/`, separate from database
+passwords and backup encryption settings. When an API or worker needs an AWS
+service, mount the same binary with that workload's own identity and configure
+the SDK's native `credential_process` provider. Verify binary/library compatibility
+inside each consumer image before activating access.
 No separate helper service or application credential-refresh implementation is
 required. [AWS credential helper](https://docs.aws.amazon.com/rolesanywhere/latest/userguide/credential-helper.html).
 
@@ -292,7 +345,7 @@ Require TLS for application and restore connections to RDS and for both applicat
 
 ### Local search storage
 
-**VPS:** one host-local directory is shared by compatible API processes/blue-green slots. The accepted design keeps one lifetime Tantivy writer/poller for that directory, selected by the native writer lock; other workers wait for ownership and serve through OnCommit readers. Requests record revisions and wait for local publication rather than writing through a second path. Keep the actual host path verified during VPS deployment; the Compose example's `/srv/pycil/search` is a proposed production location, not evidence of a completed move.
+**VPS:** one host-local directory is shared by compatible API processes/blue-green slots. The accepted design keeps one lifetime Tantivy writer/poller for that directory, selected by the native writer lock; other workers wait for ownership and serve through OnCommit readers. Requests record revisions and wait for local publication rather than writing through a second path. The live VPS uses `/srv/pycil/search`, shared by both API replicas and compatible blue/green slots; the [VPS runbook](../../infra/vps/README.md) owns bootstrap and delivery checks.
 
 **AWS:** each Fargate task owns one writable ephemeral directory at `SEARCH_INDEX_PATH=/var/lib/pycil/search`; Tantivy runs inside its one API process. A new task rebuilds from that environment's RDS before readiness. No cross-task file sharing, EFS, persistent search EBS, dictionary sidecar or separate search service. Linux Fargate provides 20 GiB ephemeral storage by default; compressed/uncompressed image layers consume that same allowance. Start with the default and reserve a proposed 1 GiB search working envelope, then measure real generated-vocabulary/rebuild peaks. [Fargate storage](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/fargate-task-storage.html).
 

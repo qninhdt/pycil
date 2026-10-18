@@ -1,0 +1,270 @@
+logging {
+  level = "info"
+  format = "json"
+}
+
+otelcol.receiver.otlp "app" {
+  http {
+    endpoint = "0.0.0.0:4318"
+  }
+  output {
+    traces = [otelcol.processor.memory_limiter.app.input]
+    metrics = [otelcol.processor.memory_limiter.app.input]
+  }
+}
+
+otelcol.processor.memory_limiter "app" {
+  check_interval = "1s"
+  limit = "256MiB"
+  spike_limit = "64MiB"
+  output {
+    traces = [otelcol.processor.batch.app.input]
+    metrics = [otelcol.processor.batch.app.input]
+  }
+}
+
+otelcol.processor.batch "app" {
+  timeout = "1s"
+  send_batch_size = 128
+  send_batch_max_size = 512
+  output {
+    traces = [otelcol.exporter.otlp.tempo.input]
+    metrics = [otelcol.processor.transform.labels.input]
+  }
+}
+
+otelcol.processor.transform "labels" {
+  error_mode = "ignore"
+  metric_statements {
+    context = "datapoint"
+    statements = [
+      `set(datapoint.attributes["env"], resource.attributes["deployment.environment.name"])`,
+      `set(datapoint.attributes["service_name"], resource.attributes["service.name"])`,
+      `set(datapoint.attributes["version"], resource.attributes["service.version"])`,
+    ]
+  }
+  output {
+    metrics = [otelcol.exporter.prometheus.app.input]
+  }
+}
+
+otelcol.exporter.prometheus "app" {
+  forward_to = [prometheus.remote_write.local.receiver]
+}
+
+prometheus.remote_write "local" {
+  endpoint {
+    url = "http://prometheus:9090/api/v1/write"
+    send_exemplars = true
+    queue_config {
+      capacity = 1000
+      min_shards = 1
+      max_shards = 1
+      max_samples_per_send = 500
+      batch_send_deadline = "1s"
+    }
+  }
+  wal {
+    truncate_frequency = "1m"
+    min_keepalive_time = "5m"
+    max_keepalive_time = "30m"
+  }
+}
+
+otelcol.exporter.otlp "tempo" {
+  timeout = "2s"
+  client {
+    endpoint = "tempo:4317"
+    tls {
+      insecure = true
+    }
+  }
+  sending_queue {
+    queue_size = 100
+    num_consumers = 1
+  }
+  retry_on_failure {
+    initial_interval = "1s"
+    max_interval = "5s"
+    max_elapsed_time = "30s"
+  }
+}
+
+// Docker API supplies the log message and timestamp; it isn't a JSON-file envelope.
+discovery.docker "production" {
+  host = "unix:///var/run/docker.sock"
+  refresh_interval = "5s"
+  filter {
+    name = "label"
+    values = ["com.docker.compose.project=pycil-production"]
+  }
+}
+
+discovery.relabel "logs" {
+  targets = discovery.docker.production.targets
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    regex = "(api-(blue|green)(-2)?|worker)"
+    action = "keep"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label = "service_name"
+    regex = "api-(blue|green)(-2)?"
+    replacement = "pycil-api"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    regex = "worker"
+    target_label = "service_name"
+    replacement = "pycil-worker"
+  }
+  rule {
+    target_label = "env"
+    replacement = "vps"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_image"]
+    target_label = "version"
+  }
+}
+
+loki.source.docker "production" {
+  host = "unix:///var/run/docker.sock"
+  targets = discovery.relabel.logs.output
+  forward_to = [loki.process.app.receiver]
+}
+
+loki.process "app" {
+  stage.json {
+    expressions = {level = "level", timestamp = "timestamp"}
+  }
+  stage.timestamp {
+    source = "timestamp"
+    format = "RFC3339Nano"
+    action_on_failure = "skip"
+  }
+  stage.labels {
+    values = {level = ""}
+  }
+  forward_to = [loki.relabel.labels.receiver]
+}
+
+// Keep IDs in the JSON body, never in indexed labels.
+loki.relabel "labels" {
+  rule {
+    action = "labelkeep"
+    regex = "env|service_name|version|level"
+  }
+  forward_to = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+    batch_wait = "1s"
+    batch_size = "128KiB"
+    remote_timeout = "2s"
+    min_backoff_period = "500ms"
+    max_backoff_period = "5s"
+    max_backoff_retries = 10
+  }
+}
+
+prometheus.exporter.unix "host" {
+  rootfs_path = "/rootfs"
+  procfs_path = "/host/proc"
+  sysfs_path = "/sys"
+  set_collectors = ["cpu", "meminfo", "loadavg", "diskstats", "filesystem", "stat", "uname"]
+  filesystem {
+    mount_points_exclude = "^/(dev|proc|sys|run|var/lib/docker)($|/)"
+  }
+}
+
+prometheus.exporter.cadvisor "containers" {
+  docker_only = true
+  disable_root_cgroup_stats = true
+  storage_duration = "1m"
+  enabled_metrics = ["cpu", "memory", "network", "diskIO"]
+  store_container_labels = false
+  allowlisted_container_labels = ["com.docker.compose.project", "com.docker.compose.service"]
+}
+
+prometheus.exporter.postgres "store" {
+  data_source_names = [sys.env("POSTGRES_MONITOR_DSN")]
+  enabled_collectors = ["stat_checkpointer", "stat_statements"]
+}
+
+prometheus.exporter.redis "store" {
+  redis_addr = "redis:6379"
+  redis_user = sys.env("REDIS_MONITOR_USER")
+  redis_password = sys.env("REDIS_MONITOR_PASSWORD")
+  connection_timeout = "2s"
+  check_single_streams = ["pycil:jobs:tasks"]
+  export_key_values = false
+}
+
+prometheus.scrape "host" {
+  targets = prometheus.exporter.unix.host.targets
+  scrape_interval = "30s"
+  forward_to = [prometheus.relabel.deployment.receiver]
+  job_name = "host"
+}
+
+prometheus.scrape "containers" {
+  targets = prometheus.exporter.cadvisor.containers.targets
+  scrape_interval = "30s"
+  forward_to = [prometheus.relabel.containers.receiver]
+  job_name = "containers"
+}
+
+prometheus.relabel "containers" {
+  rule {
+    source_labels = ["__name__", "container_label_com_docker_compose_project"]
+    regex = ".+;pycil-production|(up|scrape_.+);"
+    action = "keep"
+  }
+  forward_to = [prometheus.relabel.deployment.receiver]
+}
+
+prometheus.scrape "postgres" {
+  targets = prometheus.exporter.postgres.store.targets
+  scrape_interval = "30s"
+  scrape_timeout = "12s"
+  job_name = "postgres"
+  forward_to = [prometheus.relabel.deployment.receiver]
+}
+
+prometheus.scrape "redis" {
+  targets = prometheus.exporter.redis.store.targets
+  scrape_interval = "30s"
+  job_name = "redis"
+  forward_to = [prometheus.relabel.deployment.receiver]
+}
+
+prometheus.exporter.self "alloy" {}
+
+prometheus.scrape "health" {
+  targets = array.concat(prometheus.exporter.self.alloy.targets, [
+    {"__address__" = "prometheus:9090", "job" = "prometheus"},
+    {"__address__" = "loki:3100", "job" = "loki"},
+    {"__address__" = "tempo:3200", "job" = "tempo"},
+    {"__address__" = "grafana:3000", "job" = "grafana"},
+  ])
+  scrape_interval = "15s"
+  forward_to = [prometheus.relabel.deployment.receiver]
+}
+
+prometheus.relabel "deployment" {
+  rule {
+    source_labels = ["job"]
+    regex = "integrations/(unix|self|cadvisor)"
+    target_label = "instance"
+    replacement = "vps-host"
+  }
+  rule {
+    target_label = "env"
+    replacement = "vps"
+  }
+  forward_to = [prometheus.remote_write.local.receiver]
+}

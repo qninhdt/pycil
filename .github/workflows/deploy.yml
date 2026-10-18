@@ -90,3 +90,54 @@ jobs:
       - name: Remove temporary registry credentials
         if: always()
         run: rm -rf -- "$DOCKER_CONFIG"
+
+  vps:
+    needs: publish
+    if: vars.VPS_DEPLOY_ENABLED == 'true'
+    environment: vps
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      actions: read
+      packages: read
+    env:
+      TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
+      VPS_HOST: ${{ vars.VPS_HOST }}
+      VPS_USER: ${{ vars.VPS_USER }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: release-${{ github.event.workflow_run.head_sha }}
+          path: ${{ runner.temp }}/release
+      - name: Deploy the published release over pinned SSH
+        env:
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.VPS_SSH_KNOWN_HOSTS }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          : "${VPS_HOST:?VPS_HOST required}" "${VPS_USER:?VPS_USER required}"
+          umask 077
+          install -d -m 700 "$RUNNER_TEMP/vps-ssh"
+          trap 'rm -rf -- "$RUNNER_TEMP/vps-ssh"' EXIT
+          printf '%s\n' "$SSH_KEY" > "$RUNNER_TEMP/vps-ssh/key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/vps-ssh/known_hosts"
+          ssh_args=(-i "$RUNNER_TEMP/vps-ssh/key" -o BatchMode=yes -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$RUNNER_TEMP/vps-ssh/known_hosts" -o ConnectTimeout=10)
+          target="$VPS_USER@$VPS_HOST"
+          remote=$(ssh "${ssh_args[@]}" "$target" 'mktemp -d /tmp/pycil-delivery.XXXXXXXX')
+          [[ "$remote" =~ ^/tmp/pycil-delivery\.[A-Za-z0-9]+$ ]]
+          cleanup() {
+            ssh "${ssh_args[@]}" "$target" "rm -rf -- '$remote'" || true
+            rm -rf -- "$RUNNER_TEMP/vps-ssh"
+          }
+          trap cleanup EXIT
+          jq -e --arg sha "$TESTED_SHA" '.source_sha == $sha' "$RUNNER_TEMP/release/release.json" >/dev/null
+          git archive --format=tar HEAD infra/vps scripts/compose.py > "$RUNNER_TEMP/vps.tar"
+          scp "${ssh_args[@]}" "$RUNNER_TEMP/vps.tar" "$RUNNER_TEMP/release/release.json" "$target:$remote/"
+          ssh "${ssh_args[@]}" "$target" "tar -xf '$remote/vps.tar' -C '$remote'"
+          printf '%s' "$GHCR_TOKEN" | ssh "${ssh_args[@]}" "$target" "sudo -n bash '$remote/infra/vps/cd.sh' '$GITHUB_ACTOR'"

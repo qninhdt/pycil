@@ -1,6 +1,7 @@
 """Compose from canonical DB_URL/REDIS_URL; never print resolved secrets.
 
 Use: python scripts/compose.py --env-file .env up --build
+Defaults to infra/local/compose.yaml; --file selects another stack.
 Only loopback URLs are translated to Docker DNS. Remote addresses stay intact.
 Official store-image bootstrap variables are derived, not user configuration.
 """
@@ -78,6 +79,7 @@ def main():
     try:
         env = {**read_environment(args.env_file), **os.environ}
         env.update(store_environment(env))
+        env.setdefault("COMPOSE_FILE", str(ROOT / "infra/local/compose.yaml"))
     except Exception:
         parser.exit(2, "Invalid environment file or store URLs; no credentials printed.\n")
     result = subprocess.run(

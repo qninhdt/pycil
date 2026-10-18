@@ -1,0 +1,249 @@
+apiVersion: 1
+groups:
+- orgId: 1
+  name: Pycil backups
+  folder: Pycil VPS
+  interval: 30s
+  rules:
+  - uid: vps-backup-failed
+    title: Latest full backup failed
+    condition: B
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: (pycil_backup_last_attempt_success{cluster="vps"} == bool 0) *
+          (pycil_backup_running{cluster="vps"} == bool 0)
+        instant: true
+        range: false
+        intervalMs: 1000
+        maxDataPoints: 43200
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: B
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: threshold
+        expression: A
+        conditions:
+        - type: query
+          evaluator:
+            type: gt
+            params:
+            - 0
+          operator:
+            type: and
+          query:
+            params:
+            - B
+          reducer:
+            type: last
+            params: []
+        datasource:
+          type: __expr__
+          uid: __expr__
+    noDataState: NoData
+    execErrState: Error
+    for: 0s
+    isPaused: false
+    annotations:
+      summary: Latest full backup failed
+      description: Inspect WAL-G logs and S3 identity. Keep the last successful backup
+        and active WAL.
+      __dashboardUid__: pycil-backup
+      runbook: infra/vps/README.md
+      __panelId__: '2'
+    labels:
+      env: vps
+      severity: warning
+      scope: vps-only
+  - uid: vps-backup-stale
+    title: Full backup older than 26 hours
+    condition: B
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: time() - pycil_backup_last_success_timestamp_seconds{cluster="vps"}
+          > bool 93600
+        instant: true
+        range: false
+        intervalMs: 1000
+        maxDataPoints: 43200
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: B
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: threshold
+        expression: A
+        conditions:
+        - type: query
+          evaluator:
+            type: gt
+            params:
+            - 0
+          operator:
+            type: and
+          query:
+            params:
+            - B
+          reducer:
+            type: last
+            params: []
+        datasource:
+          type: __expr__
+          uid: __expr__
+    noDataState: NoData
+    execErrState: Error
+    for: 1m
+    isPaused: false
+    annotations:
+      summary: Full backup older than 26 hours
+      description: Inspect timer and last attempt. A stopped lab intentionally has
+        no fresh samples.
+      __dashboardUid__: pycil-backup
+      runbook: infra/vps/README.md
+      __panelId__: '1'
+    labels:
+      env: vps
+      severity: warning
+      scope: vps-only
+  - uid: vps-wal-failures
+    title: WAL archive failures detected
+    condition: B
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: increase(pycil_wal_archive_failed_count{cluster="vps"}[5m]) > bool
+          0
+        instant: true
+        range: false
+        intervalMs: 1000
+        maxDataPoints: 43200
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: B
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: threshold
+        expression: A
+        conditions:
+        - type: query
+          evaluator:
+            type: gt
+            params:
+            - 0
+          operator:
+            type: and
+          query:
+            params:
+            - B
+          reducer:
+            type: last
+            params: []
+        datasource:
+          type: __expr__
+          uid: __expr__
+    noDataState: NoData
+    execErrState: Error
+    for: 0s
+    isPaused: false
+    annotations:
+      summary: WAL archive failures detected
+      description: Inspect archive errors and S3 credentials; never delete active
+        pg_wal.
+      __dashboardUid__: pycil-backup
+      runbook: infra/vps/README.md
+      __panelId__: '6'
+    labels:
+      env: vps
+      severity: warning
+      scope: vps-only
+  - uid: vps-wal-backlog
+    title: WAL waiting for upload more than five minutes
+    condition: B
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: pycil_wal_backlog_oldest_seconds{cluster="vps"} > bool 300
+        instant: true
+        range: false
+        intervalMs: 1000
+        maxDataPoints: 43200
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: B
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: threshold
+        expression: A
+        conditions:
+        - type: query
+          evaluator:
+            type: gt
+            params:
+            - 0
+          operator:
+            type: and
+          query:
+            params:
+            - B
+          reducer:
+            type: last
+            params: []
+        datasource:
+          type: __expr__
+          uid: __expr__
+    noDataState: NoData
+    execErrState: Error
+    for: 1m
+    isPaused: false
+    annotations:
+      summary: WAL waiting for upload more than five minutes
+      description: Repair S3/network/credentials and verify upload catches up.
+      __dashboardUid__: pycil-backup
+      runbook: infra/vps/README.md
+      __panelId__: '8'
+    labels:
+      env: vps
+      severity: warning
+      scope: vps-only

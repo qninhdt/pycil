@@ -1,0 +1,11 @@
+reverse_proxy api-blue:8000 api-blue-2:8000 {
+	lb_policy round_robin
+	health_uri /readyz
+	health_interval 10s
+	health_timeout 3s
+	stream_close_delay 120s
+	transport http {
+		compression off
+		response_header_timeout 3m
+	}
+}

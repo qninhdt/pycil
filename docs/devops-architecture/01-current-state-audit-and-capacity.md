@@ -9,6 +9,31 @@
 > [lesson-10 scope and verification](04-observability-lgtm-and-public-dashboard.md#application-implementation-status).
 > The historical inventory below is not a current feature checklist.
 
+## Accepted starting topology — 18 October 2026
+
+Use **N=2 API containers**, one Uvicorn process each; **M=1 native Taskiq worker
+execution process**; **K=4 concurrent jobs per worker**. The VPS APIs share one
+Tantivy directory. With blue/green delivery, two replicas per slot means two APIs
+in steady state and up to four during overlap. One job can fan out into multiple
+LLM calls; K is not a provider-request limit. AWS sizing is unchanged.
+
+The user accepted this modest starting configuration; tune N/M/K in lessons
+20–21 using representative k6 workloads and separate bounded job measurements.
+No further sizing benchmark is required for lesson 19. Basic full-stack startup,
+health, host headroom and no-OOM checks remain required before activation.
+The [VPS measurement](../../devops-course/lab/lesson19/capacity-evidence.json)
+proved 1/2/4/5 APIs at 50 read requests/second; it excluded monitoring and busy
+LLM jobs and does not establish maximum capacity.
+
+The [current controller](../../infra/vps/README.md) still assumes one API per
+slot; implementing the accepted two-replica topology remains part of the
+[delivery plan](../../plans/261018-safe-vps-delivery/plan.md).
+Its existing 1,024 MiB worker and lesson-11 768 MiB Grafana ceilings produce
+6,528 MiB steady / 7,296 MiB overlap **for the older one-API topology**, excluding
+optional Redis cache. These are ceiling sums, not measured usage or an accepted
+budget for N=2. The historical table below predates these changes; do not use it
+to infer remaining RAM or an optimal replica count.
+
 ## 1. Inspection method and evidence boundaries
 
 CodeGraph was used before text search because `.codegraph/` exists. The audit followed application construction, resource ownership, database pools, Redis callers, HTTP/error logging, Tantivy search, migrations, container/ingress configuration, CI and frontend configuration. Relevant existing documentation is indexed by [backend README](../backend/README.md); there is no root `README.md` in this working tree.
@@ -32,8 +57,8 @@ SSH used existing host-key verification, batch authentication and a connection t
 | Logging/errors | [observability (current location)](../../apps/api/pycil/observability/__init__.py), [http.py](../../apps/api/pycil/app/http.py) | Structured JSON off TTY, request IDs and sanitized errors; no OTel SDK/exporter in dependencies |
 | Policy/secrets | [configuration](../backend/configuration.md), [settings.py](../../apps/api/pycil/app/settings.py) | YAML product policy separate from validated environment addresses/secrets |
 | Migrations | [migrate.py](../../apps/api/pycil/app/migrate.py) | Explicit Alembic, native checkpoint setup, optional reference import; no startup migration |
-| Containers | [Dockerfile](../../apps/api/Dockerfile), [Compose](../../docker-compose.yml) | Non-root API; single-stage image retains build tools; no complete production resource/retention budget |
-| Deployment | [deploy.sh](../../scripts/deploy.sh), [Caddyfile](../../Caddyfile) | Backup checksum/digest gate; stops API before migration, so current deployment has downtime |
+| Containers | [Dockerfile](../../apps/api/Dockerfile), [Compose](../../infra/local/compose.yaml) | Non-root API; single-stage image retains build tools; no complete production resource/retention budget |
+| Deployment | [deploy.sh](../../infra/vps/deploy.sh), [Caddyfile](../../infra/local/Caddyfile) | Backup checksum/digest gate; stops API before migration, so current deployment has downtime |
 | CI / registry | [test.yml](../../.github/workflows/test.yml), [deploy.yml](../../.github/workflows/deploy.yml) | Tests gate publication of the tested API SHA to `ghcr.io/qninhdt/pycil-api`; no Sonar/Trivy/AWS OIDC or automated runtime deployment |
 | Frontend | [Next config](../../apps/web/next.config.ts), [package.json](../../apps/web/package.json) | Next.js 16 / React 19 / Clerk; API URL and data mode are build-time public values |
 

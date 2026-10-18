@@ -1,0 +1,76 @@
+// WAL-G already publishes these metrics; Alloy embeds the StatsD receiver.
+prometheus.exporter.statsd "walg" {
+  listen_udp = "0.0.0.0:9125"
+  listen_tcp = "127.0.0.1:9125"
+}
+
+prometheus.exporter.unix "backup" {
+  set_collectors = ["textfile"]
+  textfile {
+    directory = "/var/lib/pycil/backup-metrics"
+  }
+}
+
+prometheus.exporter.postgres "backup" {
+  data_source_names = [sys.env("WALG_MONITOR_DSN")]
+  disable_default_metrics = true
+  disable_settings_metrics = true
+  custom_queries_config_path = "/etc/alloy/backup-queries.yaml"
+}
+
+prometheus.scrape "backup" {
+  targets = array.concat(
+    prometheus.exporter.statsd.walg.targets,
+    prometheus.exporter.unix.backup.targets,
+    prometheus.exporter.postgres.backup.targets,
+  )
+  scrape_interval = "15s"
+  scrape_timeout = "12s"
+  job_name = "backup"
+  forward_to = [prometheus.relabel.backup.receiver]
+}
+
+prometheus.relabel "backup" {
+  rule {
+    target_label = "env"
+    replacement = "vps"
+  }
+  rule {
+    target_label = "cluster"
+    replacement = "vps"
+  }
+  forward_to = [prometheus.remote_write.local.receiver]
+}
+
+discovery.docker "backup" {
+  host = "unix:///var/run/docker.sock"
+  refresh_interval = "5s"
+  filter {
+    name = "label"
+    values = ["com.docker.compose.project=pycil-production"]
+  }
+}
+
+discovery.relabel "backup_logs" {
+  targets = discovery.docker.backup.targets
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    regex = "postgres|backup"
+    action = "keep"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label = "service_name"
+    replacement = "walg-$1"
+  }
+  rule {
+    target_label = "env"
+    replacement = "vps"
+  }
+}
+
+loki.source.docker "backup" {
+  host = "unix:///var/run/docker.sock"
+  targets = discovery.relabel.backup_logs.output
+  forward_to = [loki.write.local.receiver]
+}

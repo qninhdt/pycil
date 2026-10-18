@@ -1,0 +1,122 @@
+x-monitor: &monitor
+  restart: unless-stopped
+  read_only: true
+  security_opt: [no-new-privileges:true]
+  tmpfs: [/tmp:size=32m]
+  networks: [monitoring-net]
+  logging:
+    driver: json-file
+    options: {max-size: "10m", max-file: "3"}
+
+services:
+  alloy:
+    <<: *monitor
+    image: grafana/alloy:v1.20.1@sha256:2aa2099af76c0098d4af7a4d6e48f86cb66dc1a000222ad927a1c67c6542d13f
+    # Embedded cAdvisor needs host access; a read-only socket is not a Docker API ACL.
+    privileged: true
+    mem_limit: 448m
+    memswap_limit: 448m
+    cpus: 0.5
+    env_file: ${ALLOY_ENV_FILE:-/etc/pycil/alloy.env}
+    command: [run, --server.http.listen-addr=0.0.0.0:12345, --storage.path=/var/lib/alloy, /etc/alloy]
+    volumes:
+      - ./config.alloy:/etc/alloy/config.alloy:ro
+      - ./backup.alloy:/etc/alloy/backup.alloy:ro
+      - ./backup-queries.yaml:/etc/alloy/backup-queries.yaml:ro
+      - alloy:/var/lib/alloy
+      - /srv/pycil/backup-metrics:/var/lib/pycil/backup-metrics:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /:/rootfs:ro,rslave
+      - /proc:/host/proc:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+      - /run/udev/data:/run/udev/data:ro
+
+  prometheus:
+    <<: *monitor
+    image: prom/prometheus:v3.15.0@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e
+    mem_limit: 512m
+    memswap_limit: 512m
+    cpus: 0.4
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --storage.tsdb.retention.size=6GB
+      - --web.enable-remote-write-receiver
+      - --enable-feature=exemplar-storage
+      - --query.timeout=15s
+      - --query.max-concurrency=4
+    volumes:
+      - ./prometheus.yaml:/etc/prometheus/prometheus.yml:ro
+      - ./recording-rules.yaml:/etc/prometheus/rules/recording-rules.yaml:ro
+      - prometheus:/prometheus
+
+  loki:
+    <<: *monitor
+    image: grafana/loki:3.7.8@sha256:1107dd5274e0ada47e42472b7a7e71f3b2a2fe878878108f3e2f9e51528f0193
+    mem_limit: 384m
+    memswap_limit: 384m
+    cpus: 0.35
+    command: [-config.file=/etc/loki/config.yaml]
+    volumes:
+      - ./loki.yaml:/etc/loki/config.yaml:ro
+      - loki:/loki
+
+  tempo:
+    <<: *monitor
+    image: grafana/tempo:3.1.0@sha256:3076b8dcdfb32fd6bc5ccef85e7b7313e6199b9cb84366257fc17ecb696db5fd
+    mem_limit: 384m
+    memswap_limit: 384m
+    cpus: 0.35
+    command: [-target=all, -config.file=/etc/tempo/config.yaml]
+    volumes:
+      - ./tempo.yaml:/etc/tempo/config.yaml:ro
+      - tempo:/var/tempo
+
+  grafana:
+    <<: *monitor
+    image: grafana/grafana:13.2.4@sha256:dbbc38ea21103cefb50396340cd88afec779c7e070b0a7bf5a75b4ce46651d3f
+    mem_limit: 768m
+    memswap_limit: 768m
+    cpus: 0.2
+    env_file: ${GRAFANA_ENV_FILE:-/etc/pycil/grafana.env}
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_LOG_MODE: console
+      GF_LOG_CONSOLE_FORMAT: json
+      GF_SERVER_ROOT_URL: http://127.0.0.1:13000/
+      GF_AUTH_GENERIC_OAUTH_ENABLED: "true"
+      GF_AUTH_GENERIC_OAUTH_NAME: Clerk
+      GF_AUTH_GENERIC_OAUTH_SCOPES: openid profile email
+      GF_AUTH_GENERIC_OAUTH_ALLOW_SIGN_UP: "true"
+      GF_AUTH_GENERIC_OAUTH_USE_PKCE: "true"
+      GF_AUTH_GENERIC_OAUTH_LOGIN_ATTRIBUTE_PATH: sub
+      GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_STRICT: "true"
+      GF_AUTH_GENERIC_OAUTH_ALLOW_ASSIGN_GRAFANA_ADMIN: "true"
+      GF_AUTH_GENERIC_OAUTH_VALIDATE_ID_TOKEN: "true"
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+    ports: ["127.0.0.1:13000:3000"]
+    volumes:
+      - ./datasources.yaml:/etc/grafana/provisioning/datasources/lgtm.yaml:ro
+      - ./dashboards.yaml:/etc/grafana/provisioning/dashboards/pycil.yaml:ro
+      - ./dashboards:/var/lib/grafana/dashboards:ro
+      - ./application-alerts.yaml:/etc/grafana/provisioning/alerting/application.yaml:ro
+      - ./backup-alerts.yaml:/etc/grafana/provisioning/alerting/backup.yaml:ro
+      - grafana:/var/lib/grafana
+    networks: [monitoring-net, grafana-egress]
+
+networks:
+  grafana-egress: {}
+
+volumes:
+  alloy:
+  prometheus:
+  loki:
+  tempo:
+  grafana:

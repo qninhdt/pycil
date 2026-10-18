@@ -1,0 +1,302 @@
+name: pycil-production
+
+include: [observability/compose.yaml]
+
+x-walg-env: &walg-env
+  AWS_REGION: ap-southeast-1
+  AWS_PROFILE: pycil-walg-producer
+  AWS_SDK_LOAD_CONFIG: "1"
+  AWS_CONFIG_FILE: /run/secrets/aws/config
+  AWS_EC2_METADATA_DISABLED: "true"
+  WALG_S3_PREFIX: ${WALG_S3_PREFIX:?actual production cluster prefix required}
+  WALG_COMPRESSION_METHOD: zstd
+  WALG_DELTA_MAX_STEPS: "0"
+  WALG_UPLOAD_CONCURRENCY: "2"
+  WALG_UPLOAD_DISK_CONCURRENCY: "1"
+  WALG_DOWNLOAD_CONCURRENCY: "2"
+  WALG_PGP_KEY_PATH: /run/secrets/walg/encryption-public.asc
+  WALG_PREVENT_WAL_OVERWRITE: "true"
+  WALG_STATSD_ADDRESS: alloy:9125
+  WALG_STOP_BACKUP_TIMEOUT: 120s
+  PGHOST: postgres
+  PGPORT: "5432"
+  PGDATABASE: postgres
+  PGUSER: walg_backup
+  PGPASSFILE: /run/secrets/walg/pgpass
+  PGDATA: /var/lib/postgresql/18/docker
+  BACKUP_KEY_FINGERPRINT: ${BACKUP_KEY_FINGERPRINT:?required}
+
+x-logging: &logging
+  driver: json-file
+  options: {max-size: "10m", max-file: "3"}
+
+x-service: &service
+  restart: unless-stopped
+  security_opt: [no-new-privileges:true]
+  logging: *logging
+
+x-app: &app
+  <<: *service
+  user: "10001:10001"
+  init: true
+  read_only: true
+  cap_drop: [ALL]
+  tmpfs: ["/tmp:size=64m,mode=1777"]
+  pids_limit: 256
+  stop_grace_period: 120s
+
+x-api: &api
+  <<: *app
+  mem_limit: 768m
+  mem_reservation: 384m
+  memswap_limit: 768m
+  cpus: 1.5
+  environment: &api-env
+    DB_URL: ${_DB_URL:?run scripts/compose.py}
+    REDIS_URL: ${_REDIS_URL:?run scripts/compose.py}
+    CLERK_JWKS_URL: ${CLERK_JWKS_URL:?required}
+    CLERK_ISSUER: ${CLERK_ISSUER:?required}
+    CLERK_AUDIENCE: ${CLERK_AUDIENCE:-}
+    CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:?required}
+    ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?required}
+    LLM_API_KEY: ${LLM_API_KEY:?required}
+    LLM_BASE_URL: ${LLM_BASE_URL:?required}
+    DECISION_API_KEY: ${DECISION_API_KEY:?required}
+    DECISION_BASE_URL: ${DECISION_BASE_URL:?required}
+    SEARCH_INDEX_PATH: /var/lib/pycil/search
+    DEPLOYMENT_ENVIRONMENT: vps
+    OTEL_SERVICE_NAME: pycil-api
+    OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+  networks: [ingress-net, backend-net, monitoring-net]
+  depends_on:
+    postgres: {condition: service_healthy}
+    redis: {condition: service_healthy}
+    migrate: {condition: service_completed_successfully}
+  volumes:
+    - type: bind
+      source: /srv/pycil/search
+      target: /var/lib/pycil/search
+      bind: {create_host_path: false}
+  healthcheck:
+    test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/livez', timeout=2).read()"]
+    interval: 15s
+    timeout: 3s
+    retries: 3
+    start_period: 180s
+
+services:
+  postgres:
+    <<: *service
+    image: ${POSTGRES_WALG_IMAGE:?reviewed WAL-G image digest required}
+    mem_limit: 1792m
+    mem_reservation: 1024m
+    memswap_limit: 1792m
+    cpus: 2
+    pids_limit: 256
+    stop_grace_period: 120s
+    environment:
+      <<: *walg-env
+      POSTGRES_USER: pycil_admin
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?separate bootstrap password required}
+      POSTGRES_DB: ${_DB_NAME:?run scripts/compose.py}
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256 --auth-local=trust
+      APP_DB_USER: ${_DB_USER:?run scripts/compose.py}
+      APP_DB_PASSWORD: ${_DB_PASSWORD:?run scripts/compose.py}
+    command: [postgres, -c, config_file=/etc/postgresql/postgresql.conf]
+    volumes:
+      - type: bind
+        source: /srv/pycil/postgres
+        target: /var/lib/postgresql
+        bind: {create_host_path: false}
+      - ./postgresql.conf:/etc/postgresql/base.conf:ro
+      - ./backup/postgresql.production.conf:/etc/postgresql/postgresql.conf:ro
+      - ./init-application-role.sh:/docker-entrypoint-initdb.d/10-application-role.sh:ro
+      - ./backup/init-backup-role.sh:/docker-entrypoint-initdb.d/20-backup-role.sh:ro
+      - /etc/pycil/walg-producer:/run/secrets/walg:ro
+      - /etc/pycil/aws/wal-g:/run/secrets/aws:ro
+      - /opt/pycil/bin/aws_signing_helper:/usr/local/bin/aws_signing_helper:ro
+    networks: [backend-net, monitoring-net, backup-egress]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    <<: *service
+    image: redis:8.10.2-alpine3.23@sha256:3811787313eba226a2ef38658c6ccb91cd5e110edc89c37767de373120a0e5a0
+    mem_limit: 256m
+    mem_reservation: 128m
+    memswap_limit: 256m
+    cpus: 0.2
+    pids_limit: 128
+    stop_grace_period: 30s
+    environment:
+      REDIS_PASSWORD: ${_REDIS_PASSWORD:?run scripts/compose.py}
+      REDIS_USER: ${_REDIS_USER:?run scripts/compose.py}
+    command:
+      - sh
+      - -c
+      - >-
+        exec redis-server --appendonly yes --appendfsync everysec
+        --maxmemory 96mb --maxmemory-policy noeviction
+        --requirepass "$$REDIS_PASSWORD"
+        --user "$$REDIS_USER" on ">$$REDIS_PASSWORD" '~*' '&*' +@all
+    volumes:
+      - type: bind
+        source: /srv/pycil/redis
+        target: /data
+        bind: {create_host_path: false}
+    networks: [backend-net, monitoring-net]
+    healthcheck:
+      test: [CMD-SHELL, 'REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli --user "$$REDIS_USER" ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  migrate:
+    <<: *app
+    image: ${RELEASE_IMAGE:?reviewed registry image digest required}
+    restart: "no"
+    mem_limit: 768m
+    mem_reservation: 384m
+    memswap_limit: 768m
+    cpus: 0.5
+    environment:
+      DB_URL: ${_DB_URL:?run scripts/compose.py}
+    command: [python, -m, pycil.app.migrate]
+    volumes:
+      - type: bind
+        source: /srv/pycil/reference.jsonl.gz
+        target: /app/data/reference.jsonl.gz
+        read_only: true
+        bind: {create_host_path: false}
+    networks: [backend-net]
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  api-blue:
+    <<: *api
+    image: ${BLUE_API_IMAGE:?reviewed blue registry image digest required}
+    environment: &blue-env
+      <<: *api-env
+      SERVICE_VERSION: ${BLUE_API_IMAGE}
+
+  api-blue-2:
+    <<: *api
+    image: ${BLUE_API_IMAGE:?reviewed blue registry image digest required}
+    environment: *blue-env
+
+  api-green:
+    <<: *api
+    profiles: [candidate]
+    image: ${GREEN_API_IMAGE:?reviewed green registry image digest required}
+    environment: &green-env
+      <<: *api-env
+      SERVICE_VERSION: ${GREEN_API_IMAGE}
+
+  api-green-2:
+    <<: *api
+    profiles: [candidate]
+    image: ${GREEN_API_IMAGE:?reviewed green registry image digest required}
+    environment: *green-env
+
+  worker:
+    <<: *app
+    image: ${RELEASE_IMAGE:?reviewed registry image digest required}
+    # Starting ceiling; production activation still requires full-stack capacity proof.
+    mem_limit: 1024m
+    mem_reservation: 512m
+    memswap_limit: 1024m
+    cpus: 1
+    environment:
+      DB_URL: ${_DB_URL:?run scripts/compose.py}
+      REDIS_URL: ${_REDIS_URL:?run scripts/compose.py}
+      LLM_API_KEY: ${LLM_API_KEY:?required}
+      LLM_BASE_URL: ${LLM_BASE_URL:?required}
+      DEPLOYMENT_ENVIRONMENT: vps
+      OTEL_SERVICE_NAME: pycil-worker
+      SERVICE_VERSION: ${RELEASE_IMAGE}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+    command:
+      - taskiq
+      - worker
+      - pycil.app.broker:worker_broker
+      - pycil.vocabulary.generation.tasks
+      - pycil.study.tasks
+      - --workers
+      - "1"
+      - --max-async-tasks
+      - "4"
+      - --max-prefetch
+      - "0"
+      - --ack-type
+      - when_saved
+      - --wait-tasks-timeout
+      - "90"
+      - --shutdown-timeout
+      - "10"
+      - --no-configure-logging
+    networks: [backend-net, monitoring-net, worker-egress]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      migrate: {condition: service_completed_successfully}
+
+  backup:
+    <<: *service
+    profiles: [utility]
+    image: ${POSTGRES_WALG_IMAGE:?reviewed WAL-G image digest required}
+    restart: "no"
+    user: "999:999"
+    read_only: true
+    cap_drop: [ALL]
+    pids_limit: 128
+    mem_limit: 384m
+    memswap_limit: 384m
+    cpus: 0.4
+    tmpfs: ["/tmp:size=64m,mode=1777"]
+    stop_grace_period: 45s
+    environment: *walg-env
+    entrypoint: []
+    command: [pycil-backup]
+    volumes:
+      - /srv/pycil/postgres:/var/lib/postgresql:ro
+      - /etc/pycil/walg-producer:/run/secrets/walg:ro
+      - /etc/pycil/aws/wal-g:/run/secrets/aws:ro
+      - /opt/pycil/bin/aws_signing_helper:/usr/local/bin/aws_signing_helper:ro
+      - /srv/pycil/backup-metrics:/var/lib/pycil/backup-metrics
+    networks: [backend-net, monitoring-net, backup-egress]
+
+  caddy:
+    <<: *service
+    image: caddy:2.11.6-alpine@sha256:c776e0c6413b544d0459665e54ec7b8b2a15000c0cbee8b254da0067b1d184ff
+    mem_limit: 128m
+    mem_reservation: 64m
+    memswap_limit: 128m
+    cpus: 0.25
+    pids_limit: 128
+    read_only: true
+    tmpfs: [/tmp:size=16m]
+    stop_grace_period: 120s
+    ports: ["443:443/tcp"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - type: bind
+        source: ${DEPLOY_STATE_DIR:-/srv/pycil/deploy}
+        target: /etc/caddy/routing
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: /etc/pycil/tls
+        target: /run/secrets/tls
+        read_only: true
+        bind: {create_host_path: false}
+    networks: [ingress-net]
+
+networks:
+  ingress-net: {}
+  backend-net: {internal: true}
+  monitoring-net: {internal: true}
+  worker-egress: {}
+  backup-egress: {}

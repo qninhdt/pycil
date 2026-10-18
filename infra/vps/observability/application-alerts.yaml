@@ -1,0 +1,602 @@
+apiVersion: 1
+groups:
+- orgId: 1
+  name: Pycil VPS
+  folder: Pycil VPS
+  interval: 30s
+  rules:
+  - uid: vps-api-errors
+    title: API 5xx above 2% (at least 50 requests/5m)
+    condition: B
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: pycil:api_errors:condition{env="vps"}
+        instant: true
+        range: false
+        intervalMs: 1000
+        maxDataPoints: 43200
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: B
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: threshold
+        expression: A
+        conditions:
+        - type: query
+          evaluator:
+            type: gt
+            params:
+            - 0
+          operator:
+            type: and
+          query:
+            params:
+            - B
+          reducer:
+            type: last
+            params: []
+        datasource:
+          type: __expr__
+          uid: __expr__
+    noDataState: NoData
+    execErrState: Error
+    for: 5m
+    isPaused: false
+    annotations:
+      summary: API 5xx above 2% (at least 50 requests/5m)
+      description: Inspect HTTP status/route, then correlate the exemplar with Tempo and Loki. Roll back only a
+        schema-compatible image.
+      __dashboardUid__: pycil-api
+      __panelId__: '2'
+      runbook: infra/vps/README.md
+    labels:
+      env: vps
+      severity: warning
+      scope: vps-only
+  - uid: vps-host-memory
+    title: Host memory above 85%
+    condition: B
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: pycil:host_memory:condition{env="vps"}
+        instant: true
+        range: false
+        intervalMs: 1000
+        maxDataPoints: 43200
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: B
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: threshold
+        expression: A
+        conditions:
+        - type: query
+          evaluator:
+            type: gt
+            params:
+            - 0
+          operator:
+            type: and
+          query:
+            params:
+            - B
+          reducer:
+            type: last
+            params: []
+        datasource:
+          type: __expr__
+          uid: __expr__
+    noDataState: NoData
+    execErrState: Error
+    for: 5m
+    isPaused: false
+    annotations:
+      summary: Host memory above 85%
+      description: Stop load and identify growing processes or cgroups. Do not increase container limits without
+        a host budget.
+      __dashboardUid__: pycil-vps
+      __panelId__: '2'
+      runbook: infra/vps/README.md
+    labels:
+      env: vps
+      severity: warning
+      scope: vps-only
+  - uid: vps-host-disk
+    title: Root filesystem below 15% available
+    condition: B
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: pycil:host_disk:condition{env="vps"}
+        instant: true
+        range: false
+        intervalMs: 1000
+        maxDataPoints: 43200
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: B
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: threshold
+        expression: A
+        conditions:
+        - type: query
+          evaluator:
+            type: gt
+            params:
+            - 0
+          operator:
+            type: and
+          query:
+            params:
+            - B
+          reducer:
+            type: last
+            params: []
+        datasource:
+          type: __expr__
+          uid: __expr__
+    noDataState: NoData
+    execErrState: Error
+    for: 5m
+    isPaused: false
+    annotations:
+      summary: Root filesystem below 15% available
+      description: Stop load; inspect retention, Docker data and WAL. Preserve database files; never delete pg_wal.
+      __dashboardUid__: pycil-vps
+      __panelId__: '3'
+      runbook: infra/vps/README.md
+    labels:
+      env: vps
+      severity: warning
+      scope: vps-only
+  - uid: vps-host-inodes
+    title: Root filesystem below 15% free inodes
+    condition: B
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: pycil:host_inodes:condition{env="vps"}
+        instant: true
+        range: false
+        intervalMs: 1000
+        maxDataPoints: 43200
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: B
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: threshold
+        expression: A
+        conditions:
+        - type: query
+          evaluator:
+            type: gt
+            params:
+            - 0
+          operator:
+            type: and
+          query:
+            params:
+            - B
+          reducer:
+            type: last
+            params: []
+        datasource:
+          type: __expr__
+          uid: __expr__
+    noDataState: NoData
+    execErrState: Error
+    for: 5m
+    isPaused: false
+    annotations:
+      summary: Root filesystem below 15% free inodes
+      description: Find excessive small files; preserve database and active telemetry files.
+      __dashboardUid__: pycil-vps
+      __panelId__: '4'
+      runbook: infra/vps/README.md
+    labels:
+      env: vps
+      severity: warning
+      scope: vps-only
+  - uid: vps-search-progress
+    title: Search has unpublished changes older than 30 seconds
+    condition: B
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: pycil:search_progress:condition{env="vps"}
+        instant: true
+        range: false
+        intervalMs: 1000
+        maxDataPoints: 43200
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: B
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: threshold
+        expression: A
+        conditions:
+        - type: query
+          evaluator:
+            type: gt
+            params:
+            - 0
+          operator:
+            type: and
+          query:
+            params:
+            - B
+          reducer:
+            type: last
+            params: []
+        datasource:
+          type: __expr__
+          uid: __expr__
+    noDataState: NoData
+    execErrState: Error
+    for: 30s
+    isPaused: false
+    annotations:
+      summary: Search has unpublished changes older than 30 seconds
+      description: Inspect index owner, pending revisions and synchronization errors; recover the owner or rebuild
+        derived storage.
+      __dashboardUid__: pycil-workloads
+      __panelId__: '9'
+      runbook: infra/vps/README.md
+    labels:
+      env: vps
+      severity: warning
+      scope: vps-only
+  - uid: vps-search-failures
+    title: Search synchronization/publication failed
+    condition: B
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: pycil:search_failures:condition{env="vps"}
+        instant: true
+        range: false
+        intervalMs: 1000
+        maxDataPoints: 43200
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: B
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: threshold
+        expression: A
+        conditions:
+        - type: query
+          evaluator:
+            type: gt
+            params:
+            - 0
+          operator:
+            type: and
+          query:
+            params:
+            - B
+          reducer:
+            type: last
+            params: []
+        datasource:
+          type: __expr__
+          uid: __expr__
+    noDataState: NoData
+    execErrState: Error
+    for: 0s
+    isPaused: false
+    annotations:
+      summary: Search synchronization/publication failed
+      description: Inspect synchronization/publication errors and readiness. Preserve revision history.
+      __dashboardUid__: pycil-workloads
+      __panelId__: '10'
+      runbook: infra/vps/README.md
+    labels:
+      env: vps
+      severity: warning
+      scope: vps-only
+  - uid: vps-jobs-stalled
+    title: Redis backlog without delivery progress
+    condition: B
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: pycil:jobs_stalled:condition{env="vps"}
+        instant: true
+        range: false
+        intervalMs: 1000
+        maxDataPoints: 43200
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: B
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: threshold
+        expression: A
+        conditions:
+        - type: query
+          evaluator:
+            type: gt
+            params:
+            - 0
+          operator:
+            type: and
+          query:
+            params:
+            - B
+          reducer:
+            type: last
+            params: []
+        datasource:
+          type: __expr__
+          uid: __expr__
+    noDataState: NoData
+    execErrState: Error
+    for: 5m
+    isPaused: true
+    annotations:
+      summary: Redis backlog without delivery progress
+      description: Inspect native worker logs, active jobs and group lag/pending before restarting. Pending work
+        can be a legitimate long job; calibrate after representative jobs.
+      __dashboardUid__: pycil-workloads
+      __panelId__: '2'
+      runbook: infra/vps/README.md
+    labels:
+      env: vps
+      severity: warning
+      scope: vps-only
+  - uid: vps-telemetry-missing
+    title: Expected collector target missing or down
+    condition: B
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: pycil:telemetry_missing:condition{env="vps"}
+        instant: true
+        range: false
+        intervalMs: 1000
+        maxDataPoints: 43200
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: B
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: threshold
+        expression: A
+        conditions:
+        - type: query
+          evaluator:
+            type: gt
+            params:
+            - 0
+          operator:
+            type: and
+          query:
+            params:
+            - B
+          reducer:
+            type: last
+            params: []
+        datasource:
+          type: __expr__
+          uid: __expr__
+    noDataState: NoData
+    execErrState: Error
+    for: 5m
+    isPaused: false
+    annotations:
+      summary: Expected collector target missing or down
+      description: Restore Alloy/exporter or the missing store. Same-host rules cannot detect total host loss externally.
+      __dashboardUid__: pycil-vps
+      __panelId__: '10'
+      runbook: infra/vps/README.md
+    labels:
+      env: vps
+      severity: warning
+      scope: vps-only
+  - uid: vps-app-telemetry-missing
+    title: API or worker OTLP metrics missing
+    condition: B
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: pycil:app_telemetry_missing:condition{env="vps"}
+        instant: true
+        range: false
+        intervalMs: 1000
+        maxDataPoints: 43200
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: B
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: threshold
+        expression: A
+        conditions:
+        - type: query
+          evaluator:
+            type: gt
+            params:
+            - 0
+          operator:
+            type: and
+          query:
+            params:
+            - B
+          reducer:
+            type: last
+            params: []
+        datasource:
+          type: __expr__
+          uid: __expr__
+    noDataState: NoData
+    execErrState: Error
+    for: 1m
+    isPaused: false
+    annotations:
+      summary: API or worker OTLP metrics missing
+      description: Inspect process health and OTLP export separately from scrape target health. Inspect the exporter and application separately.
+      __dashboardUid__: pycil-vps
+      __panelId__: '10'
+      runbook: infra/vps/README.md
+    labels:
+      env: vps
+      severity: warning
+      scope: vps-only
+  - uid: vps-telemetry-drops
+    title: Collector reports dropped or refused telemetry
+    condition: B
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: pycil:telemetry_drops:condition{env="vps"}
+        instant: true
+        range: false
+        intervalMs: 1000
+        maxDataPoints: 43200
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: B
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: threshold
+        expression: A
+        conditions:
+        - type: query
+          evaluator:
+            type: gt
+            params:
+            - 0
+          operator:
+            type: and
+          query:
+            params:
+            - B
+          reducer:
+            type: last
+            params: []
+        datasource:
+          type: __expr__
+          uid: __expr__
+    noDataState: NoData
+    execErrState: Error
+    for: 0s
+    isPaused: false
+    annotations:
+      summary: Collector reports dropped or refused telemetry
+      description: Record the evidence gap. Inspect receiver memory, exporter queue/retry and backend health; business
+        requests remain independent.
+      __dashboardUid__: pycil-vps
+      __panelId__: '11'
+      runbook: infra/vps/README.md
+    labels:
+      env: vps
+      severity: warning
+      scope: vps-only

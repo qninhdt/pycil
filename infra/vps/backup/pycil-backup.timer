@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily full PostgreSQL backup
+
+[Timer]
+OnCalendar=*-*-* 02:30:00 UTC
+Persistent=true
+Unit=pycil-backup.service
+
+[Install]
+WantedBy=timers.target

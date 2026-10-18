@@ -1,0 +1,35 @@
+{
+	admin 127.0.0.1:2019
+	auto_https off
+	persist_config off
+	storage file_system {
+		root /tmp/caddy
+	}
+	servers {
+		protocols h1 h2
+	}
+}
+
+https://api-pycil.qninhdt.com {
+	tls /run/secrets/tls/origin.crt /run/secrets/tls/origin.key
+	@assistant_sse path /v1/assistant:run
+	@non_sse not path /v1/assistant:run
+	@api path /v1/* /livez /readyz
+	encode @non_sse zstd gzip
+	request_body @api {
+		max_size 15000000
+	}
+	handle @assistant_sse {
+		header {
+			Cache-Control "no-cache"
+			X-Accel-Buffering "no"
+		}
+		import /etc/caddy/routing/upstream.caddy
+	}
+	handle @api {
+		import /etc/caddy/routing/upstream.caddy
+	}
+	handle {
+		respond "Not Found" 404
+	}
+}

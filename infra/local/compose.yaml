@@ -27,7 +27,7 @@ x-stores-ready: &stores-ready
 x-backend: &backend
   image: ${API_IMAGE:-pycil-api:local}
   build:
-    context: .
+    context: ../..
     dockerfile: apps/api/Dockerfile
 
 services:
@@ -74,7 +74,7 @@ services:
         condition: service_healthy
     volumes:
       - type: bind
-        source: ./data/reference.jsonl.gz
+        source: ../../data/reference.jsonl.gz
         target: /app/data/reference.jsonl.gz
         read_only: true
         bind:

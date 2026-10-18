@@ -129,12 +129,12 @@ vocabulary:
     progress_timeout_seconds: 30
   enrichment_batch_size: 8
   provider:
-    model: openai/gpt-6.1-sol
+    model: openai/gpt-6.1-luna
     timeout_seconds: 120
     max_completion_tokens: 16384
     max_retries: 2
     structured_outputs: true
-    reasoning_effort: medium
+    reasoning_effort: high
     temperature: null
     decision_model: typesafe/jev-1.13
     retry_min_seconds: 0.5

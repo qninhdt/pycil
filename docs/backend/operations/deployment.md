@@ -11,8 +11,8 @@ docker build -f apps/api/Dockerfile -t pycil-api:local .
 ```
 
 The same image supports the [native Taskiq worker command](../modules/jobs.md#native-worker-command)
-as a separate process/service. Worker application code is implemented; Compose/ECS/CI
-worker deployment is deferred to the separately authorized course phase. The API retains
+as a separate process/service. [VPS Compose and delivery](../../../infra/vps/README.md)
+include the worker. VPS production is live; ECS deployment remains separate work. The API retains
 its local Tantivy projection; workers initialize neither search nor checkpoint pools.
 
 The image starts one Uvicorn worker with a 75-second HTTP drain deadline,
@@ -27,12 +27,17 @@ stop deadline.
 
 ## Compose topology
 
-[Compose](../../../docker-compose.yml) runs PostgreSQL, Redis, an explicit one-shot
+[Local Compose](../../../infra/local/compose.yaml) runs PostgreSQL, Redis, an explicit one-shot
 migration service, API and Caddy. Migration imports `data/reference.jsonl.gz` through a
 read-only bind mount, applies the application baseline and runs native checkpoint setup.
 The API waits for stores and migration success. Any later worker service must use the same migration-before-start gate. It neither migrates nor imports on startup.
 
-Use [the wrapper](../../../scripts/compose.py) with an explicitly selected private file.
+Use [the wrapper](../../../scripts/compose.py) with an explicitly selected private env file.
+It defaults to `infra/local/compose.yaml`; select another manifest with `--file`.
+[Production Compose](../../../infra/vps/compose.yaml) has separate blue/green API
+identities, a native worker, private stores and static origin TLS. Its
+[controller/runbook](../../../infra/vps/README.md) owns bounded migration,
+candidate checks, routing, observation and compatible application rollback.
 Only `config -q` / `config --quiet` is permitted because resolved configuration exposes
 credentials. Remote store URLs remain remote; selecting them is an operator decision.
 Persistent volumes contain stores and Caddy state; never delete volumes as a migration fix.
@@ -44,11 +49,14 @@ Export desired data before replacing development databases. A populated installa
 needs a separately validated transfer into the target schema, preserving identities and
 relationships. See [migrations](migrations.md). An image-only downgrade cannot undo DDL.
 
-[scripts/deploy.sh](../../../scripts/deploy.sh) requires an approved immutable image digest
-and a backup checksum before migration and swap. A checksum does not prove a backup is
+[infra/vps/deploy.sh](../../../infra/vps/deploy.sh) requires an approved immutable image digest
+and a recovery-evidence checksum before migration and switch. It rejects different
+Alembic heads because current startup requires an exact schema version. Matching
+heads still require queue/index/response compatibility review. A checksum does not prove a backup is
 restorable. Rehearse restoration independently. Schema migration, native checkpoint setup
 and reference import have separate transaction boundaries; inspect the failed stage before
-retrying. No production deployment was performed as part of this rewrite.
+retrying. The [VPS runbook](../../../infra/vps/README.md) records live bootstrap,
+credential sources and recovery scope.
 
 ## Operational signals
 
@@ -59,9 +67,10 @@ retrying. No production deployment was performed as part of this rewrite.
   provider payloads, tokens and credentials.
 
 Provider availability and worker backlog are not tested by API readiness. Native Taskiq
-OTel shares the existing SDK/export path; collector deployment and Langfuse remain deferred.
+OTel shares the existing SDK/export path. VPS Alloy, Prometheus, Loki, Tempo and
+Grafana are deployed; Langfuse remains deferred.
 Monitor worker execution and Redis stream lag/pending independently. Assistant SSE must remain unbuffered; HTTP 200 alone does not establish
-successful completion. [Caddy](../../../Caddyfile) owns ingress limits and streaming behavior.
+successful completion. [Caddy](../../../infra/local/Caddyfile) owns ingress limits and streaming behavior.
 
 ## Verification
 
