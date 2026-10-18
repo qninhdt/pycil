@@ -414,6 +414,11 @@ async def test_four_process_readers_share_one_poller_and_recover_after_owner_sig
         identifier = await create_word(database.sessions, "bank")
         statuses = await states(["wait", await revision(), "bank"], workers)
         assert all(status["words"] == [identifier] for status in statuses)
+        # Cursor visibility can precede the counted synchronize callback returning.
+        async with asyncio.timeout(5):
+            while sum(status["applications"] for status in statuses) == 0:
+                statuses = await states(["state"], workers)
+                await asyncio.sleep(0.02)
         assert sum(status["applications"] for status in statuses) == 1
         owner = next(i for i, status in enumerate(statuses) if status["owner"])
         process, connection = workers[owner]
