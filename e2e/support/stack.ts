@@ -17,8 +17,13 @@ export async function requireFreePort(port: number) {
 export async function startStack(live: boolean) {
   await Promise.all([requireFreePort(8100), ...(!live ? [requireFreePort(8110)] : [])])
   await mkdir(artifacts, { recursive: true, mode: 0o700 })
+  const skipBuild = process.env.E2E_SKIP_BUILD === '1' || process.env.E2E_SKIP_BUILD === 'true' || process.env.E2E_PREBUILT_IMAGE === '1' || Boolean(process.env.E2E_PREBUILT_IMAGE && process.env.E2E_PREBUILT_IMAGE !== '0')
+  const prebuiltImage = (process.env.E2E_PREBUILT_IMAGE && process.env.E2E_PREBUILT_IMAGE !== '1')
+    ? process.env.E2E_PREBUILT_IMAGE
+    : (skipBuild ? (process.env.E2E_API_IMAGE ?? 'pycil-e2e-api:latest') : process.env.E2E_API_IMAGE)
   const environment = {
     ...credentials(live), E2E_RUN_ID: runId,
+    ...(prebuiltImage ? { E2E_API_IMAGE: prebuiltImage } : {}),
     E2E_ARTIFACTS: artifacts, E2E_UID: String(userInfo().uid), E2E_GID: String(userInfo().gid),
     CLERK_AUDIENCE: process.env.CLERK_AUDIENCE ?? '',
     ...(!live ? {
@@ -28,10 +33,11 @@ export async function startStack(live: boolean) {
   }
   const project = `pycil-e2e-${runId}`
   const compose = new DockerComposeEnvironment(`${directory}/support`, 'compose.yaml')
-    .withEnvironment(environment).withProjectName(project).withBuild()
+    .withEnvironment(environment).withProjectName(project)
     .withStartupTimeout(180_000)
     .withWaitStrategy('migration-1', Wait.forOneShotStartup())
     .withWaitStrategy('baseline-1', Wait.forOneShotStartup())
+  if (!skipBuild) compose.withBuild()
   if (!live) compose.withProfiles('controlled')
   try {
     const stack = await compose.up()

@@ -133,11 +133,32 @@ Extend the existing route allowlist for canonical probes; retain its SSE no-cach
 
 ## 2. VPS security hardening specification
 
+**Applied SSH checkpoint (2026-10-17):** manage `103.173.227.135` with
+`ssh qninh@103.173.227.135`, then `sudo -i` when needed. The existing authorized
+public key is installed for this named operator, with passwordless sudo.
+Fresh operator login/sudo passed; root SSH was refused, and the server offers
+public-key authentication only. Effective settings also disable keyboard-interactive
+authentication and set `MaxAuthTries 3`. See the
+[SSH evidence and private backup location](../../devops-course/lab/lesson13/ssh-hardening.md).
+Provider-console access was reported, not independently exercised.
+
+**Applied firewall checkpoint (2026-10-17):** the user confirmed this VPS has no
+other workloads and chose direct, key-only SSH on TCP 22 from any source, deferring
+Tailscale. Legacy port rules were removed. Cloudflare-only TCP 443 is enforced in
+UFW and `DOCKER-USER` for both families, matching original destination ports for
+Docker traffic. A daily systemd timer refreshes validated ranges from Cloudflare's
+official API. Fresh SSH, external IPv4 denial, isolated IPv4/IPv6 packet checks,
+UFW reload and idle Docker restart passed. See
+[firewall operation, evidence and rollback](../../devops-course/lab/lesson13/firewall.md).
+Internet IPv6 and actual Cloudflare HTTPS success remain unverified; external refresh
+failure notifications, patching and production activation remain pending.
+Fail2ban is deferred by user decision (2026-10-17), not an activation prerequisite.
+
 1. Establish a named sudo operator, SSH public-key login and tested provider rescue console. Test a second session before disabling root/password authentication. Proposed effective SSH values: `PermitRootLogin no`, `PasswordAuthentication no`, `PubkeyAuthentication yes`, `MaxAuthTries 3`.
-2. UFW default deny inbound; SSH permitted only from the operator's fixed IP/VPN route. Preserve authorized Tailscale networking and unrelated services until their ownership is resolved. Only TCP 443 from current Cloudflare IPv4 **and IPv6** ranges is public for proxied traffic; no UDP 443 is required for this design.
+2. UFW default deny inbound; the accepted current management route permits key-only SSH on TCP 22 from any source. Restricting SSH to a verified fixed IP/VPN is a future change; Tailscale is deferred. The user confirmed the old port rules serve no remaining workload and authorized removing them. Only TCP 443 from current Cloudflare IPv4 **and IPv6** ranges is public for proxied application traffic; no UDP 443 is required for this design.
 3. Docker published ports bypass ordinary UFW INPUT rules. The observed iptables-nft configuration needs matching DOCKER-USER/FORWARD restrictions for external Docker traffic; first accept established traffic, then allow Cloudflare-to-Caddy and deny other external ingress. Do not disable Docker-managed firewalling. Verify the active Docker firewall backend before applying any backend-specific rules. [Docker firewall behavior](https://docs.docker.com/engine/network/packet-filtering-firewalls/).
 4. A controlled scheduled job reads [Cloudflare's published ranges](https://www.cloudflare.com/ips/), validates non-empty IPv4/IPv6 sets and replaces firewall sets atomically. Failure keeps the previous rules and alerts; it must not open 443 to the world.
-5. Fail2ban `sshd` jail uses the systemd backend, `maxretry=3`, `findtime=10m`, `bantime=1h`; ignore the verified management subnet. Rate limiting complements keys; it does not replace them.
+5. Fail2ban is deferred (2026-10-17) and has not been installed. If resumed, the proposed `sshd` jail uses the systemd backend, `maxretry=3`, `findtime=10m`, `bantime=1h`; ignore the verified management subnet. Rate limiting complements keys; it does not replace them.
 6. Patch OS/Docker through an approved maintenance window; monitor reboot requirements and provider/hypervisor security constraints. Bound journald (starting `SystemMaxUse=256M`, `SystemKeepFree=1G`). Changes to daemon log defaults require a separately planned Docker restart and container recreation.
 
 Before public activation verify from outside that 5432/6379/9090/3100/3200/4317/4318/3000 and exporter ports are unreachable, direct-origin HTTPS cannot bypass the Cloudflare policy, and both address families behave correctly. A firewall listing alone is not an external exposure test. Restrict forwarding/egress for store/collector containers while preserving DNS, S3 and required HTTPS destinations.
@@ -148,8 +169,7 @@ Before public activation verify from outside that 5432/6379/9090/3100/3200/4317/
 | --- | --- | --- |
 | `api.pycil.qninhdt.com` | Proxied A to VPS | Browser API authorization; WAF and cache bypass |
 | `aws-api.pycil.qninhdt.com` | Proxied CNAME to current ALB DNS | Created after restore/readiness; removed during teardown |
-| `grafana.pycil.qninhdt.com` | Proxied A to VPS | Cloudflare Access identity/MFA plus Grafana login |
-| `monitor.pycil.qninhdt.com` | Proxied A to VPS | Curated externally shared dashboard routes only |
+| `grafana.pycil.qninhdt.com` | Proxied A to VPS | Cloudflare Access plus Grafana Generic OAuth with the separate Clerk application Pycil Ops; operator-only; MFA deferred |
 | `telemetry.pycil.qninhdt.com` | Proxied A to VPS | Access service token; ingestion POST allowlist, no query/admin API |
 
 AWS API DNS exists only during a validated workload session. ALB routes it directly to private Fargate API task IPs on port 8000. AWS monitoring is accessed through IAM-authorized CloudWatch, not custom Grafana/monitor/telemetry hostnames; no public OTLP collector endpoint is needed. No AWS hostname points at the VPS.
@@ -158,7 +178,7 @@ The existing universal edge certificate does **not** cover these nested names. C
 
 Enable TLS 1.2 minimum, HTTPS redirect at the edge, and bypass CDN cache for API/auth/SSE/probes/ingestion. Trust forwarded IP headers only from controlled ingress. Telemetry uses HTTP OTLP/remote-write through 443; do not try to proxy OTLP gRPC on 4317 through a normal orange-cloud DNS record. Access service tokens travel in authenticated HTTPS headers and are injected as secrets. Enforce equivalent token/JWT validation or secondary origin authentication at Caddy for ingestion; Cloudflare source-IP restriction alone is not tenant authentication.
 
-WAF/rate-rule availability depends on the actual account plan. Implement narrow time-limited load-test exceptions for a known runner IP and hostname, preserving application auth and all origin/private-port restrictions. Never disable protection globally to run k6. The [observability design](04-observability-lgtm-and-public-dashboard.md) specifies public route/query boundaries.
+WAF/rate-rule availability depends on the actual account plan. Implement narrow time-limited load-test exceptions for a known runner IP and hostname, preserving application auth and all origin/private-port restrictions. Never disable protection globally to run k6. The [observability design](04-observability-lgtm-and-public-dashboard.md) specifies private Grafana access; no public dashboard hostname is selected.
 
 ## 4. Two independent Terraform layers
 
@@ -198,6 +218,28 @@ terraform {
 ```
 
 Supply the bucket through a non-secret backend config; never place credentials in HCL/backend arguments. Commit `.terraform.lock.hcl`. S3 state versioning supports recovery; native lock files replace the deprecated DynamoDB lock design. Restrict deletion to `.tflock`, not state/backups. CI concurrency and state locks protect different races. [Terraform S3 backend](https://developer.hashicorp.com/terraform/language/backend/s3).
+
+### Runtime AWS credentials by workload
+
+`aws_signing_helper` is a general IAM Roles Anywhere credential tool. Lesson 16
+currently installs it in the PostgreSQL/WAL-G image for backup access. When an API
+or worker needs an AWS service on the VPS, install the same pinned helper in that
+consumer's image and configure the SDK's native `credential_process` provider.
+No separate helper service or application credential-refresh implementation is
+required. [AWS credential helper](https://docs.aws.amazon.com/rolesanywhere/latest/userguide/credential-helper.html).
+
+Give each workload its own certificate/private key, AWS configuration profile and
+least-privilege IAM role; mount only that workload's credentials read-only. An API
+accessing a future user-image bucket must not inherit the backup producer's role,
+certificate or backup-prefix permissions. The helper binary/version can be shared;
+credentials and permissions remain workload-specific. Add application AWS access
+only when a concrete service/bucket contract is required; lesson 16 grants none.
+
+On ECS Fargate, runtime clients obtain credentials through the task IAM role and
+the SDK's standard credential provider chain, without Roles Anywhere or a signing
+helper. Keep application clients on that provider chain so VPS/ECS differences
+remain deployment configuration. The task execution role is separate from the
+application's runtime role. [ECS task IAM roles](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task-iam-roles.html).
 
 ## 5. AWS workload network and managed services
 

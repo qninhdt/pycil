@@ -507,6 +507,7 @@ async def test_publication_timeout_keeps_committed_content_and_releases_database
         async with database.sessions() as session:
             assert (await replay(session, word))["lemma"] == "bank"
         resume.set()
+        index.policy = fast_policy()
         await index.update(word)
     finally:
         resume.set()

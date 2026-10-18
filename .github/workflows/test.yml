@@ -37,8 +37,8 @@ jobs:
       - run: pnpm run typecheck
       - run: pnpm run lint
       - run: node node_modules/@playwright/test/cli.js install --with-deps chromium
-      - run: pnpm test:unit
-      - run: pnpm test:integration
+      - run: pnpm test:vitest
+      - run: pnpm test:browser
       - run: pnpm run build
 
   e2e:

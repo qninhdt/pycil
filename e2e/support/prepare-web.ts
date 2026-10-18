@@ -5,18 +5,27 @@ import { artifacts, root, runId } from './environment.ts'
 
 export function buildDirectory(web: string, id: string) {
   if (!/^[a-z0-9]{12,40}$/.test(id)) throw new Error('Pass one recorded E2E run ID')
+  if (process.env.E2E_CACHE_BUILD === '1' || process.env.E2E_CACHE_BUILD === 'true') {
+    return `${web}/.e2e/build-cache`
+  }
   return `${web}/.e2e/${id}`
 }
 
 export async function prepareBuild(web: string, id: string) {
   const directory = buildDirectory(web, id)
+  const isCache = process.env.E2E_CACHE_BUILD === '1' || process.env.E2E_CACHE_BUILD === 'true'
   // Exclusive creation preserves the original declarations if setup is repeated.
-  await mkdir(directory, { recursive: false, mode: 0o700 })
+  await mkdir(directory, { recursive: isCache, mode: 0o700 })
   const nextEnv = await readFile(`${web}/next-env.d.ts`, 'utf8').catch((error: NodeJS.ErrnoException) => {
     if (error.code !== 'ENOENT') throw error
     return null
   })
-  await writeFile(`${directory}/next-env.json`, JSON.stringify(nextEnv), { mode: 0o600 })
+  const backupPath = `${directory}/next-env.json`
+  const isDirty = typeof nextEnv === 'string' && nextEnv.includes('./.e2e/build-cache/next/')
+  const hasBackup = await readFile(backupPath, 'utf8').then(() => true).catch(() => false)
+  if (!isCache || !hasBackup || !isDirty) {
+    await writeFile(backupPath, JSON.stringify(nextEnv), { mode: 0o600 })
+  }
   await writeFile(`${directory}/tsconfig.json`, JSON.stringify({
     extends: '../../tsconfig.json',
     compilerOptions: {

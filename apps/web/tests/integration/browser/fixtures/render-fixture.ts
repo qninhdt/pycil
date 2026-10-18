@@ -5,7 +5,14 @@ import { initialUiScript } from '../../../../src/lib/preferences/browser'
 const link = `import {forwardRef} from 'react'; export default forwardRef(function Link({prefetch,replace,scroll,locale,...props},ref){return <a {...props} ref={ref}/>})`
 import { navigationPlatform } from './navigation'
 
+let cachedStyles: string[] | null = null
+const fixtureBundleCache = new Map<string, string>()
+
 export async function buildFixture(entry: string, platform: Record<string, string> = {}) {
+  const cacheKey = `${entry}:${JSON.stringify(platform)}`
+  const cached = fixtureBundleCache.get(cacheKey)
+  if (cached) return cached
+
   const modules = { 'next/link': link, 'next/navigation': navigationPlatform, ...platform }
   const result = await build({
     entryPoints: [`tests/integration/browser/fixtures/${entry}.tsx`],
@@ -17,12 +24,20 @@ export async function buildFixture(entry: string, platform: Record<string, strin
       builder.onLoad({ filter: /.*/, namespace: 'fixture-platform' }, args => ({ loader: 'tsx', resolveDir: process.cwd(), contents: modules[args.path as keyof typeof modules] }))
     } }],
   })
-  return result.outputFiles[0].text
+  const text = result.outputFiles[0].text
+  fixtureBundleCache.set(cacheKey, text)
+  return text
 }
 
 export async function renderFixture(page: Page, bundle: string, name: string, query = '') {
-  await page.goto('/app')
-  const styles = await page.locator('link[rel=stylesheet]').evaluateAll(nodes => nodes.map(node => (node as HTMLLinkElement).href))
+  if (!cachedStyles || cachedStyles.length === 0) {
+    await page.goto('/app')
+    const styles = await page.locator('link[rel=stylesheet]').evaluateAll(nodes => nodes.map(node => (node as HTMLLinkElement).href))
+    if (styles.length > 0) {
+      cachedStyles = styles
+    }
+  }
+  const styles = cachedStyles ?? []
   const path = `/__${name}_fixture__`
   await page.route(`**${path}/bundle.js`, route => route.fulfill({ contentType: 'application/javascript', body: bundle }))
   await page.route(url => url.pathname === path, route => route.fulfill({ contentType: 'text/html', body:

@@ -204,7 +204,7 @@ datasources:
 
 ## 4. Dashboard contracts and SLIs
 
-Use `env` and `version` selectors privately; public dashboards use fixed sanitized queries.
+Use `env` and `version` selectors on authenticated operational dashboards. Public dashboard sharing is out of scope.
 The application currently emits these OTel instruments:
 
 | Boundary | Instruments and units |
@@ -289,15 +289,13 @@ Recording rules retain sum/count/histogram buckets, not an average of p95s. Do n
 
 ## 5. Public dashboard security
 
-Choose Grafana **externally shared dashboards** (formerly Public Dashboards), created/revoked through the standard authenticated sharing API in the provisioner after the dashboard is provisioned. No anonymous Viewer access to the operational organization. Hiding `/explore` or navigation is not authorization: a Viewer can query available datasources beyond visible panels. [Grafana security](https://grafana.com/docs/grafana/latest/setup-grafana/configure-security/).
+**Scope change (2026-10-17):** the user removed public dashboard sharing. Do not create a public dashboard hostname, anonymous access, share tokens or sharing-specific ingress routes. Existing course sharing drafts are historical evidence, not deployment requirements.
 
-Public dashboard contains only fixed allowlisted aggregate API health/latency and selected benchmark summaries. No Loki/Tempo panels, query text, user/host identifiers, request/trace IDs or credentials. Disable annotations and user-selected broad time ranges; use a fixed recent window and at least 60-second refresh. Tempo is currently unsupported by externally shared dashboards, so full correlation is demonstrated privately through Access, not anonymously. [Externally shared dashboard compatibility](https://grafana.com/docs/grafana/latest/visualizations/dashboards/share-dashboards-panels/shared-dashboards/).
+VPS administration uses `grafana.pycil.qninhdt.com`, behind Cloudflare Access. **Authentication decision (2026-10-17):** use a separate Clerk application named **Pycil Ops** as the OIDC identity provider through Grafana's native Generic OAuth support. Its operator user pool is independent of the product's Pycil application, even when using the same email address. MFA is deferred at both Grafana's identity-provider and Access policy layers. This is selected design, not a configured or tested VPS deployment. No self-hosted IdP or application authentication middleware is needed. Only explicitly authorized operators may access Grafana; a Pycil product account alone grants no monitoring access. AWS dashboards remain private through IAM/CloudWatch.
 
-At `monitor.pycil.qninhdt.com` (VPS), Caddy permits only the share-view route, necessary static assets and the standard token-scoped public dashboard query endpoints; all other routes return 404. Discover the exact required routes with the selected Grafana build, then pin that allowlist in code. `/api/ds/query`, `/api/datasources/proxy`, `/explore`, login/admin and unrelated dashboard APIs are denied there. VPS administration on `grafana.pycil.qninhdt.com` stays behind Access/MFA and Grafana authentication. AWS operational dashboards are private through IAM/CloudWatch; publish sanitized archived charts if external sharing is needed, without adding an AWS Grafana hostname. Do not make an Access bypass for all `/api/*` to fix asset loading.
+Register a dedicated Grafana OAuth client in Pycil Ops' production instance with callback `https://grafana.pycil.qninhdt.com/login/generic_oauth` and scopes `openid profile email`. The local lab uses Pycil Ops' development instance with a separate loopback client; keep product credentials, users and branding separate. Configure Grafana from Clerk's authorization/token/UserInfo endpoints and client credentials; store the client secret outside version control. Enable PKCE and ID-token signature validation with Clerk's published JWKS on the pinned Grafana version. Use an explicit operator allowlist/role mapping that rejects other identities, without default Viewer access or automatic admin assignment. Test the allowed operator and a non-allowlisted Ops identity before disabling routine Grafana password login; retain a documented local recovery procedure. Product-only users cannot authenticate to the separate Ops instance. Clerk SSO does not itself authenticate the separate Cloudflare Access gate; do not claim one login across both without validating its identity-provider configuration. [Clerk as an OIDC provider](https://clerk.com/docs/guides/configure/auth-strategies/oauth/single-sign-on), [Grafana Generic OAuth](https://grafana.com/docs/grafana/latest/setup-grafana/configure-access/configure-authentication/generic-oauth/).
 
-Cloudflare WAF/rate controls protect public view and query paths separately: starting 30 query requests/minute/IP, 60-second refresh, short backend query timeout, fixed time range and server-side concurrency 4. An entitlement check decides which controls the current plan supports; if a required control is unavailable, implement the equivalent supported ingress boundary or hold public activation. Cache immutable static assets, not authenticated query responses indiscriminately. A shared token grants public view and can be revoked; it is not a secret authorization token for operational datasources.
-
-Acceptance: an unauthenticated visitor can read only the intended shared chart; arbitrary PromQL, datasource proxy, private logs/traces, admin APIs and direct-origin access fail. Test hostname redirects/assets against Grafana `root_url`; do not assume a second proxy hostname works without validation. Revoke the share/route immediately on sensitive exposure.
+Acceptance: an unauthenticated or unauthorized visitor cannot query operational dashboards, datasources, logs, traces or admin APIs. Direct-origin access must not bypass Access. Verify Grafana roles separately from identity-provider authentication. [Grafana authentication](https://grafana.com/docs/grafana/latest/setup-grafana/configure-access/configure-authentication/).
 
 ## 6. Alerting as code, FinOps and independent outage detection
 
@@ -332,7 +330,7 @@ Unified collection, signal correlation, bounded cardinality, provisioned dashboa
 
 ### Trade-offs
 
-Sampling and storage caps lose some forensic detail. Public sharing deliberately limits query flexibility. Curated snapshots preserve interview charts but cannot replace unlimited raw historical exploration. VPS monitoring shares host failure; AWS has managed backend availability but task-local export can still lose data. CloudWatch charges must be bounded and evidence exported before workload teardown/raw expiry.
+Sampling and storage caps lose some forensic detail. Operational dashboards remain private. Curated snapshots preserve interview charts but cannot replace unlimited raw historical exploration. VPS monitoring shares host failure; AWS has managed backend availability but task-local export can still lose data. CloudWatch charges must be bounded and evidence exported before workload teardown/raw expiry.
 
 ### Interview questions this design answers
 
@@ -341,3 +339,11 @@ Sampling and storage caps lose some forensic detail. Public sharing deliberately
 - How do you collect VPS host/store signals and AWS task/service metrics without duplicate ingestion?
 - Why is anonymous Grafana Viewer not a dashboard-only security boundary?
 - How do you detect failure of the monitoring system itself?
+
+Lesson 16 adds an [implemented backup view](../../devops-course/lab/lesson16/README.md#view-results):
+WAL-G native StatsD, PostgreSQL archive/backlog SQL and atomic full-backup textfiles
+flow through the existing Alloy/Prometheus/Loki stack. Four Grafana rules cover
+full-backup failure/freshness and archive failure/backlog. The isolated lab proved
+a firing archive-failure rule and catch-up after restoring S3 rights. Its receiver
+is `empty`; notification delivery and an off-host failure watchdog remain unproven.
+No application OTel SDK or custom exporter is added for backup.

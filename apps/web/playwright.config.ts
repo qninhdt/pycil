@@ -3,7 +3,7 @@ import { defineConfig } from '@playwright/test'
 const integrationURL = 'http://127.0.0.1:3100'
 
 export default defineConfig({
-  workers: 1,
+  workers: 2,
   fullyParallel: false,
   retries: 0,
   reporter: [['list'], ['html', { outputFolder: 'playwright-report', open: 'never' }]],
@@ -17,9 +17,11 @@ export default defineConfig({
       : undefined,
   },
   webServer: {
-    command: 'pnpm dev --port 3100',
+    command: process.env.PLAYWRIGHT_USE_PROD ? 'pnpm start --port 3100' : 'pnpm dev --port 3100',
     env: { NEXT_PUBLIC_DATA_MODE: 'mock', NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: '' },
-    url: integrationURL, reuseExistingServer: false,
+    url: integrationURL,
+    reuseExistingServer: !process.env.CI,
+    gracefulShutdown: { signal: 'SIGTERM', timeout: 5000 },
   },
   projects: [
     {

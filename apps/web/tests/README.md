@@ -5,8 +5,10 @@ Run commands from `apps/web` after installing dependencies and Chromium.
 | Command | Boundary |
 | --- | --- |
 | `pnpm test:unit` | Vitest: isolated functions, schemas, state transitions and static rendering |
-| `pnpm test:integration` | Vitest HTTP/preview/assets contracts, then Playwright component/page/browser behavior |
-| `pnpm test` | Both frontend-owned levels |
+| `pnpm test:integration` | Vitest: HTTP/preview/assets contracts |
+| `pnpm test:vitest` | Vitest: all unit and contract tests in one run |
+| `pnpm test:browser` | Playwright: component/page/browser behavior |
+| `pnpm test` | Both frontend-owned levels (`test:vitest && test:browser`) |
 
 Files use kebab-case `.test.ts` or `.test.tsx`, named for their subject. Tests live in
 `unit/` or `integration/{services,assets,browser}/`. Stories are colocated preview

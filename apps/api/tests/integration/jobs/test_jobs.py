@@ -310,6 +310,7 @@ async def test_native_cli_worker_has_no_api_secrets_and_runs_four_jobs_before_dr
         "LLM_API_KEY": "test-only",
         "LLM_BASE_URL": "https://provider.invalid/v1",
         "PYTHONPATH": str(Path(__file__).resolve().parents[3]),
+        "PYTHONUNBUFFERED": "1",
     }
     log = tmp_path / "worker.log"
     process = None
@@ -354,7 +355,13 @@ async def test_native_cli_worker_has_no_api_secrets_and_runs_four_jobs_before_dr
             assert all(result.return_value == "finished" for result in results)
             await asyncio.to_thread(process.wait, 12)
         assert process.returncode == 0, log.read_text()
+        from time import perf_counter
+
+        deadline = perf_counter() + 5.0
         logs = log.read_text()
+        while perf_counter() < deadline and "resources_closed" not in logs:
+            await asyncio.sleep(0.05)
+            logs = log.read_text()
         assert "search_index_started" not in logs
         assert "resources_closed" in logs
     finally:

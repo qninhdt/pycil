@@ -172,6 +172,7 @@ test('account dropdown shares New item spacing and separators meet the border on
     const scope = width < 768 ? page.getByRole('dialog') : page.locator('.shell-desktop')
     await scope.getByRole('button', { name: 'Open account menu' }).click()
     const menu = page.getByRole('menu')
+    await expect(menu).toBeVisible()
     await expect.poll(() => menu.getByRole('menuitem').first().evaluate(item => item.getBoundingClientRect().height)).toBe(44)
     await expect(menu).toHaveCSS('animation-name', 'enter')
     const spacing = await menu.evaluate(node => {
@@ -196,6 +197,7 @@ test('account dropdown shares New item spacing and separators meet the border on
     }
     await page.keyboard.press('Escape')
     await scope.getByRole('button', { name: 'New deck / folder' }).click()
+    await expect(page.getByRole('menu')).toBeVisible()
     const newSpacing = await page.getByRole('menu').getByRole('menuitem').first().evaluate(item => ({ padding: getComputedStyle(item).padding, gap: getComputedStyle(item).gap, minHeight: getComputedStyle(item).minHeight }))
     expect(newSpacing).toEqual({ padding: '8px 16px', gap: '12px', minHeight: '44px' })
     await expect(page.getByRole('menu').locator('small')).toHaveCount(0)

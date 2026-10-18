@@ -53,8 +53,10 @@ prerelease = "explicit"
 [dependency-groups]
 dev = [
     "coverage>=7.16.2",
+    "filelock>=3.17.0",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
+    "pytest-xdist>=3.6.1",
     "ruff>=0.16.10",
     "testcontainers[postgres,redis]>=4.14.2",
     "types-pyyaml>=6.0.12.20260906",
@@ -77,8 +79,11 @@ include = ["pycil*"]
 [tool.pytest.ini_options]
 pythonpath = ["."]
 asyncio_mode = "auto"
-testpaths = ["tests"]
+testpaths = ["tests/unit", "tests/integration"]
 addopts = "--import-mode=importlib"
+markers = [
+    "xdist_group: mark test to run in a specific xdist group",
+]
 
 [tool.coverage.run]
 source = ["pycil"]

@@ -64,6 +64,7 @@ export function frontendEnvironment(): Record<string, string> {
   return {
     E2E_RUN_ID: runId,
     E2E_ARTIFACTS: artifacts,
+    ...(process.env.E2E_CACHE_BUILD ? { E2E_CACHE_BUILD: process.env.E2E_CACHE_BUILD } : {}),
     NEXT_PUBLIC_DATA_MODE: "live",
     NEXT_PUBLIC_PYCIL_API_URL: apiURL,
     PYCIL_API_URL: apiURL,

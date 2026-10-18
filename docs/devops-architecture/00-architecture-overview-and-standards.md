@@ -40,7 +40,7 @@ The requested delivery is this design set. Configuration blocks are implementati
 | [01 — Current state and capacity](01-current-state-audit-and-capacity.md) | Evidence, sizing, resource and disk budgets, Little's Law |
 | [02 — Application and Redis](02-app-12factor-and-redis-design.md) | Exact source changes, health, lifecycle, telemetry, cache behavior |
 | [03 — Independent infrastructure](03-hybrid-infrastructure-vps-and-aws-iac.md) | Compose, ingress, hardening, Terraform, AWS lifecycle and cost |
-| [04 — Observability](04-observability-lgtm-and-public-dashboard.md) | Collectors, dashboards, correlation, sharing, retention and alerts |
+| [04 — Observability](04-observability-lgtm-and-public-dashboard.md) | Collectors, private dashboards, correlation, retention and alerts |
 | [05 — Delivery and recovery](05-devsecops-cicd-and-walg-backup.md) | CI/CD, OIDC, WAL-G, PITR, RDS restore, Makefile and runbooks |
 | [06 — Performance and roadmap](06-k6-performance-testing-and-roadmap.md) | Shared k6 workloads, release comparisons and implementation gates |
 | [07 — Search design navigation](07-tantivy-replica-sync-proposal.md) | Link to the root search/content-revision authority and implementation gates |

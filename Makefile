@@ -1,6 +1,6 @@
 # Application startup never migrates. Invoke migrate against an explicit target.
 .PHONY: api-dev migrate docker-build docker-up docker-down lint test test-api \
-	test-unit test-integration openapi storybook storybook-build
+	test-unit test-integration test-benchmark openapi storybook storybook-build
 
 storybook:
 	cd apps/web && pnpm run storybook
@@ -33,10 +33,13 @@ openapi:
 test: test-api
 
 test-api:
-	cd apps/api && uv run --locked pytest tests -q
+	cd apps/api && uv run --locked pytest -q
 
 test-unit:
 	cd apps/api && uv run --locked pytest tests/unit -q
 
 test-integration:
 	cd apps/api && uv run --locked pytest tests/integration -q
+
+test-benchmark:
+	cd apps/api && uv run --locked pytest tests/benchmarks -v

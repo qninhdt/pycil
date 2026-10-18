@@ -6,14 +6,17 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "build:mock": "NEXT_PUBLIC_DATA_MODE=mock NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=\"\" next build",
     "start": "next start",
     "lint": "oxlint",
     "typecheck": "next typegen && tsc --noEmit",
-    "test": "pnpm test:unit && pnpm test:integration",
+    "test": "pnpm test:vitest && pnpm test:browser",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
+    "test:vitest": "vitest run",
+    "test:browser": "node node_modules/@playwright/test/cli.js test --project integration",
     "test:unit": "vitest run --project unit",
-    "test:integration": "vitest run --project integration && node node_modules/@playwright/test/cli.js test --project integration"
+    "test:integration": "vitest run --project integration"
   },
   "dependencies": {
     "@ag-ui/client": "0.0.59",

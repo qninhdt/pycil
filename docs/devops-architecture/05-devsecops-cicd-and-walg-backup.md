@@ -1,6 +1,6 @@
 # DevSecOps delivery, backup and operational recovery
 
-**Status:** implementation design only. Read the [overview](00-architecture-overview-and-standards.md), [resource budget](01-current-state-audit-and-capacity.md) and [infrastructure lifecycle](03-hybrid-infrastructure-vps-and-aws-iac.md) first. No deployment or backup configuration was changed during this audit.
+**Status:** delivery and backup remain implementation designs. The persistent AWS foundation has been applied; see [lesson 15 execution evidence](../../devops-course/lab/lesson15/README.md) for verified scope and remaining gates. Read the [overview](00-architecture-overview-and-standards.md), [resource budget](01-current-state-audit-and-capacity.md) and [infrastructure lifecycle](03-hybrid-infrastructure-vps-and-aws-iac.md) first.
 
 ## Worker release boundary
 
@@ -89,13 +89,13 @@ IAM trust policy **fragment** for the AWS demo deployment role; substitute the r
   "Condition": {
     "StringEquals": {
       "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-      "token.actions.githubusercontent.com:sub": "repo:qninhdt/pycil:environment:aws-demo"
+      "token.actions.githubusercontent.com:sub": "repo:qninhdt/pycil:ref:refs/heads/main"
     }
   }
 }
 ```
 
-Configure GitHub environment deployment branch/tag restrictions and required reviewers as the release policy. Environment-scoped OIDC `sub` does not itself encode `main`; the GitHub environment restriction supplies that additional gate. A separate foundation-admin role handles rare foundation changes; the workload role cannot delete backup/state buckets, OIDC identity or foundation IAM roles. Grant `iam:PassRole` only for exact ECS execution/task roles with `ecs-tasks.amazonaws.com` and the finite restore role with the EC2 service principal. Scope ECS service/task updates, telemetry permissions and restore-only SSM/EC2 operations to this workload. Read/list permissions that require wildcard resources must be isolated from scoped write permissions. Do not authenticate routine operations as AWS account root. [AWS OIDC for GitHub Actions](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-aws).
+AWS deployment will use a manual `workflow_dispatch` on `main`, with the branch-scoped OIDC subject above. GitHub rejected required-reviewer protection for this private repository's current plan; retain private visibility and do not require another reviewer or upgrade the plan. Do not assign an environment to this AWS job without revisiting trust: an environment changes the default OIDC subject. IAM trust restricts the branch, but does not enforce manual invocation or identify a particular workflow; the workflow configuration and control of `main` supply those safeguards. The workflow itself remains later CI/CD work.
 
 Image publication uses the separate `pycil-image-publish` role, configured through
 `AWS_PUBLISH_ROLE_ARN`. Its only writes are image upload operations on the exact
@@ -103,6 +103,8 @@ Image publication uses the separate `pycil-image-publish` role, configured throu
 It shares the main-branch OIDC audience/subject restriction above. This establishes
 least-privilege registry access, not a successful federation test; a real Actions
 run must still prove accepted and rejected identities.
+
+A separate foundation-admin identity handles rare foundation changes; the workload role cannot delete backup/state buckets, OIDC identity or foundation IAM roles. Grant `iam:PassRole` only for exact ECS execution/task roles with `ecs-tasks.amazonaws.com` and the finite restore role with the EC2 service principal. Scope ECS service/task updates, telemetry permissions and restore-only SSM/EC2 operations to this workload. Read/list permissions that require wildcard resources must be isolated from scoped write permissions. Do not authenticate routine operations as AWS account root. [AWS OIDC for GitHub Actions](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-aws).
 
 | Credential / setting | Storage and reader | Rotation / control |
 | --- | --- | --- |
@@ -130,7 +132,7 @@ Use ECS rolling deployment, `minimumHealthyPercent=100`, `maximumPercent=200`, d
 
 ALB uses an IP target group at API HTTP 8000, readiness `/readyz`, interval 15 seconds, timeout five, thresholds two and deregistration delay 90 seconds. API `stopTimeout=120` bounds the 75-second Uvicorn drain and cleanup; calibrate ECS health-check grace against image pull/RDS/index build. Initial activation has no previous completed deployment: hold DNS and clean up incomplete workload. A failed update rolls back to the previous compatible task-definition/digest; successful startup alone is insufficient without business checks.
 
-Every AWS task has an independent Tantivy index. Until the [accepted search design](../../search_and_content_revisions.md) passes its implementation checks, freeze dictionary-changing requests and quiesce jobs throughout **every replacement overlap**, even at desired count one. Validate candidate indexes against the fixed dataset; rebuild/verify the surviving task before restoring writes. Once synchronization passes, bootstrap/catch-up/freshness tests gate mutable rolling continuity. VPS compatible slots share one lifetime writer/poller. The first transition to revision-driven indexing pauses content writes and must not overlap old direct-index writers with the new ownership model; rollback preserves revision history and business data.
+Every AWS task has an independent Tantivy index. Until the [search ownership contract](../backend/modules/vocabulary.md#search-and-projections) passes its implementation checks, freeze dictionary-changing requests and quiesce jobs throughout **every replacement overlap**, even at desired count one. Validate candidate indexes against the fixed dataset; rebuild/verify the surviving task before restoring writes. Once synchronization passes, bootstrap/catch-up/freshness tests gate mutable rolling continuity. VPS compatible slots share one lifetime writer/poller. The first transition to revision-driven indexing pauses content writes and must not overlap old direct-index writers with the new ownership model; rollback preserves revision history and business data.
 
 Observe both readiness and a real business operation: a healthy DB socket alone does not prove a compatible response schema. If post-deploy 5xx exceed 2% for two minutes with sufficient traffic, or a contract smoke fails, revert routing/image digest to the last compatible digest. Archive rollout logs and the failure report before teardown.
 
@@ -139,6 +141,13 @@ Application rollback does **not** undo a successful schema change. Use expand/co
 Vercel: retain separate frontend deployments/API base URLs for VPS and AWS; verify Clerk origin/CORS settings for each. Deploy a backward-compatible backend first, then frontend; only afterward contract the API. `NEXT_PUBLIC_*` values are build-time and public. Keep the previous Vercel deployment available; AWS shutdown should remove its demo route or show a planned offline state. Vercel project behavior remains an implementation verification gate.
 
 ## 5. WAL-G producer design
+
+The [lesson-16 implementation](../../devops-course/lab/lesson16/README.md) proves the
+backup path on an isolated copy of Pycil data in the existing S3 bucket. Its pinned
+Debian image, native credential/encryption configuration, outcome utility, Alloy
+collection, Grafana views and production overlay/timer are owned there. This is
+lab evidence, not a live VPS deployment; image vulnerability review, targeted
+recovery and host-capacity gates still block production activation.
 
 PostgreSQL **18.6** and WAL-G **3.0.9** are the physical compatibility set. Build a reviewed, scanned custom PostgreSQL image with the official Debian/glibc PostgreSQL base and a verified WAL-G binary/source artifact. Do not copy a glibc WAL-G binary into the current Alpine image without proving compatibility. Validate CPU architecture, PostgreSQL backup protocol, binary dependencies and chosen encryption support in CI. Deploy that custom image by real digest.
 
@@ -174,18 +183,19 @@ Use client-side OpenPGP encryption with WAL-G's native key-file setting: the pro
 
 The backup database role gets only the WAL-G PostgreSQL-18 backup/introspection function privileges required by the chosen release, validated through a real backup/fetch smoke test; it is separate from API and monitoring roles. `PGPASSFILE` is mode 0600 and readable by the actual utility UID. Backup utility scratch space and credentials are private mounts; do not put the password in `PGPASSWORD` in a committed Compose file. The backup connection counts against the ten reserved admin/maintenance slots.
 
-The AWS signing helper **1.8.5** supplies `credential_process` in a read-only AWS profile. IAM Roles Anywhere trust anchor/certificate role is limited to this prefix. The producer can upload and perform only the required listing/read checks; it cannot prune. A distinct maintenance identity deletes obsolete chains; a recovery identity reads and decrypts. Verify WAL-G's Go SDK credential-process support and automatic refresh during a restore longer than one credential session. Temporary credentials are not replaced by a hardcoded host access key. [Roles Anywhere credential helper](https://docs.aws.amazon.com/rolesanywhere/latest/userguide/credential-helper.html).
+The AWS signing helper **1.8.5** supplies `credential_process` in a read-only AWS profile. IAM Roles Anywhere trust anchor/certificate role is limited to this prefix. The producer can upload and perform only the required listing/read checks; it cannot prune. A distinct maintenance identity deletes obsolete chains; a recovery identity reads and decrypts. Verify WAL-G's Go SDK credential-process support and automatic refresh inside one WAL-G operation longer than one credential session. Temporary credentials are not replaced by a hardcoded host access key. [Roles Anywhere credential helper](https://docs.aws.amazon.com/rolesanywhere/latest/userguide/credential-helper.html).
 
 Run a daily full base backup at 02:30 UTC using a systemd timer, `Persistent=true`, bounded retry and a finite runtime, outside deploy/test windows. Check backup sentinel completion, record size/time/identity and publish the backup gauges in [document 04](04-observability-lgtm-and-public-dashboard.md). A successful `archive_command` means upload succeeded durably; never append `|| true`. A failed archive retries and accumulates local WAL; `max_wal_size` is not a cap on unarchived WAL.
 
-Proposed utility commands, executed only after implementation approval:
-
-```sh
-# Services/secrets/PGDATA are supplied by the production manifest, not this example.
-docker compose -f infra/vps/compose.production.yaml run --rm backup \
-  wal-g backup-push /var/lib/postgresql/18/docker
-docker compose -f infra/vps/compose.production.yaml run --rm backup wal-g backup-list --json
-```
+Use the [implemented utility and viewing commands](../../devops-course/lab/lesson16/README.md#view-results).
+The production overlay and systemd units are prepared there but not installed or
+enabled on the VPS. Production must bind its own real system identifier and reviewed
+registry digest; the lab prefix and local image ID are not deployment inputs.
+Released WAL-G 3.0.9 falsely reported prune success in the lab. An unmodified
+upstream build containing fix #2549 passed the lab prune/fetch/WAL checks without
+expanding IAM permissions. The temporary tool and exact commit are recorded in the
+runbook; it is not a production-approved dependency. Require a reviewed fixed
+release/digest and verify the retained backup set rather than trusting exit 0 alone.
 
 `archive_timeout=60s` causes a switch when there has been WAL activity; it is not a guaranteed RPO. One full 16 MiB segment per minute is **22.5 GiB/day before compression**. Archive rate, compression ratio, latency, uploads and retained base size determine cost. Measure last successful archive time **when WAL is being generated**; an idle server need not upload a segment every minute. Proposed RPO ≤5 minutes and RTO ≤60 minutes are targets until a drill demonstrates them.
 
@@ -226,6 +236,12 @@ flowchart LR
 5. At the paused target, inspect expected rows, application schema/Alembic head, native checkpoint tables, foreign keys and the specifically reversed event. Record recovered timestamp and measured data-loss interval. Promote only after verification. A wrong target, missing WAL or unreadable key fails the drill; it does not qualify as a backup success.
 6. Test the API against recovered data with providers disabled through operational isolation/credentials, rebuild Tantivy from DB, and verify readiness and representative reads. Do not introduce a business-logic flag or mocks for this exercise. Preserve a signed drill report, elapsed RTO, backup/WAL sizes and any gaps.
 7. For a real disaster, switch the application DB route only under the incident change procedure, restart connection-owning processes, verify business operations, and retain the original data until recovery is accepted. Delete only disposable drill resources after the report and stop their processes cleanly.
+
+The [assisted local PITR runbook](../../devops-course/lab/lesson17/README.md) records
+the verified native recovery route, including clearing inherited configuration in
+the restored copy, pausing before promotion and rebuilding search before API
+acceptance. Local evidence does not establish production RPO/RTO or replace the
+independent key-custody, signed-report and production activation gates.
 
 ## 8. Cross-environment restore into RDS during `aws-up`
 

@@ -1,5 +1,5 @@
 x-api: &api
-  image: pycil-e2e-api:${E2E_RUN_ID}
+  image: ${E2E_API_IMAGE:-pycil-e2e-api:${E2E_RUN_ID}}
   build:
     context: ../..
     dockerfile: apps/api/Dockerfile

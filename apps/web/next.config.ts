@@ -10,9 +10,14 @@ const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts')
 const publishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ?? ''
 const mode = resolveDataMode(process.env.NEXT_PUBLIC_DATA_MODE)
 
+const isCacheBuild = process.env.E2E_CACHE_BUILD === '1' || process.env.E2E_CACHE_BUILD === 'true'
+const e2eDir = isCacheBuild ? 'build-cache' : process.env.E2E_RUN_ID
+
 const config: NextConfig = {
-  distDir: process.env.E2E_RUN_ID ? `.e2e/${process.env.E2E_RUN_ID}/next` : '.next',
-  typescript: { tsconfigPath: process.env.E2E_RUN_ID ? `.e2e/${process.env.E2E_RUN_ID}/tsconfig.json` : 'tsconfig.json' },
+  distDir: isCacheBuild
+    ? '.e2e/build-cache/next'
+    : (process.env.E2E_RUN_ID ? `.e2e/${process.env.E2E_RUN_ID}/next` : '.next'),
+  typescript: { tsconfigPath: e2eDir ? `.e2e/${e2eDir}/tsconfig.json` : 'tsconfig.json' },
   allowedDevOrigins: Object.values(networkInterfaces()).flatMap(interfaces =>
     interfaces?.filter(address => address.family === 'IPv4').map(address => address.address) ?? []
   ),

@@ -10,10 +10,12 @@ from pycil.vocabulary.references.importer import import_reference
 from tests.support.reference import reference_file, reference_word
 
 
+@pytest.mark.xdist_group("serial_redis")
 @pytest.mark.parametrize("failed_component", ["database", "redis", "redis_timeout"])
 async def test_readiness_dependency_failures_return_safe_503_and_preserve_health(
     database, redis_store, redis_container, failed_component
 ):
+    import contextlib
     from time import perf_counter
     from types import SimpleNamespace
 
@@ -32,7 +34,7 @@ async def test_readiness_dependency_failures_return_safe_503_and_preserve_health
         policy=load_config().vocabulary.search_runtime,
         query_policy=load_config().vocabulary.search,
     )
-    broken_engine = broken_redis = None
+    broken_engine = broken_redis = timeout_redis = timeout_container = None
     try:
         await index.start()
         app.state.search = index
@@ -53,11 +55,22 @@ async def test_readiness_dependency_failures_return_safe_503_and_preserve_health
                 socket_timeout=1,
             )
             app.state.redis = broken_redis
+        elif failed_component == "redis_timeout":
+            from testcontainers.community.redis import RedisContainer
+
+            timeout_container = RedisContainer("redis:8.10.2-alpine3.23")
+            timeout_container.start()
+            timeout_redis = Redis(
+                host=timeout_container.get_container_host_ip(),
+                port=int(timeout_container.get_exposed_port(6379)),
+                socket_connect_timeout=5,
+                socket_timeout=5,
+            )
+            app.state.redis = timeout_redis
+            await timeout_redis.execute_command("CLIENT", "PAUSE", 1500, "ALL")
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://api.test"
         ) as client:
-            if failed_component == "redis_timeout":
-                await redis.execute_command("CLIENT", "PAUSE", 1500, "ALL")
             started = perf_counter()
             response = await client.get("/readyz")
             if failed_component == "redis_timeout":
@@ -68,6 +81,12 @@ async def test_readiness_dependency_failures_return_safe_503_and_preserve_health
         assert database.engine.pool.checkedout() == 0
     finally:
         await index.close()
+        if timeout_redis is not None:
+            with contextlib.suppress(Exception):
+                await timeout_redis.execute_command("CLIENT", "UNPAUSE")
+            await timeout_redis.aclose()
+        if timeout_container is not None:
+            timeout_container.stop()
         if broken_redis is not None:
             await broken_redis.aclose()
         if broken_engine is not None:
