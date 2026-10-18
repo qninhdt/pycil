@@ -68,7 +68,7 @@ test('auto approval cannot publish a deck without explicit publication consent',
   await guest.goto(`/u/${user.account.id}/${deck.id}`)
   await expect(guest.getByRole('heading', { level: 1 })).not.toContainText(deck.name)
   await user.page.getByRole('button', { name: 'Close PycilAI', exact: true }).click()
-  await user.page.getByRole('button', { name: `Settings for ${deck.name}`, exact: true }).click()
+  await user.page.getByRole('button', { name: `Actions for ${deck.name}`, exact: true }).click()
   await user.page.getByRole('menuitem', { name: 'Publish', exact: true }).click()
   await user.page.getByRole('alertdialog').getByRole('button', { name: 'Publish', exact: true }).click()
   await expect(user.page).toHaveURL(new RegExp(`/app/published/${deck.id}$`))

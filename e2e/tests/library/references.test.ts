@@ -3,7 +3,7 @@ import { test, expect } from '../../fixtures/index.ts'
 test('a reference created through UI follows source membership and deduplicates folder scope', async ({ user, data, vocabulary }) => {
   const source = await data.create({ name: 'River source', type: 'deck', sense_ids: [vocabulary.bankRiver.sense_id] })
   await user.page.goto(`/app/personal/${source.id}`)
-  await user.page.getByRole('button', { name: `Settings for ${source.name}`, exact: true }).click()
+  await user.page.getByRole('button', { name: `Actions for ${source.name}`, exact: true }).click()
   await user.page.getByRole('menuitem', { name: 'Create reference', exact: true }).click()
   const dialog = user.page.getByRole('dialog', { name: 'Create reference', exact: true })
   await dialog.getByLabel('Title', { exact: true }).fill('River reference')

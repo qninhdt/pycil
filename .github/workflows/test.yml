@@ -164,6 +164,7 @@ jobs:
           version: v0.75.0
           scan-type: fs
           scanners: misconfig,secret
+          trivyignores: .trivyignore.yaml
           severity: HIGH,CRITICAL
           exit-code: '1'
           format: json

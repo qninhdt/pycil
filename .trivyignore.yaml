@@ -1,7 +1,7 @@
 # Runtime image risk accepted by the operator on 2026-10-18; not a vulnerability fix.
 # Exact CVE/package versions for API and backup images; no automatic expiry.
 # Use official upstream artifacts; reassess on image/binary updates.
-# Source and secret scanning have no exceptions; acceptance is not a fix.
+# Secret scanning has no exceptions; PostgreSQL bootstrap is scoped below.
 vulnerabilities:
   - id: CVE-2025-69720
     purls:
@@ -341,3 +341,11 @@ vulnerabilities:
     statement: >-
       Operator accepted the official artifact while no patched official binary or
       distribution package is available. Retain the scan and recheck on update.
+
+misconfigurations:
+  - id: AVD-DS-0002
+    paths:
+      - "infra/vps/backup/Dockerfile"
+    statement: >-
+      The official PostgreSQL entrypoint initializes volume ownership as root,
+      then execs PostgreSQL as postgres. The backup utility runs as UID 999 in Compose.

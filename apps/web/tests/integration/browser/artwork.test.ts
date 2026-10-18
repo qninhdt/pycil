@@ -180,26 +180,20 @@ test('all 16 backgrounds re-anchor to wide, square and tall widgets, without cli
       parent.style.height = `${size.height}px`
       parent.style.flex = 'none'
     }), { width, height })
-    await expect.poll(async () => backgrounds.evaluateAll(nodes => nodes.every(node => {
-      const svg = node as SVGSVGElement, bounds = svg.getBoundingClientRect(), box = svg.viewBox.baseVal
-      return Math.abs(bounds.width / bounds.height - box.width / box.height) < .0001
-    }))).toBe(true)
-    await expect.poll(async () => backgrounds.evaluateAll(nodes => nodes.every(node => {
-      const svg = node as SVGSVGElement, bounds = svg.getBoundingClientRect()
-      const canvas = svg.querySelector('[data-background-canvas]')!.getBoundingClientRect()
-      return Math.abs(canvas.width - bounds.width) <= 1.5 && Math.abs(canvas.height - bounds.height) <= 1.5
-    }))).toBe(true)
-    const checks = await backgrounds.evaluateAll(nodes => nodes.map(node => {
-      const svg = node as SVGSVGElement, bounds = svg.getBoundingClientRect(), canvas = svg.querySelector('[data-background-canvas]')!.getBoundingClientRect()
-      const shapes = [...svg.querySelectorAll<SVGGraphicsElement>('path, circle, rect')].filter(shape => !shape.hasAttribute('data-background-canvas'))
-      return {
-        name: svg.dataset.background,
-        canvasFills: Math.abs(canvas.width - bounds.width) <= 1.5 && Math.abs(canvas.height - bounds.height) <= 1.5,
-        uniform: shapes.every(shape => { const matrix = shape.getScreenCTM()!; return Math.abs(matrix.a - matrix.d) < .0001 && matrix.b === 0 && matrix.c === 0 }),
-        inside: shapes.every(shape => { const rect = shape.getBoundingClientRect(); return rect.left >= bounds.left - .5 && rect.right <= bounds.right + .5 && rect.top >= bounds.top - .5 && rect.bottom <= bounds.bottom + .5 }),
-      }
-    }))
-    for (const check of checks) expect(check, `${check.name} at ${width}×${height}`).toMatchObject({ canvasFills: true, uniform: true, inside: true })
+    await expect(async () => {
+      const checks = await backgrounds.evaluateAll(nodes => nodes.map(node => {
+        const svg = node as SVGSVGElement, bounds = svg.getBoundingClientRect(), canvas = svg.querySelector('[data-background-canvas]')!.getBoundingClientRect()
+        const shapes = [...svg.querySelectorAll<SVGGraphicsElement>('path, circle, rect')].filter(shape => !shape.hasAttribute('data-background-canvas'))
+        return {
+          name: svg.dataset.background,
+          ratioMatches: Math.abs(bounds.width / bounds.height - svg.viewBox.baseVal.width / svg.viewBox.baseVal.height) < .0001,
+          canvasFills: Math.abs(canvas.width - bounds.width) <= 1.5 && Math.abs(canvas.height - bounds.height) <= 1.5,
+          uniform: shapes.every(shape => { const matrix = shape.getScreenCTM()!; return Math.abs(matrix.a - matrix.d) < .0001 && matrix.b === 0 && matrix.c === 0 }),
+          inside: shapes.every(shape => { const rect = shape.getBoundingClientRect(); return rect.left >= bounds.left - .5 && rect.right <= bounds.right + .5 && rect.top >= bounds.top - .5 && rect.bottom <= bounds.bottom + .5 }),
+        }
+      }))
+      for (const check of checks) expect(check, `${check.name} at ${width}×${height}`).toMatchObject({ ratioMatches: true, canvasFills: true, uniform: true, inside: true })
+    }).toPass()
   }
   const inverse = page.locator('#backgrounds [data-background=inverse-poster] [data-background-canvas]')
   await page.evaluate(() => document.documentElement.classList.remove('dark'))

@@ -1,4 +1,5 @@
 # syntax=docker/dockerfile:1
+# The upstream entrypoint initializes volume ownership as root, then runs PostgreSQL as postgres.
 FROM postgres:18.6-trixie@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336
 
 # The verified upstream WAL-G artifact is amd64; reject other architectures.

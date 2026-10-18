@@ -6,7 +6,7 @@ test('publication needs consent and unpublishing revokes guest and saved-referen
   const errors: unknown[] = []
   try {
     await user.page.goto(`/app/personal/${deck.id}`)
-    const actions = user.page.getByRole('button', { name: `Settings for ${deck.name}` })
+    const actions = user.page.getByRole('button', { name: `Actions for ${deck.name}` })
     await actions.click()
     await user.page.getByRole('menuitem', { name: 'Publish', exact: true }).click()
     await user.page.getByRole('alertdialog').getByRole('button', { name: 'Cancel', exact: true }).click()
@@ -41,7 +41,7 @@ test('publishing a subtree retains its Personal reference and deleting it revoke
   const folder = await data.create({ name: 'Shared finance folder', type: 'folder' })
   const deck = await data.create({ name: 'Shared finance descendant', type: 'deck', parent_id: folder.id, sense_ids: [vocabulary.bankFinancial.sense_id] })
   await user.page.goto(`/app/personal/${folder.id}`)
-  const settings = user.page.getByRole('button', { name: `Settings for ${folder.name}`, exact: true })
+  let settings = user.page.getByRole('button', { name: `Actions for ${folder.name}`, exact: true })
   await settings.click()
   await user.page.getByRole('menuitem', { name: 'Publish', exact: true }).click()
   await user.page.getByRole('checkbox', { name: 'Keep a reference in Personal', exact: true }).check()
@@ -53,6 +53,7 @@ test('publishing a subtree retains its Personal reference and deleting it revoke
   await user.page.getByRole('checkbox', { name: 'Keep a reference in Personal', exact: true }).check()
   await user.page.getByRole('alertdialog').getByRole('button', { name: 'Publish', exact: true }).click()
   await expect(user.page).toHaveURL(new RegExp(`/app/published/${folder.id}$`))
+  settings = user.page.getByRole('button', { name: `Settings for ${folder.name}`, exact: true })
   const personal = await user.api.call<{ nodes: { id: string; reference_id?: string }[] }>(`nodes?parent_id=${user.account.personal_node_id}`)
   const retained = personal.nodes.filter(node => node.reference_id === folder.id)
   expect(retained).toHaveLength(1)
