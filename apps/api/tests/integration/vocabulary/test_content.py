@@ -267,3 +267,17 @@ async def test_viewer_context_never_reuses_another_users_memory_or_private_sourc
                 policy=config.vocabulary.preview,
             )
         assert error.value.code == "context_too_large"
+
+
+async def test_uncached_words_keep_fresh_rows_and_bind_each_requested_identifier(database):
+    from sqlalchemy import update
+
+    from pycil.vocabulary.models import Word as WordRow
+
+    word_id, _ = await neutral_word(database.sessions)
+    assert (await get_word(database.sessions, word_id)).lemma == "bank"
+    assert await get_word(database.sessions, 99999) is None
+    async with database.sessions() as session, session.begin():
+        await session.execute(update(WordRow).where(WordRow.id == word_id).values(lemma="lender"))
+    assert (await get_word(database.sessions, word_id)).lemma == "lender"
+    assert await get_word(database.sessions, 99999) is None

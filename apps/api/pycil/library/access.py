@@ -33,7 +33,7 @@ def published(node: FromClause) -> ColumnElement[bool]:
     return and_(has_root(node, NodeRole.LIBRARY_ROOT), has_root(node, NodeRole.PUBLISHED_ROOT))
 
 
-def visible(node: FromClause, viewer_id: UUID | None) -> ColumnElement[bool]:
+def visible(node: FromClause, viewer_id: UUID | ColumnElement[UUID] | None) -> ColumnElement[bool]:
     ancestor = Node.__table__.alias()
     path = NodePath.__table__.alias()
     broken = (
@@ -54,7 +54,7 @@ def visible(node: FromClause, viewer_id: UUID | None) -> ColumnElement[bool]:
     )
 
 
-def reference_visible(node: FromClause, viewer_id: UUID | None) -> Exists:
+def reference_visible(node: FromClause, viewer_id: UUID | ColumnElement[UUID] | None) -> Exists:
     target = Node.__table__.alias()
     return (
         select(target.c.id)

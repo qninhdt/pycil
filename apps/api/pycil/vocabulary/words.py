@@ -7,7 +7,7 @@ from itertools import batched
 from typing import cast
 from uuid import UUID
 
-from sqlalchemy import and_, func, literal, select
+from sqlalchemy import Select, and_, bindparam, func, literal, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.sql.elements import ColumnElement
@@ -169,30 +169,9 @@ async def get_senses(
     return [found[identifier] for identifier in identifiers if identifier in found]
 
 
-async def get_word(
-    sessions: async_sessionmaker[AsyncSession],
-    identifier: int,
-    *,
-    theme_key: str | None = None,
-    word_store: InMemoryStore[int, CachedWord] | None = None,
-    sense_store: InMemoryStore[int, Sense] | None = None,
-) -> Word | None:
-    if theme_key is not None:
-        word_store = None
-        sense_store = None
-    if word_store is not None and (cached := word_store.get(identifier)) is not None:
-        senses = await get_senses(sessions, cached.sense_ids, store=sense_store)
-        if len(senses) == len(cached.sense_ids):
-            return Word(
-                id=cached.id,
-                lemma=cached.lemma,
-                type=cached.type,
-                generation_state=cached.generation_state,
-                aliases=list(cached.aliases),
-                related=list(cached.related),
-                senses=senses,
-            )
-        word_store.discard(identifier)
+def _word_query(
+    identifier: int | ColumnElement[int], theme_key: str | None = None
+) -> Select[tuple[bool, object]]:
     theme_id, valid = theme_scope(theme_key=theme_key)
     source = rows.Word.__table__
     edge = rows.WordRelation.__table__
@@ -228,8 +207,41 @@ async def get_word(
         )
         .scalar_subquery()
     )
+    return select(valid, payload)
+
+
+# Reuse SQL structure, never rows: every uncached read still executes PostgreSQL.
+_NEUTRAL_WORD_QUERY = _word_query(bindparam("word_id", type_=rows.Word.__table__.c.id.type))
+
+
+async def get_word(
+    sessions: async_sessionmaker[AsyncSession],
+    identifier: int,
+    *,
+    theme_key: str | None = None,
+    word_store: InMemoryStore[int, CachedWord] | None = None,
+    sense_store: InMemoryStore[int, Sense] | None = None,
+) -> Word | None:
+    if theme_key is not None:
+        word_store = None
+        sense_store = None
+    if word_store is not None and (cached := word_store.get(identifier)) is not None:
+        senses = await get_senses(sessions, cached.sense_ids, store=sense_store)
+        if len(senses) == len(cached.sense_ids):
+            return Word(
+                id=cached.id,
+                lemma=cached.lemma,
+                type=cached.type,
+                generation_state=cached.generation_state,
+                aliases=list(cached.aliases),
+                related=list(cached.related),
+                senses=senses,
+            )
+        word_store.discard(identifier)
+    query = _word_query(identifier, theme_key) if theme_key is not None else _NEUTRAL_WORD_QUERY
+    parameters = {} if theme_key is not None else {"word_id": identifier}
     async with sessions() as session:
-        theme_valid, data = (await session.execute(select(valid, payload))).one()
+        theme_valid, data = (await session.execute(query, parameters)).one()
     if not theme_valid:
         raise InvalidResourceError("unknown theme")
     if data is None or not data["senses"]:
