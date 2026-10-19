@@ -6,13 +6,53 @@ from pycil.app.config import load_config
 from pycil.app.http import status_for
 from pycil.library.access import readable
 from pycil.library.models import NodeRole, NodeType
-from pycil.library.nodes import create_node
-from pycil.library.schemas import NodeCreate
+from pycil.library.nodes import create_node, move_node
+from pycil.library.schemas import NodeCreate, NodeMove
 from pycil.library.scope import ScopeBudget, bounded, resolve_scopes
 from pycil.library.search import search_nodes
 from pycil.utils.errors import OperationError
 from tests.support.account import account
 from tests.support.vocabulary import neutral_word
+
+
+@pytest.mark.parametrize("materialize", [False, True])
+async def test_reused_scope_queries_keep_viewers_and_publication_live(database, materialize):
+    config = load_config().library
+    owner, roots = await account(database.sessions)
+    stranger, _ = await account(database.sessions)
+    async with database.sessions() as session:
+        deck = await create_node(
+            session, owner.id, NodeCreate(type=NodeType.DECK, name="Private"), config
+        )
+    for public in (False, True, False):
+        async with database.sessions() as session:
+            deck = await move_node(
+                session,
+                owner.id,
+                deck["id"],
+                NodeMove(
+                    parent_id=roots[
+                        NodeRole.PUBLISHED_ROOT if public else NodeRole.PERSONAL_ROOT
+                    ].id,
+                    confirm_publication=public,
+                ),
+                config,
+            )
+        for viewer in (owner.id, stranger.id, None, owner.id):
+            async with database.sessions() as session:
+                if public or viewer == owner.id:
+                    scopes = await resolve_scopes(
+                        session,
+                        [deck["id"]],
+                        viewer,
+                        config,
+                        materialize_candidates=materialize,
+                    )
+                    assert scopes[deck["id"]].decks == {deck["id"]}
+                else:
+                    with pytest.raises(OperationError) as error:
+                        await resolve_scopes(session, [deck["id"]], viewer, config)
+                    assert status_for(error.value) == 404
 
 
 async def test_logical_reference_cycle_terminates_and_membership_is_distinct(database):

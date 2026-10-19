@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from time import monotonic
 from uuid import UUID
 
-from sqlalchemy import case, func, or_, select, text
+from sqlalchemy import bindparam, case, func, or_, select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
@@ -42,6 +42,39 @@ class Scope:
 
     def senses(self) -> Select[int]:
         return select(DeckSense.sense_id).where(DeckSense.deck_id.in_(self.decks)).distinct()
+
+
+_VIEWER_ID = bindparam("scope_viewer", type_=Node.__table__.c.owner_id.type)
+_ROOTS_QUERY = select(Node).where(
+    Node.id.in_(bindparam("scope_roots", expanding=True)),
+    Node.deleted_at.is_(None),
+    visible(Node.__table__, _VIEWER_ID),
+)
+
+
+def _descendants_query(materialize_candidates: bool) -> Select[tuple[Node, bool]]:
+    paths = select(NodePath.descendant_id).where(
+        NodePath.ancestor_id.in_(bindparam("scope_frontier", expanding=True))
+    )
+    if materialize_candidates:
+        candidates = paths.cte("scope_candidates").prefix_with("MATERIALIZED")
+        paths = select(candidates.c.descendant_id)
+    target_visible = reference_visible(Node.__table__, _VIEWER_ID)
+    return (
+        select(Node, case((Node.type == NodeType.REFERENCE, target_visible), else_=False))
+        .where(
+            Node.id.in_(paths),
+            ~Node.id.in_(bindparam("scope_visited", expanding=True)),
+            visible(Node.__table__, _VIEWER_ID),
+            or_(Node.owner_id == _VIEWER_ID, Node.type != NodeType.REFERENCE, target_visible),
+        )
+        .limit(bindparam("scope_limit"))
+    )
+
+
+# Cache query structures only; identities, visibility and rows remain live database reads.
+_DESCENDANTS_QUERY = _descendants_query(False)
+_MATERIALIZED_DESCENDANTS_QUERY = _descendants_query(True)
 
 
 @asynccontextmanager
@@ -107,11 +140,7 @@ async def resolve_scopes(
     roots = list(
         (
             await session.scalars(
-                select(Node).where(
-                    Node.id.in_(target_ids),
-                    Node.deleted_at.is_(None),
-                    visible(Node.__table__, viewer_id),
-                )
+                _ROOTS_QUERY, {"scope_roots": target_ids, "scope_viewer": viewer_id}
             )
         ).all()
     )
@@ -119,35 +148,18 @@ async def resolve_scopes(
         raise NotFound("node_not_found")
     frontier: set[UUID] = set(target_ids) - budget.nodes
     while frontier:
-        paths = select(NodePath.descendant_id).where(NodePath.ancestor_id.in_(frontier))
-        if materialize_candidates:
-            candidates = paths.cte("scope_candidates").prefix_with("MATERIALIZED")
-            paths = select(candidates.c.descendant_id)
         remaining = config.max_scope_nodes - len(budget.nodes)
+        query = _MATERIALIZED_DESCENDANTS_QUERY if materialize_candidates else _DESCENDANTS_QUERY
         rows = list(
             (
                 await session.execute(
-                    select(
-                        Node,
-                        case(
-                            (
-                                Node.type == NodeType.REFERENCE,
-                                reference_visible(Node.__table__, viewer_id),
-                            ),
-                            else_=False,
-                        ),
-                    )
-                    .where(
-                        Node.id.in_(paths),
-                        ~Node.id.in_(budget.nodes),
-                        visible(Node.__table__, viewer_id),
-                        or_(
-                            Node.owner_id == viewer_id,
-                            Node.type != NodeType.REFERENCE,
-                            reference_visible(Node.__table__, viewer_id),
-                        ),
-                    )
-                    .limit(remaining + 1)
+                    query,
+                    {
+                        "scope_frontier": tuple(frontier),
+                        "scope_visited": tuple(budget.nodes),
+                        "scope_viewer": viewer_id,
+                        "scope_limit": remaining + 1,
+                    },
                 )
             ).all()
         )
