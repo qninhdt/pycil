@@ -9,7 +9,7 @@ import { searchParams, type SearchValues } from '@/lib/query/url'
 import { publicMetadata } from '@/lib/seo'
 import { publicProfileQuery, publicAuthorQuery } from '@/features/account/public-queries'
 import { PublicProfilePage } from '@/features/account/public-profile-page.client'
-import { publicProfile, publicNode } from './public-server'
+import { publicResource } from './public-server'
 import { contentsOptions, contentsQuery, meaningOptions, meaningsQuery } from './queries'
 import { isDeck, publicCollectionHref } from './model'
 import { publicNodeQuery } from './public-queries'
@@ -19,28 +19,27 @@ export type PublicPageProps = { params: Promise<{ identifier: string; nodeId?: s
 
 const initialPublicPage = cache(async (identifier: string, nodeId: string | undefined, words: boolean, query: string) => {
   const services = getPublicServices(), client = makeQueryClient()
-  const profile = (await publicProfile(identifier))!
+  const { profile, node, title, description } = await publicResource(identifier, nodeId)
   const path = publicCollectionHref(profile.handle || profile.id, nodeId, words ? 'words' : 'overview')
   client.setQueryData(publicProfileQuery(services, identifier).queryKey, profile)
   client.setQueryData(publicAuthorQuery(services, profile.id).queryKey, profile)
   const params = new URLSearchParams(query)
-  if (!nodeId) {
+  if (!node) {
     const page = await client.fetchQuery(contentsQuery(services, 'public', profile.published_node_id, contentsOptions(params), true))
-    return { client, profile, path, title: profile.display_name || profile.handle || 'Learner', description: profile.bio || 'Published vocabulary collections on Pycil.', nonempty: page.nodes.length > 0 }
+    return { client, profile, path, title, description, nonempty: page.nodes.length > 0 }
   }
-  const node = (await publicNode(identifier, nodeId))!
-  client.setQueryData(publicNodeQuery(services, nodeId).queryKey, node)
+  client.setQueryData(publicNodeQuery(services, node.id).queryKey, node)
   let nonempty = false
   if (node.reference_available !== false) {
     if (words || isDeck(node)) {
-      const page = await client.fetchQuery(meaningsQuery(services, 'public', nodeId, words ? meaningOptions(params) : { limit: 12 }, true))
+      const page = await client.fetchQuery(meaningsQuery(services, 'public', node.id, words ? meaningOptions(params) : { limit: 12 }, true))
       nonempty = page.senses.length > 0
     } else {
-      const page = await client.fetchQuery(contentsQuery(services, 'public', node.target?.id ?? nodeId, contentsOptions(params), true))
+      const page = await client.fetchQuery(contentsQuery(services, 'public', node.target?.id ?? node.id, contentsOptions(params), true))
       nonempty = page.nodes.length > 0
     }
   }
-  return { client, profile, path, title: node.name, description: node.description || `Vocabulary ${isDeck(node) ? 'deck' : 'folder'} by ${profile.display_name || profile.handle || 'a Pycil learner'}.`, nonempty }
+  return { client, profile, path, title, description, nonempty }
 })
 
 async function pageData(props: PublicPageProps, words: boolean) {

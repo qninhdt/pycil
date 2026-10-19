@@ -3,17 +3,14 @@ import 'server-only'
 import { ImageResponse } from 'next/og'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { publicProfile, publicNode } from './public-server'
+import { publicResource } from './public-server'
 
 const font = readFile(join(process.cwd(), 'src/assets/manrope-social.ttf'))
 const mark = readFile(join(process.cwd(), 'public/pycil-mark.svg'), 'base64')
 
 export async function publicSocialImage({ params }: { params: Promise<{ identifier: string; nodeId?: string }> }) {
   const { identifier, nodeId } = await params
-  const [profile, node] = await Promise.all([publicProfile(identifier), nodeId ? publicNode(identifier, nodeId) : null])
-  const author = profile!.display_name || profile!.handle || 'Pycil learner'
-  const title = node?.name || author
-  const description = node ? `${node.type === 'reference' ? node.target?.type || 'Collection' : node.type} by ${author}` : profile!.bio || 'Published vocabulary on Pycil'
+  const { title, description } = await publicResource(identifier, nodeId)
   return socialImage(title, description)
 }
 

@@ -30,6 +30,42 @@ test('a public collection provides its actual meanings and resource title withou
   } finally { await context.close() }
 })
 
+test('public profiles, folders and decks expose resource metadata and share images without JavaScript', async ({ user, data, browser, vocabulary }) => {
+  const author = 'Vocabulary publisher', bio = 'Read and practice the vocabulary I share.'
+  await user.api.call('me/profile', 'PATCH', { display_name: author, bio })
+  const folder = await data.create({ name: 'River collections', description: 'Vocabulary for exploring rivers.', type: 'folder' })
+  const deck = await data.create({ name: 'River meanings', description: 'Learn the meanings along a river.', type: 'deck', parent_id: folder.id, sense_ids: [vocabulary.bankRiver.sense_id] })
+  await user.api.call(`nodes/${folder.id}:move`, 'POST', { parent_id: user.account.published_node_id, confirm_publication: true })
+  const context = await browser.newContext({ ignoreHTTPSErrors: true, javaScriptEnabled: false, baseURL: webURL, userAgent: 'Twitterbot' })
+  try {
+    const page = await context.newPage()
+    const profilePath = `/u/${user.account.handle || user.account.id}`
+    for (const [path, title, description] of [
+      [profilePath, author, bio],
+      [`${profilePath}/${folder.id}`, folder.name, 'Vocabulary for exploring rivers.'],
+      [`${profilePath}/${deck.id}`, deck.name, 'Learn the meanings along a river.'],
+    ] as const) {
+      const response = await page.goto(path)
+      expect(response?.status()).toBe(200)
+      await expect(page.getByRole('heading', { level: 1 })).toContainText(title)
+      await expect(page).toHaveTitle(`${title} — Pycil`)
+      await expect(page.locator('head meta[name=description]')).toHaveAttribute('content', description)
+      await expect(page.locator('head meta[property="og:title"]')).toHaveAttribute('content', title)
+      await expect(page.locator('head meta[property="og:description"]')).toHaveAttribute('content', description)
+      await expect(page.locator('head meta[name="twitter:description"]')).toHaveAttribute('content', description)
+      await expect(page.locator('link[rel=canonical]')).toHaveAttribute('href', `https://pycil.qninhdt.com${path}`)
+      const image = page.locator('head meta[property="og:image"]')
+      await expect(image).toHaveAttribute('content', `https://pycil.qninhdt.com${path}/opengraph-image`)
+      const png = await context.request.get(`${path}/opengraph-image`)
+      expect(png.status()).toBe(200)
+      expect(png.headers()['content-type']).toContain('image/png')
+      const bytes = await png.body()
+      expect(bytes.subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a')
+      expect([bytes.readUInt32BE(16), bytes.readUInt32BE(20)]).toEqual([1200, 630])
+    }
+  } finally { await context.close() }
+})
+
 test('server HTML follows request locale and explicit theme cookies', async ({ browser }) => {
   const context = await browser.newContext({ ignoreHTTPSErrors: true, javaScriptEnabled: false, baseURL: webURL, locale: 'en-US' })
   try {

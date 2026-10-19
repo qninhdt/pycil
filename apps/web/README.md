@@ -97,6 +97,8 @@ the latest 50 eligible Discovery entries, with at most five concurrent validatio
 Deeper content remains reachable through public links; the sitemap is not an
 exhaustive export of every published node. Public social-image routes use bundled
 logo/fonts, return 1200 × 630 PNG, recheck visibility and send `private, no-store`.
+Page metadata and social images share the public resource title and description,
+using the author's name when no profile bio or collection description is provided.
 Public HTML is also read without a shared Next data cache. External search/social
 services can retain their own previews after unpublishing.
 

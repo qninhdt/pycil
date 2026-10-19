@@ -41,7 +41,7 @@ export class Data {
     this.user.account = await this.user.api.call('me')
   }
 
-  async create(input: { name: string; type: 'folder' | 'deck' | 'reference'; parent_id?: string; reference_id?: string; sense_ids?: number[] }) {
+  async create(input: { name: string; description?: string; type: 'folder' | 'deck' | 'reference'; parent_id?: string; reference_id?: string; sense_ids?: number[] }) {
     const node = await this.user.api.call<Node>('nodes', 'POST', { parent_id: this.user.account.personal_node_id, ...input }, 201)
     this.track(node.id)
     return node

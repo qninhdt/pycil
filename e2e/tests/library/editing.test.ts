@@ -45,6 +45,7 @@ test('edit details, copy and remove a meaning without changing the copy, then de
   await user.page.getByRole('tab', { name: 'Words', exact: true }).click()
   await user.page.getByRole('button', { name: /View bank.*institution/ }).click()
   await user.page.getByRole('dialog').getByRole('button', { name: 'Remove from deck', exact: true }).click()
+  await expect(user.page.getByRole('dialog')).toBeHidden()
   expect(await user.api.call(`study/progress?node_id=${source.id}`)).toMatchObject({ total: 0 })
   expect(await user.api.call(`study/progress?node_id=${copy.id}`)).toMatchObject({ total: 1 })
   await user.page.goto(`/app/personal/${source.id}`)
