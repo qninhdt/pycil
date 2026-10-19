@@ -11,3 +11,13 @@ test('guest can reach sign-in and sign-up from the public landing', async ({ pag
   await expect(page.getByLabel('Email', { exact: true })).toBeVisible()
   expect(accountReads).toEqual([])
 })
+
+test('signed-in visitors can open the landing account menu', async ({ user }) => {
+  await user.page.goto('/')
+  const navigation = user.page.getByRole('navigation', { name: 'Main navigation' })
+  await expect(navigation.getByRole('link', { name: 'Open the app', exact: true })).toBeVisible()
+  const account = navigation.getByRole('button', { name: 'Open user menu', exact: true })
+  await expect(account).toBeVisible()
+  await account.click()
+  await expect(user.page.getByRole('button', { name: 'Manage account', exact: true })).toBeVisible()
+})

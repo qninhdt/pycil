@@ -34,7 +34,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <ThemeProvider initialTheme={theme}><UiProvider>{children}</UiProvider></ThemeProvider>
   </NextIntlClientProvider>
   const authenticated = dataMode === 'live' && process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
-    ? <ClerkProvider dynamic prefetchUI={false} signInUrl="/login" signUpUrl="/signup" signInFallbackRedirectUrl="/app" signUpFallbackRedirectUrl="/app" afterSignOutUrl="/login">{contents}</ClerkProvider>
+    ? <ClerkProvider dynamic signInUrl="/login" signUpUrl="/signup" signInFallbackRedirectUrl="/app" signUpFallbackRedirectUrl="/app" afterSignOutUrl="/login">{contents}</ClerkProvider>
     : contents
   return <html className={theme === 'dark' ? 'dark' : undefined} lang={initialLocale} data-scroll-behavior="smooth" data-time-of-day="morning" data-navigation-collapsed="false" suppressHydrationWarning>
     <head>
