@@ -267,3 +267,27 @@ async def test_viewer_context_never_reuses_another_users_memory_or_private_sourc
                 policy=config.vocabulary.preview,
             )
         assert error.value.code == "context_too_large"
+
+
+async def test_word_route_reads_sql_even_when_optional_stores_are_warm(database):
+    from types import SimpleNamespace
+
+    from pycil.vocabulary.api import word
+
+    word_id, _ = await neutral_word(database.sessions)
+    words, senses = InMemoryStore(4, 30), InMemoryStore(4, 30)
+    expected = await get_word(database.sessions, word_id, word_store=words, sense_store=senses)
+    runtime = SimpleNamespace(sessions=database.sessions, word_store=words, sense_store=senses)
+    statements = []
+
+    def record(*args):
+        statements.append(args[2])
+
+    event.listen(database.engine.sync_engine, "before_cursor_execute", record)
+    try:
+        for _ in range(2):
+            before = len(statements)
+            assert await word(word_id, None, runtime) == expected
+            assert len(statements) - before == 1
+    finally:
+        event.remove(database.engine.sync_engine, "before_cursor_execute", record)

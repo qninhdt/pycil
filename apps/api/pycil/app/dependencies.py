@@ -34,7 +34,7 @@ class AppState(Protocol):
     engine: AsyncEngine
     sessions: async_sessionmaker[AsyncSession]
     redis: Redis
-    user_id_store: InMemoryStore[str, UUID]
+    user_id_store: InMemoryStore[str, UUID] | None
     http: httpx.AsyncClient
     decision_llm: DecisionLLM
     search: SearchIndex

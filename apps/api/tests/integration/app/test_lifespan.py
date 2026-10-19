@@ -126,7 +126,8 @@ async def test_real_lifespan_checks_search_readiness_and_cleans_owned_resources(
         search, client = app.state.search, app.state.http
         assert not hasattr(app.state, "structured_llm")
         assert isinstance(client, ObservedAsyncClient)
-        for name in ("word", "sense", "artifact", "user_id"):
+        assert app.state.user_id_store is None
+        for name in ("word", "sense", "artifact"):
             assert getattr(app.state, f"{name}_store").attributes == {
                 "store": name,
                 "backend": "memory",

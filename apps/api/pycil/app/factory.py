@@ -59,6 +59,7 @@ def create_app() -> FastAPI:
             )
             for name, value in vars(resources).items():
                 setattr(app.state, name, value)
+            app.state.user_id_store = None
             app.state.broker = create_broker(config, deployment)
             app.state.broker.add_middlewares(OpenTelemetryMiddleware())
             try:

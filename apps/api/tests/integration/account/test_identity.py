@@ -21,8 +21,9 @@ from pycil.library.models import Node, NodePath
 from pycil.utils.errors import OperationError
 
 
+@pytest.mark.parametrize("use_cache", [True, False])
 async def test_verified_identity_provisions_once_and_invalid_tokens_cannot_use_cache(
-    database, monkeypatch
+    database, monkeypatch, use_cache
 ):
     private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     deployment = SimpleNamespace(
@@ -65,7 +66,7 @@ async def test_verified_identity_provisions_once_and_invalid_tokens_cannot_use_c
             deployment=deployment,
             http=http,
             config=load_config(),
-            user_id_store=store,
+            user_id_store=store if use_cache else None,
         )
 
         async def authenticate(value):
@@ -93,7 +94,7 @@ async def test_verified_identity_provisions_once_and_invalid_tokens_cannot_use_c
             assert await authenticate(token) == first
         finally:
             event.remove(database.engine.sync_engine, "before_cursor_execute", record_query)
-        assert queries == []
+        assert queries == [] if use_cache else len(queries) == 1
         assert calls == 2
         async with database.sessions() as session:
             assert await session.scalar(select(func.count()).select_from(User)) == 1

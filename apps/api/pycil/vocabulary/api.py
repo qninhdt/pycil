@@ -38,12 +38,7 @@ async def search(
 
 @router.get("/words/{word_id}", response_model=Word, openapi_extra={"security": [{}]})
 async def word(word_id: int, viewer: Viewer, resources: Runtime) -> Word:
-    value = await get_word(
-        resources.sessions,
-        word_id,
-        word_store=resources.word_store,
-        sense_store=resources.sense_store,
-    )
+    value = await get_word(resources.sessions, word_id)
     if value is None:
         raise NotFound("word_not_found")
     return value
