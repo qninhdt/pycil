@@ -1,7 +1,7 @@
 import { request, type APIRequestContext, type Page } from '@playwright/test'
 import { apiURL } from './environment.ts'
 
-export type Account = { id: string; handle: string | null; display_name: string | null; bio: string | null; personal_node_id: string; published_node_id: string; plan: string; settings: { locale: string; timezone: string; translation_language: string } }
+export type Account = { id: string; handle: string | null; display_name: string | null; bio: string | null; library_node_id: string; personal_node_id: string; published_node_id: string; plan: string; settings: { locale: string; timezone: string; translation_language: string } }
 export type Node = { id: string; name: string; type: string; owner_id: string }
 
 export class Api {

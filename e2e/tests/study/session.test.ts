@@ -30,3 +30,14 @@ test('review selects due meanings and practice accepts a meaning that is not yet
   await finishStudy(user.page)
   expect(await user.api.call('study/activity')).toMatchObject({ applied_events: 2, practice_events: 0 })
 })
+
+for (const selection of ['new', 'auto'] as const) test(`finishing ${selection === 'new' ? 'learning' : 'practice'} from the Library root returns Home`, async ({ user, data, vocabulary }) => {
+  await selectQuestions(user)
+  await data.create({ name: 'Root study vocabulary', type: 'deck', sense_ids: [vocabulary.bankFinancial.sense_id] })
+  await startStudy(user.page, user.account.library_node_id, selection)
+  await answerChoice(user.page, 'bank')
+  await finishStudy(user.page)
+  await user.page.getByRole('link', { name: 'Back to My Library', exact: true }).click()
+  await expect(user.page).toHaveURL(/\/app$/)
+  await expect(user.page.getByRole('main')).not.toContainText('This page could not be opened')
+})

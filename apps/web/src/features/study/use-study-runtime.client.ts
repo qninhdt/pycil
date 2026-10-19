@@ -10,7 +10,7 @@ import { useServices } from '@/lib/api/services/provider.client'
 import { ApiError } from '@/lib/api/error'
 import { resumeJob } from '@/lib/api/jobs'
 import { parsePreparation } from '@/lib/api/study'
-import { libraryHref, publishedHref, publicCollectionHref } from '@/features/library/model'
+import { studyReturnHref } from './navigation'
 import { advanceSession, beginAttempt, completedCount, createStudySession, currentQuestion, discardSession, loadSession, pruneStaleSessions, recordAttempt, saveSession, sessionKey, type StudySession } from './session'
 import type { Diagnostic, SessionSelection } from '@/lib/api/study'
 
@@ -27,7 +27,7 @@ export function useStudyRuntime(initialSession?: StudySession) {
   const selection = (
     params?.get('selection') === 'new' || params?.get('selection') === 'due' ? params?.get('selection') : 'auto'
   ) as SessionSelection
-  const backHref = params?.get('owner') && nodeId ? params.get('owner') === profile?.id ? publishedHref(nodeId) : publicCollectionHref(params.get('owner')!, nodeId) : libraryHref(nodeId)
+  const backHref = studyReturnHref(nodeId, profile, params?.get('owner'))
   const [session, setSession] = useState<StudySession | null>(initialSession ?? null)
   const [hydrated, setHydrated] = useState(Boolean(initialSession)),
     [starting, setStarting] = useState(false),

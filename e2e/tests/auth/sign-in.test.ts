@@ -21,7 +21,7 @@ test('signing out and switching accounts clears the previous account library fro
   try {
     await user.page.getByRole('button', { name: 'Open account menu', exact: true }).click()
     await user.page.getByRole('menuitem', { name: 'Sign out', exact: true }).click()
-    await expect(user.page).toHaveURL(/\/login$/)
+    await expect(user.page).toHaveURL(/\/discovery$/)
     await signIn(user.page, secondary.email, secondary.password, '/app/personal')
     await expect(user.page.getByRole('heading', { level: 1 })).toContainText('Personal')
     await expect(user.page.getByRole('link').filter({ hasText: deck.name })).not.toBeVisible()

@@ -12,12 +12,12 @@ import { useAccount } from '@/features/account/account.client'
 import { Flashcard } from './flashcard.client'
 import { Button } from '@/components/ui/button'
 import { useServices } from '@/lib/api/services/provider.client'
-import { libraryHref, publishedHref, publicCollectionHref } from '@/features/library/model'
+import { studyReturnHref } from './navigation'
 
 export function FlashcardFocus() {
   const account = useAccount(), { services, scope } = useServices(), params = useSearchParams()
   const profile = account.profile, nodeId = params?.get('node') || profile?.library_node_id || ''
-  const backHref = params?.get('owner') && nodeId ? params.get('owner') === profile?.id ? publishedHref(nodeId) : publicCollectionHref(params.get('owner')!, nodeId) : libraryHref(nodeId)
+  const backHref = studyReturnHref(nodeId, profile, params?.get('owner'))
   const key = profile ? `pycil:flashcards:${profile.id}:${nodeId}` : ''
   const node = useQuery(nodeQuery(services, scope, nodeId))
   const progress = useQuery(progressQuery(services, scope, nodeId))

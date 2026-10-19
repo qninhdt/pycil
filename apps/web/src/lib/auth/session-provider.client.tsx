@@ -20,7 +20,7 @@ export function SessionProvider({ initialAccount, initialScope, children }: { in
   return <ServicesProvider services={services} scope={scope}>
     <IdentityContext.Provider value={{ state, initialProfile, sdkReady: isLoaded && sessionLoaded, signOut: async () => {
       setSigningOut(true)
-      try { await signOut({ redirectUrl: '/login' }) }
+      try { await signOut({ redirectUrl: /^\/app(?:\/|$)/.test(window.location.pathname) ? '/discovery' : window.location.pathname + window.location.search }) }
       catch (error) { setSigningOut(false); throw error }
     } }}>{children}</IdentityContext.Provider>
   </ServicesProvider>

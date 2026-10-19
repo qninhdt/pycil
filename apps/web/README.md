@@ -52,7 +52,8 @@ reused for 60 seconds across ordinary product navigation.
 
 Personal pages, public profiles/material, `/discovery`, and `/dictionary` share
 one product shell and provider. Guests see only public navigation and authentication
-actions; PycilAI mounts after the account is ready. `/app/*` remains protected,
+actions; PycilAI mounts after the account is ready. Signing out keeps the current
+public page; private `/app/*` pages return to `/discovery`. `/app/*` remains protected,
 with learning routes using their existing fullscreen layout. Previously deployed
 `/app/discovery` and `/app/dictionary` links redirect to the public routes.
 
@@ -131,7 +132,9 @@ not submit reviews. Accepted reviews invalidate progress/reporting queries.
 Practice, Learn new and Review enter `/app/learn` directly from Home or any
 Library scope. Signed-out visitors can read Published folders/decks and public
 meanings through the same canonical links, without personal learning details.
-Preparation runs inside focus mode; failures use an accessible popup
+Learning, practice and flashcard exits from the Library root return Home; specific
+deck/folder sessions return to their source. Preparation runs inside focus mode;
+failures use an accessible popup
 with Retry and Back to My Library. Leaving preparation cancels the browser request.
 Storage failures stop advancement and show recovery instead of silently losing answers.
 
