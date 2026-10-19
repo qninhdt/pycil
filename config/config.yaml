@@ -129,7 +129,7 @@ vocabulary:
     progress_timeout_seconds: 30
   enrichment_batch_size: 8
   provider:
-    model: openai/gpt-6.1-luna
+    model: openai/gpt-6-luna
     timeout_seconds: 120
     max_completion_tokens: 16384
     max_retries: 2
