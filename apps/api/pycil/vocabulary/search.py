@@ -30,12 +30,12 @@ from pycil.vocabulary.references.reference import encode_reference_id
 from pycil.vocabulary.revisions import ContentRevision, replay_many
 from pycil.vocabulary.revisions import head as revision_head
 from pycil.vocabulary.schemas import ReferenceHit, SearchResult, WordHit
-from pycil.vocabulary.text import answer_key
+from pycil.vocabulary.text import SLOT, answer_key
 from pycil.vocabulary.types import SearchPayload
 
 logger = get_logger(__name__)
 # Bump whenever fields or document contents change; a new directory forces a rebuild.
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 MATCH_KIND_ORDER = {
     MatchKind.EXACT: 0,
     MatchKind.PREFIX: 1,
@@ -47,7 +47,7 @@ MATCH_KIND_ORDER = {
 def _schema() -> tantivy.Schema:
     """Index only what queries match or sort on; hit display data lives in one stored payload."""
     builder = tantivy.SchemaBuilder()
-    for name in ("identity", "source", "surface", "head", "order", "trigram"):
+    for name in ("identity", "source", "surface", "head", "order", "trigram", "pattern_anchor"):
         builder.add_text_field(
             name, fast=name == "order", tokenizer_name="raw", index_option="basic"
         )
@@ -247,6 +247,15 @@ class SearchIndex:
                 if not form_tail or form_tail == tail:
                     licensed.append(form_head)
             doc = document(identity, 3, pattern, {first: licensed})
+            # Fixed literals outside the inflected head must occur in every matching surface.
+            prefix, *suffixes = SLOT.split(pattern)
+            literals = [
+                answer_key(part).replace("ı", "i")
+                for part in [prefix.partition(" ")[2], *suffixes]
+                if part.strip()
+            ]
+            anchor = max(literals, key=len, default="")
+            doc.add_text("pattern_anchor", anchor[:3] or "\0")
             for candidate_head in {
                 head,
                 *(surface_head_key(form) for form in sense_forms[sense_id]),
@@ -628,6 +637,20 @@ class SearchIndex:
                         (tantivy.Occur.Should, tantivy.Query.term_query(schema, "head", head))
                         for head in {surface_head_key(key), "\0"}
                     ]
+                )
+                anchors = tantivy.Query.boolean_query(
+                    [
+                        (
+                            tantivy.Occur.Should,
+                            tantivy.Query.term_query(schema, "pattern_anchor", gram),
+                        )
+                        for gram in set().union(
+                            *(ngrams(key.replace("ı", "i"), size) for size in (1, 2, 3)), {"\0"}
+                        )
+                    ]
+                )
+                heads = tantivy.Query.boolean_query(
+                    [(tantivy.Occur.Must, heads), (tantivy.Occur.Must, anchors)]
                 )
                 fetched, size = 0, limit
                 generated = sum(order[1] == 0 for order, _hit in ranked.values())

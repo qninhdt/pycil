@@ -52,7 +52,12 @@ def test_pattern_pagination_preserves_ranking_and_stops_after_enough_matches(mon
         (identifier, f"entry{identifier:03d}", EntryType.EXPRESSION) for identifier in range(1, 101)
     ]
     patterns = [
-        (identifier, identifier, "give {sb} a " + ("book" if identifier <= 40 else "hand"), "give")
+        (
+            identifier,
+            identifier,
+            "give {sb} a " + ("hammock" if identifier <= 40 else "hand"),
+            "give",
+        )
         for identifier in range(1, 101)
     ]
     index = build((words, [], [], patterns, set()))
@@ -80,3 +85,61 @@ def test_exact_results_do_not_construct_fallback_queries(monkeypatch):
     monkeypatch.setattr(search.tantivy.Query, "regex_query", unexpected_fallback)
     monkeypatch.setattr(search.tantivy.Query, "fuzzy_term_query", unexpected_fallback)
     assert search.SearchIndex.find(index, "bank", False, 1)[0].word_id == 1
+
+
+@pytest.mark.parametrize(
+    ("pattern", "query"),
+    [
+        ("{sb} much", "Jo much"),
+        ("{sth} inside {sth}", "book ınside box"),
+        ("{sth} café", "book cafe\u0301"),
+        ("{sth} a.b", "book a.b"),
+        ("{sth} a", "book a"),
+        ("{sth}", "book"),
+        ("give {sb}", "give Jo"),
+        ("give {sb} a hand", "gave Jo a hand"),
+        ("give a hand", "gave a hand"),
+    ],
+)
+def test_pattern_anchor_preserves_matching_and_filters_unrelated_patterns(
+    monkeypatch, pattern, query
+):
+    words = [(1, "give", EntryType.EXPRESSION), (2, "unrelated", EntryType.EXPRESSION)]
+    index = build(
+        (
+            words,
+            [],
+            [(1, 1, "gave")],
+            [(1, 1, pattern, None), (2, 2, "{sth} unrelated", None)],
+            set(),
+        )
+    )
+    matches = search.matches_pattern
+    checked = []
+
+    def record(value, surface, **kwargs):
+        checked.append(value)
+        return matches(value, surface, **kwargs)
+
+    monkeypatch.setattr(search, "matches_pattern", record)
+    hits = search.SearchIndex.find(index, query, False, 20)
+    assert any(hit.word_id == 1 and hit.match_kind is MatchKind.EXACT for hit in hits)
+    assert checked == [pattern]
+
+
+def test_single_character_query_does_not_scan_patterns_with_a_longer_required_tail(monkeypatch):
+    index = build(
+        (
+            [(1, "a", EntryType.WORD), (2, "another", EntryType.EXPRESSION)],
+            [],
+            [],
+            [(2, 2, "a much longer expression", "a"), (2, 2, "{sth} b", None)],
+            set(),
+        )
+    )
+
+    def unexpected_match(*_args, **_kwargs):
+        pytest.fail("the required literal is absent from the query")
+
+    monkeypatch.setattr(search, "matches_pattern", unexpected_match)
+    assert search.SearchIndex.find(index, "a", False, 20)[0].word_id == 1

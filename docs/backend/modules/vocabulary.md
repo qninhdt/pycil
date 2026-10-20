@@ -46,6 +46,11 @@ normalized characters intersect trigram postings and verify the full substring i
 candidate; shorter queries retain regex matching. Pattern candidates are read in sorted,
 growing pages until enough generated exact matches are available or candidates are
 exhausted. Neither path imposes a candidate cap that can discard valid hits.
+Pattern postings also require an anchor from a fixed literal outside the inflected
+head. Query character n-grams select candidates before Python validates the complete
+pattern; patterns without a fixed literal remain eligible. Ranking and licensed
+head forms are unchanged. The schema version creates a separate derived directory
+and rebuilds it before readiness, leaving the previous version available for rollback.
 
 Content and deterministic JSON Patch history commit in the same PostgreSQL transaction.
 Revisions cover words and their owned children, artifact payloads/ordering, and themes.
