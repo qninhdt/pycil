@@ -31,6 +31,7 @@ from pycil.account.models import User
 from pycil.app.config import load_config
 from pycil.app.factory import create_app
 from pycil.infrastructure.clerk import InvalidIdentityError
+from pycil.infrastructure.database import connect
 from pycil.infrastructure.kv_store import InMemoryStore
 from pycil.library.models import NodeRole
 from pycil.study.artifacts.schemas import Artifact
@@ -100,6 +101,29 @@ async def app_client(database):
 # ---------------------------------------------------------------------------
 # 1. Account HTTP Endpoints
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("route", ["account", "word"])
+async def test_exhausted_database_pool_returns_unavailable_and_recovers(app_client, route):
+    client = app_client.client
+    assert (await client.get("/v1/me", headers=app_client.headers)).status_code == 200
+    engine, sessions = connect(
+        app_client.database.url, size=1, max_overflow=0, timeout_seconds=0.02
+    )
+    original = app_client.app.state.sessions
+    app_client.app.state.sessions = sessions
+    path = "/v1/me" if route == "account" else f"/v1/words/{app_client.word_id}"
+    try:
+        async with engine.connect():
+            response = await client.get(path, headers=app_client.headers)
+            assert response.status_code == 503
+            assert response.json()["code"] == "database_busy"
+            assert "QueuePool" not in response.text
+            assert response.json()["request_id"] == response.headers["x-request-id"]
+        assert (await client.get(path, headers=app_client.headers)).status_code == 200
+    finally:
+        app_client.app.state.sessions = original
+        await engine.dispose()
 
 
 async def test_account_settings_valid_and_invalid_payloads(app_client):

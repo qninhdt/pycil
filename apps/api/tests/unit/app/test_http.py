@@ -3,6 +3,7 @@ from uuid import uuid4
 
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
+from structlog import get_logger
 from structlog.testing import capture_logs
 
 from pycil.app.http import RequestBoundary, RuntimeCORS
@@ -19,7 +20,7 @@ def boundary_app():
     return app
 
 
-async def test_unhandled_error_is_redacted_and_retains_request_correlation():
+async def test_unhandled_error_is_redacted_and_retains_request_correlation(monkeypatch):
     app = boundary_app()
 
     @app.get("/failure")
@@ -29,6 +30,7 @@ async def test_unhandled_error_is_redacted_and_retains_request_correlation():
     request_id = str(uuid4())
     async with AsyncClient(transport=ASGITransport(app=app), base_url="https://api.test") as http:
         with capture_logs() as logs:
+            monkeypatch.setattr("pycil.app.http.logger", get_logger("pycil.app.http"))
             response = await http.get(
                 "/failure",
                 headers={"X-Request-ID": request_id, "Origin": "https://web.example.test"},

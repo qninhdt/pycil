@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy import text
+from sqlalchemy.exc import TimeoutError as DatabasePoolTimeout
 from starlette.exceptions import HTTPException
 
 from pycil.account.api import public_router
@@ -18,6 +19,7 @@ from pycil.app.http import (
     ProblemDetails,
     RequestBoundary,
     RuntimeCORS,
+    database_busy_response,
     http_error_response,
     operation_error_response,
     validation_response,
@@ -104,6 +106,7 @@ def create_app() -> FastAPI:
     app.add_exception_handler(OperationError, cast(ExceptionHandler, operation_error_response))
     app.add_exception_handler(RequestValidationError, cast(ExceptionHandler, validation_response))
     app.add_exception_handler(HTTPException, cast(ExceptionHandler, http_error_response))
+    app.add_exception_handler(DatabasePoolTimeout, database_busy_response)
     app.include_router(account_router)
     app.include_router(public_router)
     app.include_router(library_router)

@@ -74,6 +74,11 @@ async def operation_error_response(request: Request, error: OperationError) -> P
     )
 
 
+async def database_busy_response(request: Request, error: Exception) -> ProblemResponse:
+    logger.warning("database_pool_timeout", error_type=type(error).__name__)
+    return await problem_response(request, Problem(503, "database_busy"))
+
+
 class InvalidParam(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str

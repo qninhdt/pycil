@@ -125,6 +125,10 @@ Raw provider/DB exceptions and secret inputs are never reflected back. The reque
 | 500 | Redacted unhandled failure |
 | 503 | Runtime dependency, scope deadline, SQL cancellation, or provider unavailability |
 
+Application database pool acquisition timeout returns 503 `database_busy`; its
+native exception details stay out of the response and logs. This is bounded
+overload rejection, not proof that an uncertain mutation can be replayed.
+
 The response error code is the machine-readable discriminator; not every route emits
 every declared status. Log messages should not include JWTs, credentials, submitted
 answers, or raw provider/DB exceptions. Retry only where the operation's semantics
