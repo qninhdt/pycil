@@ -71,6 +71,8 @@ async def test_broken_physical_ancestry_denies_even_owner_reads(database, damage
             NodeCreate(type=NodeType.DECK, name="Child", parent_id=folder["id"]),
             config.library,
         )
+    async with database.sessions() as session:
+        assert (await readable(session, child["id"], owner.id)).id == child["id"]
     async with database.sessions() as session, session.begin():
         if damage == "deleted_ancestor":
             (await session.get(Node, folder["id"])).deleted_at = datetime.now(UTC)

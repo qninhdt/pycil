@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, bindparam, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import ColumnElement
 from sqlalchemy.sql.selectable import Exists, FromClause
@@ -69,10 +69,15 @@ def reference_visible(node: FromClause, viewer_id: UUID | ColumnElement[UUID] | 
     )
 
 
+# Reuse the expression, never its rows: authorization still runs against live paths.
+_READABLE_NODE_QUERY = select(Node).where(
+    Node.id == bindparam("node_id", type_=Node.__table__.c.id.type),
+    visible(Node.__table__, bindparam("viewer_id", type_=Node.__table__.c.owner_id.type)),
+)
+
+
 async def readable(session: AsyncSession, node_id: UUID, viewer_id: UUID | None) -> Node:
-    node = await session.scalar(
-        select(Node).where(Node.id == node_id, visible(Node.__table__, viewer_id))
-    )
+    node = await session.scalar(_READABLE_NODE_QUERY, {"node_id": node_id, "viewer_id": viewer_id})
     if node is None:
         raise NotFound("node_not_found")
     if node.type is NodeType.REFERENCE and node.owner_id != viewer_id:
