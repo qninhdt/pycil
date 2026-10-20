@@ -38,7 +38,7 @@ Final local checks and phase-to-test mapping: [verification record](verification
 - Redis for optional cached values, required coordination and native Taskiq transport/results.
 - Application-owned vocabulary, immutable reference JSONL and configured model/decision services.
 - Node FTS/Discovery, atomic reviews, durable activity and jointly bounded summaries.
-- Product frontend under `apps/web` with live services and a root [product E2E](../../e2e/README.md)
+- Product frontend under `apps/web` with live services and a shared [product E2E](../../tests/e2e/README.md)
   package; live execution remains an external verification gate. No Star/Pin/tag/
   translation/import/audio subsystem.
 

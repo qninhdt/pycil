@@ -29,7 +29,7 @@ Internal business services, SQL constraints, artifact validation, search publica
 native checkpoint persistence remain real. ASGI transports can exercise real HTTP routes
 without a separate server process.
 
-Product browser E2E belongs to the root [`e2e/`](../../e2e/README.md) package.
+Product browser E2E belongs to the shared [`tests/e2e/`](../../tests/e2e/README.md) package.
 It runs the production API with disposable infrastructure and real development
 identity. Its fixtures do not import backend integration fixtures.
 

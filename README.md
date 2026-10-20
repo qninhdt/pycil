@@ -35,7 +35,7 @@ Pycil is a subscription vocabulary learning platform designed to help learners c
 
 - **Backend (`apps/api`)**: Python 3.14, FastAPI, SQLAlchemy 2.1 (asyncio + asyncpg), Pydantic v2, Tantivy (full-text search), `fsrs-rs-python` (spaced repetition), LangGraph, Instructor and native Taskiq workers. Managed with [`uv`](https://github.com/astral-sh/uv).
 - **Frontend (`apps/web`)**: Next.js 16 (App Router), React 19, Tailwind CSS v4, `@shadcn/react`, TanStack Query & Table, `@assistant-ui/react`, next-intl. Managed with `pnpm`.
-- **E2E Testing (`e2e`)**: Independent Playwright test suite for critical learner and authentication journeys.
+- **E2E Testing (`tests/e2e`)**: Independent Playwright test suite for critical learner and authentication journeys.
 - **Data & Storage**: PostgreSQL 18 with single baseline migrations (Alembic), Redis 8 for coordination and session caches.
 - **Operations & DevOps**: Docker Compose, Caddy TLS ingress, WAL-G encrypted backups, LGTM observability pipeline.
 
@@ -58,7 +58,9 @@ and deployment checks.
 │   └── web/                   # Next.js 16 web application
 │       ├── src/               # React 19 App Router components, hooks, and feature modules
 │       └── tests/             # Unit and browser integration tests (Vitest, Playwright)
-├── e2e/                       # Independent end-to-end integration and Playwright journey suite
+├── tests/
+│   ├── e2e/                   # Playwright integration and learner journeys
+│   └── performance/           # k6 workloads and runner contract checks
 ├── config/                    # Canonical system policy configuration (config.yaml)
 ├── data/                      # Reference dictionary artifacts and manifest (JSONL.gz)
 ├── devops-course/             # 26-lesson guided practical DevOps course and lab environments
@@ -171,12 +173,18 @@ pnpm test:integration
 ### E2E Quality Gates
 
 ```bash
-cd e2e
+cd tests/e2e
 
 # Typecheck and isolated support checks
 pnpm typecheck
 pnpm test:support
 ```
+
+### Performance Workloads
+
+Run `make k6-check` for offline workload and runner checks. See
+[tests/performance](tests/performance/README.md) for private fixtures, the bounded
+VPS smoke command, safety stops and result interpretation.
 
 ---
 
@@ -184,7 +192,7 @@ pnpm test:support
 
 - [**Product Specification**](PRODUCT.md): User personas, learning mechanics, and product principles.
 - [**Design System**](DESIGN.md): Typography, color palette tokens, and UI layout conventions.
-- [**Search & Content Revisions Architecture**](search_and_content_revisions.md): PostgreSQL revision tables and Tantivy indexing model.
+- [**Search & Content Revisions Architecture**](docs/backend/modules/vocabulary.md#search-and-projections): PostgreSQL revision tables and Tantivy indexing model.
 - [**Backend Architecture & APIs**](docs/backend/README.md): Domain models, data flow, HTTP conventions, and deployment guides.
 - [**DevSecOps Architecture**](docs/devops-architecture/00-architecture-overview-and-standards.md): Capacity models, infrastructure as code, CI/CD, and disaster recovery.
 - [**DevOps Practical Course**](devops-course/README.md): 26 hands-on lessons with guided lab exercises.

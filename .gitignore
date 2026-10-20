@@ -34,7 +34,7 @@ storybook-static/
 test-results/
 playwright-report/
 *.tsbuildinfo
-/e2e/.artifacts/
+/tests/e2e/.artifacts/
 
 # Logs
 *.log
@@ -100,3 +100,4 @@ docs/screenshots/*
 
 devops-course/
 .vercel
+/tests/performance/.artifacts/

@@ -34,7 +34,7 @@ export default defineConfig({
     navigationTimeout: 30_000,
   },
   webServer: {
-    command: `node --experimental-strip-types "${root}/e2e/support/prepare-web.ts" && pnpm build > "$E2E_ARTIFACTS/web.log" 2>&1 && pnpm start --hostname localhost --port 3200 >> "$E2E_ARTIFACTS/web.log" 2>&1`,
+    command: `node --experimental-strip-types "${root}/tests/e2e/support/prepare-web.ts" && pnpm build > "$E2E_ARTIFACTS/web.log" 2>&1 && pnpm start --hostname localhost --port 3200 >> "$E2E_ARTIFACTS/web.log" 2>&1`,
     cwd: `${root}/apps/web`,
     env: frontendEnvironment(),
     url: `${webURL}/icon.svg`,

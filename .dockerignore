@@ -10,7 +10,7 @@
 
 # Exclude web frontend, e2e, and courses (not needed in API image)
 apps/web
-e2e
+tests
 devops-course
 
 # Documentation & planning scratch

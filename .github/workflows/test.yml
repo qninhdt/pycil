@@ -37,6 +37,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run typecheck
       - run: pnpm run lint
+      - name: Performance workload contract
+        run: node --test tests/performance/tests/*.test.js
+        working-directory: .
       - run: node node_modules/@playwright/test/cli.js install --with-deps chromium
       - name: Cache Next.js build
         uses: actions/cache@v4
@@ -74,10 +77,10 @@ jobs:
           node-version: "24.21.0"
       - run: npm install --global pnpm@12.9.1
       - run: pnpm --dir apps/web install --frozen-lockfile
-      - run: pnpm --dir e2e install --frozen-lockfile
-      - run: pnpm --dir e2e typecheck
-      - run: pnpm --dir e2e test:support
-      - run: pnpm --dir e2e exec playwright install --with-deps chromium
+      - run: pnpm --dir tests/e2e install --frozen-lockfile
+      - run: pnpm --dir tests/e2e typecheck
+      - run: pnpm --dir tests/e2e test:support
+      - run: pnpm --dir tests/e2e exec playwright install --with-deps chromium
       - name: Cache Next.js build
         uses: actions/cache@v4
         with:
@@ -87,10 +90,10 @@ jobs:
           key: ${{ runner.os }}-nextjs-e2e-${{ hashFiles('apps/web/pnpm-lock.yaml', 'apps/web/src/**') }}
           restore-keys: |
             ${{ runner.os }}-nextjs-e2e-
-      - run: pnpm --dir e2e test
+      - run: pnpm --dir tests/e2e test
         env:
           E2E_CACHE_BUILD: "1"
-      - run: pnpm --dir e2e test:live
+      - run: pnpm --dir tests/e2e test:live
         if: ${{ inputs.live_provider }}
       # Reports contain authentication data. No public artifact upload is configured.
 
@@ -108,9 +111,12 @@ jobs:
       - run: uv python install 3.14.8
       - run: uv sync --locked
         working-directory: apps/api
-      - run: uv run --locked ruff check pycil tests migrations ../../scripts/export_openapi.py
+      - run: uv run --locked ruff check pycil tests migrations ../../scripts/export_openapi.py ../../scripts/run-k6.py ../../tests/performance/tests
         working-directory: apps/api
-      - run: uv run --locked ruff format --check pycil tests migrations ../../scripts/export_openapi.py
+      - run: uv run --locked ruff format --check pycil tests migrations ../../scripts/export_openapi.py ../../scripts/run-k6.py ../../tests/performance/tests
+        working-directory: apps/api
+      - name: Performance runner safety checks
+        run: uv run --locked python -m unittest discover -s ../../tests/performance/tests -p 'test_*.py' -v
         working-directory: apps/api
       # Each test creates/drops only its own database; providers are deterministic.
       # Testcontainers owns the real PostgreSQL/Redis services.

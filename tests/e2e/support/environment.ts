@@ -4,8 +4,8 @@ import { loadEnvFile } from "node:process";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const root = fileURLToPath(new URL("../../", import.meta.url));
-export const directory = resolve(root, "e2e");
+export const root = fileURLToPath(new URL("../../../", import.meta.url));
+export const directory = resolve(root, "tests/e2e");
 const envFile = process.env.E2E_ENV_FILE ?? resolve(directory, ".env");
 if (process.env.E2E_ENV_FILE || existsSync(envFile)) loadEnvFile(envFile);
 
