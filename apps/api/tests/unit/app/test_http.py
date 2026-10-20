@@ -3,6 +3,7 @@ from uuid import uuid4
 
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
+from structlog.testing import capture_logs
 
 from pycil.app.http import RequestBoundary, RuntimeCORS
 
@@ -27,10 +28,11 @@ async def test_unhandled_error_is_redacted_and_retains_request_correlation():
 
     request_id = str(uuid4())
     async with AsyncClient(transport=ASGITransport(app=app), base_url="https://api.test") as http:
-        response = await http.get(
-            "/failure",
-            headers={"X-Request-ID": request_id, "Origin": "https://web.example.test"},
-        )
+        with capture_logs() as logs:
+            response = await http.get(
+                "/failure",
+                headers={"X-Request-ID": request_id, "Origin": "https://web.example.test"},
+            )
         assert response.status_code == 500
         assert response.headers["content-type"] == "application/problem+json"
         data = response.json()
@@ -41,6 +43,11 @@ async def test_unhandled_error_is_redacted_and_retains_request_correlation():
         assert data["error"] == "internal_error"
         assert response.headers["x-request-id"] == request_id
         assert response.headers["access-control-allow-origin"] == "https://web.example.test"
+        assert (
+            next(row for row in logs if row["event"] == "request_failed")["error_type"]
+            == "RuntimeError"
+        )
+        assert "private-provider-token-and-learner-content" not in response.text + str(logs)
 
 
 async def test_rfc_9457_exception_handlers():

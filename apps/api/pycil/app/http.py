@@ -192,9 +192,9 @@ class RequestBoundary:
         try:
             try:
                 await self.app(scope, receive, correlated_send)
-            except Exception:
-                # Log correlation only: raw provider/DB exceptions can contain secrets.
-                logger.error("request_failed")
+            except Exception as error:
+                # Exception messages and tracebacks can contain provider/DB secrets.
+                logger.error("request_failed", error_type=type(error).__name__)
                 if started:
                     # Never send a second status or turn a truncated stream into success.
                     raise RuntimeError(f"Response interrupted; request_id={request_id}") from None
