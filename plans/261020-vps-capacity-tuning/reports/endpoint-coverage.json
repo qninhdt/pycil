@@ -1,0 +1,326 @@
+[
+  {
+    "file": "apps/api/pycil/jobs/api.py",
+    "handler": "status",
+    "method": "GET",
+    "path": "/v1/jobs/{job_id}",
+    "status": "final-release-mixed-cached-measured; genuine-provider-limit-retained",
+    "evidence": "plans/261020-vps-capacity-tuning/reports/measurements.md",
+    "workload": "5ec7b9e, native two-container K4: 32 cached jobs under mixed 200 RPS, all succeeded in 4.208 seconds; native median execution .325s, queue .996s. Independent genuine provider and graceful-drain evidence retained in measurements."
+  },
+  {
+    "file": "apps/api/pycil/assistant/api.py",
+    "handler": "models",
+    "method": "GET",
+    "path": "/v1/assistant/models",
+    "status": "final-release-mixed-measured; per-route-latency-passed",
+    "evidence": "plans/261020-vps-capacity-tuning/reports/measurements.md",
+    "workload": "5ec7b9e, six APIs, two single-process workers at K4, application/checkpoint pools 3/2. Three-minute 200-RPS mixed plateau plus bounded concurrent workflows, cached jobs, four real streams and study writes. Route samples=1277, p95=161.74ms, p99=196.74ms, non-200=0; includes ramp/recovery. Aggregate success does not override per-route failures."
+  },
+  {
+    "file": "apps/api/pycil/assistant/api.py",
+    "handler": "create",
+    "method": "POST",
+    "path": "/v1/assistant/conversations",
+    "status": "final-release-mixed-smoke-measured; repeated-load-deferred-by-user",
+    "evidence": "plans/261020-vps-capacity-tuning/reports/measurements.md",
+    "workload": "5ec7b9e during mixed 200 RPS: one real request, 175.02ms, correct contract and owned cleanup. One sample is smoke, not a percentile or capacity claim; further repetitions stopped by user."
+  },
+  {
+    "file": "apps/api/pycil/assistant/api.py",
+    "handler": "listing",
+    "method": "GET",
+    "path": "/v1/assistant/conversations",
+    "status": "final-release-mixed-measured; per-route-latency-passed",
+    "evidence": "plans/261020-vps-capacity-tuning/reports/measurements.md",
+    "workload": "5ec7b9e, six APIs, two single-process workers at K4, application/checkpoint pools 3/2. Three-minute 200-RPS mixed plateau plus bounded concurrent workflows, cached jobs, four real streams and study writes. Route samples=1277, p95=195.38ms, p99=776.33ms, non-200=0; includes ramp/recovery. Aggregate success does not override per-route failures."
+  },
+  {
+    "file": "apps/api/pycil/assistant/api.py",
+    "handler": "state",
+    "method": "GET",
+    "path": "/v1/assistant/conversations/{identifier}",
+    "status": "final-release-mixed-smoke-measured; repeated-load-deferred-by-user",
+    "evidence": "plans/261020-vps-capacity-tuning/reports/measurements.md",
+    "workload": "5ec7b9e during mixed 200 RPS: one real request, 206.46ms, correct contract and owned cleanup. One sample is smoke, not a percentile or capacity claim; further repetitions stopped by user."
+  },
+  {
+    "file": "apps/api/pycil/assistant/api.py",
+    "handler": "remove",
+    "method": "DELETE",
+    "path": "/v1/assistant/conversations/{identifier}",
+    "status": "final-release-mixed-smoke-measured; repeated-load-deferred-by-user",
+    "evidence": "plans/261020-vps-capacity-tuning/reports/measurements.md",
+    "workload": "5ec7b9e during mixed 200 RPS: one real request, 140.07ms, correct contract and owned cleanup. One sample is smoke, not a percentile or capacity claim; further repetitions stopped by user."
+  },
+  {
+    "file": "apps/api/pycil/assistant/api.py",
+    "handler": "stream",
+    "method": "POST",
+    "path": "/v1/assistant:run",
+    "status": "final-release-four-real-streams-under-mixed-load-passed",
+    "workload": "Four simultaneous real-provider turns during 200-RPS mixed run: 3.43\u20133.99s completed, first text 3.07\u20133.58s; RUN_FINISHED, persisted user/assistant checkpoint and owned cleanup all verified. Not a provider percentile benchmark.",
+    "evidence": "plans/261020-vps-capacity-tuning/reports/measurements.md"
+  },
+  {
+    "file": "apps/api/pycil/library/api.py",
+    "handler": "listing",
+    "method": "GET",
+    "path": "/v1/nodes",
+    "status": "final-release-mixed-measured; per-route-latency-passed",
+    "evidence": "plans/261020-vps-capacity-tuning/reports/measurements.md",
+    "workload": "5ec7b9e, six APIs, two single-process workers at K4, application/checkpoint pools 3/2. Three-minute 200-RPS mixed plateau plus bounded concurrent workflows, cached jobs, four real streams and study writes. Route samples=1278, p95=232.43ms, p99=613.09ms, non-200=0; includes ramp/recovery. Aggregate success does not override per-route failures."
+  },
+  {
+    "file": "apps/api/pycil/library/api.py",
+    "handler": "create",
+    "method": "POST",
+    "path": "/v1/nodes",
+    "status": "final-release-mixed-workflow-measured; p95-latency-failed; further-tuning-stopped-by-user",
+    "evidence": "plans/261020-vps-capacity-tuning/reports/measurements.md",
+    "workload": "5ec7b9e: 32 library cycles at concurrency four during mixed 200 RPS, 65 requests for this route, p95=642.35ms, max=1255.34ms; contracts and owned cleanup passed. p99 not established from this small sample."
+  },
+  {
+    "file": "apps/api/pycil/library/api.py",
+    "handler": "scoped_search",
+    "method": "GET",
+    "path": "/v1/nodes/{node_id}:search",
+    "status": "final-release-mixed-workflow-measured; p95-passed; p99-not-established",
+    "evidence": "plans/261020-vps-capacity-tuning/reports/measurements.md",
+    "workload": "5ec7b9e: 32 library cycles at concurrency four during mixed 200 RPS, 32 requests for this route, p95=239.65ms, max=444.50ms; contracts and owned cleanup passed. p99 not established from this small sample."
+  },
+  {
+    "file": "apps/api/pycil/library/api.py",
+    "handler": "detail",
+    "method": "GET",
+    "path": "/v1/nodes/{node_id}",
+    "status": "final-release-mixed-measured; per-route-latency-passed",
+    "evidence": "plans/261020-vps-capacity-tuning/reports/measurements.md",
+    "workload": "5ec7b9e, six APIs, two single-process workers at K4, application/checkpoint pools 3/2. Three-minute 200-RPS mixed plateau plus bounded concurrent workflows, cached jobs, four real streams and study writes. Route samples=1278, p95=173.50ms, p99=276.89ms, non-200=0; includes ramp/recovery. Aggregate success does not override per-route failures."
+  },
+  {
+    "file": "apps/api/pycil/library/api.py",
+    "handler": "patch",
+    "method": "PATCH",
+    "path": "/v1/nodes/{node_id}",
+    "status": "final-release-mixed-workflow-measured; p95-latency-failed; further-tuning-stopped-by-user",
+    "evidence": "plans/261020-vps-capacity-tuning/reports/measurements.md",
+    "workload": "5ec7b9e: 32 library cycles at concurrency four during mixed 200 RPS, 32 requests for this route, p95=994.72ms, max=1568.92ms; contracts and owned cleanup passed. p99 not established from this small sample."
+  },
+  {
+    "file": "apps/api/pycil/library/api.py",
+    "handler": "edit_senses",
+    "method": "POST",
+    "path": "/v1/nodes/{node_id}:modifySenses",
+    "status": "final-release-mixed-workflow-measured; p95-latency-failed; further-tuning-stopped-by-user",
+    "evidence": "plans/261020-vps-capacity-tuning/reports/measurements.md",
+    "workload": "5ec7b9e: 32 library cycles at concurrency four during mixed 200 RPS, 32 requests for this route, p95=790.96ms, max=1098.28ms; contracts and owned cleanup passed. p99 not established from this small sample."
+  },
+  {
+    "file": "apps/api/pycil/library/api.py",
+    "handler": "move",
+    "method": "POST",
+    "path": "/v1/nodes/{node_id}:move",
+    "status": "final-release-mixed-workflow-measured; p95-latency-failed; further-tuning-stopped-by-user",
+    "evidence": "plans/261020-vps-capacity-tuning/reports/measurements.md",
+    "workload": "5ec7b9e: 32 library cycles at concurrency four during mixed 200 RPS, 32 requests for this route, p95=568.84ms, max=671.95ms; contracts and owned cleanup passed. p99 not established from this small sample."
+  },
+  {
+    "file": "apps/api/pycil/library/api.py",
+    "handler": "copy",
+    "method": "POST",
+    "path": "/v1/nodes/{node_id}:copy",
+    "status": "final-release-mixed-workflow-measured; p95-latency-failed; further-tuning-stopped-by-user",
+    "evidence": "plans/261020-vps-capacity-tuning/reports/measurements.md",
+    "workload": "5ec7b9e: 32 library cycles at concurrency four during mixed 200 RPS, 32 requests for this route, p95=762.53ms, max=1031.01ms; contracts and owned cleanup passed. p99 not established from this small sample."
+  },
+  {
+    "file": "apps/api/pycil/library/api.py",
+    "handler": "remove",
+    "method": "DELETE",
+    "path": "/v1/nodes/{node_id}",
+    "status": "final-release-mixed-workflow-measured; p95-latency-failed; further-tuning-stopped-by-user",
+    "evidence": "plans/261020-vps-capacity-tuning/reports/measurements.md",
+    "workload": "5ec7b9e: 32 library cycles at concurrency four during mixed 200 RPS, 33 requests for this route, p95=464.85ms, max=558.03ms; contracts and owned cleanup passed. p99 not established from this small sample."
+  },
+  {
+    "file": "apps/api/pycil/library/api.py",
+    "handler": "senses",
+    "method": "GET",
+    "path": "/v1/nodes/{node_id}/senses",
+    "status": "final-release-mixed-measured; per-route-latency-failed",
+    "evidence": "plans/261020-vps-capacity-tuning/reports/measurements.md",
+    "workload": "5ec7b9e, six APIs, two single-process workers at K4, application/checkpoint pools 3/2. Three-minute 200-RPS mixed plateau plus bounded concurrent workflows, cached jobs, four real streams and study writes. Route samples=1278, p95=415.95ms, p99=906.68ms, non-200=0; includes ramp/recovery. Aggregate success does not override per-route failures."
+  },
+  {
+    "file": "apps/api/pycil/library/api.py",
+    "handler": "provenance",
+    "method": "GET",
+    "path": "/v1/nodes/{node_id}/senses/{sense_id}/sources",
+    "status": "final-release-mixed-workflow-measured; p95-latency-failed; further-tuning-stopped-by-user",
+    "evidence": "plans/261020-vps-capacity-tuning/reports/measurements.md",
+    "workload": "5ec7b9e: 32 library cycles at concurrency four during mixed 200 RPS, 32 requests for this route, p95=313.95ms, max=338.28ms; contracts and owned cleanup passed. p99 not established from this small sample."
+  },
+  {
+    "file": "apps/api/pycil/library/api.py",
+    "handler": "discovery",
+    "method": "GET",
+    "path": "/v1/discovery/nodes",
+    "status": "final-release-mixed-measured; per-route-latency-failed",
+    "evidence": "plans/261020-vps-capacity-tuning/reports/measurements.md",
+    "workload": "5ec7b9e, six APIs, two single-process workers at K4, application/checkpoint pools 3/2. Three-minute 200-RPS mixed plateau plus bounded concurrent workflows, cached jobs, four real streams and study writes. Route samples=1278, p95=298.40ms, p99=919.42ms, non-200=0; includes ramp/recovery. Aggregate success does not override per-route failures."
+  },
+  {
+    "file": "apps/api/pycil/study/api.py",
+    "handler": "preparation",
+    "method": "POST",
+    "path": "/v1/study:prepare",
+    "status": "final-release-mixed-cached-measured; genuine-provider-limit-retained",
+    "evidence": "plans/261020-vps-capacity-tuning/reports/measurements.md",
+    "workload": "5ec7b9e, native two-container K4: 32 cached jobs under mixed 200 RPS, all succeeded in 4.208 seconds; native median execution .325s, queue .996s. Independent genuine provider and graceful-drain evidence retained in measurements."
+  },
+  {
+    "file": "apps/api/pycil/study/api.py",
+    "handler": "grade",
+    "method": "POST",
+    "path": "/v1/study:grade",
+    "status": "real-exact-and-provider-branches-measured; mixed-load-deferred-by-user",
+    "workload": "Five exact-answer requests returned correct diagnostics (one calibration and four concurrent); one non-exact real inference/search request returned 200; Free-plan 403 verified; dedicated account plan and allowance restored",
+    "evidence": "plans/261020-vps-capacity-tuning/reports/measurements.md"
+  },
+  {
+    "file": "apps/api/pycil/study/api.py",
+    "handler": "submit_results",
+    "method": "POST",
+    "path": "/v1/study:submitResults",
+    "status": "final-release-real-write-and-idempotent-replay-under-mixed-load-passed",
+    "workload": "Three fresh real reviews applied during mixed 200 RPS; repeated key/body produced identical receipt; progress=3 verified; deck removed and account settings restored.",
+    "evidence": "plans/261020-vps-capacity-tuning/reports/measurements.md"
+  },
+  {
+    "file": "apps/api/pycil/study/api.py",
+    "handler": "summary",
+    "method": "GET",
+    "path": "/v1/study/progress",
+    "status": "final-release-mixed-measured; per-route-latency-passed",
+    "evidence": "plans/261020-vps-capacity-tuning/reports/measurements.md",
+    "workload": "5ec7b9e, six APIs, two single-process workers at K4, application/checkpoint pools 3/2. Three-minute 200-RPS mixed plateau plus bounded concurrent workflows, cached jobs, four real streams and study writes. Route samples=2554, p95=204.56ms, p99=387.86ms, non-200=0; includes ramp/recovery. Aggregate success does not override per-route failures."
+  },
+  {
+    "file": "apps/api/pycil/study/api.py",
+    "handler": "days",
+    "method": "GET",
+    "path": "/v1/study/activity",
+    "status": "final-release-mixed-measured; per-route-latency-failed",
+    "evidence": "plans/261020-vps-capacity-tuning/reports/measurements.md",
+    "workload": "5ec7b9e, six APIs, two single-process workers at K4, application/checkpoint pools 3/2. Three-minute 200-RPS mixed plateau plus bounded concurrent workflows, cached jobs, four real streams and study writes. Route samples=1277, p95=366.72ms, p99=519.01ms, non-200=0; includes ramp/recovery. Aggregate success does not override per-route failures."
+  },
+  {
+    "file": "apps/api/pycil/study/api.py",
+    "handler": "upcoming",
+    "method": "GET",
+    "path": "/v1/study/review-schedule",
+    "status": "final-release-mixed-measured; per-route-latency-failed",
+    "evidence": "plans/261020-vps-capacity-tuning/reports/measurements.md",
+    "workload": "5ec7b9e, six APIs, two single-process workers at K4, application/checkpoint pools 3/2. Three-minute 200-RPS mixed plateau plus bounded concurrent workflows, cached jobs, four real streams and study writes. Route samples=1277, p95=248.65ms, p99=915.22ms, non-200=0; includes ramp/recovery. Aggregate success does not override per-route failures."
+  },
+  {
+    "file": "apps/api/pycil/account/api.py",
+    "handler": "me",
+    "method": "GET",
+    "path": "/v1/me",
+    "status": "final-release-mixed-measured; per-route-latency-passed",
+    "evidence": "plans/261020-vps-capacity-tuning/reports/measurements.md",
+    "workload": "5ec7b9e, six APIs, two single-process workers at K4, application/checkpoint pools 3/2. Three-minute 200-RPS mixed plateau plus bounded concurrent workflows, cached jobs, four real streams and study writes. Route samples=2554, p95=179.42ms, p99=326.64ms, non-200=0; includes ramp/recovery. Aggregate success does not override per-route failures."
+  },
+  {
+    "file": "apps/api/pycil/account/api.py",
+    "handler": "patch_settings",
+    "method": "PATCH",
+    "path": "/v1/me/settings",
+    "status": "final-release-mixed-smoke-measured; repeated-load-deferred-by-user",
+    "evidence": "plans/261020-vps-capacity-tuning/reports/measurements.md",
+    "workload": "5ec7b9e during mixed 200 RPS: one real request, 697.70ms, correct contract and owned cleanup. One sample is smoke, not a percentile or capacity claim; further repetitions stopped by user."
+  },
+  {
+    "file": "apps/api/pycil/account/api.py",
+    "handler": "edit_profile",
+    "method": "PATCH",
+    "path": "/v1/me/profile",
+    "status": "final-release-mixed-smoke-measured; repeated-load-deferred-by-user",
+    "evidence": "plans/261020-vps-capacity-tuning/reports/measurements.md",
+    "workload": "5ec7b9e during mixed 200 RPS: one real request, 455.46ms, correct contract and owned cleanup. One sample is smoke, not a percentile or capacity claim; further repetitions stopped by user."
+  },
+  {
+    "file": "apps/api/pycil/account/api.py",
+    "handler": "by_handle",
+    "method": "GET",
+    "path": "/v1/users:lookup",
+    "status": "final-release-mixed-smoke-measured; repeated-load-deferred-by-user",
+    "evidence": "plans/261020-vps-capacity-tuning/reports/measurements.md",
+    "workload": "5ec7b9e during mixed 200 RPS: one real request, 117.56ms, correct contract and owned cleanup. One sample is smoke, not a percentile or capacity claim; further repetitions stopped by user."
+  },
+  {
+    "file": "apps/api/pycil/account/api.py",
+    "handler": "public_profile",
+    "method": "GET",
+    "path": "/v1/users/{user_id}",
+    "status": "final-release-mixed-measured; per-route-latency-passed",
+    "evidence": "plans/261020-vps-capacity-tuning/reports/measurements.md",
+    "workload": "5ec7b9e, six APIs, two single-process workers at K4, application/checkpoint pools 3/2. Three-minute 200-RPS mixed plateau plus bounded concurrent workflows, cached jobs, four real streams and study writes. Route samples=1277, p95=175.21ms, p99=419.70ms, non-200=0; includes ramp/recovery. Aggregate success does not override per-route failures."
+  },
+  {
+    "file": "apps/api/pycil/account/api.py",
+    "handler": "usage",
+    "method": "GET",
+    "path": "/v1/me/usage",
+    "status": "final-release-mixed-measured; per-route-latency-passed",
+    "evidence": "plans/261020-vps-capacity-tuning/reports/measurements.md",
+    "workload": "5ec7b9e, six APIs, two single-process workers at K4, application/checkpoint pools 3/2. Three-minute 200-RPS mixed plateau plus bounded concurrent workflows, cached jobs, four real streams and study writes. Route samples=1277, p95=199.69ms, p99=794.14ms, non-200=0; includes ramp/recovery. Aggregate success does not override per-route failures."
+  },
+  {
+    "file": "apps/api/pycil/vocabulary/api.py",
+    "handler": "search",
+    "method": "GET",
+    "path": "/v1/words:search",
+    "status": "final-release-mixed-measured; per-route-latency-passed",
+    "workload": "5ec7b9e, six APIs, two single-process workers at K4, application/checkpoint pools 3/2. Three-minute 200-RPS mixed plateau plus bounded concurrent workflows, cached jobs, four real streams and study writes. Route samples=12775, p95=158.18ms, p99=268.37ms, non-200=0; includes ramp/recovery. Aggregate success does not override per-route failures.",
+    "evidence": "plans/261020-vps-capacity-tuning/reports/measurements.md"
+  },
+  {
+    "file": "apps/api/pycil/vocabulary/api.py",
+    "handler": "word",
+    "method": "GET",
+    "path": "/v1/words/{word_id}",
+    "status": "final-release-mixed-measured; per-route-latency-passed",
+    "evidence": "plans/261020-vps-capacity-tuning/reports/measurements.md",
+    "workload": "5ec7b9e, six APIs, two single-process workers at K4, application/checkpoint pools 3/2. Three-minute 200-RPS mixed plateau plus bounded concurrent workflows, cached jobs, four real streams and study writes. Route samples=7667, p95=214.41ms, p99=379.43ms, non-200=0; includes ramp/recovery. Aggregate success does not override per-route failures."
+  },
+  {
+    "file": "apps/api/pycil/vocabulary/api.py",
+    "handler": "previews",
+    "method": "POST",
+    "path": "/v1/words:batchPreview",
+    "status": "final-release-mixed-smoke-measured; repeated-load-deferred-by-user",
+    "evidence": "plans/261020-vps-capacity-tuning/reports/measurements.md",
+    "workload": "5ec7b9e during mixed 200 RPS: one real request, 213.57ms, correct contract and owned cleanup. One sample is smoke, not a percentile or capacity claim; further repetitions stopped by user."
+  },
+  {
+    "file": "apps/api/pycil/vocabulary/api.py",
+    "handler": "personal_word",
+    "method": "GET",
+    "path": "/v1/me/words/{word_id}",
+    "status": "final-release-mixed-smoke-measured; repeated-load-deferred-by-user",
+    "evidence": "plans/261020-vps-capacity-tuning/reports/measurements.md",
+    "workload": "5ec7b9e during mixed 200 RPS: one real request, 189.38ms, correct contract and owned cleanup. One sample is smoke, not a percentile or capacity claim; further repetitions stopped by user."
+  },
+  {
+    "file": "apps/api/pycil/vocabulary/api.py",
+    "handler": "generate",
+    "method": "POST",
+    "path": "/v1/words:generate",
+    "status": "final-release-cold-generation-and-two-container-graceful-drain-passed",
+    "workload": "Real cold word observed running before Docker restart of exact executing worker; native restart took 44.30 seconds, observed job success at 48.04 seconds. Word read and search publication verified; no OOM; second worker remained up. No provider percentile claim.",
+    "evidence": "plans/261020-vps-capacity-tuning/reports/measurements.md"
+  }
+]

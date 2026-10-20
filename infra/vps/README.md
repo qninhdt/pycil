@@ -5,10 +5,36 @@ from [local Compose](../local/compose.yaml). API, migration and the native Taski
 worker consume the same published image; the two API slots retain independent
 digest references. Only Caddy publishes a host port, TCP 443.
 
-The starting topology is **2 API containers / 1 worker execution process /
-4 concurrent jobs per worker**. The controller checks and routes both API replicas
-in each slot. Further tuning requires representative load measurements.
-With two replicas per blue/green slot, API overlap is four containers.
+The selected measured topology is **6 API containers / 2 worker containers /
+1 execution process and 4 concurrent jobs per worker container**. The controller checks and routes all six API replicas
+in each slot. The [capacity experiment](../../plans/261020-vps-capacity-tuning/plan.md)
+records the accepted operating configuration and retained latency failures;
+further optimization stopped at the user's request. A three-minute mixed
+200-RPS read plateau had zero errors/drops, but some individual routes and
+concurrent writes exceeded their latency targets. This is not a guarantee of
+200 RPS for every workload.
+Caddy has a 1-core
+CPU ceiling: the former 0.25-core quota throttled measured traffic before the
+application exhausted the dedicated host. This ceiling is not a CPU reservation.
+With six replicas per blue/green slot, API overlap is twelve containers. The mounted
+validation policy uses application pool size 3, no overflow, and checkpoint maximum 2.
+Including both worker processes and migration, its maximum is 69 connections, below
+PostgreSQL's 77 non-reserved slots. Do not apply the larger historical pool defaults
+to this topology. Measure actual overlap memory; summed quotas are not allocated RAM.
+
+Worker shutdown allows 310 seconds for running tasks (job timeout: 300 seconds),
+then 10 seconds for broker shutdown, within Docker's 330-second grace period.
+The controller's 480-second command deadline also allows replacement startup.
+Workers share the native Taskiq queue. Each container has a 1-core / 512-MiB
+ceiling. Replacement is sequential: confirm native `Listening started.` before
+replacing the other container. Equal-budget cached-job measurements found similar
+throughput to two processes in one container; separate containers allow independent
+replacement without doubling the total concurrency or quota.
+
+Tempo enables its native `memory.automemlimit_enabled` in
+[tempo.yaml](observability/tempo.yaml). Its default 0.8 ratio sets the Go runtime's
+soft memory limit from the container quota, leaving room for memory outside the
+Go heap. This does not replace Docker's hard limit or the load-test resource guard.
 
 Production is running at `https://api-pycil.qninhdt.com`, with the Vercel frontend
 at `https://pycil.qninhdt.com`. Bootstrap on 18 October 2026 verified both APIs,
@@ -55,9 +81,15 @@ Provision these private files/directories outside Git:
 | `/etc/pycil/walg-producer` | Backup database credentials and public encryption key, UID/GID 999; contains no recovery private key |
 | `/srv/pycil/{postgres,redis}` | Durable store bind mounts; official entrypoints initialize ownership on an empty directory |
 | `/srv/pycil/search` | Durable Tantivy directory, UID/GID 10001 |
+| `/srv/pycil/config/config.yaml` | Reviewed non-secret application policy, readable by UID 10001, mounted read-only into API, migration and worker |
 | `/srv/pycil/reference.jsonl.gz` | Verified reference artifact, read-only in the migration container |
 | `/srv/pycil/deploy` | Root-only deployment state, retained across checkouts |
 | `/srv/pycil/backup/{verification.json,verification.sha256}` | Independent successful recovery evidence and its reviewed SHA-256 (hex only) |
+
+Provision the policy file before starting containers. A bind mount does not hot-reload
+application configuration: validate the file and replace API/worker processes after
+a policy change. Keep its checksum with release evidence; the image digest alone
+does not identify an externally mounted configuration.
 
 The application DB role must differ from `pycil_admin`. Its password comes from
 `DB_URL`; it owns the application database but has no superuser/create-role rights.
@@ -121,7 +153,7 @@ manifest, `active` to `blue`, and `upstream.caddy` from this directory's templat
 Export both slot images and `RELEASE_IMAGE` from the manifest when invoking
 Compose manually. Start stores, run the explicit migration/import command once
 (`python -m pycil.app.migrate --reference /app/data/reference.jsonl.gz`), and only
-then start blue, worker and Caddy. Prove readiness, authenticated smoke, telemetry
+then start blue, both `worker` and `worker-2`, and Caddy. Prove readiness, authenticated smoke, telemetry
 and backup/recovery before enabling CD. Never run a blanket `compose up` over
 both slots or delete volumes as part of delivery.
 
@@ -149,9 +181,9 @@ Delivery performs these steps under a single host lock:
    head is rejected: current application startup requires an exact head, so such
    a release needs a separately planned maintenance procedure. Matching heads
    still require review of queue payload/result, reference and index compatibility.
-3. Run the bounded migration, start only the inactive API, require five ready
-   responses, then check reference search and a real authenticated account.
-4. Validate/reload Caddy, replace/drain the native worker, and perform HTTPS reads
+3. Run the bounded migration, start the six inactive-slot APIs, require five ready
+   responses per replica, then check reference search and a real authenticated account.
+4. Validate/reload Caddy, replace/drain both native workers sequentially, and perform HTTPS reads
    for five minutes. From minute two, check candidate metrics every minute using
    a trailing two-minute window. Require fresh, nonempty request observations;
    reject HTTP errors above 2% when at least 50 requests occurred in that window.

@@ -19,21 +19,25 @@ flock -n 9 || { echo 'deploy: another deployment is running' >&2; exit 1; }
 # Native Compose file selection allows isolated drills without another config parser.
 export COMPOSE_FILE="${COMPOSE_FILE:-$PWD/infra/vps/compose.yaml}"
 compose=(python3 scripts/compose.py --env-file "$ENV_FILE" --project-name "${COMPOSE_PROJECT_NAME:-pycil-production}")
-run() { timeout --foreground --kill-after=15s 240s "${compose[@]}" "$@"; }
+run() { timeout --foreground --kill-after=15s 480s "${compose[@]}" "$@"; }
 start_worker() {
-  run up -d --no-build --no-deps --wait --wait-timeout 120 worker || return 1
-  local id started
-  id=$(run ps -q worker)
-  started=$(docker inspect --format '{{.State.StartedAt}}' "$id")
-  for _ in $(seq 1 60); do
-    if docker logs --since "$started" "$id" 2>&1 | grep -F 'Listening started.' >/dev/null; then
-      [[ "$(docker inspect --format '{{.State.Running}} {{.State.StartedAt}}' "$id")" = "true $started" ]]
-      return
-    fi
-    sleep 1
+  local service id started listening
+  for service in worker worker-2; do
+    run up -d --no-build --no-deps --wait --wait-timeout 120 "$service" || return 1
+    id=$(run ps -q "$service")
+    started=$(docker inspect --format '{{.State.StartedAt}}' "$id")
+    listening=no
+    for _ in $(seq 1 60); do
+      if docker logs --since "$started" "$id" 2>&1 | grep -F 'Listening started.' >/dev/null; then
+        listening=yes
+        break
+      fi
+      sleep 1
+    done
+    [[ "$listening" = yes && "$(docker inspect --format '{{.State.Running}} {{.State.StartedAt}}' "$id")" = "true $started" ]] || return 1
   done
-  return 1
 }
+
 manifest() {
   jq -er --arg repository "${IMAGE_REPOSITORY:-ghcr.io/qninhdt/pycil-api}" 'select(.platform == "linux/amd64") | select(.source_sha | test("^[0-9a-f]{40}$")) |
     select(.ghcr == ($repository + "@" + .manifest_digest)) |
@@ -59,16 +63,22 @@ image=$(manifest "$release")
 sha=$(jq -er .source_sha "$release")
 if [[ "$next" = blue ]]; then BLUE_API_IMAGE=$image; else GREEN_API_IMAGE=$image; fi
 RELEASE_IMAGE=$old_image
+old_services=("api-$old")
+next_services=("api-$next")
+for index in {2..6}; do
+  old_services+=("api-$old-$index")
+  next_services+=("api-$next-$index")
+done
 run config -q
 available_kb=$(awk '/MemAvailable:/ {print $2}' /proc/meminfo)
 [[ "$available_kb" -ge 2097152 ]] || { echo 'deploy: less than 2 GiB available for overlap/headroom' >&2; exit 1; }
 available_kb=$(df -Pk "$DEPLOY_STATE_DIR" | awk 'NR==2 {print $4}')
 [[ "$available_kb" -ge 5242880 ]] || { echo 'deploy: less than 5 GiB free deployment storage' >&2; exit 1; }
-for service in "api-$old" "api-$old-2"; do
+for service in "${old_services[@]}"; do
   id=$(run ps -q "$service")
   [[ "$(docker inspect --format '{{.Image}}' "$id")" = "$(docker image inspect --format '{{.Id}}' "$old_image")" ]] || { echo 'deploy: active container differs from recorded release' >&2; exit 1; }
 done
-for service in "api-$old" "api-$old-2"; do
+for service in "${old_services[@]}"; do
   run exec -T caddy wget -qO- http://127.0.0.1:2019/config/ | grep -F "$service:8000" >/dev/null
 done
 run exec -T caddy cat /etc/caddy/Caddyfile | cmp -s - infra/vps/Caddyfile || { echo 'deploy: ingress configuration changes require a separate validated reload' >&2; exit 1; }
@@ -108,7 +118,7 @@ restore() {
       echo 'deploy: ROUTING RESTORE FAILED; keep both API slots running' >&2
     fi
   fi
-  if [[ "$status" != 0 && "$restored" = yes ]]; then run stop "api-$next" "api-$next-2" || true; fi
+  if [[ "$status" != 0 && "$restored" = yes ]]; then run stop "${next_services[@]}" || true; fi
   exit "$status"
 }
 trap restore EXIT
@@ -118,15 +128,15 @@ RELEASE_IMAGE=$image
 if [[ "$action" = deploy ]]; then
   run run --rm --no-deps --name "$migration" migrate
 fi
-run up -d --no-build --no-deps --wait --wait-timeout 180 "api-$next" "api-$next-2"
+run up -d --no-build --no-deps --wait --wait-timeout 180 "${next_services[@]}"
 probe='import json,urllib.request; assert json.load(urllib.request.urlopen("http://127.0.0.1:8000/readyz",timeout=3))["status"]=="ready"'
 for _ in 1 2 3 4 5; do
-  for service in "api-$next" "api-$next-2"; do
+  for service in "${next_services[@]}"; do
     run exec -T "$service" python -c "$probe"
   done
   sleep 2
 done
-for service in "api-$next" "api-$next-2"; do
+for service in "${next_services[@]}"; do
   python3 infra/vps/session-token.py "$ENV_FILE" "$SMOKE_SESSION_FILE" |
     run exec -T "$service" python -c "$(cat infra/vps/smoke.py)" http://127.0.0.1:8000 authenticated
 done
@@ -159,5 +169,5 @@ switched=no
 # The new release is committed; failure to stop the retired slot must not stop it.
 trap - EXIT INT TERM
 # Caddy's stream-close delay has elapsed; native Uvicorn/Taskiq stop budgets apply.
-run stop "api-$old" "api-$old-2"
+run stop "${old_services[@]}"
 echo "deploy: $action completed; active=$next source=$sha"

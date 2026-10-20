@@ -1,4 +1,4 @@
-reverse_proxy api-blue:8000 api-blue-2:8000 {
+reverse_proxy api-blue:8000 api-blue-2:8000 api-blue-3:8000 api-blue-4:8000 api-blue-5:8000 api-blue-6:8000 {
 	lb_policy round_robin
 	health_uri /readyz
 	health_interval 10s

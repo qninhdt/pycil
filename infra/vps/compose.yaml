@@ -51,6 +51,7 @@ x-api: &api
   mem_reservation: 384m
   memswap_limit: 768m
   cpus: 1.5
+  command: [uvicorn, pycil.main:app, --host, "0.0.0.0", --port, "8000", --workers, "1", --timeout-graceful-shutdown, "75", --timeout-keep-alive, "5", --limit-concurrency, "128", --no-access-log]
   environment: &api-env
     DB_URL: ${_DB_URL:?run scripts/compose.py}
     REDIS_URL: ${_REDIS_URL:?run scripts/compose.py}
@@ -76,6 +77,11 @@ x-api: &api
     - type: bind
       source: /srv/pycil/search
       target: /var/lib/pycil/search
+      bind: {create_host_path: false}
+    - type: bind
+      source: /srv/pycil/config/config.yaml
+      target: /app/config/config.yaml
+      read_only: true
       bind: {create_host_path: false}
   healthcheck:
     test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/livez', timeout=2).read()"]
@@ -171,6 +177,11 @@ services:
         target: /app/data/reference.jsonl.gz
         read_only: true
         bind: {create_host_path: false}
+      - type: bind
+        source: /srv/pycil/config/config.yaml
+        target: /app/config/config.yaml
+        read_only: true
+        bind: {create_host_path: false}
     networks: [backend-net]
     depends_on:
       postgres: {condition: service_healthy}
@@ -183,6 +194,26 @@ services:
       SERVICE_VERSION: ${BLUE_API_IMAGE}
 
   api-blue-2:
+    <<: *api
+    image: ${BLUE_API_IMAGE:?reviewed blue registry image digest required}
+    environment: *blue-env
+
+  api-blue-3:
+    <<: *api
+    image: ${BLUE_API_IMAGE:?reviewed blue registry image digest required}
+    environment: *blue-env
+
+  api-blue-4:
+    <<: *api
+    image: ${BLUE_API_IMAGE:?reviewed blue registry image digest required}
+    environment: *blue-env
+
+  api-blue-5:
+    <<: *api
+    image: ${BLUE_API_IMAGE:?reviewed blue registry image digest required}
+    environment: *blue-env
+
+  api-blue-6:
     <<: *api
     image: ${BLUE_API_IMAGE:?reviewed blue registry image digest required}
     environment: *blue-env
@@ -201,13 +232,37 @@ services:
     image: ${GREEN_API_IMAGE:?reviewed green registry image digest required}
     environment: *green-env
 
-  worker:
+  api-green-3:
+    <<: *api
+    profiles: [candidate]
+    image: ${GREEN_API_IMAGE:?reviewed green registry image digest required}
+    environment: *green-env
+
+  api-green-4:
+    <<: *api
+    profiles: [candidate]
+    image: ${GREEN_API_IMAGE:?reviewed green registry image digest required}
+    environment: *green-env
+
+  api-green-5:
+    <<: *api
+    profiles: [candidate]
+    image: ${GREEN_API_IMAGE:?reviewed green registry image digest required}
+    environment: *green-env
+
+  api-green-6:
+    <<: *api
+    profiles: [candidate]
+    image: ${GREEN_API_IMAGE:?reviewed green registry image digest required}
+    environment: *green-env
+
+  worker: &worker
     <<: *app
     image: ${RELEASE_IMAGE:?reviewed registry image digest required}
-    # Starting ceiling; production activation still requires full-stack capacity proof.
-    mem_limit: 1024m
-    mem_reservation: 512m
-    memswap_limit: 1024m
+    stop_grace_period: 330s
+    mem_limit: 512m
+    mem_reservation: 256m
+    memswap_limit: 512m
     cpus: 1
     environment:
       DB_URL: ${_DB_URL:?run scripts/compose.py}
@@ -218,6 +273,12 @@ services:
       OTEL_SERVICE_NAME: pycil-worker
       SERVICE_VERSION: ${RELEASE_IMAGE}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+    volumes:
+      - type: bind
+        source: /srv/pycil/config/config.yaml
+        target: /app/config/config.yaml
+        read_only: true
+        bind: {create_host_path: false}
     command:
       - taskiq
       - worker
@@ -233,7 +294,7 @@ services:
       - --ack-type
       - when_saved
       - --wait-tasks-timeout
-      - "90"
+      - "310"
       - --shutdown-timeout
       - "10"
       - --no-configure-logging
@@ -242,6 +303,9 @@ services:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
       migrate: {condition: service_completed_successfully}
+
+  worker-2:
+    <<: *worker
 
   backup:
     <<: *service
@@ -274,7 +338,7 @@ services:
     mem_limit: 128m
     mem_reservation: 64m
     memswap_limit: 128m
-    cpus: 0.25
+    cpus: 1
     pids_limit: 128
     read_only: true
     tmpfs: [/tmp:size=16m]

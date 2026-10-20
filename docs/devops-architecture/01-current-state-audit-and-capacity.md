@@ -25,10 +25,11 @@ The [VPS measurement](../../devops-course/lab/lesson19/capacity-evidence.json)
 proved 1/2/4/5 APIs at 50 read requests/second; it excluded monitoring and busy
 LLM jobs and does not establish maximum capacity.
 
-The [current controller](../../infra/vps/README.md) still assumes one API per
-slot; implementing the accepted two-replica topology remains part of the
-[delivery plan](../../plans/261018-safe-vps-delivery/plan.md).
-Its existing 1,024 MiB worker and lesson-11 768 MiB Grafana ceilings produce
+The [current controller](../../infra/vps/README.md) checks and routes six APIs
+per slot, with two single-process workers accepting four concurrent jobs each.
+The measured selection and remaining latency failures are recorded in the
+[capacity report](../../plans/261020-vps-capacity-tuning/reports/measurements.md).
+The earlier 1,024 MiB worker and lesson-11 768 MiB Grafana ceilings produced
 6,528 MiB steady / 7,296 MiB overlap **for the older one-API topology**, excluding
 optional Redis cache. These are ceiling sums, not measured usage or an accepted
 budget for N=2. The historical table below predates these changes; do not use it

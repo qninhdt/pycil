@@ -1,6 +1,6 @@
 # k6 performance testing, release comparisons and implementation roadmap
 
-**Status:** test design, not measured performance. The [capacity model](01-current-state-audit-and-capacity.md) contains assumptions, not achieved RPS. Use the [application contract](02-app-12factor-and-redis-design.md), [AWS lifecycle](03-hybrid-infrastructure-vps-and-aws-iac.md) and [telemetry contract](04-observability-lgtm-and-public-dashboard.md) together.
+**Status:** VPS workloads and a bounded runner are implemented in [tests/performance](../../tests/performance/README.md). The raw read cohort has three complete tuned load repetitions; AWS, write/provider capacity and maximum-load measurements remain pending. The [capacity model](01-current-state-audit-and-capacity.md) contains assumptions outside this measured cohort. Use the [application contract](02-app-12factor-and-redis-design.md), [AWS lifecycle](03-hybrid-infrastructure-vps-and-aws-iac.md) and [telemetry contract](04-observability-lgtm-and-public-dashboard.md) together.
 
 ## 1. What is being measured
 
@@ -47,7 +47,7 @@ Preflight is mandatory:
 1. Confirm target hostname, image digest/tag, DB schema, selected release configuration, dataset hash and telemetry health. Record the UTC test interval and a bounded `run_id`; prohibit deploy/backup/rebuild during the run.
 2. Validate representative responses against OpenAPI and ownership before timing. Check every word/node exists and authenticated reads return the expected account/scope. Do not count 401/404 fixture mistakes as system capacity failures.
 3. Provision test accounts before timing, avoiding Clerk user provisioning/network requests in measured iterations. The current verifier requires real RS256 `iss/sub/exp` and configured `aud`, if present; it must remain unchanged.
-4. Tokens must outlive the full scenario plus a five-minute margin. Clerk's native JWT templates support configurable lifetime; a pre-issued test token must have the same validated issuer/audience and dedicated test identity. Use only an approved test-identity policy, keep lifetime bounded (initially one hour), and destroy the private file after the run. Default session tokens are short-lived, so a pasted default token is inadequate for a 20-minute test. If the identity policy requires refresh, implement Clerk's documented session refresh in the k6 authentication helper, label those requests `workload=auth-control`, and exclude them from DB business SLIs while recording their generator overhead. Never disable signature/expiry validation. [Clerk JWT templates](https://clerk.com/docs/guides/sessions/jwt-templates).
+4. Tokens must outlive the full scenario plus a five-minute margin. The VPS fixture uses a bounded one-hour token minted through Clerk Backend API for an existing dedicated test session; it does not change the application authentication policy. Clerk's native JWT templates also support configurable lifetime; a pre-issued test token must have the same validated issuer/audience and dedicated test identity. Use only an approved test-identity policy, keep lifetime bounded (initially one hour), and destroy the private file after the run. Default session tokens are short-lived, so a pasted default token is inadequate for a 20-minute test. If the identity policy requires refresh, implement Clerk's documented session refresh in the k6 authentication helper, label those requests `workload=auth-control`, and exclude them from DB business SLIs while recording their generator overhead. Never disable signature/expiry validation. [Clerk JWT templates](https://clerk.com/docs/guides/sessions/jwt-templates).
 5. Verify free disk/RAM, DB connections, telemetry ingestion, credit/TTL allowance, cancellation path and maintenance window. Start with smoke; approve higher arrival rates from actual lower-rate evidence. On live VPS, stress/spike requires a specific maintenance run with a recoverable dataset and operator monitoring.
 
 ### Cloudflare path control
@@ -58,87 +58,31 @@ For an origin-path run, temporarily allow only the runner's fixed IP to ALB/Cadd
 
 ## 3. Shared workload contract
 
-Proposed files, created in the later implementation phase:
+Implemented files:
 
 ```text
-tests/performance/k6/
+tests/performance/
+  contract.js
   workload.js
   01-smoke-test.js
   02-load-test.js
   03-stress-test.js
   04-spike-test.js
   fixtures/README.md
-scripts/run-k6.sh
+  tests/
+scripts/run-k6.py
 ```
 
-The following shared module is a concrete **design example** for the read cohort. Its private fixture JSON has `word_ids`, `users` (each with `token`, `expires_at`, `node_id`) and `dataset_hash`, all exported from actual validated data. The wrapper verifies JWT claims/expiry, fixture schema and permissions before starting; this example does not implement token issuance or full response-schema validation. No sample tokens or fabricated fixture records are supplied.
-
-```javascript
-// tests/performance/k6/workload.js
-import http from 'k6/http';
-import exec from 'k6/execution';
-import { check } from 'k6';
-import { SharedArray } from 'k6/data';
-
-const fixture = new SharedArray('real benchmark fixture', () => [
-  JSON.parse(open(__ENV.FIXTURE_FILE)),
-])[0];
-const base = (__ENV.API_BASE_URL || '').replace(/\/$/, '');
-if (!/^https:\/\//.test(base) || !['vps-docker', 'aws-fargate'].includes(__ENV.ENV)) {
-  throw new Error('A validated HTTPS target and supported ENV are required');
-}
-if (!__ENV.VERSION || !__ENV.RUN_ID || !fixture.word_ids?.length || !fixture.users?.length) {
-  throw new Error('Release, run ID and non-empty real fixtures are required');
-}
-
-export const shared = {
-  tags: {
-    env: __ENV.ENV, version: __ENV.VERSION, run_id: __ENV.RUN_ID,
-    dataset: fixture.dataset_hash, workload: 'db-read', path: __ENV.TEST_PATH || 'edge',
-  },
-  systemTags: ['status', 'method', 'name', 'scenario', 'expected_response', 'error_code'],
-  summaryTrendStats: ['avg', 'med', 'p(95)', 'p(99)', 'max'],
-  thresholds: {
-    http_req_failed: [
-      'rate<0.01',
-      { threshold: 'rate<0.05', abortOnFail: true, delayAbortEval: '1m' },
-    ],
-    http_req_duration: ['p(95)<300', 'p(99)<800'],
-    checks: ['rate>0.99'],
-  },
-};
-
-export function businessRead() {
-  // A deterministic ten-request cycle preserves the 60/20/20 mix.
-  const sequence = exec.scenario.iterationInTest;
-  const user = fixture.users[(exec.vu.idInTest - 1) % fixture.users.length];
-  if (Date.parse(user.expires_at) <= Date.now() + 60000) {
-    exec.test.abort('Token expiry would invalidate this benchmark');
-  }
-  const slot = sequence % 10;
-  const word = fixture.word_ids[Math.floor(sequence / 10) % fixture.word_ids.length];
-  const path = slot < 6 ? `/v1/words/${word}`
-    : slot < 8 ? '/v1/me'
-    : `/v1/study/progress?node_id=${encodeURIComponent(user.node_id)}`;
-  const name = slot < 6 ? '/v1/words/:id'
-    : slot < 8 ? '/v1/me' : '/v1/study/progress';
-  const response = http.get(base + path, {
-    timeout: '5s', redirects: 0,
-    headers: slot < 6 ? {} : { Authorization: `Bearer ${user.token}` },
-    tags: { name },
-  });
-  check(response, { 'business HTTP 200': (r) => r.status === 200 });
-}
-
-export function handleSummary(data) {
-  // The wrapper creates an empty bounded output directory before execution.
-  return { 'summary.json': JSON.stringify(data, null, 2) };
-}
-```
+[workload.js](../../tests/performance/workload.js) owns k6 requests, preflight,
+phase tags and thresholds. [contract.js](../../tests/performance/contract.js)
+owns fixture/response checks and the deterministic 60/20/20 request mix.
+[run-k6.py](../../scripts/run-k6.py) runs the pinned image, verifies private token
+lifetime, polls existing resource signals, and records evidence. CI runs only
+the offline contract/safety checks, never production traffic.
 
 Use stable route names; remove the default raw `url` system tag so IDs/query strings do not multiply time series or disclose private identifiers. Never label metrics with bearer tokens, user IDs, request IDs or trace IDs. `run_id`/dataset/release create bounded experiment cardinality; raw series expire under retention. This deterministic cyclic word selection is the first uniform dataset; use a fixed, versioned sequence of real hot/cold IDs for the cache-effect cohort, identical across releases. Identity verification still runs in every measured authenticated request.
 
-Thresholds evaluate aggregates over elapsed test time; `delayAbortEval=1m` delays evaluation, it does **not** mean a rolling one-minute error window. The wrapper/operator also observes the 30-second resource/latency windows below. k6 failure gives a nonzero exit; do not treat a failed stress threshold as a successful SLO result. [k6 thresholds](https://grafana.com/docs/k6/latest/using-k6/thresholds/).
+Thresholds evaluate aggregates over elapsed test time; `delayAbortEval=30s` delays evaluation, it does **not** mean a rolling one-minute error window. The wrapper/operator also observes the 30-second resource/latency windows below. k6 failure gives a nonzero exit; do not treat a failed stress threshold as a successful SLO result. [k6 thresholds](https://grafana.com/docs/k6/latest/using-k6/thresholds/).
 
 ## 4. Four scenario designs
 
@@ -146,90 +90,25 @@ Arrival-rate executors offer load independently of server response time, avoidin
 
 ### `01-smoke-test.js`
 
-```javascript
-import { shared } from './workload.js';
-export { businessRead as default, handleSummary } from './workload.js';
-export const options = {
-  ...shared,
-  scenarios: { smoke: {
-    executor: 'constant-arrival-rate', rate: 1, timeUnit: '1s', duration: '2m',
-    preAllocatedVUs: 2, maxVUs: 5, gracefulStop: '10s',
-  } },
-  thresholds: {
-    ...shared.thresholds, http_req_failed: ['rate==0'], checks: ['rate==1'],
-    dropped_iterations: ['count==0'],
-  },
-};
-```
+Source: [01-smoke-test.js](../../tests/performance/01-smoke-test.js).
 
 Require healthy telemetry, expected data, zero authentication/contract errors and zero dropped iterations. Smoke establishes correctness, not capacity.
 
 ### `02-load-test.js`
 
-```javascript
-import { shared } from './workload.js';
-export { businessRead as default, handleSummary } from './workload.js';
-export const options = {
-  ...shared,
-  scenarios: { load: {
-    executor: 'ramping-arrival-rate', startRate: 10, timeUnit: '1s',
-    preAllocatedVUs: 50, maxVUs: 150, gracefulStop: '10s',
-    stages: [
-      { target: 10, duration: '2m' },
-      { target: 50, duration: '1m' },
-      { target: 50, duration: '10m' },
-      { target: 75, duration: '1m' },
-      { target: 75, duration: '5m' },
-      { target: 10, duration: '1m' },
-      { target: 10, duration: '2m' },
-    ],
-  } },
-  thresholds: { ...shared.thresholds, dropped_iterations: ['count==0'] },
-};
-```
+Source: [02-load-test.js](../../tests/performance/02-load-test.js).
 
 The first target is 50 RPS and the provisional peak 75 RPS. Judge **each plateau**, not only the whole-test summary, against p95 <300 ms, p99 <800 ms and errors <1%. Warm-up/recovery periods must not hide a peak failure. Conduct a later two-hour 50-RPS soak only after the short run succeeds and token refresh/disk growth are proven.
 
 ### `03-stress-test.js`
 
-```javascript
-import { shared } from './workload.js';
-export { businessRead as default, handleSummary } from './workload.js';
-const stages = [25, 50, 75, 100, 150].flatMap((target) => [
-  { target, duration: '30s' }, { target, duration: '5m' },
-]);
-export const options = {
-  ...shared,
-  scenarios: { stress: {
-    executor: 'ramping-arrival-rate', startRate: 10, timeUnit: '1s',
-    preAllocatedVUs: 100, maxVUs: 300, gracefulStop: '10s',
-    stages: [...stages, { target: 10, duration: '30s' }, { target: 10, duration: '3m' }],
-  } },
-};
-```
+Source: [03-stress-test.js](../../tests/performance/03-stress-test.js).
 
 Do not assume 150 RPS is safe or sufficient to find the limit. Stop at the first sustained failure/resource trigger; raising the ceiling is a separate measured experiment. Define breaking point as the first plateau with origin error ≥1%, p95 ≥300 ms for two consecutive one-minute windows, persistently increasing queue/pool wait, or dropped iterations after runner saturation has been excluded. Report the last passing plateau and the failure cause; do not advertise the peak offered rate as capacity. The cumulative 5% error abort is an additional safety brake, not the primary breaking-point definition.
 
 ### `04-spike-test.js`
 
-```javascript
-import { shared } from './workload.js';
-export { businessRead as default, handleSummary } from './workload.js';
-export const options = {
-  ...shared,
-  scenarios: { spike: {
-    executor: 'ramping-arrival-rate', startRate: 10, timeUnit: '1s',
-    preAllocatedVUs: 150, maxVUs: 300, gracefulStop: '10s',
-    stages: [
-      { target: 10, duration: '2m' },
-      { target: 100, duration: '1s' },
-      { target: 100, duration: '8m' },
-      { target: 10, duration: '1s' },
-      { target: 10, duration: '6m' },
-    ],
-  } },
-};
-```
+Source: [04-spike-test.js](../../tests/performance/04-spike-test.js).
 
 On VPS, inspect queue recovery, timeouts, pool checkout and OOM risk. On AWS, record the ECS task-CPU alarm, desired/pending/running task count, image pull/local index rebuild/catch-up duration, ALB healthy targets and p95 recovery. ECS CPU-target autoscaling triggers only if task CPU crosses its target; a DB-bound spike may not scale API at all. Eight minutes is a starting hold, not a scale-out guarantee. Preserve the 1–3 steady task limit and budget up to six tasks during a separate 100%/200% rollout; do not deploy during a benchmark. Recovery returns to the original healthy state, not merely a completed test process.
 
@@ -239,27 +118,32 @@ On VPS, inspect queue recovery, timeouts, pool checkout and OOM risk. On AWS, re
 
 ### VPS: protected Prometheus remote write
 
-Prometheus remote-write receiver is enabled **internally**; k6 reaches only the authenticated HTTPS ingestion route. Configure these in the runner's protected environment, without printing secret values:
-
-```text
-K6_PROMETHEUS_RW_SERVER_URL=https://telemetry.pycil.qninhdt.com/api/v1/write
-K6_PROMETHEUS_RW_PUSH_INTERVAL=5s
-K6_PROMETHEUS_RW_TREND_STATS=med,p(95),p(99),avg,count,sum
-K6_PROMETHEUS_RW_STALE_MARKERS=true
-K6_PROMETHEUS_RW_HTTP_HEADERS=<service-auth-and-origin-auth-headers-from-secrets>
-```
-
-Run contract, from a dedicated output directory on the independent runner:
+The existing Prometheus remote-write receiver stays internal. The independent
+runner forwards a **loopback-only SSH tunnel** to the running Prometheus
+container. No public telemetry hostname, new VPS service or firewall exception
+is needed. [Runner instructions](../../tests/performance/README.md#prepare)
+show how to discover the private IP and open/close the tunnel.
 
 ```sh
-k6 run --out experimental-prometheus-rw \
-  --env API_BASE_URL=https://api.pycil.qninhdt.com \
-  --env ENV=vps-docker --env VERSION=v1.0.0 \
-  --env RUN_ID=<bounded-run-id> --env FIXTURE_FILE=<private-fixture-path> \
-  <absolute-project-path>/tests/performance/k6/02-load-test.js
+make k6-vps K6_ARGS='--scenario smoke --cohort db-read \
+  --fixture /private/fixture.json --version <actual-deployed-SHA> \
+  --ssh-host qninh@103.173.227.135 \
+  --prometheus-url http://127.0.0.1:19090 --output /private/new-run'
 ```
 
-The wrapper supplies actual values and rejects missing placeholders. This remote-write path applies to VPS runs only. AWS uses the CloudWatch path below, with the same selected script/data distribution; never export an AWS run to VPS monitoring. `experimental-prometheus-rw` is the official requested output name and remains experimental in the current docs; pin k6 and validate its output contract before upgrades. The default trend-stat mode exposes per-series percentile gauges; do not average p95 gauges across independent runners. A single initial generator avoids that ambiguity; native histograms are a later explicitly validated aggregation choice. Static `env/version/run_id` tags must be present in actual received series. [k6 Prometheus output and headers](https://grafana.com/docs/k6/latest/results-output/real-time/prometheus-remote-write/).
+The runner supplies the official `experimental-prometheus-rw` output and verifies
+that tagged business-request series reached Prometheus. It records deployed
+container/image/revision identities and the mounted configuration hash before
+and after the run; a change invalidates the measurement. Native read-only Docker
+stats provide container memory checks because this VPS currently has no
+`container_memory_*` series in Prometheus. Host, disk, WAL and telemetry guards
+use existing Prometheus signals.
+
+This route applies to VPS only. AWS output below is a future implementation;
+it must remain independent of VPS monitoring. Percentile gauges describe one
+generator: do not average p95 across runners. Preserve private summary,
+compressed timestamped samples and resource evidence locally, then review and
+sanitize before archival. [Official output contract](https://grafana.com/docs/k6/latest/results-output/real-time/prometheus-remote-write/).
 
 ### AWS: OpenTelemetry to CloudWatch
 
@@ -276,14 +160,14 @@ K6_OTEL_SERVICE_NAME=pycil-k6
 K6_OTEL_METRIC_PREFIX=k6_
 ```
 
-HTTP without TLS is limited to runner loopback; AWS export uses verified TLS. The wrapper starts the pinned Agent with private configuration and runs:
+HTTP without TLS is limited to runner loopback; AWS export uses verified TLS. The future AWS wrapper must start the pinned Agent with private configuration and run:
 
 ```sh
 k6 run --out opentelemetry \
   --env API_BASE_URL=https://aws-api.pycil.qninhdt.com \
   --env ENV=aws-fargate --env VERSION=v1.0.0 \
   --env RUN_ID=<bounded-run-id> --env FIXTURE_FILE=<private-fixture-path> \
-  <absolute-project-path>/tests/performance/k6/02-load-test.js
+  <absolute-project-path>/tests/performance/02-load-test.js
 ```
 
 Validate actual received attributes/dimensions, units, counter temporality, trend histograms, latency percentiles and rate calculations before a benchmark. k6's current OTel rate representation uses a counter with `condition=zero|nonzero`; do not copy old occurred/total queries. Limit exported dimensions and account for their CloudWatch charges. A successful collector export alone does not prove that backend percentile queries represent the original samples. Archive the authoritative k6 summary and bounded detailed output alongside CloudWatch chart data. [k6 OTel output](https://grafana.com/docs/k6/latest/results-output/real-time/opentelemetry/).
@@ -306,6 +190,51 @@ The actual code already caches actor/content/artifacts. Calling the present bran
 
 If an already published `v1.0.0` is immutable, never move it; publish DB changes as `v1.0.1` and declare **that** exact release as the tuned comparator. Existing factory `version="1.0.0"` is API metadata, not evidence that a Git release tag exists. `service.version` comes from the actual release manifest.
 
+### Measured VPS comparator — 19–20 October 2026
+
+`v1.0.0` now identifies tuned raw source `5b51628e0ad2610ae5a573c36bb8a327702bdb3a`
+and GHCR digest `sha256:75cf755837ead7cf03dc1d2f459e7e499815615d6bb0990ba3d764e3f0ffd9dc`.
+It bypasses only selected optional read caches and is a benchmark artifact.
+Normal production source `1348e6c5346ebc905a5cdf16065b26f53366f627` retains existing
+cache wiring and applies the same query optimization; this is not the later
+isolated Redis `v1.1.0` experiment.
+
+With **2 API / 1 worker / 4 async jobs**, unchanged limits/configuration/data and
+the real authenticated 60/20/20 read mix through Cloudflare, three 22-minute runs
+completed 188,998 business requests with zero errors, failed response checks or
+dropped iterations. Median full-plateau client p95/p99 were **195.53/294.63 ms at
+50 RPS for 10 minutes**, and **205.68/302.43 ms at 75 RPS for 5 minutes**. Across
+the three 75-RPS plateaus p95 ranged 203.70–220.81 ms and p99 301.69–328.55 ms.
+75 RPS is the highest tested passing plateau, not the system's maximum capacity.
+
+The untuned first 120 seconds at 50 RPS measured p95/p99 603.81/996.60 ms; the
+same tuned window's three-run medians were 194.58/279.93 ms. The first failure
+was API Python query-construction pressure, supported by profiles, native CPU,
+pool and SQL evidence. Reusing immutable parameterized word/visibility query
+structures reduced that work while preserving fresh rows and authorization.
+No pool/resource increase, index or durability change was justified. The untuned
+single sample does not establish statistical significance. These reads do not
+tune worker/provider concurrency or prove performance on larger datasets.
+
+Actual samples, populated server ranges, isolated plans, regression results,
+release metadata and limitations are recorded in the local
+[execution record](../../devops-course/lab/lesson21/README.md). Sanitized local
+evidence is retained locally; S3 copying was omitted at the user's request.
+
+Normal cached rollout completed with the previous cached release retained for
+rollback. Its initial smoke had one unattributed 502 in 121 requests; no origin
+5xx/restart/OOM was found in that window. A 100-request follow-up and unchanged
+strict 120-request smoke repeat passed. The failed result remains retained;
+the intermittent gateway error is not claimed fixed and is separate from the
+three error-free raw load windows.
+
+The subsequent cached-production capacity extension is closed at the user's
+request; further optimization is stopped. The measured operating topology and
+pool budget are owned by [VPS delivery](../../infra/vps/README.md). Its
+[measurements and endpoint ledger](../../plans/261020-vps-capacity-tuning/plan.md)
+retain both passing mixed reads and individual latency failures. It does not
+replace the immutable raw comparator or prove all-endpoint SLO compliance.
+
 For each environment:
 
 1. Restore the same recorded dataset/backup replay point; provision equivalent test identities, word distribution, tree size and request mix. Keep PostgreSQL configuration, API limits, OTel sampling, retention, runner/location, network path and script identical.
@@ -313,7 +242,7 @@ For each environment:
 3. Run smoke → load → approved stress/spike, and at least three repeat load runs with the same setup and run-length. Report median results and min/max variation; do not claim statistical significance from three samples. A VPS-vs-AWS comparison is descriptive because API CPU and managed storage differ; cache improvement is assessed within each environment.
 4. Compare at fixed offered RPS first: completed RPS, p50/p95/p99, error %, SQL calls/request, pool wait, DB CPU/locks/I/O, API CPU/throttling/RSS, cache hit/miss/fallback and cost per successful 1,000 requests. Then compare the highest **passing** sustained plateau.
 5. Cache failure exercise: stop/isolate only optional cache under a reviewed run; confirm correct DB responses and bounded cache timeout, observe DB capacity/fallback rate and recovery. Do not infer fail-open for mandatory leases. Cache hit ratio alone does not prove correctness or lower latency.
-6. For AWS autoscaling, compare a fixed single task separately from the identical 1–3 ECS task-CPU policy. Until the [search acceptance gate](../../search_and_content_revisions.md#10-implementation-owners-and-acceptance) passes, use fixed vocabulary/reference data and quiesce generation jobs; verify the surviving index before restoring writes. Even with verified sync, keep benchmark data/write policy identical across releases. Record task/process count: one baseline task versus three cached tasks does not isolate cache value.
+6. For AWS autoscaling, compare a fixed single task separately from the identical 1–3 ECS task-CPU policy. Until the [search acceptance gate](../backend/modules/vocabulary.md#search-and-projections) passes, use fixed vocabulary/reference data and quiesce generation jobs; verify the surviving index before restoring writes. Even with verified sync, keep benchmark data/write policy identical across releases. Record task/process count: one baseline task versus three cached tasks does not isolate cache value.
 
 PostgreSQL tuning procedure: enable `pg_stat_statements` with bounded statistics; correlate slow trace spans with statement identity; inspect `EXPLAIN (ANALYZE, BUFFERS)` on an isolated equivalent dataset, especially recursive scopes and nested projections. Existing [word indexes](../../apps/api/pycil/vocabulary/models.py) already cover match-key prefix, aliases and sense ordering; do not duplicate them blindly. Add only plan-proven indexes through reviewed migrations; `CREATE INDEX CONCURRENTLY` requires its separate transaction handling. Bound queries/transactions, eliminate measured repeated reads, and enforce the combined SQLAlchemy/checkpoint pool budget. Introduce PgBouncer only if measurements show connection churn/fanout is the bottleneck and session/prepared-statement semantics are proven compatible; three small application tasks do not automatically justify another service.
 
@@ -321,7 +250,7 @@ PostgreSQL tuning procedure: enable `pg_stat_statements` with bounded statistics
 
 ## 7. Implementation roadmap and acceptance gates
 
-This task publishes the design. The following ordered work begins only in the implementation phase; remote mutation has not been performed.
+The table records the overall architecture roadmap, not current completion. VPS production and private LGTM are active; the VPS k6 runner and tuned raw read comparator are verified. Stress/spike, long soak, write/provider capacity and AWS execution remain separate acceptance gates.
 
 | Order | Work and owners | Acceptance evidence / rollback |
 | --- | --- | --- |
@@ -336,7 +265,7 @@ This task publishes the design. The following ordered work begins only in the im
 | 9 — Redis release | Isolated cache-aside changes and fail-open; release `v1.1.0` | Correctness/invalidation/outage tests; matched three-run comparison on VPS and AWS; benefits/limits/cost documented |
 | 10 — Recovery/operations review | Runbook incidents, recurring restore drill, dependency upgrades and retention checks | Measured RPO/RTO, backup/key recovery, no secret-bearing artifacts, drift/residual checks and maintained evidence catalog |
 
-Before search synchronization acceptance, ECS scale-out/replacement tests require a verified fixed dataset and quiesced vocabulary-changing requests/jobs. The accepted update strategy is [one index owner consuming content revisions](../../search_and_content_revisions.md); passing its integration checks gates mutable multi-task operation, not merely choosing it in documentation. Do not run production stress before recovery/admission/telemetry are verified. Do not start Redis optimization before raw/DB-tuning evidence exists. Monitoring noise or a failed remote export invalidates an experiment rather than justifying claims without data.
+Before search synchronization acceptance, ECS scale-out/replacement tests require a verified fixed dataset and quiesced vocabulary-changing requests/jobs. The accepted update strategy is [one index owner consuming content revisions](../backend/modules/vocabulary.md#search-and-projections); passing its integration checks gates mutable multi-task operation, not merely choosing it in documentation. Do not run production stress before recovery/admission/telemetry are verified. Do not start Redis optimization before raw/DB-tuning evidence exists. Monitoring noise or a failed remote export invalidates an experiment rather than justifying claims without data.
 
 ### Why is this industry standard?
 

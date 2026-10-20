@@ -127,7 +127,7 @@ jobs:
           trap 'rm -rf -- "$RUNNER_TEMP/vps-ssh"' EXIT
           printf '%s\n' "$SSH_KEY" > "$RUNNER_TEMP/vps-ssh/key"
           printf '%s\n' "$SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/vps-ssh/known_hosts"
-          ssh_args=(-i "$RUNNER_TEMP/vps-ssh/key" -o BatchMode=yes -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$RUNNER_TEMP/vps-ssh/known_hosts" -o ConnectTimeout=10)
+          ssh_args=(-i "$RUNNER_TEMP/vps-ssh/key" -o BatchMode=yes -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$RUNNER_TEMP/vps-ssh/known_hosts" -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=3)
           target="$VPS_USER@$VPS_HOST"
           remote=$(ssh "${ssh_args[@]}" "$target" 'mktemp -d /tmp/pycil-delivery.XXXXXXXX')
           [[ "$remote" =~ ^/tmp/pycil-delivery\.[A-Za-z0-9]+$ ]]
