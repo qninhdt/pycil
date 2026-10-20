@@ -48,8 +48,10 @@ growing pages until enough generated exact matches are available or candidates a
 exhausted. Neither path imposes a candidate cap that can discard valid hits.
 Pattern postings also require an anchor from a fixed literal outside the inflected
 head. Query character n-grams select candidates before Python validates the complete
-pattern; patterns without a fixed literal remain eligible. Ranking and licensed
-head forms are unchanged. The schema version creates a separate derived directory
+pattern; patterns without a fixed literal remain eligible. A native numeric filter
+also excludes patterns whose minimum matching surface is longer than the query,
+allowing one character per slot and the shortest licensed head form. Ranking and
+full pattern validation are unchanged. The schema version creates a separate derived directory
 and rebuilds it before readiness, leaving the previous version available for rollback.
 
 Content and deterministic JSON Patch history commit in the same PostgreSQL transaction.

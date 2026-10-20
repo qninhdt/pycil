@@ -35,7 +35,7 @@ from pycil.vocabulary.types import SearchPayload
 
 logger = get_logger(__name__)
 # Bump whenever fields or document contents change; a new directory forces a rebuild.
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 MATCH_KIND_ORDER = {
     MatchKind.EXACT: 0,
     MatchKind.PREFIX: 1,
@@ -53,6 +53,7 @@ def _schema() -> tantivy.Schema:
         )
     builder.add_bytes_field("payload", stored=True, indexed=False)
     builder.add_unsigned_field("identifier", fast=True)
+    builder.add_unsigned_field("pattern_min_length", fast=True)
     return builder.build()
 
 
@@ -247,8 +248,13 @@ class SearchIndex:
                 if not form_tail or form_tail == tail:
                     licensed.append(form_head)
             doc = document(identity, 3, pattern, {first: licensed})
-            # Fixed literals outside the inflected head must occur in every matching surface.
             prefix, *suffixes = SLOT.split(pattern)
+            # Every slot consumes at least one character; the licensed head can be shorter.
+            minimum = len(answer_key(SLOT.sub("x", pattern)))
+            if prefix.casefold().partition(" ")[0] == first:
+                minimum += min(map(len, [first, *licensed])) - len(first)
+            doc.add_unsigned("pattern_min_length", minimum)
+            # Fixed literals outside the inflected head must occur in every matching surface.
             literals = [
                 answer_key(part).replace("ı", "i")
                 for part in [prefix.partition(" ")[2], *suffixes]
@@ -650,7 +656,20 @@ class SearchIndex:
                     ]
                 )
                 heads = tantivy.Query.boolean_query(
-                    [(tantivy.Occur.Must, heads), (tantivy.Occur.Must, anchors)]
+                    [
+                        (tantivy.Occur.Must, heads),
+                        (tantivy.Occur.Must, anchors),
+                        (
+                            tantivy.Occur.Must,
+                            tantivy.Query.range_query(
+                                schema,
+                                "pattern_min_length",
+                                tantivy.FieldType.Unsigned,
+                                0,
+                                len(key),
+                            ),
+                        ),
+                    ]
                 )
                 fetched, size = 0, limit
                 generated = sum(order[1] == 0 for order, _hit in ranked.values())

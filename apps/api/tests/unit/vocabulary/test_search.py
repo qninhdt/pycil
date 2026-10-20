@@ -55,7 +55,7 @@ def test_pattern_pagination_preserves_ranking_and_stops_after_enough_matches(mon
         (
             identifier,
             identifier,
-            "give {sb} a " + ("hammock" if identifier <= 40 else "hand"),
+            "give {sb} a " + ("home" if identifier <= 40 else "hand"),
             "give",
         )
         for identifier in range(1, 101)
@@ -143,3 +143,28 @@ def test_single_character_query_does_not_scan_patterns_with_a_longer_required_ta
 
     monkeypatch.setattr(search, "matches_pattern", unexpected_match)
     assert search.SearchIndex.find(index, "a", False, 20)[0].word_id == 1
+
+
+@pytest.mark.parametrize(
+    ("query", "pattern"), [("b", "{sth} b"), ("the", "{sth} the"), ("book", "{sth} bookstore")]
+)
+def test_patterns_longer_than_the_query_do_not_reach_the_matcher(monkeypatch, query, pattern):
+    index = build(([(1, "another", EntryType.EXPRESSION)], [], [], [(1, 1, pattern, None)], set()))
+
+    def unexpected_match(*_args, **_kwargs):
+        pytest.fail("the query is shorter than the pattern's minimum matching surface")
+
+    monkeypatch.setattr(search, "matches_pattern", unexpected_match)
+    search.SearchIndex.find(index, query, False, 20)
+
+
+@pytest.mark.parametrize("pattern", ["have a hand", "have {sb} a hand", "have{sb}"])
+def test_pattern_length_allows_shorter_licensed_head_forms(pattern):
+    query = pattern.replace("have", "has").replace("{sb}", "a")
+    index = build(
+        ([(1, "have", EntryType.EXPRESSION)], [], [(1, 1, "has")], [(1, 1, pattern, None)], set())
+    )
+    hits = search.SearchIndex.find(index, query, False, 20)
+    assert [(hit.word_id, hit.match_kind, hit.matched_surface) for hit in hits] == [
+        (1, MatchKind.EXACT, pattern)
+    ]
