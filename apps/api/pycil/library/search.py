@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import and_, func, or_, select, tuple_
+from sqlalchemy import Boolean, and_, bindparam, func, or_, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pycil.library.access import reference_visible, visible
@@ -13,6 +13,19 @@ from pycil.library.types import NodePageDict
 from pycil.study.config import StudyConfig
 from pycil.utils.errors import InvalidInput
 from pycil.utils.orm import row_data
+
+# Reuse expression trees, not authorization results; each request supplies its viewer.
+_VIEWER = bindparam("viewer_id", type_=Node.__table__.c.owner_id.type)
+_VISIBLE_VIEWER = bindparam("visible_viewer_id", type_=Node.__table__.c.owner_id.type)
+_AUTHORIZED_CANDIDATES = select(Node).where(
+    visible(Node.__table__, _VISIBLE_VIEWER),
+    or_(
+        and_(bindparam("scoped", type_=Boolean), Node.owner_id == _VIEWER),
+        Node.type != NodeType.REFERENCE,
+        reference_visible(Node.__table__, _VIEWER),
+    ),
+)
+_READABLE_PARENTS = select(Node.id).where(visible(Node.__table__, _VIEWER))
 
 
 async def search_nodes(
@@ -120,16 +133,15 @@ async def search_nodes(
                     .prefix_with("MATERIALIZED")
                 )
                 candidate_filter = Node.id.in_(select(ids.c.id))
-            authorized_query = select(Node).where(
-                candidate_filter,
-                visible(Node.__table__, viewer_id if node_id is not None else None),
-                or_(
-                    Node.owner_id == viewer_id if node_id else False,
-                    Node.type != NodeType.REFERENCE,
-                    reference_visible(Node.__table__, viewer_id),
-                ),
+            authorized_rows = await session.scalars(
+                _AUTHORIZED_CANDIDATES.where(candidate_filter),
+                {
+                    "viewer_id": viewer_id,
+                    "visible_viewer_id": viewer_id if node_id is not None else None,
+                    "scoped": node_id is not None,
+                },
             )
-            authorized = {node.id: node for node in (await session.scalars(authorized_query)).all()}
+            authorized = {node.id: node for node in authorized_rows}
             rows.extend(
                 (authorized[identifier], value)
                 for identifier, value in candidates
@@ -146,9 +158,8 @@ async def search_nodes(
             set(
                 (
                     await session.scalars(
-                        select(Node.id).where(
-                            Node.id.in_(parents), visible(Node.__table__, viewer_id)
-                        )
+                        _READABLE_PARENTS.where(Node.id.in_(parents)),
+                        {"viewer_id": viewer_id},
                     )
                 ).all()
             )

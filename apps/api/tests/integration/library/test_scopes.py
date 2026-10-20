@@ -128,9 +128,10 @@ async def test_discovery_is_public_only_and_scoped_fts_is_live_authorized(databa
             ),
             config.library,
         )
-    async with database.sessions() as session:
-        discovered = await search_nodes(session, None, config.library, q="Finance")
-        assert [item["id"] for item in discovered["nodes"]] == [public["id"]]
+    for viewer in (None, owner.id, stranger.id, None):
+        async with database.sessions() as session:
+            discovered = await search_nodes(session, viewer, config.library, q="Finance")
+            assert [item["id"] for item in discovered["nodes"]] == [public["id"]]
     async with database.sessions() as session:
         personal = await search_nodes(
             session, owner.id, config.library, q="Finance", node_id=roots[NodeRole.PERSONAL_ROOT].id
@@ -146,6 +147,18 @@ async def test_discovery_is_public_only_and_scoped_fts_is_live_authorized(databa
                 node_id=roots[NodeRole.PERSONAL_ROOT].id,
             )
         assert status_for(error.value) == 404
+
+    async with database.sessions() as session:
+        await move_node(
+            session,
+            owner.id,
+            public["id"],
+            NodeMove(parent_id=roots[NodeRole.PERSONAL_ROOT].id),
+            config.library,
+        )
+    for viewer in (stranger.id, owner.id, None):
+        async with database.sessions() as session:
+            assert not (await search_nodes(session, viewer, config.library, q="Finance"))["nodes"]
 
 
 async def test_detached_private_ancestry_cannot_be_made_public_by_changing_space_label(database):
