@@ -10,10 +10,10 @@ account:
   translation_languages: [en, vi]
   plans:
     free:
-      monthly_allowance_units: 1000000
+      monthly_allowance_units: 100000
       features: [assistant]
     pro:
-      monthly_allowance_units: 10000000
+      monthly_allowance_units: 2000000
       features: [assistant, advanced_grading]
   profile_timeout_seconds: 15
   jwks_timeout_seconds: 30
@@ -129,12 +129,12 @@ vocabulary:
     progress_timeout_seconds: 30
   enrichment_batch_size: 8
   provider:
-    model: openai/gpt-6-luna
+    model: google/gemini-3.8-flash
     timeout_seconds: 120
     max_completion_tokens: 16384
     max_retries: 2
     structured_outputs: true
-    reasoning_effort: high
+    reasoning_effort: medium
     temperature: null
     decision_model: typesafe/jev-1.13
     retry_min_seconds: 0.5
@@ -204,14 +204,14 @@ system:
   database:
     application_pool:
       connect_timeout_seconds: 60
-      size: 5
+      size: 3
       max_overflow: 0
       timeout_seconds: 2
     checkpoint_pool:
       timeout_seconds: 30
       startup_timeout_seconds: 30
       min_size: 1
-      max_size: 3
+      max_size: 2
   redis:
     connect_timeout_seconds: 5
     operation_timeout_seconds: 5
