@@ -334,10 +334,14 @@ async def sense_page(
             else {}
         )
     facts = {
-        fact["sense_id"]: dict(fact) for fact in await get_sense_previews(sessions, identifiers)
+        fact["sense_id"]: dict(fact)
+        for fact in await get_sense_previews(sessions, identifiers, session=session)
     }
     native = (
-        {s.id: s for s in await get_senses(sessions, identifiers, store=sense_store)}
+        {
+            s.id: s
+            for s in await get_senses(sessions, identifiers, store=sense_store, session=session)
+        }
         if "examples" in enrichment
         else {}
     )

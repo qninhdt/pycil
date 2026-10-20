@@ -450,10 +450,12 @@ async def test_four_process_readers_share_one_poller_and_recover_after_owner_sig
             connection.close()
 
 
+@pytest.mark.parametrize("pool_timeout", [False, True])
 async def test_transient_bootstrap_database_error_retries_with_same_writer(
-    database, tmp_path, monkeypatch
+    database, tmp_path, monkeypatch, pool_timeout
 ):
     from sqlalchemy.exc import DBAPIError
+    from sqlalchemy.exc import TimeoutError as PoolTimeout
 
     index = SearchIndex(
         database.sessions,
@@ -467,6 +469,8 @@ async def test_transient_bootstrap_database_error_retries_with_same_writer(
     async def temporarily_unavailable(snapshot, writer):
         attempts.append(writer)
         if len(attempts) == 1:
+            if pool_timeout:
+                raise PoolTimeout("pool busy")
             raise DBAPIError("SELECT", {}, ConnectionError("temporary database failure"))
         await rebuild(snapshot, writer)
 
@@ -477,6 +481,33 @@ async def test_transient_bootstrap_database_error_retries_with_same_writer(
         index.ready()
     finally:
         await index.close()
+
+
+async def test_owner_recovers_after_request_pool_exhaustion(database, tmp_path):
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    engine = create_async_engine(database.url, pool_size=1, max_overflow=0, pool_timeout=0.02)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    index = SearchIndex(
+        sessions,
+        str(tmp_path / "index"),
+        policy=fast_policy(),
+        query_policy=load_config().vocabulary.search,
+    )
+    try:
+        await index.start()
+        async with sessions() as session:
+            await session.execute(text("SELECT 1"))
+            word = await create_word(database.sessions, "bank")
+            await asyncio.sleep(0.1)
+            assert index.failure is None
+            assert index.is_owner
+        await index.update(word)
+        assert (await index.search("bank")).items[0].word_id == word
+    finally:
+        await index.close()
+        await engine.dispose()
 
 
 async def test_publication_timeout_keeps_committed_content_and_releases_database_connections(

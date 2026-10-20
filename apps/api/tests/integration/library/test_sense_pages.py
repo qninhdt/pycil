@@ -1,6 +1,8 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from pycil.app.config import load_config
 from pycil.app.http import status_for
@@ -14,6 +16,7 @@ from pycil.study.models import UserSense
 from pycil.utils.errors import OperationError
 from pycil.vocabulary.enums import PartOfSpeech, Tier
 from pycil.vocabulary.models import Definition, Sense
+from pycil.vocabulary.words import word_previews
 from tests.support.account import account
 from tests.support.vocabulary import neutral_word
 
@@ -55,6 +58,38 @@ async def library_content(database):
             config.library,
         )
     return user, roots, config.library, deck, ids
+
+
+@pytest.mark.parametrize("operation", ["senses", "examples", "words"])
+async def test_content_hydration_reuses_the_request_connection(
+    database, library_content, operation
+):
+    user, _, config, deck, ids = library_content
+    engine = create_async_engine(database.url, pool_size=1, max_overflow=0, pool_timeout=0.2)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with sessions() as session:
+            node = await readable(session, deck["id"], user.id)
+            if operation == "words":
+                word_id = await session.scalar(
+                    text("SELECT word_id FROM senses WHERE id = :id"), {"id": ids[0]}
+                )
+                groups = await word_previews(session, sessions, [word_id])
+                assert {sense.id for sense in groups[0]["senses"]} == set(ids)
+            else:
+                page = await sense_page(
+                    session,
+                    node,
+                    user.id,
+                    config,
+                    sessions,
+                    include="examples" if operation == "examples" else None,
+                )
+                assert {item["sense_id"] for item in page["senses"]} == set(ids)
+            assert session.in_transaction()
+            assert await session.scalar(text("SELECT 1")) == 1
+    finally:
+        await engine.dispose()
 
 
 @pytest.mark.parametrize("sort", list(SenseSort))

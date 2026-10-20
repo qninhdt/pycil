@@ -15,6 +15,7 @@ import orjson
 import tantivy
 from sqlalchemy import func, select
 from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import TimeoutError as PoolTimeout
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from pycil.observability import get_logger
@@ -475,7 +476,7 @@ class SearchIndex:
                         self.initialized = True
                     if changed:
                         continue
-                except DBAPIError as error:
+                except (DBAPIError, PoolTimeout) as error:
                     await _native(writer.rollback)
                     logger.warning("search_reconciliation_retry", error_type=type(error).__name__)
                 await asyncio.sleep(

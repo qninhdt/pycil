@@ -1,6 +1,7 @@
 """Bounded lexical reads and canonical publication identities."""
 
 from collections.abc import Sequence
+from contextlib import nullcontext
 from dataclasses import replace
 from datetime import UTC, datetime
 from itertools import batched
@@ -134,6 +135,7 @@ async def get_senses(
     *,
     theme_id: int | None = None,
     store: InMemoryStore[int, Sense] | None = None,
+    session: AsyncSession | None = None,
 ) -> list[Sense]:
     if theme_id is not None:
         store = None
@@ -148,9 +150,9 @@ async def get_senses(
         dict.fromkeys(identifier for identifier in identifiers if identifier not in found)
     )
     if missing:
-        async with sessions() as session:
+        async with nullcontext(session) if session is not None else sessions() as connection:
             for batch in batched(missing, 500, strict=False):
-                payload = await session.scalar(
+                payload = await connection.scalar(
                     select(
                         json_collection(
                             rows.Sense.__table__,
@@ -274,13 +276,16 @@ async def get_word(
 
 
 async def get_sense_previews(
-    sessions: async_sessionmaker[AsyncSession], identifiers: Sequence[int]
+    sessions: async_sessionmaker[AsyncSession],
+    identifiers: Sequence[int],
+    *,
+    session: AsyncSession | None = None,
 ) -> list[SenseSummaryDict]:
     result: dict[int, SenseSummaryDict] = {}
-    async with sessions() as session:
+    async with nullcontext(session) if session is not None else sessions() as connection:
         for batch in batched(identifiers, 500, strict=False):
             values = (
-                await session.execute(
+                await connection.execute(
                     select(
                         rows.Sense.id.label("sense_id"),
                         rows.Sense.word_id,
@@ -462,7 +467,9 @@ async def word_previews(
     )
     if len(result_rows) > policy.max_word_senses:
         raise InvalidInput("lexical_batch_too_large")
-    senses_page = await get_senses(sessions, [r.id for r in result_rows], store=sense_store)
+    senses_page = await get_senses(
+        sessions, [r.id for r in result_rows], store=sense_store, session=session
+    )
     native = {s.id: s for s in senses_page}
     if set(native) != {r.id for r in result_rows}:
         raise Conflict("learning_content_changed")
