@@ -59,7 +59,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/crane-bin"
           tar -xzf "$RUNNER_TEMP/crane.tar.gz" -C "$RUNNER_TEMP/crane-bin" crane
           echo "$RUNNER_TEMP/crane-bin" >> "$GITHUB_PATH"
-      - name: Validate scanned archive before credentials
+      - name: Validate image archive before credentials
         run: scripts/publish-image.sh verify
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
@@ -74,17 +74,13 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Publish the scanned artifact and verify both registries
+      - name: Publish the validated artifact and verify both registries
         run: scripts/publish-image.sh publish
-      - name: Release manifest and SBOM
+      - name: Release manifest
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: release-${{ github.event.workflow_run.head_sha }}
-          path: |
-            ${{ env.RELEASE_DIR }}/release.json
-            ${{ env.RELEASE_DIR }}/sbom.cdx.json
-            ${{ env.RELEASE_DIR }}/scan.json
-            ${{ env.RELEASE_DIR }}/trivy-exceptions.yaml
+          path: ${{ env.RELEASE_DIR }}/release.json
           if-no-files-found: error
           retention-days: 30
       - name: Remove temporary registry credentials

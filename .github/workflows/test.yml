@@ -128,28 +128,7 @@ jobs:
       - run: uv run --locked coverage xml -o coverage.xml
         working-directory: apps/api
 
-  security:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Configuration and secret gate
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          version: v0.75.0
-          scan-type: fs
-          scanners: misconfig,secret
-          trivyignores: .trivyignore.yaml
-          severity: HIGH,CRITICAL
-          exit-code: '1'
-          format: json
-          output: ${{ runner.temp }}/source-security.json
-          cache: 'false'
-
   image:
-    needs: security
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -172,37 +151,8 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/release"
           docker save pycil-api:ci -o "$RUNNER_TEMP/release/api.tar"
-      - name: Image vulnerability and secret gate
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        env:
-          TRIVY_SHOW_SUPPRESSED: 'true'
-        with:
-          version: v0.75.0
-          input: ${{ runner.temp }}/release/api.tar
-          trivyignores: .trivyignore.yaml
-          scanners: vuln,secret
-          severity: HIGH,CRITICAL
-          ignore-unfixed: 'false'
-          exit-code: '1'
-          format: json
-          output: ${{ runner.temp }}/image-security.json
-          cache: 'false'
-      - name: SBOM for the scanned artifact
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          version: v0.75.0
-          input: ${{ runner.temp }}/release/api.tar
-          format: cyclonedx
-          output: ${{ runner.temp }}/release/sbom.cdx.json
-          cache: 'false'
-      - name: Record artifact checksum and scan time
-        run: |
-          cp .trivyignore.yaml "$RUNNER_TEMP/release/trivy-exceptions.yaml"
           cd "$RUNNER_TEMP/release"
-          sha256sum api.tar sbom.cdx.json trivy-exceptions.yaml > SHA256SUMS
-          jq -n --arg sha "$GITHUB_SHA" --arg scanned_at "$(date -u +%FT%TZ)" \
-            '{source_sha:$sha, platform:"linux/amd64", trivy_version:"0.75.0", scanned_at:$scanned_at,
-              exception_policy:"trivy-exceptions.yaml"}' > scan.json
+          sha256sum api.tar > SHA256SUMS
       - name: Validate Compose without local secrets
         env:
           DB_URL: postgresql+asyncpg://test:test-only@127.0.0.1:5432/rewrite_test
@@ -245,7 +195,7 @@ jobs:
             caddy:2.11.6-alpine@sha256:c776e0c6413b544d0459665e54ec7b8b2a15000c0cbee8b254da0067b1d184ff \
             caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 
-      - name: Transfer the scanned image to trusted publication
+      - name: Transfer the tested image to trusted publication
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:

@@ -102,12 +102,7 @@ certificates; it does not obtain or renew them in this topology.
 
 The backup image uses official PostgreSQL and WAL-G artifacts. The shared AWS
 signing helper is installed on the host and mounted read-only into AWS consumers.
-No locally maintained upstream fork is used. On 18 October 2026 the operator accepted
-unresolved findings where no patched official artifact is available. The exact
-CVE/package versions are recorded in the shared [Trivy policy](../../.trivyignore.yaml);
-retain the unfiltered scan and reassess on every image or binary update. These
-exceptions do not claim the affected code is fixed or unreachable. Both API and
-backup scans use this policy; each entry is limited to exact package versions.
+No locally maintained upstream fork is used.
 
 The installed helper is the official Linux x86-64 release 1.8.5, verified SHA-256
 `beec9ed1c492d93db809890f16713e3556353294b823c2184ad4e891f1b2b54d`.
