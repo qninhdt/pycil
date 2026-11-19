@@ -5,7 +5,9 @@
   <p><a href="https://pycil.qninhdt.com"><strong>Try Pycil</strong></a> · <a href="#quickstart">Run locally</a> · <a href="#architecture">Architecture</a></p>
 </div>
 
-[![PycilAI is open beside the Everyday English deck and answers a learner's question about the two noun meanings of bank with an example for each](.github/assets/readme/demo-assistant.png)](.github/assets/readme/demo-assistant.png)
+[![PycilAI looks up airport vocabulary and creates a five-word Lost Luggage deck. The open Thought panel shows the dictionary lookup and deck creation.](.github/assets/readme/demo-assistant.png)](.github/assets/readme/demo-assistant.png)
+
+When a suitcase goes missing, ask PycilAI to build a deck for the conversation at the airline counter. PycilAI finds the relevant meanings and saves the deck to your Library once you approve it.
 
 ## From lookup to practice
 
@@ -17,11 +19,13 @@ Search for a word such as **run** and pick the meaning you want to keep. Each me
 
 ### AI-generated dictionary entries and questions
 
-When a word has no full entry, Pycil can generate its meaning and example sentences on request. Save that meaning to a deck and start a study session. If Pycil has no suitable question ready, it can generate one for you. The two screenshots show that flow for **jetty**, from the generated entry to its first practice question.
+When a word has no full entry, Pycil can generate its meaning and example sentences on request. The Dictionary screenshot shows a generated entry for **jetty**.
 
 ![Generated dictionary entry for jetty with a definition, example sentences, and a button to add the meaning to a deck](.github/assets/readme/demo-ai-dictionary.png)
 
-![Generated practice question asking the learner to identify the meaning of jetty from four choices](.github/assets/readme/demo-ai-question.png)
+Pycil can also write a fresh sentence for a fill-in-the-blank exercise. The example uses a meaning from the **Lost Luggage** deck.
+
+![AI-generated fill-in-the-blank sentence and four answer choices in a Lost Luggage study session](.github/assets/readme/demo-ai-question.png)
 
 ## Quickstart
 
