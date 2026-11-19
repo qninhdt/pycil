@@ -73,7 +73,7 @@ Provision these private files/directories outside Git:
 
 | Path | Ownership / purpose |
 | --- | --- |
-| `/etc/pycil/runtime.env` | Root-only canonical DB/Redis URLs, separate PostgreSQL admin password, Clerk/provider secrets, CORS origins and private OTLP destination; see [configuration](../../docs/backend/configuration.md) |
+| `/etc/pycil/runtime.env` | Root-only canonical DB/Redis URLs, separate PostgreSQL admin password, Clerk/provider secrets, CORS origins and private OTLP destination. See the [environment template](../../.env.example). |
 | `/etc/pycil/tls/{origin.crt,origin.key}` | Certificate matching `api-pycil.qninhdt.com`; root-readable key; Cloudflare Full (strict) |
 | `/etc/pycil/smoke-session` | Root-only existing active Clerk session ID for an operator-controlled ordinary Pycil account; use a dedicated account for unattended delivery |
 | `/opt/pycil/bin/aws_signing_helper` | Shared official host binary, mounted read-only only into AWS consumers |

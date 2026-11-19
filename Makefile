@@ -34,7 +34,7 @@ lint:
 	cd apps/api && uv run --locked ruff format --check pycil tests migrations ../../scripts/export_openapi.py ../../scripts/run-k6.py ../../tests/performance/tests
 
 openapi:
-	python scripts/export_openapi.py docs/backend/openapi.json
+	@python scripts/export_openapi.py
 
 test: test-api
 

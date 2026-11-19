@@ -127,7 +127,7 @@ for interaction, navigation, responsive and theme checks.
 Home, account/settings, Library, Dictionary, study/flashcards and PycilAI use the
 live service adapter. Discovery reads the public catalog. Library edits use atomic
 sense deltas and metadata patches; move, copy, publish/unpublish and saved references
-use the [backend Library contracts](../../docs/backend/modules/library.md).
+use the [backend Library contracts](../api/pycil/library/).
 Public creation/publication requires explicit confirmation. Viewing flashcards does
 not submit reviews. Accepted reviews invalidate progress/reporting queries.
 
@@ -146,12 +146,12 @@ material. A Published reference links to its original folder/deck. Private sourc
 can be saved in Personal; Published sources can also be saved in Published with
 explicit confirmation.
 
-Product browser E2E lives in the independent root [`e2e/`](../../e2e/README.md)
+Product browser E2E lives in the [`tests/e2e`](../../tests/e2e/README.md)
 package. From the repository root:
 
 ```sh
-pnpm --dir e2e test
-pnpm --dir e2e test:live
+pnpm --dir tests/e2e test
+pnpm --dir tests/e2e test:live
 ```
 
 The default profile uses production Next.js, the real API, disposable PostgreSQL/
@@ -181,7 +181,7 @@ in live mode to send messages, choose a configured model/reasoning effort and re
 saved conversations. AI allowance/reset dates come from `/me/usage`; history offers
 confirmed deletion of owned conversations. Mock mode links to the showcase without making AI requests.
 
-PycilAI uses the [existing AG-UI API](../../docs/backend/modules/assistant.md) through
+PycilAI uses the [AG-UI API](../api/pycil/assistant/api.py) through
 the same bearer token and direct backend `/v1/*` routes as the rest of the app.
 The server owns conversation history; the client sends only the new user message,
 or an explicit approval resolution. Closing an active panel cancels the client run;

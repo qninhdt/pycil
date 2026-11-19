@@ -120,6 +120,4 @@ aggregate, so frequent fast routes cannot hide a slower low-volume route.
 
 Current production includes caches. These scripts measure that deployed system;
 they do not manufacture a raw-DB baseline by flushing coordination Redis or
-changing production cache policy. DB-only characterization, heavy load, AWS
-output and worker/provider benchmarks are separate measured steps in the
-[performance roadmap](../../docs/devops-architecture/06-k6-performance-testing-and-roadmap.md).
+changing production cache policy.
