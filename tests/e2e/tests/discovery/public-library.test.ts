@@ -83,17 +83,16 @@ test('Discovery pages matching public decks and keeps private matches out of the
   await expect(secondary.page.getByText('Page 1', { exact: true })).toBeVisible()
 })
 
-for (const action of ['save', 'study'] as const) test(`guest ${action} resumes once after real sign-in`, async ({ user, secondary, data, guest, vocabulary }) => {
+test('guest save resumes once after real sign-in', async ({ user, secondary, data, guest, vocabulary }) => {
   const deck = await data.create({ name: 'Public continuation', type: 'deck', sense_ids: [vocabulary.bankFinancial.sense_id] })
   await user.api.call(`nodes/${deck.id}:move`, 'POST', { parent_id: user.account.published_node_id, confirm_publication: true })
-  if (action === 'study') await selectQuestions(secondary)
   await setupClerkTestingToken({ page: guest })
   await guest.context().route('**/v1/client/handshake?**', route => route.continue())
   const path = `/u/${user.account.id}/${deck.id}`
   await guest.goto(path)
-  await guest.getByRole('link', { name: action === 'save' ? 'Save to Personal' : 'Practice', exact: true }).click()
+  await guest.getByRole('link', { name: 'Save to Personal', exact: true }).click()
   await expect(guest).toHaveURL(/\/login\?returnTo=/)
-  expect(new URL(guest.url()).searchParams.get('returnTo')).toBe(`${path}?action=${action}`)
+  expect(new URL(guest.url()).searchParams.get('returnTo')).toBe(`${path}?action=save`)
   await guest.getByLabel('Email', { exact: true }).fill(secondary.email)
   await guest.getByLabel('Password', { exact: true }).fill(secondary.password)
   await guest.getByRole('button', { name: 'Sign in', exact: true }).click()
@@ -103,18 +102,11 @@ for (const action of ['save', 'study'] as const) test(`guest ${action} resumes o
     await code.fill('424242')
     await guest.getByRole('button', { name: 'Verify and continue', exact: true }).click()
   }
-  if (action === 'save') {
-    const picker = guest.getByRole('dialog', { name: 'Choose a destination', exact: true })
-    await expect(picker).toBeVisible()
-    await guest.keyboard.press('Escape')
-    await guest.reload()
-    await expect(guest.getByRole('heading', { level: 1 })).toContainText(deck.name)
-    await expect(picker).toHaveCount(0)
-    expect(await secondary.api.call(`nodes?parent_id=${secondary.account.personal_node_id}`)).toMatchObject({ nodes: [] })
-  } else {
-    await expect(guest).toHaveURL(/\/app\/learn\?node=/)
-    await answerChoice(guest, 'bank')
-    await finishStudy(guest)
-    expect(await secondary.api.call(`study/progress?node_id=${deck.id}`)).toMatchObject({ studied: 1 })
-  }
+  const picker = guest.getByRole('dialog', { name: 'Choose a destination', exact: true })
+  await expect(picker).toBeVisible()
+  await guest.keyboard.press('Escape')
+  await guest.reload()
+  await expect(guest.getByRole('heading', { level: 1 })).toContainText(deck.name)
+  await expect(picker).toHaveCount(0)
+  expect(await secondary.api.call(`nodes?parent_id=${secondary.account.personal_node_id}`)).toMatchObject({ nodes: [] })
 })

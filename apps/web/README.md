@@ -162,6 +162,7 @@ See its README for setup, mobile/WebKit, external-auth prerequisites and cleanup
 
 Frontend `pnpm test` owns unit and browser/service integration only. The `Tests`
 workflow runs these checks and the separate root E2E job on trusted changes.
+Run `pnpm test:showcase` to check the component catalog locally.
 Fork PRs cannot use development identity secrets; a skipped job is missing coverage.
 A manual `live_provider` input adds paid checks after the default profile.
 

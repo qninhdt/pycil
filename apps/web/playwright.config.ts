@@ -28,8 +28,12 @@ export default defineConfig({
   projects: [
     {
       name: 'integration', testDir: './tests/integration/browser', testMatch: '**/*.test.ts',
+      testIgnore: '**/showcase.test.ts',
       use: { baseURL: integrationURL },
     },
-
+    {
+      name: 'showcase', testDir: './tests/integration/browser', testMatch: '**/showcase.test.ts',
+      use: { baseURL: integrationURL },
+    },
   ],
 })

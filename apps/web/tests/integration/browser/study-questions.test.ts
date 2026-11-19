@@ -15,6 +15,7 @@ test('HTTP study renders native single word and short answer question formats', 
   for (const [type, format, label] of [
     ['definition_to_word', 'single_word', 'Your word'],
     ['word_to_definition', 'short_answer', 'Your answer'],
+    ['cloze_to_word', 'single_word', 'Your word'],
   ] as const) {
     const prepared = preparation(1, format)
     prepared.bundles[0].questions[0].question.question_type = type
@@ -30,9 +31,10 @@ test('HTTP study renders native single word and short answer question formats', 
       throw new Error(`Unexpected native study request: ${path}`)
     })
     await renderFixture(page, bundle, 'study', '?node=deck&selection=new')
-    await expect(page.getByRole('textbox', { name: label })).toBeVisible()
+    const answer = page.getByRole('textbox', { name: label })
+    await answer.fill('draft answer')
     await page.reload()
-    await expect(page.getByRole('textbox', { name: label })).toBeVisible()
+    await expect(answer).toHaveValue('draft answer')
     expect(calls).toBe(1)
     await page.unroute('**/*v1/**')
   }

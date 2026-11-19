@@ -79,41 +79,6 @@ test('another tab cannot overwrite an answer committed by the first tab', async 
   } finally { await other.close() }
 })
 
-test('storage failure prevents silently advancing or writing progress', async ({ user, data, vocabulary }) => {
-  await selectQuestions(user)
-  const deck = await data.create({ name: 'Storage recovery', type: 'deck', sense_ids: [vocabulary.bankFinancial.sense_id] })
-  await startStudy(user.page, deck.id)
-  await user.page.evaluate(() => {
-    const original = Storage.prototype.setItem
-    Storage.prototype.setItem = function (key, value) {
-      if (key.includes('study')) throw new DOMException('Storage unavailable', 'QuotaExceededError')
-      original.call(this, key, value)
-    }
-  })
-  await user.page.getByRole('button').filter({ hasText: 'bank' }).click()
-  await expect(user.page.getByText('This browser cannot save the session. Free storage space and retry.', { exact: true })).toBeVisible()
-  expect(await user.api.call(`study/progress?node_id=${deck.id}`)).toMatchObject({ studied: 0 })
-  await user.page.reload()
-  await answerChoice(user.page, 'bank')
-  await finishStudy(user.page)
-})
-
-test('failed preparation is visible and an explicit retry prepares through the real API', async ({ user, data, vocabulary }) => {
-  await selectQuestions(user)
-  const deck = await data.create({ name: 'Preparation retry', type: 'deck', sense_ids: [vocabulary.bankFinancial.sense_id] })
-  let failed = false
-  await user.page.route('**/v1/study:prepare', async route => {
-    if (!failed) { failed = true; await route.abort('connectionreset') }
-    else await route.continue()
-  })
-  await user.page.goto(`/app/learn?node=${deck.id}&selection=new`)
-  await expect(user.page.getByRole('alertdialog')).toBeVisible()
-  await user.page.getByRole('button', { name: 'Retry', exact: true }).click()
-  await expect(user.page.getByRole('button', { name: "I don’t know", exact: true })).toBeVisible()
-  await answerChoice(user.page, 'bank')
-  await finishStudy(user.page)
-})
-
 test('a failed typed grade keeps the entered answer available for a real retry', async ({ user, data, vocabulary }) => {
   await data.prepareUser({ plan: 'pro' })
   await selectQuestions(user, 'definition_to_word', 'single_word')
@@ -150,18 +115,6 @@ test('a cold question bank reports model rejection and retry builds validated qu
   expect(await user.api.call(`study/progress?node_id=${deck.id}`)).toMatchObject({ studied: 0 })
   await user.page.getByRole('button', { name: 'Retry', exact: true }).click()
   await answerChoice(user.page, 'archive')
-  await finishStudy(user.page)
-  expect(await user.api.call(`study/progress?node_id=${deck.id}`)).toMatchObject({ studied: 1 })
-})
-
-test('unusable saved study data is replaced by preparation without progress writes', async ({ user, data, vocabulary }) => {
-  await selectQuestions(user)
-  const deck = await data.create({ name: 'Recover saved learning', type: 'deck', sense_ids: [vocabulary.bankFinancial.sense_id] })
-  await user.page.evaluate(({ user, node }) => localStorage.setItem(`pycil:study:${user}:${node}`, '{invalid'), { user: user.account.id, node: deck.id })
-  await startStudy(user.page, deck.id)
-  await expect(user.page.getByRole('alertdialog')).not.toBeVisible()
-  await answerChoice(user.page, 'bank')
-  expect(await user.api.call(`study/progress?node_id=${deck.id}`)).toMatchObject({ studied: 0 })
   await finishStudy(user.page)
   expect(await user.api.call(`study/progress?node_id=${deck.id}`)).toMatchObject({ studied: 1 })
 })

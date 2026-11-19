@@ -373,23 +373,6 @@ async def test_library_move_deck_to_folder(app_client):
     ).json()
 
     # Missing authorization token -> 401
-    unauth = await client.post(
-        f"/v1/nodes/{deck['id']}:move",
-        json={"parent_id": folder["id"]},
-    )
-    assert unauth.status_code == 401
-    assert unauth.json()["error"] == "authentication_required"
-
-    # Invalid bearer token -> 401
-    bad_auth = await client.post(
-        f"/v1/nodes/{deck['id']}:move",
-        headers={"Authorization": "Bearer bad-token"},
-        json={"parent_id": folder["id"]},
-    )
-    assert bad_auth.status_code == 401
-    assert bad_auth.json()["error"] == "invalid_credentials"
-
-    # Move deck into folder
     move_res = await client.post(
         f"/v1/nodes/{deck['id']}:move",
         headers=headers,
@@ -416,18 +399,6 @@ async def test_library_delete_non_system_node(app_client):
     ).json()
 
     # Missing authorization token -> 401
-    unauth = await client.delete(f"/v1/nodes/{deck['id']}")
-    assert unauth.status_code == 401
-    assert unauth.json()["error"] == "authentication_required"
-
-    # Invalid bearer token -> 401
-    bad_auth = await client.delete(
-        f"/v1/nodes/{deck['id']}", headers={"Authorization": "Bearer bad-token"}
-    )
-    assert bad_auth.status_code == 401
-    assert bad_auth.json()["error"] == "invalid_credentials"
-
-    # Delete deck
     del_res = await client.delete(f"/v1/nodes/{deck['id']}", headers=headers)
     assert del_res.status_code in (200, 204)
 

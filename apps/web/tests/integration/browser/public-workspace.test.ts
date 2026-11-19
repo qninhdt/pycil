@@ -19,6 +19,8 @@ test('root tabs and direct Words routes share URL state, including Back and Forw
 })
 
 test('guest public browsing preserves the shell and omits private navigation and learning state', async ({ page }) => {
+  await page.goto('/u/preview-sam/travel-source?action=study')
+  await expect(page).toHaveURL(/\/app\/learn\?node=travel-source&selection=auto&owner=preview-sam$/)
   await page.goto('/u/preview-sam/travel-source')
   await page.getByRole('button', { name: 'Open account menu' }).click()
   await page.getByRole('menuitem', { name: 'Sign out', exact: true }).click()
@@ -31,6 +33,8 @@ test('guest public browsing preserves the shell and omits private navigation and
   await expect(page.getByRole('table')).toBeVisible()
   await expect(page.getByRole('group', { name: 'Learning state' })).toHaveCount(0)
   await expect(page.getByRole('columnheader', { name: 'Status', exact: true })).toHaveCount(0)
+  const practice = page.getByRole('link', { name: 'Practice', exact: true })
+  expect(new URL(await practice.getAttribute('href') ?? '', page.url()).searchParams.get('returnTo')).toMatch(/\/words\?action=study$/)
   await page.getByRole('link', { name: 'Save to Personal', exact: true }).click()
   await expect(page).toHaveURL(/\/login\?returnTo=/)
   expect(new URL(page.url()).searchParams.get('returnTo')).toMatch(/\/words\?action=save$/)
