@@ -487,6 +487,8 @@ async def test_owner_recovers_after_request_pool_exhaustion(database, tmp_path):
     from sqlalchemy import text
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+    from pycil.vocabulary.revisions import head as revision_head
+
     engine = create_async_engine(database.url, pool_size=1, max_overflow=0, pool_timeout=0.02)
     sessions = async_sessionmaker(engine, expire_on_commit=False)
     index = SearchIndex(
@@ -503,7 +505,9 @@ async def test_owner_recovers_after_request_pool_exhaustion(database, tmp_path):
             await asyncio.sleep(0.1)
             assert index.failure is None
             assert index.is_owner
-        await index.update(word)
+        async with database.sessions() as session:
+            revision = await revision_head(session)
+        await index.wait_for_revision(revision)
         assert (await index.search("bank")).items[0].word_id == word
     finally:
         await index.close()

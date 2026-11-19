@@ -767,13 +767,17 @@ async def test_assistant_generation_waits_for_batch_and_returns_partial_results(
         )
         # Both entries must be published before either result exists: waiting is concurrent.
         async with asyncio.timeout(5):
-            messages = [await anext(listener) for _ in range(2)]
+            messages = {}
+            for _ in range(2):
+                message = await anext(listener)
+                payload = native.serializer.loadb(message.data)
+                messages[payload["kwargs"]["reference_id"]] = (message, payload["task_id"])
         assert not invocation.done() and database.engine.pool.checkedout() == 0
         receiver = Receiver(native, run_startup=False)
-        await receiver.callback(messages[0])
-        second = native.serializer.loadb(messages[1].data)
+        await receiver.callback(messages[references[0]][0])
+        second_message, second_task_id = messages[references[1]]
         await native.result_backend.set_result(
-            second["task_id"],
+            second_task_id,
             TaskiqResult(
                 is_err=True,
                 return_value=None,
@@ -781,7 +785,7 @@ async def test_assistant_generation_waits_for_batch_and_returns_partial_results(
                 execution_time=0,
             ),
         )
-        await messages[1].ack()
+        await second_message.ack()
         async with asyncio.timeout(5):
             completed = await invocation
         assert [item["status"] for item in completed["items"]] == ["succeeded", "failed", "failed"]

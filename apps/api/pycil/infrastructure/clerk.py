@@ -55,6 +55,7 @@ class Identity:
                 algorithms=["RS256"],
                 issuer=self.issuer,
                 audience=self.audience,
+                leeway=60,
                 options={
                     "require": ["exp", "sub", "iss"],
                     "verify_aud": self.audience is not None,

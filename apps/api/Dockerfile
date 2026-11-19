@@ -45,6 +45,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # ─────────────────────────────
 FROM python:3.14.8-slim-trixie AS runtime
 
+ARG TARGETARCH
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH="/app/apps/api/.venv/bin:$PATH" \
@@ -59,6 +60,18 @@ COPY --from=builder /app/apps/api/migrations ./migrations
 COPY --from=builder /app/apps/api/alembic.ini ./alembic.ini
 
 COPY config/config.yaml /app/config/config.yaml
+
+# Use the signed Debian archive's fixed SQLite package until Trixie ships the fix.
+RUN set -eux; \
+    case "$TARGETARCH" in \
+        amd64) snapshot=a20ce6080f324fec313559502446a666b67599f4; sha256=7789bf0b2338b781de388d83d7c473f9386c9ef638af110b5c1b3d1debb36f00 ;; \
+        arm64) snapshot=bca4131353b1679d8d1b06c78061fbd127669e12; sha256=27416ae5fd9a8a491cacc2316cb08ebf31ac0d3d628da5576e04eeba365605a4 ;; \
+        *) echo "Unsupported runtime architecture: $TARGETARCH" >&2; exit 1 ;; \
+    esac; \
+    apt-get update; \
+    /usr/lib/apt/apt-helper download-file "https://snapshot.debian.org/file/$snapshot" /tmp/libsqlite3.deb "SHA256:$sha256"; \
+    apt-get install -y --no-install-recommends apt libapt-pkg7.0 zlib1g /tmp/libsqlite3.deb; \
+    rm -rf /var/lib/apt/lists/* /tmp/libsqlite3.deb
 
 # Dependencies are installed in the builder; runtime does not need pip's vendored packages.
 RUN /usr/local/bin/python -m pip uninstall --yes pip \
