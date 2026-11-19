@@ -5,7 +5,7 @@
   <p><a href="https://pycil.qninhdt.com"><strong>Try Pycil</strong></a> · <a href="#quickstart">Run locally</a> · <a href="#architecture">Architecture</a></p>
 </div>
 
-![The Everyday Conversation deck in Pycil, with due, new, and upcoming words alongside a flashcard preview](.github/assets/readme/demo-deck.png)
+[![PycilAI is open beside the Everyday English deck and answers a learner's question about the two noun meanings of bank with an example for each](.github/assets/readme/demo-assistant.png)](.github/assets/readme/demo-assistant.png)
 
 ## From lookup to practice
 
