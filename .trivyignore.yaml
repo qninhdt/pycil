@@ -1,8 +1,19 @@
 # Runtime image risk accepted by the operator on 2026-10-18; not a vulnerability fix.
-# Exact CVE/package versions for API and backup images; no automatic expiry.
+# Exact CVE/package versions for API and backup images.
 # Use official upstream artifacts; reassess on image/binary updates.
 # Secret scanning has no exceptions; PostgreSQL bootstrap is scoped below.
 vulnerabilities:
+  # Debian's Trixie advisory still reports its shipped SQLite version as unfixed.
+  # The Debian tracker confirms the checksummed 3.54.1-2 package is fixed for all three IDs.
+  - id: CVE-2026-119373
+    purls: ["pkg:deb/debian/libsqlite3-0@3.54.1-2?arch=amd64&distro=debian-13.7"]
+    statement: "Fixed in Debian's 3.54.1-2 package, installed from snapshot.debian.org."
+  - id: CVE-2026-119374
+    purls: ["pkg:deb/debian/libsqlite3-0@3.54.1-2?arch=amd64&distro=debian-13.7"]
+    statement: "Fixed in Debian's 3.54.1-2 package, installed from snapshot.debian.org."
+  - id: CVE-2026-119379
+    purls: ["pkg:deb/debian/libsqlite3-0@3.54.1-2?arch=amd64&distro=debian-13.7"]
+    statement: "Fixed in Debian's 3.54.1-2 package, installed from snapshot.debian.org."
   - id: CVE-2025-69720
     purls:
       - "pkg:deb/debian/libncursesw6@6.5%2B20250216-2?arch=amd64&distro=debian-13.7"
